@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            cmake ninja-build gcc g++ git libsdl2-dev libpng-dev libfreetype6-dev libsndfile1-dev
+            cmake ninja-build gcc g++ git libsdl2-dev libpng-dev libfreetype6-dev libsndfile1-dev libslirp-dev
       - name: Fetch the exact original calibrated fork
         shell: bash
         run: |
