@@ -27,19 +27,6 @@ Ein natives **Windows-x64-VST3** für Fender Studio Pro / Studio One, das die Kl
 
 **Wichtige Grenze:** Windows-95-Treiber-Binärdateien laufen nicht nativ in einer Windows-11-VST3-Instanz. Ihre **beobachtete Registeransteuerung** wird funktionsgleich rekonstruiert. Keine originalen Creative-ROMs, Treiber oder geschützte SF2-Bänke in öffentliche Releases oder das Repository hochladen.
 
-## Verbindliche Hardware- und Bankkonfiguration (P001–P003)
-
-Die Zielkonfiguration ist eine **Creative Sound Blaster AWE64 Gold mit 28 MiB EMU8000-Sample-RAM**, dem vom Nutzer bereitgestellten **Original-ROM** und den tatsächlich geladenen Soundbanken. Diese Komponenten sind Teil der Klangerzeugung, kein späteres GUI-Extra.
-
-- **EMU8000-RAM:** 28 MiB = **29.360.128 Bytes = 28.672 KiB** (bei 16-Bit-Samplewörtern 14.680.064 Wörter). Den Chip mit **28672 KiB** RAM initialisieren. Tatsächliche Allokation, Grenzen und Adressierung müssen nachweislich stimmen; niemals nur im Display „28 MB“ behaupten. ROM und RAM getrennt halten, die korrekten Adressräume/Offsets des Original-Forks verwenden; keine künstliche Größenanpassung der Samplebanks.
-- **Original-ROM:** Die vom Nutzer bereitgestellte echte EMU8000-ROM-Datei laden, Herkunft/Format/Größe prüfen und die tatsächliche Chipinitialisierung mit ROM belegen. ROM-Samples müssen auf dem digitalen EMU8000-Ausgang erklingen. Die ROM-Bank bleibt im Browser und MIDI-Programmraum logisch eigenständig.
-- **Original-Soundbank:** Unterstütze die tatsächlich verwendete Creative-Soundbank **SYNTHGM.SBK**, sofern als private Nutzerdaten vorhanden; ihr Inhalt ist von dem Chip-ROM zu unterscheiden. Die öffentliche Repository-/Release-Ausgabe darf weder das originale Creative-ROM noch geschützte Creative-Bank-/Treiberdateien enthalten. **Eine erfolgreiche Dateiöffnung oder Presetliste allein genügt nicht.** Bei externen SF2-Dateien, insbesondere `Synth 512 Bank.sf2` (77 echte Presets) und den weiteren vorhandenen Testbanken, muss der echte Sample-Upload in den zugewiesenen RAM, die Generator-/Modulatorübersetzung und die registergesteuerte Wiedergabe nachgewiesen sein.
-- **Bankauswahl:** ROM, Original-SBK und zusätzliche SF2s klar trennen; keine künstliche Auffüllung von 77 auf 128 Presets. Bank-/Programmnummern und Program-Change/CC0, Browser, Previous/Next sowie Save/Restore dürfen die Zuordnung nicht verändern.
-- **Zustand/Host:** Beim VST3-Laden Konfiguration `ROM geladen / Größe`, `RAM 28 MiB / tatsächlich belegt`, `Soundbank geladen / aktive Bank / Presets` aus den echten Engine-Zuständen ableiten, nicht aus dem GUI-Modell allein. Fehlerfälle (fehlendes ROM, ungültige Bank, RAM voll, Auslesefehler) klar signalisieren und nicht stillschweigend einen anderen Klangpfad nutzen.
-- **Abnahmetests:** 28-MiB-Grenzen und RAM-Zugriff am unteren/oberen Ende, ROM-Notenwiedergabe, Sample-Upload + Wiedergabe aus SBK und SF2, Programmwechsel und Zustand nach Speichern/Wiederöffnen. Vergleiche jeweils mit derselben Konfiguration und denselben Eingaben im hardwarekalibrierten Fork mit Original-Creative-Treiber.
-
-**Reihenfolge:** RAM-Konfiguration und ROM-Initialisierung bereits in **P001** technisch umsetzen und prüfen; tatsächliche Creative-SBK-/SF2-Bankladepfade und Preset-Abnahme verbindlich in **P002/P003**. Ohne nachweislich spielende ROM- und Samplebank-Pfade kein vollständiges Produkt.
-
 ## Reihenfolge der Implementierung (nicht überspringen)
 
 ### P001 — Identität des Chipkerns

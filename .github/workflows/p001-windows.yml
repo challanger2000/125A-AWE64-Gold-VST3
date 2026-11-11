@@ -1,0 +1,26 @@
+name: P001 Windows Native Chip Scaffold
+on:
+  push:
+    branches: [develop/p001-fork-chip-parity]
+  pull_request:
+    branches: [main]
+jobs:
+  chip-contract:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Configure pinned unmodified fork
+        run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+      - name: Build all chip/diagnostic targets
+        run: cmake --build build --config Release --parallel 2
+      - name: Execute actual Release regression assertions
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Gate declaration
+        shell: pwsh
+        run: |
+          Write-Host "Only RAM/ROM/native-chip contract was run."
+          Write-Host "NO independent AWE32_WAV PCM parity proof in this job."
+          Write-Host "NO VST3, no SBK/SF2/Creative driver, no hardware fidelity claim."
