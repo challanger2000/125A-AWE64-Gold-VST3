@@ -22,7 +22,7 @@ int main() {
       REQUIRE(static_cast<bool>(out)); }
     Chip chip;
     std::string error;
-    REQUIRE(chip.open(rom,error));
+    if (!chip.open(rom,error)) { std::cerr << "FAIL chip.open: " << error << "\\n"; return EXIT_FAILURE; }
     REQUIRE(error.empty());
     REQUIRE(chip.ready());
     const auto* p=chip.rawForContractTesting();
@@ -52,7 +52,7 @@ int main() {
     std::array<int32_t, 2u*128u> a{}, b{};
     chip.render(a.data(),128);
     chip.close();
-    REQUIRE(chip.open(rom,error));
+    if (!chip.open(rom,error)) { std::cerr << "FAIL chip.open: " << error << "\\n"; return EXIT_FAILURE; }
     chip.render(b.data(),31);
     chip.render(b.data()+62,97);
     REQUIRE(a == b);
