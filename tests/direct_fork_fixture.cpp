@@ -63,9 +63,9 @@ struct Device {
 struct Recorder {
     emu8k_t* chip;
     std::ofstream trace;
-    explicit Recorder(emu8k_t* c,const fs::path& path):chip(c),trace(path) {
+    explicit Recorder(emu8k_t* c,const fs::path& path,bool realRom):chip(c),trace(path) {
         require(bool(trace),"cannot open synthetic trace");
-        trace<<"# synthetic fork direct-core reference, 44100 Hz; not a Win95 driver capture\n";
+        trace<<(realRom ? "# original Creative ROM / original fork direct-chip, NOT a Win95 driver capture\n" : "# synthetic fork direct-core reference, 44100 Hz; not a Win95 driver capture\n");
     }
     void write(uint64_t at,uint16_t port,uint16_t val) {
         trace<<at<<' '<<std::hex<<std::uppercase<<port<<' '<<val<<std::dec<<'\n';
@@ -132,29 +132,44 @@ void render(emu8k_t* chip,std::ofstream& wav,uint32_t n,uint64_t& nonzero) {
 }
 int main(int argc,char** argv) {
     try {
-        require(argc==2,"usage: awe64_direct_fork_fixture OUTPUTDIR");
-        const fs::path dir=argv[1];
+        const bool realRom=argc==4 && std::string(argv[1])=="--real-rom";
+        require(argc==2 || realRom,
+                "usage: awe64_direct_fork_fixture OUTPUTDIR | --real-rom PRIVATE_ROM OUTPUTDIR");
+        const fs::path dir=realRom?fs::path(argv[3]):fs::path(argv[1]);
         fs::create_directories(dir);
-        const fs::path rom=dir/"synthetic.raw";
-        syntheticRom(rom);
+        const fs::path rom=realRom?fs::path(argv[2]):dir/"synthetic.raw";
+        if (realRom) {
+            require(fs::is_regular_file(rom) && fs::file_size(rom)==1048576u,
+                    "expected original 1-MiB ROM supplied privately");
+        } else {
+            syntheticRom(rom);
+        }
         Device d(rom);
-        Recorder w(d.chip.get(),dir/"fork.trace");
+        Recorder w(d.chip.get(),dir/"fork.trace",realRom);
         std::ofstream wav(dir/"fork.wav",std::ios::binary|std::ios::trunc);
         require(bool(wav),"can't write synthetic fork WAV");
-        constexpr uint32_t total=4410u;
+        const uint32_t total=realRom?88200u:4410u;
         header(wav,total);
         uint64_t nonzero=0;
         render(d.chip.get(),wav,11,nonzero);
         note(w,11);                       // first write AFTER frame zero
         render(d.chip.get(),wav,1589,nonzero);
         w.set16(1600,1,29,0xE20,0xB000); // audible IFATN attenuation change
-        render(d.chip.get(),wav,1500,nonzero);
-        w.set16(3100,5,29,0xA20,0x8080); // stop/release
-        render(d.chip.get(),wav,total-3100,nonzero);
+        if (realRom) {
+            render(d.chip.get(),wav,44100u-1600u,nonzero);
+            w.set16(44100,5,29,0xA20,0x8080); // stop/release after one second
+            render(d.chip.get(),wav,total-44100u,nonzero);
+        } else {
+            render(d.chip.get(),wav,1500,nonzero);
+            w.set16(3100,5,29,0xA20,0x8080); // stop/release
+            render(d.chip.get(),wav,total-3100,nonzero);
+        }
         wav.flush();
         require(bool(wav),"fork synthetic WAV write incomplete");
-        require(nonzero>200,"positive control: original fork output silent");
-        std::cout<<"SYNTHETIC_DIRECT_FORK nonzero_pcm16="<<nonzero
+        require(nonzero>(realRom?2000u:200u),
+                "original fork output silent or implausibly sparse");
+        std::cout<<(realRom?"PRIVATE_REAL_ROM_DIRECT_FORK":"SYNTHETIC_DIRECT_FORK")
+                 <<" nonzero_pcm16="<<nonzero
                  <<" frames="<<total<<" first_trace_frame=11\n";
         std::cout<<"NOT an original Creative VM/driver or hardware capture\n";
         return 0;

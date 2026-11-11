@@ -46,3 +46,13 @@ An independent real 86Box/Creative captured reference with authenticated 28-MiB 
 ## Native RAM port I/O negative boundary verification
 
 The additional Windows contract now writes and reads RAM through the **original chip's EMU8000 port registers** (SMALW/SMLD and SMALR, including the one-word read pipeline) in addition to inspecting the pointer pages and `uploadRam` memory. It writes the first installed word (0x200000), the last sample-usable word (0xFFFFDF), and checks that an attempted write at the reserved FM boundary (0xFFFFE0) and a write below the installed RAM cannot corrupt sample DRAM. This checks the unchanged fork hardware register path; it is not a Creative driver/SBK upload test.
+
+## Privater echter ROM-Audiotest ohne Media-Upload
+
+`tests/direct_fork_fixture.cpp` besitzt jetzt den zusätzlichen Modus `--real-rom PRIVATE_ROM PRIVATE_OUTDIR`. Er rendert ein zwei Sekunden langes, über original EMU8000-Ports programmiertes Testsignal **direkt aus der tatsächlichen Creative-ROM**, mit Tonstart, Registeränderung und NoteOff. Dieselbe Registersequenz wird mit dem nativen Adapter über `awe64_replay` bytegenau nachgerechnet.
+
+`tools/p001_real_rom_check.py` prüft vorab die Original-ROM-/SBK-SHA256, verlangt tatsächlich nicht stummes PCM, vergleicht sämtliche 176.400 Stereo-PCM16-Samples einschließlich RIFF-Datei-SHA und schreibt ein rein privates JSON-Protokoll. Jede Ausgabe erfolgt ausschließlich **außerhalb des Git-Repositorys**, ohne Originaldateien in CI, Issues oder Artifacts hochzuladen.
+
+Nach dem Bauen auf Windows genügt `tools/P001-PRIVATE-REAL-ROM.bat "C:\\PRIVATE\\awe32.raw" "C:\\PRIVATE\\SYNTHGM.SBK"` für den vollständigen privaten Lauf. Eine lokale Original-ROM-/SBK-Prüfung mit den tatsächlich vorhandenen Bibliotheksdateien wurde durchgeführt und beide Fingerprints bestätigt; der **genuine-ROM-Chip-PCMAudiorun mit dem Fork selbst** ist erst dann PASSED, wenn dessen ausführbarer Test auf denselben privaten Dateien gelaufen ist. Der generische Windows-2022-Runner enthält das Eigentümer-ROM absichtlich nicht, daher kann dessen synthetischer grüner Build einen privaten real-ROM-Lauf nicht ersetzen.
+
+Diese Prüfung ist noch **nicht** die unabhängige, von der laufenden 86Box-VM mit originalem Creative-Treiber aufgezeichnete `EMU8K_TRACE`/`AWE32_WAV`-Abnahme. Auch nach bestandenem Privat-ROM-Test bleibt die P001-VST3-Freigabe bis zu diesem echten Fork-VM-PCM-Nachweis gesperrt.
