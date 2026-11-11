@@ -1,6 +1,19 @@
 # P002 — Creative original API, register oracle, acceptance
 
-**IN DEVELOPMENT — not an original driver sound fidelity PASS.** P001 was technically approved in PR #2. Source: the controlling review comment at https://github.com/challanger2000/125A-AWE64-Gold-VST3/pull/2#issuecomment-6805882547
+**IN DEVELOPMENT — not an original driver sound fidelity PASS.**
+
+## First confirmed Windows implementation / shared Test Lab evidence
+
+[Actions #43094301052](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43094301052), source head ad3a5340be282935d6162ac3d9e9b5dae1de92ae, **SUCCESS** in both jobs:
+
+- **3 / 3 CTests PASS** on Windows x64 Release: verified unchanged original upstream EMU8000 chip / RAM and direct chip differential with real negative controls plus the newly compiled 16-channel Creative WinMM front-end **160 MIDI event cases**.
+- **12 / 12 Python register-oracle positive/negative tests PASS**: first exact discrepancy for chip-clock frame, port, bit, read/write, event order, missing/extra event, invalid trace clock/syntax. These test the comparator, NOT an original-controller implementation.
+- **Existing shared 125A Plugin Test Lab** at pinned main commit **7213fe1f81f4036f74431cb5b2d7dbd09b73ee5c** was really cloned and source-built in an independent Windows job. Its real native P74/P73 host loaded the actual AWE64_Gold_P001.vst3 exported bundle and produced status **INVENTORY_COMPLETE**, discovery PASS, **0 automatic GUI clicks**, commercial DAW **NOT RUN**, release_approved **false**. The report was uploaded as the job's short-retention read-only artifact. No fake GUI, controller, soundbank or original-voice PASS was claimed.
+- Real Windows P001 VST3 module is built from pinned upstream fork, Steinberg SDK 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96, and original P001 source remains untouched.
+
+**Not completed:** The new P002 translator has not yet generated original-Creative-equivalent native register traffic, nor has the actual original-Win95 controller/velocity/voice matrix been acoustically validated. P002 is therefore still **IN PROGRESS**, with P003/full bank loading and final GUI/Studio-One/ASIO later.
+
+ P001 was technically approved in PR #2. Source: the controlling review comment at https://github.com/challanger2000/125A-AWE64-Gold-VST3/pull/2#issuecomment-6805882547
 
 ## Primary-source pin and hierarchy
 
