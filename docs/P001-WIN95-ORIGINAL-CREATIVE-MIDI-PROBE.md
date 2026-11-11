@@ -31,3 +31,7 @@ kurzlebiges Artefakt hoch. Keine Creative-Bank, kein proprietärer Treiber,
 kein Windows-95-Datenträger und keine ROM-Samples werden veröffentlicht.
 
 **Abnahme:** Tatsächliche Win95-Gast-Ausführung, fünf originale MIDI-NoteOn/Off-Paare, ein deutlich hörbares digitales Chip-Signal und samplegenaue unabhängige Register- und PCM-Parität sind inzwischen privat nachgewiesen. Dies ersetzt weder Hardware-Line-Out noch die übrigen GM-/SF2-/DAW-Abnahmen. Die Gast-EXE schrieb keinen abschließenden Erfolgsmarker, weshalb eine saubere Gastprozess-Terminierung nicht behauptet wird.
+
+## Nachtrag – tatsächlich ausgeführter Original-Win95-MIDI-Test
+
+Die Testanwendung wurde im Win95-Gast ausgeführt: echtes Creative-WinMM-Gerät SB AWE32 MIDI Synth [620], fünf NoteOn/NoteOff-Paare alle mit Rückgabecode 0; private Gastlogdatei und 86Box-Register-/WAV-Aufzeichnung liegen vor. Der separate native Chip-Replay verglich **12.861.520 Original-PCM16-Samples exakt**, davon **398.777 nicht stumm**, eine musikalische Ein-Bit-Mutante wurde korrekt verworfen. Das Testprogramm verursachte erst nach Ausgabe der Noten eine ungültige Operation beim Abschluss, daher ist dessen sauberer Exit ausdrücklich **nicht** nachgewiesen. Vollständige Messungen: docs/P001-ORIGINAL-CREATIVE-VM-MUSICAL-PCM-PASS.md.

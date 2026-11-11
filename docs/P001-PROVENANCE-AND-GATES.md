@@ -1,5 +1,7 @@
 # P001 provenance and acceptance (not a release report)
 
+**LATEST SUPERSEDING EVIDENCE:** 11 Nov 2026 independent Win95 original-Creative FIVE-NOTE musical digital PCM parity PASS, 12,861,520/12,861,520 samples, 398,777 nonzero, 93,445 real guest chip-register operations. See docs/P001-ORIGINAL-CREATIVE-VM-MUSICAL-PCM-PASS.md. Earlier NO-GO language below describes historical pre-capture gaps, not the current conclusion. Studio One/RT and full SBK/SF2 are still open.
+
 - New project: `challanger2000/125A-AWE64-Gold-VST3`, development branch `develop/p001-fork-chip-parity`.
 - Original source: `turican0/86Box-AWE32` annotated tag `v6.0-AWE32-0.93`, commit `fee1e81977824fd2d5eed4d239589dc30d251dd7`.
 - Built C DSP file, unchanged: `src/sound/snd_emu8k.c`, Git blob `e60eb10f00a8e1187380faa25989f6ba0433d99a`.
