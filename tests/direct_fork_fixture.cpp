@@ -5,6 +5,7 @@
  * setup (P236). This is NOT a real original-Win95/Creative-VM capture.
  */
 #include "HostShim.h"
+#include <cstdint>
 #include <86box/sound.h>
 extern "C" {
 #include <86box/snd_emu8k.h>
