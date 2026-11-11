@@ -37,3 +37,64 @@ jobs:
           python -m unittest discover -s tests -p test_p002_register_oracle.py -v
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
           Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
+
+  real_125a_test_lab_headless_inventory:
+    needs: creative-winmm-and-original-driver-oracle-contract
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Fetch exact known Steinberg and MinHook test sources
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.8.1_build_84 --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned VST3 SDK checkout failed' }
+          if ((git -C external/vst3sdk rev-parse HEAD).Trim() -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw 'Unexpected Steinberg SDK revision' }
+          git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git external/minhook
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned MinHook test-only checkout failed' }
+          if ((git -C external/minhook rev-parse HEAD).Trim() -ne 'c3fcafdc10146beb5919319d0683e44e3c30d537') { throw 'Unexpected test-only MinHook revision' }
+      - name: Build actual headless original-EMU8000 VST3 with pinned SDK
+        shell: pwsh
+        run: |
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DSMTG_RUN_VST_VALIDATOR=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'Original EMU8000 VST3 configure failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
+          if ($LASTEXITCODE -ne 0) { throw 'Real original-core VST3 build failed' }
+          $vst = @(Get-ChildItem build-vst3 -Recurse -Directory -Filter 'AWE64_Gold_P001.vst3')
+          if ($vst.Count -ne 1) { throw "Expected exactly one real VST3 bundle, got $($vst.Count)" }
+          Write-Host "P002_REAL_HEADLESS_VST3_BUNDLE $($vst[0].FullName)"
+      - name: Fetch exact existing 125A Plugin Test Lab P74/P73
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          if ($LASTEXITCODE -ne 0) { throw 'Existing shared Test Lab source checkout failed' }
+          git -C lab checkout --detach 7213fe1f81f4036f74431cb5b2d7dbd09b73ee5c
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned existing Test Lab revision unavailable' }
+          if ((git -C lab rev-parse HEAD).Trim() -ne '7213fe1f81f4036f74431cb5b2d7dbd09b73ee5c') { throw 'Existing 125A Test Lab pin mismatch' }
+          $sdk = (Resolve-Path external/vst3sdk).Path
+          cmake -S lab -B lab-build -G 'Visual Studio 17 2022' -A x64 "-DFETCHCONTENT_SOURCE_DIR_VST3SDK=$sdk"
+          if ($LASTEXITCODE -ne 0) { throw 'Real Test Lab configure failed' }
+          cmake --build lab-build --config Release --parallel 2 --target TestLabGUI
+          if ($LASTEXITCODE -ne 0) { throw 'Real shared Test Lab P74 host build failed' }
+      - name: Run actual shared Test Lab P74 read-only inventory against our P002 instrument basis
+        shell: pwsh
+        run: |
+          $vst = @(Get-ChildItem build-vst3 -Recurse -Directory -Filter 'AWE64_Gold_P001.vst3')
+          $gui = @(Get-ChildItem lab-build -Recurse -File -Filter '125A_Test_Lab_GUI.exe')
+          if ($vst.Count -ne 1 -or $gui.Count -ne 1) { throw 'Actual VST3 or independent Lab GUI host missing' }
+          python lab/tests/run_universal_qa.py --plugin "$($vst[0].FullName)" --gui-host "$($gui[0].FullName)" --out p002-lab-inventory
+          if ($LASTEXITCODE -ne 0) { throw 'Real 125A Plugin Test Lab read-only P74 inventory failed' }
+          $report = Get-Content p002-lab-inventory/UNIVERSAL-QA-RESULT.json -Raw | ConvertFrom-Json
+          if ($report.status -ne 'INVENTORY_COMPLETE' -or $report.discovery -ne 'PASS' -or $report.gui_clicks_automatically_authorized -ne 0 -or $report.release_approved -ne $false -or $report.commercial_daw_session -ne 'NOT RUN') {
+            throw 'Test Lab false functional/ASIO/release approval or incomplete real ABI inventory'
+          }
+          Write-Host 'P002_125A_TEST_LAB_P74_REAL_HEADLESS_INVENTORY_PASS; NATIVE_CREATIVE_MIDI_REGISTER_TRANSLATION_NOT_RUN'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: P002-125A-Plugin-Test-Lab-P74-readonly-ABI-inventory
+          path: p002-lab-inventory/
+          if-no-files-found: warn
+          retention-days: 3
