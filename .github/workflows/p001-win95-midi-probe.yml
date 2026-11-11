@@ -35,8 +35,9 @@ jobs:
           file probe-artifact/P001MID.EXE
           test "$(stat -c %s probe-artifact/P001MID.EXE)" -gt 2048
           i686-w64-mingw32-objdump -p probe-artifact/P001MID.EXE > probe-artifact/pe-headers.txt
-          grep -q 'DLL Name: KERNEL32.dll' probe-artifact/pe-headers.txt
-          grep -q 'DLL Name: WINMM.dll' probe-artifact/pe-headers.txt
+          grep -Ei 'DLL Name:|MajorSubsystemVersion|MinorSubsystemVersion' probe-artifact/pe-headers.txt || true
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' probe-artifact/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' probe-artifact/pe-headers.txt
           if grep -Ei 'DLL Name:.*(MSVCRT|UCRT|VCRUNTIME|MSVCP)' probe-artifact/pe-headers.txt; then
             echo 'INVALID Windows 95 binary: modern CRT imported'; exit 1
           fi
