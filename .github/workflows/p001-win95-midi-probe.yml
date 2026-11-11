@@ -44,8 +44,8 @@ jobs:
           if grep -Ei 'DLL Name:' probe-artifact/pe-headers.txt | grep -Eiv 'KERNEL32|WINMM'; then
             echo 'INVALID Windows 95 binary: unexpected imported DLL'; exit 1
           fi
-          grep -Eq 'MajorSubsystemVersion[[:space:]]+00000004' probe-artifact/pe-headers.txt
-          grep -Eq 'MinorSubsystemVersion[[:space:]]+00000000' probe-artifact/pe-headers.txt
+          grep -Eq 'MajorSubsystemVersion[[:space:]]+0*4([[:space:]]|$)' probe-artifact/pe-headers.txt
+          grep -Eq 'MinorSubsystemVersion[[:space:]]+0+([[:space:]]|$)' probe-artifact/pe-headers.txt
           sha256sum probe-artifact/P001MID.EXE | tee probe-artifact/P001MID.sha256
           echo 'P001_WIN95_CRT_FREE_PE32_AND_DLL_IMPORTS_VERIFIED'
           echo 'NOTE: Windows-95 original Creative playback NOT YET EXECUTED by this compile-only job'
