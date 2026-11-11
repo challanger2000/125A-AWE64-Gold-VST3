@@ -27,17 +27,6 @@ static void word(DWORD x) {
     for(i=0;i<8;++i)s[2+i]=hex[(x>>(28-4*i))&15u];
     text(s);
 }
-static int equalword(const char *s,const char *target) {
-    unsigned i=0;
-    while(s[i]&&target[i]) {
-        char a=s[i],b=target[i];
-        if(a>='a'&&a<='z')a=(char)(a-'a'+'A');
-        if(b>='a'&&b<='z')b=(char)(b-'a'+'A');
-        if(a!=b)return 0;
-        ++i;
-    }
-    return !s[i]&&!target[i];
-}
 static int has(const char*name,const char*needle){
     unsigned i,j;
     for(i=0;name[i];++i){
