@@ -60,6 +60,16 @@ add_test(NAME p001_direct_fork_pcm_and_negative_controls
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.
 
+# P002: Creative 1996 public API factual identifiers and byte-level WinMM
+# staging. No claim of original driver register/acoustic equivalence until
+# independently captured original Creative traces are compared.
+add_library(awe64_creative_midi STATIC src/creative_compat/CreativeMidi.cpp)
+target_include_directories(awe64_creative_midi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/creative_compat")
+target_compile_features(awe64_creative_midi PUBLIC cxx_std_23)
+add_executable(awe64_p002_midi_contract tests/p002_midi_contract.cpp)
+target_link_libraries(awe64_p002_midi_contract PRIVATE awe64_creative_midi)
+add_test(NAME p002_winmm_primary_api_16channel_contract COMMAND awe64_p002_midi_contract)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
