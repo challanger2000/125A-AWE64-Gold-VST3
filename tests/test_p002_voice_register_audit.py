@@ -1,7 +1,12 @@
 import importlib.util
 from pathlib import Path
+import sys
 import unittest
 P=Path(__file__).resolve().parent.parent/"tools/p002_voice_register_audit.py"
+# The production CLI resolves its own sibling module naturally, but this
+# test loads it through importlib from the repo root. Restore that exact
+# tools/ package search path instead of silently skipping the integration.
+sys.path.insert(0,str(P.parent))
 s=importlib.util.spec_from_file_location("emu8k_semantics",P)
 mod=importlib.util.module_from_spec(s)
 s.loader.exec_module(mod)
