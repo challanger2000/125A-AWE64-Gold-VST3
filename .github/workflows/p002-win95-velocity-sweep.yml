@@ -1,0 +1,56 @@
+name: P002 original Creative Win95 two-GM-program full velocity and CC sweeps
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - src/win95/p002_original_creative_velocity_sweep.c
+      - .github/workflows/p002-win95-velocity-sweep.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  win95_original_driver_matrix_compilation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install legacy Windows 95 toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Cross-compile self-written Win95 Pentium-compatible, CRT-free Creative MIDI stimuli
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p win95-matrix
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o win95-matrix/P002VEL.EXE src/win95/p002_original_creative_velocity_sweep.c \
+            -lwinmm -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p win95-matrix/P002VEL.EXE > win95-matrix/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' win95-matrix/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' win95-matrix/pe-headers.txt
+          if grep -Ei 'DLL Name:' win95-matrix/pe-headers.txt | grep -Eiv 'KERNEL32|WINMM'; then
+            echo 'FAIL: unsupported Win95 dependency'; exit 1
+          fi
+          grep -Eq 'MajorSubsystemVersion[[:space:]]+0*4([[:space:]]|$)' win95-matrix/pe-headers.txt
+          grep -Eq 'MinorSubsystemVersion[[:space:]]+0+([[:space:]]|$)' win95-matrix/pe-headers.txt
+          i686-w64-mingw32-objdump -d win95-matrix/P002VEL.EXE > win95-matrix/disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' win95-matrix/disassembly.txt; then
+            echo 'FAIL: Pentium Pro-only CMOV instruction'; exit 1
+          fi
+          if grep -Eiq '[[:space:]](movaps|movups|sysenter|pavg[bw]|pmulhw)[[:space:]]' win95-matrix/disassembly.txt; then
+            echo 'FAIL: Pentium Pro/SSE instruction'; exit 1
+          fi
+          sha256sum win95-matrix/P002VEL.EXE | tee win95-matrix/P002VEL.sha256
+          echo 'P002_ORIGINAL_CREATIVE_WIN95_ALL127_VELOCITY_BINARY_PASS'
+          echo 'ACTUAL_GUEST_ORIGINAL_CREATIVE_REGISTER_AND_AUDIO_CAPTURE_NOT_PERFORMED_IN_THIS_BUILD'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-Original-Creative-Win95-TwoGM-All127-Velocity-Sweeps
+          path: win95-matrix/
+          retention-days: 3
+          if-no-files-found: error
