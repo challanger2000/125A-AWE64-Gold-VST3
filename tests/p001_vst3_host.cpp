@@ -89,7 +89,7 @@ std::vector<float> play(IPluginFactory* factory,bool release) {
         bus.numChannels=2;bus.channelBuffers32=buffers;
         EventList events;
         if(block==0) event(events,true,137);
-        if(release && block==16) event(events,false,127);
+        if(release && block==2) event(events,false,127);
         ProcessData data{};
         data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
         data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
@@ -122,7 +122,7 @@ int wmain(int argc,wchar_t** argv){
         const auto nonzero=std::count_if(held.begin()+137,held.end(),
             [](float v){return std::abs(v)>0.00001f;});
         require(nonzero>5000,"exported VST3 rendered no audible original ROM");
-        const auto noteoffFrame=512u*16u+127u;
+        const auto noteoffFrame=512u*2u+127u;
         require(std::equal(held.begin(),held.begin()+noteoffFrame,off.begin()),
                 "NoteOff changed samples before its exact host offset");
         require(!std::equal(held.begin()+noteoffFrame,held.end(),
