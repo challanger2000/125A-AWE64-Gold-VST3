@@ -1,7 +1,9 @@
 #pragma once
-#include <86box/snd_emu8k.h>
 #include <cstddef>
 #include <cstdint>
+extern "C" {
+#include <86box/snd_emu8k.h>
+}
 #include <filesystem>
 #include <memory>
 #include <span>

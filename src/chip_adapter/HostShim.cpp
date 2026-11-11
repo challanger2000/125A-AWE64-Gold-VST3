@@ -1,7 +1,9 @@
 #include "HostShim.h"
 #include <86box/io.h>
 #include <86box/sound.h>
+extern "C" {
 #include <86box/snd_emu8k_trace.h>
+}
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
