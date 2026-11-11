@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 extern "C" {
+#include <86box/sound.h>
 #include <86box/snd_emu8k.h>
 }
 #include <filesystem>
