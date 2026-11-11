@@ -42,7 +42,20 @@ void MidiState::apply(const MidiMessage& message) noexcept {
         case 11: c.cc11_expression=message.data2; break;
         case 10: c.cc10_pan=message.data2; break;
         case 64: c.sustain_cc64=message.data2; break;
-        case 121: c=ChannelState{}; break;
+        case 121: {
+            // MIDI CC121 Reset All Controllers is NOT GM Program Change or
+            // Bank Select. Never reset the selected patch/bank as a side
+            // effect of resetting pitchbend/sustain/expression. Distinct
+            // Creative-original output/register behavior awaits P002 oracle.
+            const auto program = c.program;
+            const auto msb = c.bank_msb;
+            const auto lsb = c.bank_lsb;
+            c = ChannelState{};
+            c.program = program;
+            c.bank_msb = msb;
+            c.bank_lsb = lsb;
+            break;
+        }
         default: break;
         }
         break;

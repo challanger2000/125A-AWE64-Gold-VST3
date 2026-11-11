@@ -50,6 +50,14 @@ int main() {
     state.apply(*reset);
     CHECK(state.channel(9).cc7_volume==100);
     CHECK(state.channel(9).pitch_bend14==8192);
+    CHECK(state.channel(9).cc11_expression==127);
+    CHECK(state.channel(9).sustain_cc64==0);
+    CHECK(state.channel(9).cc10_pan==64);
+    // Original Win95 matrix sends a separate Program Change after CC121.
+    // Reset controllers must NEVER fabricate a Program 0 / Bank 0 switch.
+    CHECK(state.channel(9).program==23);
+    CHECK(state.channel(9).bank_msb==3);
+    CHECK(state.channel(9).bank_lsb==7);
     CHECK(state.channel(8).cc7_volume==101);
     CHECK(state.channel(10).cc7_volume==101);
     // Reject malformed/status-byte injection and non-MIDI 0xF* system codes.
