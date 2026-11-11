@@ -12,9 +12,9 @@ std::uint32_t msg(unsigned status,unsigned one=0,unsigned two=0) {
 }
 #define CHECK(pred) do { if(!(pred)) { std::cerr<<"P002_MIDI_CONTRACT_FAIL line="<<__LINE__<<" condition="<<#pred<<"\n"; return 1; } } while(0)
 int main() {
-    static_CHECK(static_cast<std::uint16_t>(AweMessage::LoadUserBank)==204);
-    static_CHECK(static_cast<std::uint16_t>(AweMessage::ViennaLoadPreset)==2006);
-    static_CHECK(static_cast<std::uint16_t>(AweMessage::ViennaPitchBend)==2012);
+    static_assert(static_cast<std::uint16_t>(AweMessage::LoadUserBank)==204);
+    static_assert(static_cast<std::uint16_t>(AweMessage::ViennaLoadPreset)==2006);
+    static_assert(static_cast<std::uint16_t>(AweMessage::ViennaPitchBend)==2012);
     MidiState state;
     unsigned count=0;
     for(unsigned channel=0;channel<16;channel++){
