@@ -1,0 +1,62 @@
+name: P001 pinned 86Box fork Linux VM probe binary
+on:
+  push:
+    branches: [develop/p001-fork-chip-parity]
+    paths:
+      - .github/workflows/p001-fork-linux-build.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-linux-fork:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            cmake ninja-build gcc g++ git libsdl2-dev libpng-dev libfreetype6-dev
+      - name: Fetch the exact original calibrated fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/turican0/86Box-AWE32.git fork
+          git -C fork checkout --detach fee1e81977824fd2d5eed4d239589dc30d251dd7
+          test "$(git -C fork rev-parse HEAD)" = "fee1e81977824fd2d5eed4d239589dc30d251dd7"
+          test "$(git hash-object fork/src/sound/snd_emu8k.c)" = "e60eb10f00a8e1187380faa25989f6ba0433d99a"
+          echo "P001_PINNED_86BOX_VM_CORE_SHA_PASS"
+      - name: Build Linux SDL2 fork (not an alternative DSP)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S fork -B fork-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DOPENAL=OFF \
+            -DRTMIDI=OFF -DFLUIDSYNTH=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF -DDYNAREC=ON \
+            -DSTATIC_BUILD=OFF
+          cmake --build fork-build --parallel 4
+          find fork-build -type f -name 86Box -print
+          test -x fork-build/src/86Box || test -x fork-build/86Box
+      - name: Stage executable with exact source provenance (no guest or ROM media)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          exe="$(find fork-build -type f -name 86Box -executable | head -n 1)"
+          test -n "$exe"
+          cp "$exe" output/86Box
+          chmod +x output/86Box
+          sha256sum output/86Box | tee output/86Box.sha256
+          ldd output/86Box | tee output/dependencies.txt
+          printf 'fork_commit=%s\nchip_git_blob=%s\n' \
+            "fee1e81977824fd2d5eed4d239589dc30d251dd7" \
+            "e60eb10f00a8e1187380faa25989f6ba0433d99a" \
+            > output/provenance.txt
+          tar -C output -czf p001-pinned-86box-linux.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p001-pinned-86box-linux-executable
+          path: p001-pinned-86box-linux.tar.gz
+          retention-days: 3
+          if-no-files-found: error
