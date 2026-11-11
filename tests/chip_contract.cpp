@@ -46,6 +46,36 @@ int main() {
     REQUIRE(!chip.uploadRam(kFmReservedBase-1,three));
     REQUIRE(p->ram[(kFmReservedBase-1)-kSampleRamBase] == 27182);
     REQUIRE(p->ram[0] == 123);
+
+    // Actual EMU8000 port I/O path, not only a C++ memcpy or pointer test:
+    // SMALW (reg 1, voice 22) controls the DRAM word write pointer.
+    // SMLD (reg 1, voice 26) writes a sample and increments that pointer.
+    const auto setRamPointer=[&](unsigned v, uint32_t address) {
+        chip.writePort(0xE22, uint16_t((1u<<5)|v));
+        chip.writePort(0xA20, uint16_t(address));
+        chip.writePort(0xA22, uint16_t(address>>16));
+    };
+    setRamPointer(22u, 0x200000u);
+    chip.writePort(0xE22, 0x3Au);
+    chip.writePort(0xA20, 0xABCDu);
+    REQUIRE(uint16_t(p->ram[0])==0xABCDu);
+    setRamPointer(22u, 0xFFFFDFu);
+    chip.writePort(0xE22, 0x3Au);
+    chip.writePort(0xA20, 0x55AAu);
+    REQUIRE(uint16_t(p->ram[0xFFFFDFu-0x200000u])==0x55AAu);
+    chip.writePort(0xA20, 0xDEADu); // next address is reserved FM window
+    REQUIRE(uint16_t(p->ram[0xFFFFDFu-0x200000u])==0x55AAu);
+    setRamPointer(22u, 0x1FFFFFu);  // immediately below installed RAM
+    chip.writePort(0xE22, 0x3Au);
+    chip.writePort(0xA20, 0xBEEFu);
+    REQUIRE(uint16_t(p->ram[0])==0xABCDu);
+    // SMALR (reg 1, voice 20), followed by the original pipelined SMLD read.
+    setRamPointer(20u, 0x200000u);
+    chip.writePort(0xE22, 0x3Au);
+    (void)chip.readPort(0xA20); // first fetch primes SMRD buffer
+    REQUIRE(chip.readPort(0xA20)==0xABCDu);
+    std::cout << "P001 original-EMU8K RAM port DMA first/last/reserved/readback PASS\n";
+
     // Runtime memory is backed by 28 MiB, not a GUI-label approximation.
     REQUIRE(kSampleRamBytes == 29360128u);
     REQUIRE(kSampleRamKiB == 28672);

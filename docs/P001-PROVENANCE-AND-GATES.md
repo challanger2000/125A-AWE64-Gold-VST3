@@ -41,3 +41,8 @@ Issue #1 is **not closed**. No production PCM identity or acoustic fidelity has 
 The accompanying Python adversarial test verifies that (a) the original core actually produces nonzero PCM, (b) all digital samples equal the adapter's output with different callback partitions, (c) a one-bit corrupted sample is identified at its precise frame and channel, (d) a mutated register-read result fails, and (e) an absent WAV hard-fails. The first write occurs at frame 11: real fork traces legitimately need not begin with an I/O operation at frame zero. This removes a false-negative condition from `awe64_replay`.
 
 An independent real 86Box/Creative captured reference with authenticated 28-MiB RAM/ROM identity **still remains the separate mandatory P001 acceptance gate**. A successful synthetic direct-core test must not be described as full 86Box VM/driver audio parity or as an actual physical card test.
+
+
+## Native RAM port I/O negative boundary verification
+
+The additional Windows contract now writes and reads RAM through the **original chip's EMU8000 port registers** (SMALW/SMLD and SMALR, including the one-word read pipeline) in addition to inspecting the pointer pages and `uploadRam` memory. It writes the first installed word (0x200000), the last sample-usable word (0xFFFFDF), and checks that an attempted write at the reserved FM boundary (0xFFFFE0) and a write below the installed RAM cannot corrupt sample DRAM. This checks the unchanged fork hardware register path; it is not a Creative driver/SBK upload test.
