@@ -61,6 +61,15 @@ jobs:
           chmod +x output/86Box output/awe64_replay output/awe64_direct_fork_fixture
           sha256sum output/86Box | tee output/86Box.sha256
           ldd output/86Box | tee output/dependencies.txt
+          # Portable runtime closure for the private Debian VM sandbox; never guest media.
+          mkdir -p output/lib
+          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0; do
+            source_path="$(ldconfig -p | grep -F "$lib (" | head -n1 | awk '{print $NF}')"
+            test -n "$source_path" && test -f "$source_path"
+            cp -L "$source_path" "output/lib/$lib"
+          done
+          for lib in output/lib/*.so.0; do ldd "$lib"; done > output/dependency-closure.txt
+          echo "P001_PRIVATE_SANDBOX_RUNTIME_DEPENDENCIES_BUNDLED"
           printf 'fork_commit=%s\nchip_git_blob=%s\n' \
             "fee1e81977824fd2d5eed4d239589dc30d251dd7" \
             "e60eb10f00a8e1187380faa25989f6ba0433d99a" \
