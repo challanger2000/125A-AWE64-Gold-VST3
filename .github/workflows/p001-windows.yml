@@ -2,8 +2,27 @@ name: P001 Windows original core ROM and VST3 acceptance
 on:
   push:
     branches: [develop/p001-fork-chip-parity]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.gitmodules'
+      - 'third_party/**'
+      - '.github/workflows/p001-windows.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.gitmodules'
+      - 'third_party/**'
+      - '.github/workflows/p001-windows.yml'
+concurrency:
+  group: p001-windows-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   chip-contract:
     runs-on: windows-2022
