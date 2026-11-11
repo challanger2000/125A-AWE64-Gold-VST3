@@ -73,6 +73,9 @@ jobs:
           git clone --depth 1 --branch v3.8.1_build_84 --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
           if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK clone or submodules failed' }
           if ((git -C external/vst3sdk rev-parse HEAD).Trim() -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw 'VST3 SDK checkout commit mismatch' }
+          git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git external/minhook
+          if ($LASTEXITCODE -ne 0) { throw 'Test-only allocation auditor MinHook clone failed' }
+          if ((git -C external/minhook rev-parse HEAD).Trim() -ne 'c3fcafdc10146beb5919319d0683e44e3c30d537') { throw 'Test allocation auditor dependency pin mismatch' }
       - name: Build real minimal Windows VST3 from original fork
         shell: pwsh
         run: |
@@ -101,6 +104,13 @@ jobs:
           if (-not $hostExe) { throw 'No actual VST3 MIDI host executable' }
           & $hostExe.FullName $dll.FullName $env:AWE64_P001_ROM_PATH
           if ($LASTEXITCODE -ne 0) { throw 'Real exported DLL MIDI NoteOn/NoteOff failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target awe64_p001_vst3_rt_host
+          if ($LASTEXITCODE -ne 0) { throw 'Actual DLL realtime allocation audit failed to compile' }
+          $rtHost = Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p001_vst3_rt_host.exe' | Where-Object { $_.DirectoryName -match 'Release' } | Select-Object -First 1
+          if (-not $rtHost) { throw 'Actual VST3 callback heap auditor executable missing' }
+          & $rtHost.FullName $dll.FullName $env:AWE64_P001_ROM_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Actual exported VST3 process() allocated heap memory, wrote debugging output or failed audio stress' }
+          Write-Host 'P001_WIN64_REAL_VST3_NTDLL_ALLOC_AUDIT_PASS; DAW_ASIO_DEVICE_NOT_TESTED'
       - name: Delete real Creative ROM, WAV, traces and per-run private diagnostics from runner
         if: always()
         shell: pwsh

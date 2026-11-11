@@ -97,4 +97,22 @@ if(AWE64_BUILD_P001_VST3)
     target_link_libraries(awe64_p001_vst3_host PRIVATE sdk sdk_hosting)
     target_compile_features(awe64_p001_vst3_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_host AWE64_Gold_P001)
+
+    # Test-only real Windows heap interception: downloaded/pinned MinHook
+    # is linked into the independent host, NEVER into our VST3/product DLL.
+    set(AWE64_MINHOOK_ROOT "${CMAKE_SOURCE_DIR}/external/minhook" CACHE PATH "Pinned test-only MinHook root")
+    if(NOT EXISTS "${AWE64_MINHOOK_ROOT}/include/MinHook.h")
+        message(FATAL_ERROR "P001 native heap audit requires pinned MinHook test dependency")
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${AWE64_MINHOOK_ROOT}" rev-parse HEAD
+        OUTPUT_VARIABLE MINHOOK_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE MINHOOK_RC)
+    if(NOT MINHOOK_RC EQUAL 0 OR NOT MINHOOK_HEAD STREQUAL "c3fcafdc10146beb5919319d0683e44e3c30d537")
+        message(FATAL_ERROR "Unexpected pinned test-only MinHook commit: ${MINHOOK_HEAD}")
+    endif()
+    add_subdirectory("${AWE64_MINHOOK_ROOT}" "${CMAKE_BINARY_DIR}/minhook")
+    add_executable(awe64_p001_vst3_rt_host tests/p001_vst3_rt_host.cpp)
+    target_link_libraries(awe64_p001_vst3_rt_host PRIVATE sdk sdk_hosting minhook)
+    target_include_directories(awe64_p001_vst3_rt_host PRIVATE "${AWE64_VST3_SDK_ROOT}")
+    target_compile_features(awe64_p001_vst3_rt_host PRIVATE cxx_std_23)
+    add_dependencies(awe64_p001_vst3_rt_host AWE64_Gold_P001)
 endif()
