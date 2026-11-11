@@ -63,7 +63,7 @@ jobs:
           ldd output/86Box | tee output/dependencies.txt
           # Portable runtime closure for the private Debian VM sandbox; never guest media.
           mkdir -p output/lib
-          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0; do
+          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0 libstb.so.0; do
             source_path="$(ldconfig -p | grep -F "$lib (" | head -n1 | awk '{print $NF}')"
             test -n "$source_path" && test -f "$source_path"
             cp -L "$source_path" "output/lib/$lib"
