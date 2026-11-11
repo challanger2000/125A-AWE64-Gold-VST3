@@ -117,7 +117,12 @@ void Minimal::noteOn(int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int pitch) noexcept {
     if (active_ && playingKey_==pitch) {
-        write(5,kVoice,0xA20,0x8080);
+        // On this original chip, bit 0x0080 DISABLES the envelope
+        // generator. 0x8080 therefore freezes its current level and leaves
+        // the PCM audible: it is NOT a working NoteOff. Keep the engine on
+        // and set the genuine release flag 0x8000 with fast test decay 0x7F.
+        // P002 must derive program-specific release from Creative driver traces.
+        write(5,kVoice,0xA20,0x807Fu);
         playingKey_=-1;
     }
 }
