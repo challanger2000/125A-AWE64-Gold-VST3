@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           mkdir -p probe-artifact
           i686-w64-mingw32-gcc \
-            -Os -Wall -Wextra -Werror -std=c99 \
+            -Os -Wall -Wextra -Werror -std=c99 -march=pentium -mtune=pentium \
             -ffreestanding -fno-builtin -fno-stack-protector -nostdlib \
             -Wl,-e,_p001_entry@0 \
             -Wl,--disable-dynamicbase,--disable-nxcompat \
@@ -46,6 +46,16 @@ jobs:
           fi
           grep -Eq 'MajorSubsystemVersion[[:space:]]+0*4([[:space:]]|$)' probe-artifact/pe-headers.txt
           grep -Eq 'MinorSubsystemVersion[[:space:]]+0+([[:space:]]|$)' probe-artifact/pe-headers.txt
+          # Owner's guest is a Pentium P54C (133 MHz), not a Pentium Pro.
+          # Earlier 0F 45 C2 (CMOVNE at 004014B7) caused a REAL guest illegal
+          # instruction AFTER the 5 notes. Reject 686-only code at build time.
+          i686-w64-mingw32-objdump -d probe-artifact/P001MID.EXE > probe-artifact/pe-disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' probe-artifact/pe-disassembly.txt; then
+            echo 'WIN95 PENTIUM P54C INCOMPATIBLE: CMOV detected'; exit 1
+          fi
+          if grep -Eiq '[[:space:]](pavg|pmul|movaps|movups|xmm[0-9]|sysenter)[a-z0-9]*' probe-artifact/pe-disassembly.txt; then
+            echo 'WIN95 PENTIUM P54C INCOMPATIBLE: post-P5 instruction'; exit 1
+          fi
           sha256sum probe-artifact/P001MID.EXE | tee probe-artifact/P001MID.sha256
           echo 'P001_WIN95_CRT_FREE_PE32_AND_DLL_IMPORTS_VERIFIED'
           echo 'NOTE: Windows-95 original Creative playback NOT YET EXECUTED by this compile-only job'
