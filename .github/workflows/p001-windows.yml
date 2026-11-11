@@ -68,6 +68,12 @@ jobs:
           if ($text -notmatch 'Result: (\d+) tests passed, 0 tests failed') { throw 'No Steinberg validator completed PASS summary' }
           if ([int]$Matches[1] -lt 30) { throw 'Steinberg validator ran too few tests' }
           Write-Host "P001_STEINBERG_VALIDATOR_PASS tests=$($Matches[1]) genuine_rom=TRUE"
+          cmake --build build-vst3 --config Release --parallel 2 --target awe64_p001_vst3_host
+          if ($LASTEXITCODE -ne 0) { throw 'Real DLL MIDI host test failed to build' }
+          $hostExe = Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p001_vst3_host.exe' | Where-Object { $_.DirectoryName -match 'Release' } | Select-Object -First 1
+          if (-not $hostExe) { throw 'No actual VST3 MIDI host executable' }
+          & $hostExe.FullName $dll.FullName $env:AWE64_P001_ROM_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Real exported DLL MIDI NoteOn/NoteOff failed' }
       - name: Delete real Creative ROM, WAV, traces and per-run private diagnostics from runner
         if: always()
         shell: pwsh
