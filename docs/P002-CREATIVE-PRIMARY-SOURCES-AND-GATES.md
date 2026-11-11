@@ -2,6 +2,10 @@
 
 **IN DEVELOPMENT — not an original driver sound fidelity PASS.**
 
+**NEW INDEPENDENT ORIGINAL WIN95/CREATIVE EVIDENCE (11 Nov 2026):** 62/62 actual WinMM MIDI commands accepted with guest success marker, 7 scenarios, 13/13 original physical voice starts matched to NoteOns, 94,445 independently captured chip register events, and **23,367,120/23,367,120 PCM16 samples exactly identical** between original Creative/86Box output and subsequently replayed chip adapter. Deliberately mutated audible original sample failed at its exact frame/channel. See [P002 actual original Creative matrix evidence](P002-ORIGINAL-CREATIVE-WIN95-MATRIX-EVIDENCE.md). **This DOES NOT certify an independent native Creative MIDI-to-register translator, which remains P002 work.**
+
+
+
 ## First confirmed Windows implementation / shared Test Lab evidence
 
 [Actions #43094301052](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43094301052), source head ad3a5340be282935d6162ac3d9e9b5dae1de92ae, **SUCCESS** in both jobs:
