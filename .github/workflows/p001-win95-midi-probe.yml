@@ -1,0 +1,56 @@
+name: P001 Win95 CRT-free original Creative WinMM note probe
+on:
+  push:
+    branches: [develop/p001-fork-chip-parity]
+    paths:
+      - src/win95/p001_original_creative_midi_probe.c
+      - .github/workflows/p001-win95-midi-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-win95-probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Win95-compatible i686 compiler and PE inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Build true Windows 95 PE32 with KERNEL32 + WINMM only (NO CRT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-artifact
+          i686-w64-mingw32-gcc \
+            -Os -Wall -Wextra -Werror -std=c99 \
+            -ffreestanding -fno-builtin -fno-stack-protector -nostdlib \
+            -Wl,-e,_p001_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o probe-artifact/P001MID.EXE \
+            src/win95/p001_original_creative_midi_probe.c \
+            -lwinmm -lkernel32 -lgcc
+          file probe-artifact/P001MID.EXE
+          test "$(stat -c %s probe-artifact/P001MID.EXE)" -gt 2048
+          i686-w64-mingw32-objdump -p probe-artifact/P001MID.EXE > probe-artifact/pe-headers.txt
+          grep -q 'DLL Name: KERNEL32.dll' probe-artifact/pe-headers.txt
+          grep -q 'DLL Name: WINMM.dll' probe-artifact/pe-headers.txt
+          if grep -Ei 'DLL Name:.*(MSVCRT|UCRT|VCRUNTIME|MSVCP)' probe-artifact/pe-headers.txt; then
+            echo 'INVALID Windows 95 binary: modern CRT imported'; exit 1
+          fi
+          if grep -Ei 'DLL Name:' probe-artifact/pe-headers.txt | grep -Eiv 'KERNEL32|WINMM'; then
+            echo 'INVALID Windows 95 binary: unexpected imported DLL'; exit 1
+          fi
+          grep -Eq 'MajorSubsystemVersion[[:space:]]+00000004' probe-artifact/pe-headers.txt
+          grep -Eq 'MinorSubsystemVersion[[:space:]]+00000000' probe-artifact/pe-headers.txt
+          sha256sum probe-artifact/P001MID.EXE | tee probe-artifact/P001MID.sha256
+          echo 'P001_WIN95_CRT_FREE_PE32_AND_DLL_IMPORTS_VERIFIED'
+          echo 'NOTE: Windows-95 original Creative playback NOT YET EXECUTED by this compile-only job'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p001-crt-free-win95-original-creative-winmm-probe
+          path: probe-artifact/
+          retention-days: 3
+          if-no-files-found: error
