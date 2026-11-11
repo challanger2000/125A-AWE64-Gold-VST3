@@ -1,5 +1,8 @@
 # P001 provenance and acceptance (not a release report)
 
+**CURRENT RT GATE (11 Nov 2026):** Real Windows exported VST3 callback audit using a positive-control-verified `ntdll!RtlAllocateHeap` hook in an independent host: **1,200 callbacks / 303,450 frames / 416,158 nonzero values / 0 heap calls / 0 allocated bytes**, original env-triggered EMU8000 state-dump file **0 bytes** after 12,800-frame regression. Windows Actions **#43088493529 SUCCESS**, 537 Steinberg validator tests, 2/2 CTests. Details and limits in `docs/P001-RT-HEAP-AND-DEBUG-IO-AUDIT.md`. Studio One/ASIO on physical Windows audio hardware and other allocation paths remain unverified.
+
+
 **LATEST SUPERSEDING EVIDENCE:** 11 Nov 2026 independent Win95 original-Creative FIVE-NOTE musical digital PCM parity PASS, 12,861,520/12,861,520 samples, 398,777 nonzero, 93,445 real guest chip-register operations. See docs/P001-ORIGINAL-CREATIVE-VM-MUSICAL-PCM-PASS.md. Earlier NO-GO language below describes historical pre-capture gaps, not the current conclusion. Studio One/RT and full SBK/SF2 are still open.
 
 - New project: `challanger2000/125A-AWE64-Gold-VST3`, development branch `develop/p001-fork-chip-parity`.
