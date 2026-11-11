@@ -17,7 +17,7 @@ import sys
 import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verify_original_media import verify as verify_media, ROM_SHA, SBK_SHA
+from verify_original_media import verify as verify_media, checked_file, ROM_SHA, SBK_SHA
 
 
 def sha(path: Path) -> str:
@@ -65,12 +65,18 @@ def pcm_stats(path: Path) -> tuple[int, int, int]:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--rom", type=Path, required=True)
-    p.add_argument("--sbk", type=Path, required=True)
+    p.add_argument("--sbk", type=Path, help="Optional original Creative 1MGM bank (not required for direct ROM voice test)")
     p.add_argument("--direct", type=Path, required=True, help="Original-fork fixture executable")
     p.add_argument("--replay", type=Path, required=True, help="Native VST3-chip adapter replay executable")
     p.add_argument("--out", type=Path, required=True, help="New PRIVATE output directory outside repository")
     args = p.parse_args()
-    verify_media(args.rom, args.sbk)
+    if args.sbk is not None:
+        verify_media(args.rom, args.sbk)
+    else:
+        verified_rom = checked_file(args.rom, 1048576, ROM_SHA)
+        if verified_rom[6:10] != b"M1MG":
+            raise ValueError("ROM is not the original 1MGM/AWE-DUMP Wave ROM")
+        print("P001 original ROM SHA256 verified; SYNTHGM.SBK NOT PRESENT IN THIS CI JOB")
     root = Path(__file__).resolve().parent.parent
     private = args.out.resolve()
     if private == root or root in private.parents:
@@ -101,7 +107,8 @@ def main() -> None:
             "fork_core_commit": "fee1e81977824fd2d5eed4d239589dc30d251dd7",
             "fork_chip_blob": "e60eb10f00a8e1187380faa25989f6ba0433d99a",
             "private_rom_sha256": ROM_SHA,
-            "private_sbk_sha256": SBK_SHA,
+            "private_sbk_sha256": SBK_SHA if args.sbk is not None else None,
+            "sbk_program_translation": "NOT RUN",
             "pcm_44100_stereo_frames": frames,
             "pcm16_samples_equal": frames * 2,
             "nonzero_pcm16": nonzero,
