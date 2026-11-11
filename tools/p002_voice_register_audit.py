@@ -90,6 +90,11 @@ def decode(events):
             continue
         data,part=info
         voice,reg=pointer
+        # A22 is HIGH 16 of Data1 for CCCA / global 32-bit
+        # registers, but an independent Data2 word for envelopes.
+        if port==0xA22 and (reg==0 or
+            (reg==1 and voice in (9,10,13,20,21,22,23))):
+            data,part="DATA1","high"
         if data=="DATA0": name=DATA0[reg]
         elif data=="DATA1":
             name=GLOBAL1.get(voice) if reg==1 else DATA1.get(reg)
@@ -102,13 +107,13 @@ def decode(events):
             continue
         value32=value
         complete=True
-        if data=="DATA0" or (data=="DATA1" and reg in (0,1) and name not in
-            ("SMLD","HWCF1","HWCF2","HWCF3")):
+        if data=="DATA0" or (data=="DATA1" and (reg==0 or
+            (reg==1 and voice in (9,10,13,20,21,22,23)))):
             # Single 16-bit memory registers are not doublewords, and
             # HWCF1/2/3 live on Data1-word.
             key=(voice,reg,data)
             low,high=halves.get(key,(None,None))
-            if part=="high" or (data=="DATA1" and port==0xA22):
+            if part=="high":
                 high=value
             else:
                 low=value

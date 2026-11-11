@@ -44,6 +44,29 @@ class RegisterSemantics(unittest.TestCase):
         self.assertEqual(r[1]["pitch_target_16bit"],0x4000)
         self.assertEqual(r[3]["pan_8bit"],0x80)
         self.assertEqual(r[3]["loop_start_24bit"],0xAB1234)
+    def test_original_ccca_resonance_32bit_data1_pair(self):
+        rows=mod.decode([(8,"WRITE",0xe22,4),
+                         (8,"WRITE",0xa20,0x3456),
+                         (8,"WRITE",0xa22,0xA012)])["writes"]
+        self.assertEqual(len(rows),2)
+        self.assertFalse(rows[0]["complete_32bit"])
+        self.assertEqual(rows[1]["name"],"CCCA")
+        self.assertTrue(rows[1]["complete_32bit"])
+        self.assertEqual(rows[1]["filter_resonance_Q_4bit"],10)
+        self.assertEqual(rows[1]["current_sample_address_24bit"],0x123456)
+
+    def test_original_data2_envelope_is_independent_word(self):
+        rows=mod.decode([(0,"WRITE",0xe22,(4<<5)|8),
+                         (0,"WRITE",0xa22,0x7F7F)])["writes"]
+        self.assertEqual(rows[-1]["name"],"ATKHLDV")
+
+    def test_original_global_data1_32bit_ram_address(self):
+        rows=mod.decode([(0,"WRITE",0xe22,(1<<5)|22),
+                         (0,"WRITE",0xa20,0x5678),
+                         (0,"WRITE",0xa22,0x1234)])["writes"]
+        self.assertEqual(rows[-1]["name"],"SMALW")
+        self.assertTrue(rows[-1]["complete_32bit"])
+
     def test_unpaired_32bit_does_not_mint_fake_reverb(self):
         r=mod.decode([(0,"WRITE",0xe22,(1<<5)|2),
                       (0,"WRITE",0x620,0x8000)])
