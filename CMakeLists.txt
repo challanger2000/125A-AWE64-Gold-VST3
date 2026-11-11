@@ -59,3 +59,37 @@ add_test(NAME p001_direct_fork_pcm_and_negative_controls
   "$<TARGET_FILE:awe64_direct_fork_fixture>" "$<TARGET_FILE:awe64_replay>")
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.
+
+# P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
+# This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
+option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
+if(AWE64_BUILD_P001_VST3)
+    if(NOT WIN32)
+        message(FATAL_ERROR "125A AWE64 Gold VST3 targets Windows x64 only")
+    endif()
+    set(AWE64_VST3_SDK_ROOT "${CMAKE_SOURCE_DIR}/external/vst3sdk" CACHE PATH "Pinned VST3 SDK root")
+    if(NOT EXISTS "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp")
+        message(FATAL_ERROR "Pinned recursive Steinberg SDK checkout missing")
+    endif()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${AWE64_VST3_SDK_ROOT}" rev-parse HEAD
+        OUTPUT_VARIABLE SDK_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE SDK_RC)
+    if(NOT SDK_RC EQUAL 0 OR NOT SDK_HEAD STREQUAL "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96")
+        message(FATAL_ERROR "Unexpected Steinberg VST3 SDK revision: ${SDK_HEAD}")
+    endif()
+    set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
+    set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${AWE64_VST3_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
+    smtg_add_vst3plugin(AWE64_Gold_P001
+        src/vst3/P001Minimal.h
+        src/vst3/P001Minimal.cpp
+        src/vst3/P001Factory.cpp
+        "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
+        "${AWE64_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
+    target_include_directories(AWE64_Gold_P001 PRIVATE
+        "${AWE64_VST3_SDK_ROOT}")
+    target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip)
+    target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
+    smtg_target_configure_version_file(AWE64_Gold_P001)
+endif()

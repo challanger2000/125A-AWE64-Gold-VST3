@@ -46,6 +46,22 @@ jobs:
         run: |
           Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-real-rom-audio') -Recurse -Force -ErrorAction SilentlyContinue
+      - name: Fetch pinned Steinberg VST3 SDK (development only)
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.8.1_build_84 --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK clone or submodules failed' }
+          if ((git -C external/vst3sdk rev-parse HEAD).Trim() -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw 'VST3 SDK checkout commit mismatch' }
+      - name: Build real minimal Windows VST3 from original fork
+        shell: pwsh
+        run: |
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON
+          if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 SDK configure failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
+          if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 build failed' }
+          $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' | Where-Object { $_.DirectoryName -match 'x86_64-win' } | Select-Object -First 1
+          if (-not $dll) { throw 'Real exported VST3 DLL not found: no pretend PASS' }
+          Write-Host "P001_REAL_VST3_DLL_BUILT $($dll.FullName) SHA256=$((Get-FileHash $dll.FullName -Algorithm SHA256).Hash)"
       - name: Gate declaration
         shell: pwsh
         run: |
