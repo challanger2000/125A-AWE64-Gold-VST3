@@ -73,3 +73,20 @@ Daraus darf keine künstlich angenäherte allgemeine Velocitykurve oder pro-Pres
 tools/p002_original_matrix_audit.py prüft privat ROM-Digest, tatsächlichen Win95-Creative-Gerätenamen, 62/62 WinMM-Nachrichten, sieben Szenarien, 13 originale Notenstarts, korreliertes Originalzeitverhalten, nicht stummes Original-PCM, Original-EMU8K_REGISTER-Trace, den bitidentischen eigenen Chip-Renderer und eine absichtlich **hörbare** ein-Bit-Fehlermutation. Fehlende private Daten, falsche Geräte, beschädigte MIDI-Logs und unkorrelierte Noten müssen hart scheitern. Die öffentliche Windows-CI führt nur **synthetische konträre Testdaten** für dieses Prüftool aus; sie enthält keine private VM.
 
 Noch nicht implementiert: die tatsächlich eigenständig erzeugte P002-Registerfolge aus MIDI-Daten (Stimmenallokation, Program-/Bankwahl, Filter, ADSR, Effekte) und ihr eigenständiger Originaltreiber-Registervergleich. Bank-Sample-Upload/SF2 Generatoren bleiben P003. Das bereits vorhandene 125A Plugin Test Lab bleibt während der Entwicklung integriert; Studio One und physisches ASIO erst zur abschließenden GUI-/Produktabnahme.
+
+
+## Zusatzabnahme: CI-geprüftes P002-Orakel wirklich an Original-Creative-Daten ausgeführt
+
+Der seit Commit 2358a6d70d286ac408dcebd88ed48defa05d24eb vorhandene Prüfpfad wurde NICHT nur als theoretischer Vergleich beschrieben. Die exakt vom Windows-CI-Prozess geprüften öffentlichen Quellen p002_original_matrix_audit.py und p002_register_oracle.py wurden über das GitHub Actions Artifact **13901276537** von [Actions #43121702340](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43121702340) übernommen. Derselbe unveränderte Prüfer wurde anschließend gegen die echte private Win95-Creative-MIDI-Gastlogdatei, das Original-1-MiB-ROM, den synchronen originalen Porttrace und die originale PCM16-WAV in einer privaten isolierten Linux-Umgebung ausgeführt.
+
+Die tatsächliche Ausgabe:
+
+    P002_REAL_CREATIVE_MATRIX_AND_ORIGINAL_CHIP_REPLAY_PASS midi=62 voice_starts=13 pcm16=23367120 meaningful_samples=732855 registers=94445 native_Creative_driver_implementation=NOT_VERIFIED
+
+Das maschinenlesbare private JSON bestätigt eine maximale zeitliche Original-MIDI-/Hardwarevoice-Residue von **0,372997282 ms**, **13/13** Stimmenstarts, **94.445** Originalregister und **23.367.120/23.367.120** bitidentische PCM16-Samples.
+
+**Separater automatischer musikalischer Mutantentest:** Das geprüfte Skript veränderte eine **Kopie** des Originals bei **Frame 5.659.846, Kanal 0**, und der echte native Replay lokalisierte dieses absichtlich falsche Sample mit **Exitcode 11**. Die zuvor manuell ausgeführte Negativkontrolle bei Frame 5.865.300 / Kanal 1 bleibt als ein zweiter, unabhängiger Test dokumentiert; die unterschiedlichen Framezahlen sind daher korrekt.
+
+Die Original-WAV blieb unangetastet und behält SHA-256 **6caffd53416426ebcf7039ee6bcf8b595f771954123e31f9d50c07cefeaeee9c**. Der private Abnahmebericht heißt P002-original-Win95-Creative-audit.json und liegt nur im privaten Testverzeichnis, niemals im öffentlichen Repository.
+
+**Nach wie vor kein behaupteter P002-Treiber-PASS:** Die native Chipengine reproduziert die **zuvor vom originalen Creative-Treiber erzeugte Registerspur**. Ein aus MIDI-Nachrichten eigenständig generierter, gegen das Original geprüfter Creative-Register-Translator ist noch offen. Die 125A-Test-Lab-Prüfungen und weitere P002-Entwicklung laufen separat weiter.
