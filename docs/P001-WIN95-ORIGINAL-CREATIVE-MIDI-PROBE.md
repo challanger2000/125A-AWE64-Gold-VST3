@@ -35,3 +35,7 @@ kein Windows-95-Datenträger und keine ROM-Samples werden veröffentlicht.
 ## Nachtrag – tatsächlich ausgeführter Original-Win95-MIDI-Test
 
 Die Testanwendung wurde im Win95-Gast ausgeführt: echtes Creative-WinMM-Gerät SB AWE32 MIDI Synth [620], fünf NoteOn/NoteOff-Paare alle mit Rückgabecode 0; private Gastlogdatei und 86Box-Register-/WAV-Aufzeichnung liegen vor. Der separate native Chip-Replay verglich **12.861.520 Original-PCM16-Samples exakt**, davon **398.777 nicht stumm**, eine musikalische Ein-Bit-Mutante wurde korrekt verworfen. Das Testprogramm verursachte erst nach Ausgabe der Noten eine ungültige Operation beim Abschluss, daher ist dessen sauberer Exit ausdrücklich **nicht** nachgewiesen. Vollständige Messungen: docs/P001-ORIGINAL-CREATIVE-VM-MUSICAL-PCM-PASS.md.
+
+## Korrigierter Pentium-P54C-Test – gültiger zweiter Lauf
+
+Der originale i686-Compiler erzeugte CMOVNE (0F 45 C2), auf Pentium P54C illegal: Win95-Absturzadresse 0x004014B9 nach fünf erfolgreichen Notenpaaren. Der neue Build benutzt -march=pentium -mtune=pentium und prüft PE-Disassembly gegen CMOV. In der echten Win95-VM mit AWE64 Gold (28 MiB RAM) war anschließend der Abschlussmarker P001_GUEST_WINMM_MESSAGES_SENT_OK vorhanden, ohne Fehlerdialog. Die zweite von 86Box selbst erzeugte Register-/WAV-Aufnahme wurde unabhängig vom nativen Adapter mit **8.972.880 von 8.972.880 PCM16-Samples identisch** abgespielt. Negative hörbare Sampleänderung bei Frame 2.933.838/Kanal 1 führte zu Exitcode 11. Details und exakte SHA256: docs/P001-ORIGINAL-CREATIVE-VM-MUSICAL-PCM-PASS.md.

@@ -39,6 +39,8 @@ def guest_check(path):
             raise ValueError("Original Creative guest not proven: " + marker)
     if "P001_GUEST_WINMM_MESSAGES_FAILED" in t:
         raise ValueError("Original driver signaled MIDI failure")
+    if "P001_GUEST_WINMM_MESSAGES_SENT_OK" not in t:
+        raise ValueError("Original Win95 MIDI probe lacks clean successful completion marker")
     for marker in ("RESET_ALL_CONTROLLERS", "PROGRAM_0_ROM_GM",
                    "CC7_VOLUME", "CC11_EXPRESSION"):
         if not re.search(r"^" + marker + r" value=0x[0-9A-F]{8} result=0x00000000$", t, re.M):
@@ -181,7 +183,8 @@ def main():
         "gate": "INDEPENDENT 86BOX AWE32 ORIGINAL WIN95 CREATIVE MUSICAL PCM PASS",
         "original_driver": "SB AWE32 MIDI Synth [620]",
         "guest_note_on_off_pairs": pairs,
-        "guest_program_clean_shutdown": "NOT VERIFIED: crashed after the final MIDI messages",
+        "guest_completion_marker_observed": True,
+        "guest_completion": "Original Win95 MIDI probe logged SENT_OK and returned to desktop; OS exit status not independently captured",
         "rom_sha256": ROM_SHA,
         "trace_sha256": digest(trace),
         "fork_wav_sha256": digest(fork_wav),

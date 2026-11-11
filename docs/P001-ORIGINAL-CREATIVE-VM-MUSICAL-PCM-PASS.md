@@ -1,5 +1,66 @@
 # P001 – unabhängiger echter Creative-MIDI-/EMU8000-Klangnachweis
 
+## Erneuter Abschlusslauf mit korrigiertem Pentium-P54C-Programm – vollständig PASS
+
+Die erste unabhängige Aufnahme oben war bereits musikalisch bitidentisch,
+aber das Win95-Testprogramm stürzte *nach den gesendeten Noten* ab.
+Die Ursache wurde in der tatsächlichen ausführbaren Win95-PE32-Datei
+disassembliert: Compilerdefault i686 enthielt **CMOVNE (0F 45 C2) bei
+Adresse 0x004014B7**, obwohl die VM einen **Pentium P54C bei 133 MHz**
+ohne CMOV-Unterstützung emuliert. Die VM meldete die ungültige Instruktion
+bei **0x004014B9**. Das ist ein CPU-Instruktionssatzfehler unseres
+Win95-Testtools, **kein Fehler des originalen Creative-Treibers und
+keine EMU8000-Klangabweichung**.
+
+Im GitHub-CI wurde der Compiler auf Pentium-kompatible
+**-march=pentium -mtune=pentium** umgestellt, mit einer
+Disassembly-Prüfung, die CMOV und andere Post-P5-Befehle hart verwirft.
+[Win95-PE32 Build #43084099814](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43084099814)
+hat diese Prüfung bestanden. SHA256 des korrigierten, selbstgeschriebenen
+P001MID.EXE:
+**7f39d847fdc3fbbe351a539fee1cf0a5fbbab059bc25ed3d391c55f387f1d63f**.
+
+Die unabhängige Original-VM wurde mit diesem korrigierten Win95-Testprogramm
+**erneut** aus einer frischen privaten Festplattenkopie gestartet. Diesmal
+stehen alle zehn erfolgreichen NoteOn/Off-Meldungen **und**
+der finale **P001_GUEST_WINMM_MESSAGES_SENT_OK**-Marker im tatsächlichen
+Win95-Gastlog. Das Programm verschwand regulär vom Windows-95-Desktop;
+es erschien **keine** Absturzmeldung. Der finale Windows-Exitcode
+wurde nicht separat vom Gastprozess abgefragt.
+
+### Neue, gültige Musikkapazität – nicht die ältere Absturzaufnahme
+
+| Echte Original-VM-Messung | Neuer Wert |
+|---|---:|
+| Original-ROM SHA256 | 4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e |
+| EMU8000-RAM | 28 MiB = 28.672 KiB |
+| Original-Creative-WinMM-Befehle | 5 NoteOn / 5 NoteOff, alle Returncodes 0 |
+| Win95-Testprogramm | **SENT_OK, auf Desktop zurückgekehrt, keine Fehlerdialoge** |
+| Eigene Original-EMU8000-Portereignisse | **93.445** (49.282 Writes + 44.163 Reads) |
+| Portwrites während hörbarer Musik | 530 |
+| Stereo PCM16 / 44.100 Hz | **4.486.440 Frames** |
+| Original/native PCM16-Samples | **8.972.880 / 8.972.880 bitidentisch** |
+| Nicht stumme Originalsamples | **398.765** |
+| Sample-Spitzenwert | 6.893 |
+| Hörbarer Bereich | Sekunde 66–70 |
+| Gültige negative Ein-Bit-Mutante im Musiksignal | Frame 2.933.838, Kanal 1; Replay **Exit 11** |
+| Original EMU8K_TRACE SHA256 | 2699947ffbf1cbab47be996b11fd05c20fca45424572db698e08ca9d6cce4ddc |
+| Original AWE32_WAV SHA256 | 3ee11e9aa19138890532b3cdd228d0f07298c89211173f06643c46fe5e1270d8 |
+| Native Adapter-WAV SHA256 | **3ee11e9aa19138890532b3cdd228d0f07298c89211173f06643c46fe5e1270d8** |
+| Gastprotokoll SHA256 | e2585e81c9d3e22c1b5d6e8f31c3215cf2283a02d60d0603e8e66ee25ab493ec |
+
+Die exakte Wiedergabe des **neu** aufgezeichneten Treibersignals:
+
+    P001 fork-vs-native PCM16 IDENTICAL: 4486440 stereo frames, 8972880 individual samples, 93445 register events
+
+Der im Repository hinzugefügte strenge originale Win95-/Creative-Oracle
+verlangt ab jetzt auch den tatsächlichen Abschlussmarker SENT_OK.
+Eine unvollständige oder abgestürzte Probe darf nicht als **vollständiger
+Gastprozess-Referenzlauf** gelten. Der frühere Capture bleibt als
+historischer technischer Nachweis erhalten, wird aber durch
+diesen sauberen musikalischen zweiten Lauf abgelöst.
+
+
 **11. November 2026 – private echte 86Box-AWE32-/Windows-95-VM, musikalischer Vergleich: PASS.**
 
 Der frühere reine Boot-Vergleich war fast stumm. Diese separate

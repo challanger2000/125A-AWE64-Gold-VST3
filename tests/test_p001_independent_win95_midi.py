@@ -32,6 +32,7 @@ def valid_log():
     for pitch in gate.PITCHES:
         lines.append(f"NOTE_ON value=0x{(0x90|(pitch<<8)|(100<<16)):08X} result=0x00000000")
         lines.append(f"NOTE_OFF value=0x{(0x80|(pitch<<8)):08X} result=0x00000000")
+    lines.append("P001_GUEST_WINMM_MESSAGES_SENT_OK")
     return "\n".join(lines)+"\n"
 
 
@@ -87,6 +88,12 @@ class OriginalWin95NegativeControls(unittest.TestCase):
         p.write_text("# initialized only\n5 E22 00E0\n",encoding="ascii")
         with self.assertRaisesRegex(ValueError,"No meaningful original Creative port activity"):
             gate.trace_check(p,5000,0,5000)
+
+
+    def test_missing_successful_guest_completion_is_rejected(self):
+        contents=valid_log().replace("P001_GUEST_WINMM_MESSAGES_SENT_OK\n","")
+        with self.assertRaisesRegex(ValueError,"completion marker"):
+            gate.guest_check(self.log(contents))
 
     def test_wrong_owner_rom_sha_fails(self):
         p=self.root/"wrong.raw"
