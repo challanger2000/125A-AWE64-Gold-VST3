@@ -37,6 +37,14 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: Execute actual Release regression assertions
         run: ctest --test-dir build -C Release --verbose --output-on-failure
+      - name: Confirm independent Win95 musical oracle rejects fake guest, silence and bad registers
+        shell: pwsh
+        run: |
+          & python -m py_compile tools/p001_verify_independent_win95_midi.py
+          if ($LASTEXITCODE -ne 0) { throw 'Independent Win95 original-driver oracle syntax invalid' }
+          & python -m unittest discover -s tests -p test_p001_independent_win95_midi.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent-original-music fail-closed regressions failed' }
+          Write-Host "P001_REAL_VM_ORACLE_NEGATIVE_CONTROLS_PASS; NO PRIVATE_WIN95_VM_IN_CI"
       - name: Verify genuine 1-MiB Creative ROM from pinned 86Box ROMs repository (ephemeral only)
         shell: pwsh
         run: |
