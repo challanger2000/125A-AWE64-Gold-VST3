@@ -8,6 +8,8 @@ on:
       - 'tests/test_p002_register_oracle.py'
       - 'tools/p002_register_oracle.py'
       - 'tools/p002_voice_register_audit.py'
+      - 'tools/p002_original_matrix_audit.py'
+      - 'tests/test_p002_original_matrix_audit.py'
       - 'tests/test_p002_voice_register_audit.py'
       - 'CMakeLists.txt'
       - '.github/workflows/p002-windows.yml'
@@ -34,7 +36,7 @@ jobs:
       - name: Strict negative controls for register timing, direction, port, bits, order, and missing events
         shell: pwsh
         run: |
-          python -m py_compile tools/p002_register_oracle.py tools/p002_voice_register_audit.py tests/test_p002_register_oracle.py tests/test_p002_voice_register_audit.py
+          python -m py_compile tools/p002_register_oracle.py tools/p002_voice_register_audit.py tests/test_p002_register_oracle.py tests/test_p002_voice_register_audit.py tools/p002_original_matrix_audit.py tests/test_p002_original_matrix_audit.py
           if ($LASTEXITCODE -ne 0) { throw 'P002 strict oracle Python syntax invalid' }
           python -m unittest discover -s tests -p 'test_p002_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
