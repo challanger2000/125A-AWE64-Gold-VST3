@@ -40,12 +40,6 @@ jobs:
           }
           Write-Host "P001_REAL_OWNER_MATCHED_ROM_CORE_PCM_VERIFIED total_pcm16=$($audit.pcm16_samples_equal) nonzero=$($audit.nonzero_pcm16) SHA256=$($audit.direct_wav_sha256)"
           Write-Host "Original independent Creative/Win95 running-86Box differential: NOT RUN"
-      - name: Delete real Creative ROM, WAV, traces and per-run private diagnostics from runner
-        if: always()
-        shell: pwsh
-        run: |
-          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw') -Force -ErrorAction SilentlyContinue
-          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-real-rom-audio') -Recurse -Force -ErrorAction SilentlyContinue
       - name: Fetch pinned Steinberg VST3 SDK (development only)
         shell: pwsh
         run: |
@@ -55,13 +49,31 @@ jobs:
       - name: Build real minimal Windows VST3 from original fork
         shell: pwsh
         run: |
-          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DSMTG_RUN_VST_VALIDATOR=OFF
           if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 SDK configure failed' }
           cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
           if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 build failed' }
           $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' | Where-Object { $_.DirectoryName -match 'x86_64-win' } | Select-Object -First 1
           if (-not $dll) { throw 'Real exported VST3 DLL not found: no pretend PASS' }
           Write-Host "P001_REAL_VST3_DLL_BUILT $($dll.FullName) SHA256=$((Get-FileHash $dll.FullName -Algorithm SHA256).Hash)"
+          $env:AWE64_P001_ROM_PATH = Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw'
+          if (-not (Test-Path $env:AWE64_P001_ROM_PATH)) { throw 'Private real ROM was removed before validator' }
+          cmake --build build-vst3 --config Release --parallel 2 --target validator
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg validator did not build' }
+          $validator = Get-ChildItem build-vst3 -Recurse -File -Filter 'validator.exe' | Select-Object -First 1
+          if (-not $validator) { throw 'Steinberg validator binary missing' }
+          & $validator.FullName -e (Join-Path 'build-vst3/VST3/Release' 'AWE64_Gold_P001.vst3') 2>&1 | Tee-Object $env:RUNNER_TEMP\p001-vst3-validator.log
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg validator found P001 VST3 defects' }
+          $text = Get-Content $env:RUNNER_TEMP\p001-vst3-validator.log -Raw
+          if ($text -notmatch 'Result: (\d+) tests passed, 0 tests failed') { throw 'No Steinberg validator completed PASS summary' }
+          if ([int]$Matches[1] -lt 30) { throw 'Steinberg validator ran too few tests' }
+          Write-Host "P001_STEINBERG_VALIDATOR_PASS tests=$($Matches[1]) genuine_rom=TRUE"
+      - name: Delete real Creative ROM, WAV, traces and per-run private diagnostics from runner
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-real-rom-audio') -Recurse -Force -ErrorAction SilentlyContinue
       - name: Gate declaration
         shell: pwsh
         run: |
