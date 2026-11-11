@@ -18,6 +18,8 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
+#include <cwchar>
 #include <iostream>
 #include <stdexcept>
 
@@ -144,10 +146,15 @@ int wmain(int argc, wchar_t** argv) {
         wcscpy_s(debugFile, temp);
         wcscat_s(debugFile,L"125a-p001-render-must-not-write.txt");
         DeleteFileW(debugFile);
-        require(SetEnvironmentVariableW(L"EMU8K_STATE_DUMP",debugFile)!=0,
-                "Could not arm hostile fork debug environment");
-        require(SetEnvironmentVariableW(L"EMU8K_STATE_STEP",L"64")!=0,
-                "Could not arm hostile fork debug step");
+        // getenv() in the original C kernel reads the UCRT environment,
+        // which SetEnvironmentVariableW() alone does NOT necessarily refresh.
+        // _wputenv_s updates the C runtime AND the process environment.
+        require(_wputenv_s(L"EMU8K_STATE_DUMP",debugFile)==0,
+                "Could not arm hostile fork debug environment in C runtime");
+        require(_wputenv_s(L"EMU8K_STATE_STEP",L"64")==0,
+                "Could not arm hostile fork debug frame step in C runtime");
+        require(std::getenv("EMU8K_STATE_DUMP") != nullptr,
+                "Hostile C getenv state dump not activated; test would be vacuous");
         module=LoadLibraryW(argv[1]);
         require(module!=nullptr, "Cannot load actual Windows VST3 DLL");
         auto getter=reinterpret_cast<IPluginFactory*(*)()>(
@@ -227,8 +234,8 @@ int wmain(int argc, wchar_t** argv) {
         }
         factory->release(); factory=nullptr;
         FreeLibrary(module); module=nullptr;
-        SetEnvironmentVariableW(L"EMU8K_STATE_DUMP",nullptr);
-        SetEnvironmentVariableW(L"EMU8K_STATE_STEP",nullptr);
+        _wputenv_s(L"EMU8K_STATE_DUMP",L"");
+        _wputenv_s(L"EMU8K_STATE_STEP",L"");
         DeleteFileW(debugFile);
         return 0;
     } catch(const std::exception& e) {
