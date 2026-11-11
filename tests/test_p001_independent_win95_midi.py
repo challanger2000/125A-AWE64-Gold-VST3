@@ -85,7 +85,7 @@ class OriginalWin95NegativeControls(unittest.TestCase):
     def test_missing_register_activity_fails(self):
         p=self.root/"boot-only.trace"
         p.write_text("# initialized only\n5 E22 00E0\n",encoding="ascii")
-        with self.assertRaisesRegex(ValueError,"Insufficient"):
+        with self.assertRaisesRegex(ValueError,"No meaningful original Creative port activity"):
             gate.trace_check(p,5000,0,5000)
 
     def test_wrong_owner_rom_sha_fails(self):
