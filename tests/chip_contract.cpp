@@ -29,9 +29,11 @@ int main() {
     REQUIRE(p->rom && p->ram && p->empty);
     REQUIRE(p->ram_end_addr == 0x1000000u);
     REQUIRE(p->ram_pointers[7] == p->rom + 7u*65536u);
-    REQUIRE(p->ram_pointers[8] == p->ram);
-    REQUIRE(p->ram_pointers[231] == p->ram + 223u*65536u);
-    REQUIRE(p->ram_pointers[232] == p->empty);
+    REQUIRE(p->ram_pointers[8] == p->empty);
+    REQUIRE(p->ram_pointers[31] == p->empty);
+    REQUIRE(p->ram_pointers[32] == p->ram);
+    REQUIRE(p->ram_pointers[255] == p->ram + 223u*65536u);
+    REQUIRE(p->ram_pointers[232] == p->ram + 200u*65536u);
 
     const std::array<int16_t,3> three = {123, -123, 456};
     REQUIRE(chip.uploadRam(kSampleRamBase, three));

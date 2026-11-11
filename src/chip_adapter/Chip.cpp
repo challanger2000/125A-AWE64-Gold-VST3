@@ -45,9 +45,9 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     emu8k_init(candidate.get(), 0, kSampleRamKiB);
     if (!candidate->rom || !candidate->ram ||
         candidate->ram_end_addr != kSampleRamEnd ||
-        candidate->ram_pointers[8] != candidate->ram ||
-        candidate->ram_pointers[231] != candidate->ram + (223u * 65536u) ||
-        candidate->ram_pointers[232] != candidate->empty) {
+        candidate->ram_pointers[32] != candidate->ram ||
+        candidate->ram_pointers[255] != candidate->ram + (223u * 65536u) ||
+        candidate->ram_pointers[31] != candidate->empty) {
         error = "Fork chip RAM/ROM mapping does not match 28 MiB hardware";
         return false;
     }
