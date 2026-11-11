@@ -1,0 +1,125 @@
+name: P001 Windows original core ROM and VST3 acceptance
+on:
+  push:
+    branches: [develop/p001-fork-chip-parity]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.gitmodules'
+      - 'third_party/**'
+      - '.github/workflows/p001-windows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'CMakeLists.txt'
+      - 'src/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.gitmodules'
+      - 'third_party/**'
+      - '.github/workflows/p001-windows.yml'
+concurrency:
+  group: p001-windows-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  chip-contract:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Configure pinned unmodified fork
+        run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release
+      - name: Build all chip/diagnostic targets
+        run: cmake --build build --config Release --parallel 2
+      - name: Execute actual Release regression assertions
+        run: ctest --test-dir build -C Release --verbose --output-on-failure
+      - name: Confirm independent Win95 musical oracle rejects fake guest, silence and bad registers
+        shell: pwsh
+        run: |
+          & python -m py_compile tools/p001_verify_independent_win95_midi.py
+          if ($LASTEXITCODE -ne 0) { throw 'Independent Win95 original-driver oracle syntax invalid' }
+          & python -m unittest discover -s tests -p test_p001_independent_win95_midi.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Independent-original-music fail-closed regressions failed' }
+          Write-Host "P001_REAL_VM_ORACLE_NEGATIVE_CONTROLS_PASS; NO PRIVATE_WIN95_VM_IN_CI"
+      - name: Verify genuine 1-MiB Creative ROM from pinned 86Box ROMs repository (ephemeral only)
+        shell: pwsh
+        run: |
+          $rom = Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw'
+          $source = 'https://raw.githubusercontent.com/86Box/roms/8cbb1acc575418e8afe9741a656dfd1c657574d1/sound/creative/awe32.raw'
+          & curl.exe -fLsS --retry 3 --retry-delay 2 --max-time 120 --output "$rom" "$source"
+          if ($LASTEXITCODE -ne 0) { throw 'Original Creative ROM failed to download from pinned official 86Box ROM repository revision' }
+          if ((Get-Item "$rom").Length -ne 1048576) { throw 'ROM is not exactly one MiB' }
+          $sha=(Get-FileHash "$rom" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne '4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e') { throw "Creative ROM SHA256 differs: $sha" }
+          $gitblob=(& git hash-object "$rom").Trim()
+          if ($gitblob -ne '345b5a177e1a75a41bf65d31e1a220c1641c72cb') { throw "Creative ROM Git blob differs: $gitblob" }
+          Write-Host "P001_GENUINE_CREATIVE_ROM_USER_SHA_MATCH source=86Box/roms@8cbb1ac bytes=1048576"
+          $privateOutput = Join-Path $env:RUNNER_TEMP 'P001-private-real-rom-audio'
+          & python tools/p001_real_rom_check.py --rom "$rom" --direct "build/Release/awe64_direct_fork_fixture.exe" --replay "build/Release/awe64_replay.exe" --out "$privateOutput"
+          if ($LASTEXITCODE -ne 0) { throw 'Real-ROM original-core/native-adapter audible PCM comparison FAILED' }
+          $audit=(Get-Content (Join-Path $privateOutput 'real-rom-audit.json') -Raw | ConvertFrom-Json)
+          if ($audit.pcm16_samples_equal -ne 176400 -or $audit.nonzero_pcm16 -le 2000 -or $audit.real_rom_plays_via_unmodified_core -ne $true -or $audit.independent_fork_vm_pcm_parity -ne 'NOT RUN') {
+            throw 'Real-ROM audio acceptance metadata incomplete or overclaims VM parity'
+          }
+          Write-Host "P001_REAL_OWNER_MATCHED_ROM_CORE_PCM_VERIFIED total_pcm16=$($audit.pcm16_samples_equal) nonzero=$($audit.nonzero_pcm16) SHA256=$($audit.direct_wav_sha256)"
+          Write-Host "Original independent Creative/Win95 running-86Box differential: NOT RUN"
+      - name: Fetch pinned Steinberg VST3 SDK (development only)
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.8.1_build_84 --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw 'VST3 SDK clone or submodules failed' }
+          if ((git -C external/vst3sdk rev-parse HEAD).Trim() -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw 'VST3 SDK checkout commit mismatch' }
+          git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git external/minhook
+          if ($LASTEXITCODE -ne 0) { throw 'Test-only allocation auditor MinHook clone failed' }
+          if ((git -C external/minhook rev-parse HEAD).Trim() -ne 'c3fcafdc10146beb5919319d0683e44e3c30d537') { throw 'Test allocation auditor dependency pin mismatch' }
+      - name: Build real minimal Windows VST3 from original fork
+        shell: pwsh
+        run: |
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DSMTG_RUN_VST_VALIDATOR=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 SDK configure failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
+          if ($LASTEXITCODE -ne 0) { throw 'P001 actual VST3 build failed' }
+          $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' | Where-Object { $_.DirectoryName -match 'x86_64-win' } | Select-Object -First 1
+          if (-not $dll) { throw 'Real exported VST3 DLL not found: no pretend PASS' }
+          Write-Host "P001_REAL_VST3_DLL_BUILT $($dll.FullName) SHA256=$((Get-FileHash $dll.FullName -Algorithm SHA256).Hash)"
+          $env:AWE64_P001_ROM_PATH = Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw'
+          if (-not (Test-Path $env:AWE64_P001_ROM_PATH)) { throw 'Private real ROM was removed before validator' }
+          cmake --build build-vst3 --config Release --parallel 2 --target validator
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg validator did not build' }
+          $validator = Get-ChildItem build-vst3 -Recurse -File -Filter 'validator.exe' | Select-Object -First 1
+          if (-not $validator) { throw 'Steinberg validator binary missing' }
+          & $validator.FullName -e (Join-Path 'build-vst3/VST3/Release' 'AWE64_Gold_P001.vst3') 2>&1 | Tee-Object $env:RUNNER_TEMP\p001-vst3-validator.log
+          if ($LASTEXITCODE -ne 0) { throw 'Steinberg validator found P001 VST3 defects' }
+          $text = Get-Content $env:RUNNER_TEMP\p001-vst3-validator.log -Raw
+          if ($text -notmatch 'Result: (\d+) tests passed, 0 tests failed') { throw 'No Steinberg validator completed PASS summary' }
+          if ([int]$Matches[1] -lt 30) { throw 'Steinberg validator ran too few tests' }
+          Write-Host "P001_STEINBERG_VALIDATOR_PASS tests=$($Matches[1]) genuine_rom=TRUE"
+          cmake --build build-vst3 --config Release --parallel 2 --target awe64_p001_vst3_host
+          if ($LASTEXITCODE -ne 0) { throw 'Real DLL MIDI host test failed to build' }
+          $hostExe = Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p001_vst3_host.exe' | Where-Object { $_.DirectoryName -match 'Release' } | Select-Object -First 1
+          if (-not $hostExe) { throw 'No actual VST3 MIDI host executable' }
+          & $hostExe.FullName $dll.FullName $env:AWE64_P001_ROM_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Real exported DLL MIDI NoteOn/NoteOff failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target awe64_p001_vst3_rt_host
+          if ($LASTEXITCODE -ne 0) { throw 'Actual DLL realtime allocation audit failed to compile' }
+          $rtHost = Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p001_vst3_rt_host.exe' | Where-Object { $_.DirectoryName -match 'Release' } | Select-Object -First 1
+          if (-not $rtHost) { throw 'Actual VST3 callback heap auditor executable missing' }
+          & $rtHost.FullName $dll.FullName $env:AWE64_P001_ROM_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Actual exported VST3 process() allocated heap memory, wrote debugging output or failed audio stress' }
+          Write-Host 'P001_WIN64_REAL_VST3_NTDLL_ALLOC_AUDIT_PASS; DAW_ASIO_DEVICE_NOT_TESTED'
+      - name: Delete real Creative ROM, WAV, traces and per-run private diagnostics from runner
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-awe32.raw') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'P001-private-real-rom-audio') -Recurse -Force -ErrorAction SilentlyContinue
+      - name: Gate declaration
+        shell: pwsh
+        run: |
+          Write-Host "Executed synthetic direct-core PCM parity and destructive controls, PLUS actual owner-identical Creative ROM direct-core/native PCM parity."
+          Write-Host "NO genuine Windows-95/Creative/86Box VM AWE32_WAV PCM parity proof in this job."
+          Write-Host "Minimal 44.1-kHz ROM-test VST3: genuine-ROM validator and MIDI host verification done. NO SBK/SF2/Creative original driver, no independent 86Box VM PCM or AWE64 physical fidelity claim."
