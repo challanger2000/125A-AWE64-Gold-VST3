@@ -1,5 +1,18 @@
 # P001 provenance and acceptance (not a release report)
 
+## P001 acceptance vs. final product acceptance — clarified 11 November 2026
+
+**P001 is technically implemented, tested, and ready for the independent control chat's review of [Issue #1](https://github.com/challanger2000/125A-AWE64-Gold-VST3/issues/1).** The original Issue #1 requires an unchanged pinned EMU8000 kernel, original ROM and 28 MiB RAM, native Windows register/PCM adapter, real independent fork original-driver PCM parity with mismatch controls, a minimum Windows VST3 with MIDI NoteOn/NoteOff and no audio render-thread heap allocations under measured conditions, and Windows CI. The corresponding real tests and version fingerprints are documented below; this is **not** a full-product soundbank/GUI/release PASS.
+
+**Correct development order and use of the existing 125A Plugin Test Lab:**
+
+1. **P001 technical core (now ready for control review):** verified source/ROM/RAM, genuine original Creative Win95 driver musical PCM, native exported Windows VST3, Steinberg validator, sampled MIDI and callback heap/no-debug-I/O probes. Control chat reviews the evidence; pending review is a governance state rather than a failed technical test.
+2. **P002/P003 and subsequent development:** original Creative `SYNTHGM.SBK` and SF2 loading, GM/bank/program mapping, actual original driver note/controller semantics, multi-voice behavior and further engine functionality. Run repeated **technical and automated tests in the shared [125A Plugin Test Lab](https://github.com/challanger2000/125A-Plugin-Test-Lab)** using P74/P75 universal native Windows VST3 QA, available P65/P67 product coverage, independent audio/state/reload/stress cases, and real source/binary SHA provenance. Explicit missing coverage stays `NOT RUN`, not PASS. A minimal no-GUI VST3 is valid for headless P73 inventory and technical QA.
+3. **Only at final GUI/product acceptance**, after soundbanks, controls, presentation and instrument behavior are implemented, undertake actual end-user **Studio One + physical ASIO** acceptance on the user's Windows machine. Earlier automated Host/Steinberg/Lab tests remain mandatory during development but **must not be held hostage by premature hardware/GUI testing**.
+
+The unmeasured physical ASIO/Studio One end-user session is **deliberately deferred**. It is **not a requirement for P001 completion under Issue #1** and should not be repeated as an early P001 blocker. The draft PR stays unmerged and the issue stays open until an independent control review; neither status proves P001 technical work incomplete.
+
+
 **CURRENT RT GATE (11 Nov 2026):** Real Windows exported VST3 callback audit using a positive-control-verified `ntdll!RtlAllocateHeap` hook in an independent host: **1,200 callbacks / 303,450 frames / 416,158 nonzero values / 0 heap calls / 0 allocated bytes**, original env-triggered EMU8000 state-dump file **0 bytes** after 12,800-frame regression. Windows Actions **#43088493529 SUCCESS**, 537 Steinberg validator tests, 2/2 CTests. Details and limits in `docs/P001-RT-HEAP-AND-DEBUG-IO-AUDIT.md`. Studio One/ASIO on physical Windows audio hardware and other allocation paths remain unverified.
 
 
