@@ -22,16 +22,16 @@ awe64_replay --rom <private/awe32.raw> --trace <independent.trace> --fork-wav <i
 ```
 Return code 0 means exact equality for **all compared interleaved PCM16 samples** and all returned register read values. A missing reference, mismatched capture boundaries, ROM mismatch, first differing register, frame or PCM sample is a hard fail, not silence-normalized or skipped PASS.
 
-**P001 acceptance remains BLOCKED until the exact independent ROM/trace/WAV data are available and executed.** No VST3 module, Creative driver or GUI is claimed implemented merely because the chip contract builds. Per Issue #1 the minimal VST3 is the *next step after* this parity gate; shipping an unverified module would violate the stated implementation order.
+**P001 final independent 86Box-VM PCM gate remains BLOCKED.** The genuine-ROM direct original-C-core vs adapter test now passes (176,400 exact PCM samples), and a minimal exported Windows VST3 exists and passes Steinberg validator and a genuine-ROM host MIDI test. This is not proof of a separately booted original Creative Win95 VM nor the physical AWE64 Gold; the issue remains open.
 
 ## Tests and negative controls
 
 - `p001_chip_ram_rom_contract`: actual 28 MiB mapping, first and final sampleable RAM word, reject reserved FM and out-of-bounds writes without mutation, reject malformed ROM, deterministic block partition. Always-active checks under Windows Release.
 - `tools/check_private_rom.py`: wrong digest and unsupported size fail closed.
 - `awe64_replay`: missing/invalid WAV, empty/nonmonotonic trace, register-read mismatch, and first PCM mismatch all fail with distinct exit codes. Must not be called a successful *fork differential* until an independent reference has actually been supplied.
-- Pending: negative mutation of valid independently captured WAV, full sample-RAM loading through original Creative port traffic, fork reference ROM voice, actual VST3/Studio One integration.
+- Pending: independently captured 86Box/Win95/Creative register + WAV and its mutant, complete bank loading through original Creative port traffic, Studio One/ASIO verification, and measured realtime allocation/deadline behavior. Genuine-ROM direct chip and actual VST3 unit/host tests already pass.
 
-Issue #1 is **not closed**. No production PCM identity or acoustic fidelity has been measured by these source changes alone.
+Issue #1 is **not closed**. Direct original-chip PCM identity and exported VST3-ROM test-audio are measured; independent booted Win95/Creative VM, physical AWE64 Gold, SBK/SF2 and production/preset acoustic fidelity are **not** measured.
 
 
 ## P001 additional direct-original-chip regression (2026-11-11)
@@ -40,7 +40,7 @@ Issue #1 is **not closed**. No production PCM identity or acoustic fidelity has 
 
 The accompanying Python adversarial test verifies that (a) the original core actually produces nonzero PCM, (b) all digital samples equal the adapter's output with different callback partitions, (c) a one-bit corrupted sample is identified at its precise frame and channel, (d) a mutated register-read result fails, and (e) an absent WAV hard-fails. The first write occurs at frame 11: real fork traces legitimately need not begin with an I/O operation at frame zero. This removes a false-negative condition from `awe64_replay`.
 
-An independent real 86Box/Creative captured reference with authenticated 28-MiB RAM/ROM identity **still remains the separate mandatory P001 acceptance gate**. A successful synthetic direct-core test must not be described as full 86Box VM/driver audio parity or as an actual physical card test.
+An independent running 86Box VM/Creative captured reference with authenticated 28-MiB RAM/ROM identity **still remains a separate mandatory P001 acceptance gate**. Synthetic or genuine-ROM direct-core/adapter tests must not be described as full Win95 VM/driver audio parity or as an actual physical card test.
 
 
 ## Native RAM port I/O negative boundary verification
@@ -53,12 +53,41 @@ The additional Windows contract now writes and reads RAM through the **original 
 
 `tools/p001_real_rom_check.py` prüft vorab die Original-ROM-/SBK-SHA256, verlangt tatsächlich nicht stummes PCM, vergleicht sämtliche 176.400 Stereo-PCM16-Samples einschließlich RIFF-Datei-SHA und schreibt ein rein privates JSON-Protokoll. Jede Ausgabe erfolgt ausschließlich **außerhalb des Git-Repositorys**, ohne Originaldateien in CI, Issues oder Artifacts hochzuladen.
 
-Nach dem Bauen auf Windows genügt `tools/P001-PRIVATE-REAL-ROM.bat "C:\\PRIVATE\\awe32.raw" "C:\\PRIVATE\\SYNTHGM.SBK"` für den vollständigen privaten Lauf. Eine lokale Original-ROM-/SBK-Prüfung mit den tatsächlich vorhandenen Bibliotheksdateien wurde durchgeführt und beide Fingerprints bestätigt; der **genuine-ROM-Chip-PCMAudiorun mit dem Fork selbst** ist erst dann PASSED, wenn dessen ausführbarer Test auf denselben privaten Dateien gelaufen ist. Der generische Windows-2022-Runner enthält das Eigentümer-ROM absichtlich nicht, daher kann dessen synthetischer grüner Build einen privaten real-ROM-Lauf nicht ersetzen.
+Nach dem Bauen auf Windows genügt `tools/P001-PRIVATE-REAL-ROM.bat "C:\\PRIVATE\\awe32.raw" "C:\\PRIVATE\\SYNTHGM.SBK"` für den vollständigen privaten Lauf. Beide privaten Originaldateien wurden per SHA-256 geprüft. Zusätzlich wurde das **byteidentische echte ROM aus dem offiziellen 86Box-ROM-Repository** in Windows-2022-CI temporär geladen und mit dem unveränderten Originalkern sowie dem VST3-Chipadapter tatsächlich gerendert: **176.400/176.400 PCM16-Samples bitidentisch**, 176.296 nicht stumme Samples (siehe Actions #43064109027 und #43068548526). Das Original-SBK wird in diesem ROM-Test nicht geladen; keine privaten Medienbytes werden veröffentlicht.
 
-Diese Prüfung ist noch **nicht** die unabhängige, von der laufenden 86Box-VM mit originalem Creative-Treiber aufgezeichnete `EMU8K_TRACE`/`AWE32_WAV`-Abnahme. Auch nach bestandenem Privat-ROM-Test bleibt die P001-VST3-Freigabe bis zu diesem echten Fork-VM-PCM-Nachweis gesperrt.
+Diese Prüfung ist noch **nicht** die unabhängige, von der laufenden 86Box-VM mit originalem Creative-Treiber aufgezeichnete `EMU8K_TRACE`/`AWE32_WAV`-Abnahme. Der minimale, klar als **P001-ROM-Testinstrument** bezeichnete VST3 wurde nach dem direkten ROM-Core-Parity-Nachweis entwickelt und inzwischen erfolgreich unter Windows getestet; die **P001-Gesamtabnahme** bleibt bis zur unabhängigen 86Box-VM-PCM-Referenz offen. Es gibt keine Produkt-/Klangtreuefreigabe.
 
 ## CI genuine owner-identical ROM (without private upload)
 
 The public `86Box/roms` Git blob at `sound/creative/awe32.raw` is **byte-for-byte identical** to the owner's supplied private `awe32(1).raw` (SHA256 `4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e`, Git blob `345b5a177e1a75a41bf65d31e1a220c1641c72cb`). The original test input is obtained transiently from pinned `86Box/roms` source commit `8cbb1acc575418e8afe9741a656dfd1c657574d1`; the 1-MiB file and its digital WAV/trace are deleted from the Windows runner after computing private sample comparison. The project's **existing private** `SYNTHGM.SBK` is **not** downloaded, published, or loaded by this ROM-only CI test.
 
 The same original unmodified `snd_emu8k.c` is driven directly and through the adapter. The test requires 88,200 44.1-kHz stereo frames, **176,400 exactly matching PCM16 samples**, a non-silent note with start/attenuation change/stop and byte-identical private WAV SHA256. It hard-fails on any mismatch; this is the first real-original-ROM direct-core adapter parity proof in CI, **not** the independent Win95/Creative/86Box VM trace gate. The definitive run SHA and actual measured nonzero count must be taken from the Windows Actions result, not assumed from this source addition.
+
+## Minimaler original-ROM-Windows-VST3 – tatsächlich durchgeführte Abnahme
+
+Verbindlicher Pin: Originalfork `fee1e81977824fd2d5eed4d239589dc30d251dd7`, unveränderter DSP-Blob `e60eb10f00a8e1187380faa25989f6ba0433d99a`; Steinberg SDK `v3.8.1_build_84` SHA `3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96`.
+
+P001 VST3-Quellcode liegt unter `src/vst3/P001Minimal.{h,cpp}` plus `P001Factory.cpp`; lädt das externe ROM bei `setActive(true)` vom **privaten** Host-Pfad `AWE64_P001_ROM_PATH`, allokiert das reale 28-MiB-RAM **vor** der Audioverarbeitung, bietet ein Stereo-Instrument bei genau 44.100 Hz als 32-Bit-Float an und rendert per samplegenauem MIDI-VST3-Event ein **einziges AWETEST-Test-ROM-Instrument** über originale Chip-Register. Nicht 16-kanalig polyphon, keine GM- oder SBK-Presetübersetzung, keine P002/003-Treibersemantik. Fehlendes ROM ist ein tatsächlicher Aktivierungsfehler, keine stumme Ersatzengine. Studio One/ASIO und freie Sample-Rates werden noch nicht behauptet.
+
+### Authentisches Windows-Ereignisprotokoll
+
+[GitHub Actions #43068548526](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43068548526), commit `ce22e0cbf11201a37bebd5f46b2d2fa28c571658`, **SUCCESS**:
+
+- VST3-DLL aus dem tatsächlich gepinnten Originalkern kompiliert; SHA-256 `45e478bfaef832634ca00984c2f5ad3fd04b1aa33cefffd1c66260ae721627cf`.
+- Steinberg SDK Validator **537 PASS / 0 FAIL**, Original-ROM im Prozess während der Validierung vorhanden. Andere Abtastraten als 44.100 Hz werden bewusst verweigert, nicht falsch umgerechnet; nicht jede SDK-Prüfung ist ein Studio-One-Praxistest.
+- Unabhängiger `awe64_p001_vst3_host.exe` lädt die **exportierte DLL** über `GetPluginFactory`, vereinbart Stereo, rendert Original-ROM-Audio über MIDI und prüft NoteOn bei PCM-Frame **137** und NoteOff bei **1151**; Ausgabe **18.432 Frames**, **18.272 nicht stumme Samples**, Samples bis NoteOff in Vergleichsläufen identisch und nach NoteOff messbar verändert.
+- Automatisierte **2/2 CTest PASS** für echten RAM-Port-DMA und original-kernbasierten synthetischen PCM-Differentialtest; Original-ROM-Differenz **176.400/176.400 Samples PASS**; Manipulationen von PCM und Registerantworten führen erwartungsgemäß zu FAIL.
+- Auftrennung: Dieser VST3-Hosttest nutzt echte ROM-Mediendaten und echte DLL/Hostevents, aber **keinen unabhängig laufenden Win95/86Box-/Creative-Treiber** und keinen Studio-One-Test. Audio-Thread-Allokationsfreiheit ist durch den minimalen Quellpfad plausibel und das Design beabsichtigt, aber noch **nicht** durch unabhängiges ETW-Laufzeitprofil vollständig belegt.
+
+### Gefundener echter MIDI-Fehler und Korrektur
+
+[Früherer Windows-Run #43067785464](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43067785464) zeigte bei realer DLL-Audioausgabe, dass `DCYSUSV=0x8080` keinen hörbaren Release hervorbrachte: Bit 7 deaktiviert den originalen Hüllkurvengenerator. Die P001-Teststimme verwendet seit `ce22e0c` `DCYSUSV=0x807F` (Releasebit + aktiver Generator + schneller Test-Release). **Keine Änderung am Fork-DSP.** Die endgültige, programmabhängige originale Creative-NoteOff-Registerfolge bleibt ausdrücklich P002.
+
+### Noch offen / NO-GO
+
+- Register/WAV-Differenzialtest gegen eine **separat laufende** 86Box-AWE32-VM mit Original-Windows-95-Creative-Treiber und identischer RAM-/ROM-/Registersequenz.
+- Eigenständige Creative 1MGM-Soundbank-Presets, tatsächliche Drums, SF2/Generatoren, echte Treiber-GM-/Controllerlogik.
+- Unabhängiges Echtzeit-Allokations-/Deadline-Profil und praktische Studio-One-Test-Lab-/ASIO-Prüfung.
+- GPL-2.0-/Steinberg-SDK-Lizenzverträglichkeit vor jeder Verteilung; keine privaten ROM/SBK-/Treiber-Binaries in einer Release.
+
+Der PR bleibt **Draft**, P001 bleibt **offen**. Ein grüner Build ist weder P002/P003 noch die vollständige AWE64-Gold-Klangtreue.

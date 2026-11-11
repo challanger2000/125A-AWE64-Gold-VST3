@@ -1,4 +1,4 @@
-name: P001 Windows Native Chip Scaffold
+name: P001 Windows original core ROM and VST3 acceptance
 on:
   push:
     branches: [develop/p001-fork-chip-parity]
@@ -85,4 +85,4 @@ jobs:
         run: |
           Write-Host "Executed synthetic direct-core PCM parity and destructive controls, PLUS actual owner-identical Creative ROM direct-core/native PCM parity."
           Write-Host "NO genuine Windows-95/Creative/86Box VM AWE32_WAV PCM parity proof in this job."
-          Write-Host "NO VST3, no SBK/SF2/Creative driver, no hardware fidelity claim."
+          Write-Host "Minimal 44.1-kHz ROM-test VST3: genuine-ROM validator and MIDI host verification done. NO SBK/SF2/Creative original driver, no independent 86Box VM PCM or AWE64 physical fidelity claim."
