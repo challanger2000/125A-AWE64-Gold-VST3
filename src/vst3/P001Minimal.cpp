@@ -33,6 +33,15 @@ tresult PLUGIN_API Minimal::terminate() {
     active_=false;
     return SingleComponentEffect::terminate();
 }
+tresult PLUGIN_API Minimal::setBusArrangements(
+    SpeakerArrangement* inputs, int32 numInputs,
+    SpeakerArrangement* outputs, int32 numOutputs) {
+    // The SDK SingleComponentEffect default silently accepts mono, 5.1, etc.
+    // The chip instrument is strictly stereo out with NO audio inputs.
+    if (numInputs!=0 || numOutputs!=1 || !outputs || outputs[0]!=SpeakerArr::kStereo)
+        return kResultFalse;
+    return SingleComponentEffect::setBusArrangements(inputs,numInputs,outputs,numOutputs);
+}
 tresult PLUGIN_API Minimal::setupProcessing(ProcessSetup& setup) {
     // No quiet, inaccurate resampler. Multi-rate adapter is separately P004.
     if (setup.sampleRate != 44100.0 || setup.maxSamplesPerBlock<=0
@@ -124,8 +133,13 @@ void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
     }
 }
 tresult PLUGIN_API Minimal::process(ProcessData& data) {
-    if (data.numSamples<0 || data.symbolicSampleSize!=kSample32
-        || data.numOutputs!=1 || !data.outputs ||
+    if (data.numSamples<0 || data.symbolicSampleSize!=kSample32)
+        return kInvalidArgument;
+    // A host may legitimately flush MIDI/parameter changes without an audio
+    // buffer. Do not advance the EMU8000 clock on a zero-frame flush.
+    if (data.numSamples==0 && (!data.outputs || data.numOutputs==0))
+        return kResultOk;
+    if (data.numOutputs!=1 || !data.outputs ||
         data.outputs[0].numChannels!=2 || !data.outputs[0].channelBuffers32)
         return kInvalidArgument;
     auto* left=data.outputs[0].channelBuffers32[0];

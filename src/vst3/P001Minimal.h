@@ -17,6 +17,9 @@ public:
     }
     Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown* context) override;
     Steinberg::tresult PLUGIN_API terminate() override;
+    Steinberg::tresult PLUGIN_API setBusArrangements(
+        Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numInputs,
+        Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOutputs) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup& setup) override;
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32 symbolicSampleSize) override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
