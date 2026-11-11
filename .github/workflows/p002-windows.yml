@@ -42,6 +42,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
           Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
 
+      - name: Export tested public-only private-run auditor sources (no Creative bytes)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P002-Private-Original-Win95-Creative-Matrix-Audit-Tools
+          path: |
+            tools/p002_original_matrix_audit.py
+            tools/p002_register_oracle.py
+          retention-days: 3
+          if-no-files-found: error
   real_125a_test_lab_headless_inventory:
     needs: creative-winmm-and-original-driver-oracle-contract
     runs-on: windows-2022
