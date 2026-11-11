@@ -91,10 +91,10 @@ int main(int argc, char** argv) {
     if (!verifyWavHeader(reference,referenceFrames,err)) {
         std::cerr<<"NOT VERIFIED: "<<err<<"\n";return 4;
     }
-    if (trace.front().frame!=0 || trace.back().frame>=referenceFrames ||
+    if (trace.back().frame>=referenceFrames ||
         referenceFrames>44100u*3600u) {
-        std::cerr<<"NOT VERIFIED: trace/WAV capture boundaries do not align. "
-                  <<"Provide frame-zero aligned independent captures.\n";
+        std::cerr<<"NOT VERIFIED: trace events must fit the recorded WAV duration. "
+                  <<"Confirm common chip clock origin for independent captures.\n";
         return 5;
     }
     awe64::Chip chip;

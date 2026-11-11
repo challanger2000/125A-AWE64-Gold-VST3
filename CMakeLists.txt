@@ -46,5 +46,15 @@ target_link_libraries(awe64_replay PRIVATE awe64_fork_chip)
 add_executable(awe64_chip_contract tests/chip_contract.cpp)
 target_link_libraries(awe64_chip_contract PRIVATE awe64_fork_chip)
 add_test(NAME p001_chip_ram_rom_contract COMMAND awe64_chip_contract)
+
+# A second process drives the *unmodified* original fork C interface directly
+# and records synthetic non-silent PCM; the adapter must replay its port writes
+# against that reference, with positive and destructive negative controls.
+add_executable(awe64_direct_fork_fixture tests/direct_fork_fixture.cpp)
+target_link_libraries(awe64_direct_fork_fixture PRIVATE awe64_fork_chip)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME p001_direct_fork_pcm_and_negative_controls
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_replay.py"
+  "$<TARGET_FILE:awe64_direct_fork_fixture>" "$<TARGET_FILE:awe64_replay>")
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.

@@ -32,3 +32,12 @@ Return code 0 means exact equality for **all compared interleaved PCM16 samples*
 - Pending: negative mutation of valid independently captured WAV, full sample-RAM loading through original Creative port traffic, fork reference ROM voice, actual VST3/Studio One integration.
 
 Issue #1 is **not closed**. No production PCM identity or acoustic fidelity has been measured by these source changes alone.
+
+
+## P001 additional direct-original-chip regression (2026-11-11)
+
+`awe64_direct_fork_fixture` directly initializes the pinned original `snd_emu8k.c` in a separate process, generates a **synthetic 1 MiB ROM with nonzero waveform data**, programs the physical EMU8000 register ports (AWETEST tone setup), records the fork's own PCM16 and register readbacks, then invokes `awe64_replay` against it. This is an **adapter parity unit test against a direct original chip invocation**, not a trace or acoustic reference recorded from the Windows-95/86Box virtual machine. It never uses the former 125A modified engine or licensed ROM files.
+
+The accompanying Python adversarial test verifies that (a) the original core actually produces nonzero PCM, (b) all digital samples equal the adapter's output with different callback partitions, (c) a one-bit corrupted sample is identified at its precise frame and channel, (d) a mutated register-read result fails, and (e) an absent WAV hard-fails. The first write occurs at frame 11: real fork traces legitimately need not begin with an I/O operation at frame zero. This removes a false-negative condition from `awe64_replay`.
+
+An independent real 86Box/Creative captured reference with authenticated 28-MiB RAM/ROM identity **still remains the separate mandatory P001 acceptance gate**. A successful synthetic direct-core test must not be described as full 86Box VM/driver audio parity or as an actual physical card test.
