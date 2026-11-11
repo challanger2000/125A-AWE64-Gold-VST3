@@ -2,6 +2,7 @@
 #include <86box/sound.h>
 #include <array>
 #include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -89,6 +90,38 @@ int main() {
     chip.render(b.data()+62,97);
     REQUIRE(a == b);
     chip.close();
+    // Realtime hazard in the unmodified calibrated original: EMU8K_STATE_DUMP
+    // causes FILE* and fprintf() in emu8k_update() if a user or DAW set it.
+    // The adapter MUST close and neutralize this debugging option at activation.
+    // Test deliberately runs past two 4410-frame dump boundaries.
+    const auto dump = std::filesystem::temp_directory_path() /
+                     "125a-p001-rt-state-dump-must-stay-empty.txt";
+    std::filesystem::remove(dump);
+#ifdef _WIN32
+    REQUIRE(_putenv_s("EMU8K_STATE_DUMP", dump.string().c_str()) == 0);
+    REQUIRE(_putenv_s("EMU8K_STATE_STEP", "4410") == 0);
+#else
+    REQUIRE(setenv("EMU8K_STATE_DUMP", dump.string().c_str(), 1) == 0);
+    REQUIRE(setenv("EMU8K_STATE_STEP", "4410", 1) == 0);
+#endif
+    Chip withoutRtFileIo;
+    REQUIRE(withoutRtFileIo.open(rom,error));
+    REQUIRE(withoutRtFileIo.rawForContractTesting()->state_dump == nullptr);
+    std::array<int32_t, 2u*128u> scratch{};
+    for (int n = 0; n < 100; ++n)
+        withoutRtFileIo.render(scratch.data(), 128u); // 12800 frames
+    withoutRtFileIo.close();
+    REQUIRE(std::filesystem::exists(dump));
+    REQUIRE(std::filesystem::file_size(dump) == 0u);
+#ifdef _WIN32
+    REQUIRE(_putenv_s("EMU8K_STATE_DUMP", "") == 0);
+    REQUIRE(_putenv_s("EMU8K_STATE_STEP", "") == 0);
+#else
+    REQUIRE(unsetenv("EMU8K_STATE_DUMP") == 0);
+    REQUIRE(unsetenv("EMU8K_STATE_STEP") == 0);
+#endif
+    std::filesystem::remove(dump);
+    std::cout << "P001 original fork state-debug IO blocked on 12800 real-time frames PASS\\n";
     // Negative: preflight rejects corrupt ROM, never calls fatal/plays fallback.
     { std::ofstream out(rom,std::ios::binary|std::ios::trunc); out.put('X'); }
     REQUIRE(!chip.open(rom,error));

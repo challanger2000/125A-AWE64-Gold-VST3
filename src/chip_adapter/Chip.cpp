@@ -43,6 +43,16 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     if (!candidate) { error = "Unable to allocate chip state"; return false; }
     // 86Box's on-board RAM argument is KiB, not bytes or MiB.
     emu8k_init(candidate.get(), 0, kSampleRamKiB);
+    // The original 86Box chip optionally enables EMU8K_STATE_DUMP from the
+    // process environment. Its emu8k_update() would then fprintf() from the
+    // DAW's real-time audio thread at each dump boundary. Never allow file IO
+    // from VST3 rendering, even when an unrelated host/app sets that env var.
+    // This compatibility restriction lives OUTSIDE the pinned, unmodified DSP.
+    // The original fork's emu8k_close() does not close state_dump either.
+    if (candidate->state_dump) {
+        std::fclose(static_cast<FILE*>(candidate->state_dump));
+        candidate->state_dump = nullptr;
+    }
     if (!candidate->rom || !candidate->ram ||
         candidate->ram_end_addr != kSampleRamEnd ||
         candidate->ram_pointers[32] != candidate->ram ||
