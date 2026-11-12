@@ -343,6 +343,18 @@ if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_descriptor_differential.py"
                 --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
                 --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+    if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
+       EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}")
+        # Actual SOURCE-LOCKED original LCOD+0x2D88 59 signed words
+        # versus genuine original x86 pre-NoteOn 148-byte handoff records.
+        # Never copy the VXD or its template to public CI artifacts.
+        add_test(NAME p002_private_original_sf2_59word_bank_builder
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_bank_builder_differential.py"
+                    --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                    --private-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
+                    --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+    endif()
 endif()
 
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
