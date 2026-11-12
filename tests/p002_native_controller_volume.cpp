@@ -61,9 +61,9 @@ int main() {
     CHECK(!candidateOriginalCreativeAttenuation(64,piano));
     piano.cc11=127;CHECK(!candidateOriginalCreativeAttenuation(0,piano));
     CHECK(!candidateOriginalCreativeAttenuation(128,piano));
-    piano.encoded_sample_attenuation=256;
+    piano.device_state_additive_attenuation=256;
     CHECK(!candidateOriginalCreativeAttenuation(64,piano));
-    piano.encoded_sample_attenuation=16;piano.encoded_voice_amplitude=-13;
+    piano.device_state_additive_attenuation=16;piano.encoded_voice_amplitude=-13;
     CHECK(!candidateOriginalCreativeAttenuation(64,piano));
     piano.encoded_voice_amplitude=0;
     OriginalCreativeIfatnTerms violinIfatn{};

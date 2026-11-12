@@ -1,5 +1,7 @@
 #include "CreativeVxdVoiceEnvelopePrelude.h"
 #include <iostream>
+#include <array>
+#include <cstdint>
 using namespace awe64::creative;
 #define CHECK(v) do{if(!(v)){std::cerr<<"P002_VXD_ENVELOPE_START_FAIL line="<<__LINE__<<" "<<#v<<"\n";return 1;}}while(0)
 int main(){
@@ -38,7 +40,35 @@ int main(){
     CHECK(y && (*y)[5].value==0x5681u && (*y)[9].value==0x347eu);
     s.from_actual_original_driver_record=false;
     CHECK(!candidateOriginalVxdVoiceEnvelopePrelude(29,s));
+    // Independent x86 Unicorn source oracle examples, as recorded in PR #4.
+    CHECK(originalCreativePcodEnvelopeRateFromWord(0)==127);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(127)==87);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(1000)==39);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(47513)==1);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(65535)==0);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(47512)==1);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(47514)==0);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(23)==127);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(24)==127);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(25)==126);
+    CHECK(originalCreativePcodEnvelopeRateFromWord(27)==124);
+    // Independently calculated digest over ALL 65,536 input words.
+    // Oracle is the private original VXD's literal LCOD threshold bytes.
+    std::uint64_t fnv=14695981039346656037ull;
+    std::array<std::uint32_t,128> hist{};
+    std::uint8_t prev=127;
+    for(std::uint32_t i=0;i<65536u;++i) {
+        const auto rate=originalCreativePcodEnvelopeRateFromWord(
+            static_cast<std::uint16_t>(i));
+        CHECK(rate<=prev);
+        prev=rate;
+        ++hist[rate];
+        fnv=(fnv^static_cast<std::uint64_t>(rate))*1099511628211ull;
+    }
+    CHECK(fnv==0xedaf6dc7659a5db1ull);
+    CHECK(hist[0]==18022 && hist[127]==25);
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
-             <<" special_0080_to_007f=TRUE native_full_noteon_PCM_UNVERIFIED=TRUE\n";
+             <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
+             <<" strict_less_than=TRUE native_full_noteon_PCM_UNVERIFIED=TRUE\n";
 }

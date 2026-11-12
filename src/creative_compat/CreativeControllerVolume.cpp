@@ -20,7 +20,9 @@ constexpr std::array<std::uint8_t,128> kControllerVolume{
   5,5,5,4,4,4,4,4,3,3,3,3,3,2,2,2,
   2,2,2,1,1,1,1,1,1,1,0,0,0,0,0,0
 };
-// Original CC11 expression lookup in LCOD around +0x05E8.
+// Original CC11 expression lookup table at LCOD +0x2F20.
+ // The prior +0x05E8 provenance was wrong. Numerical table unchanged;
+ // source confirmed by the independently run Ghidra/Unicorn VXD analysis.
 // Expression correction happens BEFORE the ROM +16 attenuation term.
 constexpr std::array<std::uint8_t,128> kExpression{
   127,108,98,90,84,80,75,72,69,66,64,61,59,57,56,54,
@@ -39,7 +41,7 @@ static_assert(kControllerVolume[20]==33 && kControllerVolume[100]==4 &&
 std::optional<std::uint8_t> candidateOriginalCreativeAttenuation(
     const std::uint8_t velocity, const OriginalCreativeVolumeTerms& p) noexcept {
     if(velocity==0 || velocity>127 || p.cc7>127 || p.cc11>127 ||
-       p.encoded_voice_amplitude<0 || p.encoded_sample_attenuation>255)
+       p.encoded_voice_amplitude<0 || p.device_state_additive_attenuation>255)
         return std::nullopt;
     // Original VXD branch hard-mutes CC7=0..10 before any ROM correction.
     if(p.cc7<=10)return std::uint8_t{255};
@@ -51,7 +53,7 @@ std::optional<std::uint8_t> candidateOriginalCreativeAttenuation(
     const unsigned sum=static_cast<unsigned>(kControllerVolume[p.cc7])
         +velocityBucket+ampBucket;
     unsigned volume=std::min(255u,(sum*8u)/3u+
-                                  static_cast<unsigned>(p.encoded_sample_attenuation));
+                                  static_cast<unsigned>(p.device_state_additive_attenuation));
     if(p.cc11<127)
         volume+=((256u-volume)*static_cast<unsigned>(kExpression[p.cc11]))/128u;
     if(p.original_1mgm_rom_sample)volume+=16u;

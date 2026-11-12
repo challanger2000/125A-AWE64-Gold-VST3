@@ -942,3 +942,43 @@ voice[3].psst and voice[3].csl after both runs.
 
 Original generator-to-voice-record conversion, full trigger/FX timing,
 MIDI→original register oracle and native PCM parity remain open.
+
+ 
+## Independent Ghidra/Unicorn research applied to native P002 (2026-11-12)
+
+Control comment: https://github.com/challanger2000/125A-AWE64-Gold-VST3/pull/4#issuecomment-6822998811
+
+The independent Codex researcher reported an actual Unicorn run of the ORIGINAL
+Win95 Creative VXD PCOD envelope rate helper across ALL 65,536 input words.
+The installed original owner's private SBAWE.VXD was also inspected in this
+development workspace: the 128 original 16-bit rate thresholds are indeed
+found at LCOD+0x31A8, first 47513, last 23, monotone non-increasing.
+
+P002 now implements the rate search INSIDE existing
+CreativeVxdVoiceEnvelopePrelude, rather than a separate architecture.
+Input is a **previously calibrated original VXD uint16 value**;
+first threshold STRICTLY LESS THAN the input wins, else rate127.
+Oracle examples: 0->127, 127->87, 1000->39, 47513->1,
+65535->0. Regression checks every single 16-bit input and compares
+a 64-bit FNV1a digest against an INDEPENDENT full matrix derived
+from original owner VXD literal threshold bytes: EDAF6DC7659A5DB1.
+No original proprietary executable, ROM, SBK, or VM image is copied.
+
+The ORIGINAL INPUT PHYSICAL UNITS remain UNKNOWN: **never apply this
+function directly to SoundFont generator34/timecents** without further
+driver generator->voice-record calibration.
+
+Provenance fix (numeric attenuation regression stays unmodified):
+- Original CC11 lookup is at LCOD+0x2F20 (old +0x05E8 comment false).
+- Original signed voice amplitude is read from voice descriptor +0x60.
+- Original additive attenuation operand comes from DEVICE STATE +0x10,
+  *not* directly from raw SBK generator48. The C++ field is renamed
+  from misleading encoded_sample_attenuation to
+  device_state_additive_attenuation; its numerical behavior is unchanged,
+  and the actual bank-to-device mapping remains open.
+
+The original ordinary NoteOff already exists in 10369e6; the research
+does not justify replacing or duplicating it. Chip reads preceding the
+optional NoteOff CSL/PSST writes, original marker updates, actual event
+timing, the complete SBK->voice-record transformation, original binary
+register-order equality, and native generated PCM comparison remain OPEN.

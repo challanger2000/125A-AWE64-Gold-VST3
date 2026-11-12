@@ -29,4 +29,9 @@ struct OriginalVxdEncodedVoiceEnvelopePrelude {
 candidateOriginalVxdVoiceEnvelopePrelude(
     std::uint8_t physical_voice,
     const OriginalVxdEncodedVoiceEnvelopePrelude& record) noexcept;
+// Real original SBAWE.VXD PCOD +0x3791 envelope-rate lookup from a
+// PRE-CALIBRATED 16-bit VXD time word (128 threshold WORDs at LCOD +0x31A8).
+// Physical input units are UNKNOWN: raw SF1/SBK generator34 is NOT input.
+[[nodiscard]] std::uint8_t originalCreativePcodEnvelopeRateFromWord(
+    std::uint16_t actual_original_driver_time_word) noexcept;
 } // namespace awe64::creative

@@ -12,8 +12,12 @@ namespace awe64::creative {
 struct OriginalCreativeVolumeTerms {
     std::uint8_t cc7 = 100;              // MIDI channel main volume
     std::uint8_t cc11 = 127;             // MIDI channel expression
-    std::uint16_t encoded_sample_attenuation = 0; // NOT raw SBK gen48
-    std::int16_t encoded_voice_amplitude = 0; // original driver's signed field
+    // Provenance: ORIGINAL VXD DEVICE STATE +0x10, not raw SBK
+    // generator48. The bank->device initialization path is still open.
+    std::uint16_t device_state_additive_attenuation = 0;
+    // Provenance: signed original VXD voice descriptor +0x60.
+    // The permitted negative range and SBK derivation are unresolved.
+    std::int16_t encoded_voice_amplitude = 0;
     bool original_1mgm_rom_sample = false; // VXD's 1MGM ROM-specific +16
 };
 struct OriginalCreativeIfatnTerms {
