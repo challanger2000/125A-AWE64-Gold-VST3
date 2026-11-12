@@ -15,6 +15,7 @@
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
+#include "public.sdk/source/vst/hosting/parameterchanges.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -161,10 +162,15 @@ void addEvent(EventList& list,float vel) {
     e.noteOn.velocity=vel;e.noteOn.noteId=1;
     require(list.addEvent(e)==kResultOk,"host note on event");
 }
-struct Audio {std::uint64_t nonzero=0;std::uint64_t hash=0xcbf29ce484222325ull;};
+struct Audio {
+    std::uint64_t nonzero=0;
+    std::uint64_t hash=0xcbf29ce484222325ull;
+    std::uint64_t hashBeforeBlock12=0xcbf29ce484222325ull;
+};
 Audio renderNote(IPluginFactory* factory,float velocity,
                  int noteOffBlock=-1,int noteOffChannel=0,
-                 int noteOffPitch=60){
+                 int noteOffPitch=60,int pedalDownBlock=-1,
+                 int pedalUpBlock=-1){
     Instance instance(factory,true);
     Audio audio{};
     for(int block=0;block<30;++block){
@@ -176,10 +182,23 @@ Audio renderNote(IPluginFactory* factory,float velocity,
         if(block==0)addEvent(list,velocity);
         if(block==noteOffBlock)
             addNoteOffEvent(list,noteOffChannel,noteOffPitch);
+        if(block==12)audio.hashBeforeBlock12=audio.hash;
+        ParameterChanges changes(1);
+        if(block==pedalDownBlock || block==pedalUpBlock) {
+            int32 idx=0;
+            auto* queue=changes.addParameterData(0x125A0064u,idx);
+            require(queue!=nullptr,"CC64 parameter event queue absent");
+            int32 pointIndex=0;
+            require(queue->addPoint(block==pedalDownBlock?73:37,
+                                   block==pedalDownBlock?1.:0.,
+                                   pointIndex)==kResultOk,
+                    "actual VST3 CC64 point not accepted");
+        }
         ProcessData data{};
         data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
         data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
         data.inputEvents=&list;
+        data.inputParameterChanges=&changes;
         require(instance.audio->process(data)==kResultOk,
                 "actual exported VST3 source-DSP process failed");
         for(int i=0;i<512;++i){
@@ -296,6 +315,24 @@ int wmain(int argc,wchar_t** argv){
         const auto derivedSustainOff=renderNote(factory,90.f/127.f,8);
         require(derivedSustainOff.hash==derivedSustainHeld.hash,
                 "original CHANNEL+4 sustain wrongly released source voice");
+        // Original VXD LCOD+0x656D: CC64 on BEFORE NoteOff, then
+        // NoteOff defers with marker low0xFF, then CC64 off releases
+        // the deferred physical voice with source gen38/gen30 bytes.
+        // The CC points are genuine VST3 parameter events, not illegal
+        // LegacyMIDICCOutEvent INPUT spoofing.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           sourceDerivedFixture.c_str())==0,
+                "set source-derived CC64 lifecycle fixture");
+        const auto pedalled=renderNote(factory,90.f/127.f,
+                                      8,0,60,6,12);
+        const auto longHeld=renderNote(factory,90.f/127.f);
+        const auto immediateRelease=renderNote(factory,90.f/127.f,8);
+        require(pedalled.hashBeforeBlock12==longHeld.hashBeforeBlock12,
+                "original CC64 held NoteOff changed PCM before pedal-up");
+        require(pedalled.hash!=longHeld.hash,
+                "actual CC64 pedal-up failed to release deferred VST3 voice");
+        require(pedalled.hash!=immediateRelease.hash,
+                "CC64 release incorrectly happened at NoteOff time");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            badMarkerFixture.c_str())==0,
                 "set invalid source note identity fixture");
@@ -324,6 +361,8 @@ int wmain(int argc,wchar_t** argv){
                  <<" source_VXD_sustain_defers_HW_release=TRUE"
                  <<" source_original_SF2_gen30_gen38_NoteOff_v3_PCM_parity=TRUE"
                  <<" sustain_from_channel_plus4_NOT_voice_plus4=TRUE"
+                 <<" original_CC64_pedal_up_releases_deferred_VST3_PCM=TRUE"
+                 <<" CC64_sample_accurate_VST3_parameter_queue=TRUE"
                  <<" wrong_NoteOff_channel_and_key_ignored=TRUE"
                  <<" invalid_original_voice_marker_rejected=TRUE"
                  <<" original_Win95_driver_pcm_parity=NOT_PROVEN"

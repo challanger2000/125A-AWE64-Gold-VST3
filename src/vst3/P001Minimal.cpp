@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <string>
 
 namespace awe64::vst3 {
@@ -26,6 +27,15 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     if (result != kResultOk) return result;
     addAudioOutput(STR16("EMU8000 Digital Stereo"), SpeakerArr::kStereo);
     addEventInput(STR16("MIDI Notes"), 16);
+    // VST3 does not legally accept legacy CC-OUT events as MIDI CC
+    // INPUT. The opt-in P002 source diagnostic therefore exposes
+    // a real automatable parameter consumed sample-accurately from
+    // IParameterChanges. In normal P001 mode this parameter is absent.
+    if(const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
+       diag && *diag)
+        parameters.addParameter(STR16("P002 private CC64 sustain"),
+            nullptr,127,0.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateDiagnosticCc64Param));
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::terminate() {
@@ -184,6 +194,19 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
         playingKey_=-1;
     }
 }
+bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
+    if(!p002DiagnosticEnabled_ ||
+       !p002Fixture_.verified_source_note_release || value>127u)
+        return false;
+    // Real original Win95 SBAWE.VXD LCOD+0x656D CC64 channel+4 and
+    // deferred note marker low0xFF -> LCOD+0x60E4 envelope release.
+    // Uses the already authenticated original assigned physical voice
+    // rows; no heap, file access, guessed voice stealing or own DSP.
+    return awe64::creative::applyOriginalSf2MidiCc64FromVxdState(
+        chip_,p002Fixture_.original_device_state,
+        p002Fixture_.selectedVoices(),p002Fixture_.channel,value,true)
+        .has_value();
+}
 void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
     while(begin<end) {
         const auto count=std::min<int32>(980,end-begin);
@@ -214,21 +237,72 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
-    int32 pos=0;
+    // Merge MIDI note events with the genuine VST3 IParameterChanges
+    // CC64 stream in original sample-offset order. P001 receives exactly
+    // the previous no-parameter path, while P002 private diagnostic can
+    // reproduce source LCOD+0x656D pedal down/up sample accurately.
+    IParamValueQueue* sustainQueue=nullptr;
+    if(p002DiagnosticEnabled_ &&
+       p002Fixture_.verified_source_note_release &&
+       data.inputParameterChanges) {
+        const auto count=data.inputParameterChanges->getParameterCount();
+        for(int32 q=0;q<count;++q) {
+            auto* queue=data.inputParameterChanges->getParameterData(q);
+            if(queue && queue->getParameterId()==
+                             kP002PrivateDiagnosticCc64Param) {
+                if(sustainQueue)return kInvalidArgument; // ambiguous MIDI state
+                sustainQueue=queue;
+            }
+        }
+    }
+    const int32 ccCount=sustainQueue?sustainQueue->getPointCount():0;
+    if(ccCount<0)return kInvalidArgument;
+    int32 ccIndex=0;
+    int32 midiIndex=0;
     const int32 events=data.inputEvents?data.inputEvents->getEventCount():0;
-    for(int32 i=0;i<events;++i) {
+    if(events<0)return kInvalidArgument;
+    int32 pos=0;
+    while(midiIndex<events || ccIndex<ccCount) {
         Event e{};
-        if (data.inputEvents->getEvent(i,e)!=kResultOk) continue;
-        const auto offset=std::clamp(e.sampleOffset,int32(0),data.numSamples);
-        if (offset<pos) return kInvalidArgument; // sorted real host events required
+        bool haveMidi=midiIndex<events;
+        if(haveMidi && data.inputEvents->getEvent(midiIndex,e)!=kResultOk) {
+            ++midiIndex;
+            continue;
+        }
+        int32 midiOffset=std::numeric_limits<int32>::max();
+        if(haveMidi)midiOffset=std::clamp(e.sampleOffset,int32(0),data.numSamples);
+        int32 ccOffset=std::numeric_limits<int32>::max();
+        ParamValue ccNormalized=0.;
+        const bool haveCc=ccIndex<ccCount;
+        if(haveCc) {
+            if(sustainQueue->getPoint(ccIndex,ccOffset,ccNormalized)!=kResultOk ||
+               ccOffset<0 || ccOffset>data.numSamples ||
+               !std::isfinite(ccNormalized) ||
+               ccNormalized<0. || ccNormalized>1.)
+                return kInvalidArgument;
+        }
+        // At a shared sample offset, apply pedal state BEFORE NoteOff;
+        // original WinMM event order at equal timestamp is unverified,
+        // so ties remain an explicit deterministic diagnostic rule.
+        const bool chooseCc=haveCc && (!haveMidi || ccOffset<=midiOffset);
+        const int32 offset=chooseCc?ccOffset:midiOffset;
+        if(offset<pos)return kInvalidArgument;
         render(pos,offset,left,right);
         pos=offset;
-        if (e.type==Event::kNoteOnEvent &&
-            (p002DiagnosticEnabled_ || e.noteOn.channel==0))
+        if(chooseCc) {
+            const auto value=static_cast<std::uint8_t>(
+                ccNormalized*127. + 0.5);
+            if(!privateSustainCc64(value))return kInvalidArgument;
+            ++ccIndex;
+            continue;
+        }
+        if(e.type==Event::kNoteOnEvent &&
+           (p002DiagnosticEnabled_ || e.noteOn.channel==0))
             noteOn(e.noteOn.channel,e.noteOn.pitch,e.noteOn.velocity);
         else if(e.type==Event::kNoteOffEvent &&
                 (p002DiagnosticEnabled_ || e.noteOff.channel==0))
             noteOff(e.noteOff.channel,e.noteOff.pitch);
+        ++midiIndex;
     }
     render(pos,data.numSamples,left,right);
     data.outputs[0].silenceFlags=0; // conservative if held note just ended

@@ -10,6 +10,7 @@
 #include <cstdint>
 
 namespace awe64::vst3 {
+inline constexpr Steinberg::Vst::ParamID kP002PrivateDiagnosticCc64Param=0x125A0064u;
 class Minimal final : public Steinberg::Vst::SingleComponentEffect {
 public:
     Minimal() = default;
@@ -35,6 +36,7 @@ public:
 private:
     void noteOn(int channel, int pitch, float velocity) noexcept;
     void noteOff(int channel,int pitch) noexcept;
+    bool privateSustainCc64(std::uint8_t value) noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
     void write(uint16_t reg, uint16_t voice, uint16_t port, uint16_t value) noexcept;
