@@ -154,6 +154,14 @@ int main() {
           idle0->selected_voice_dcysusv[1].access_width_bits==16);
     CHECK(idle3->selected_voice_dcysusv[0].value==0xA3);
     CHECK(idle6->selected_voice_dcysusv[0].value==0xA6);
+    CHECK(idle0->assigned_voice_vtft[0].port==0xE22 &&
+          idle0->assigned_voice_vtft[0].value==0x60 &&
+          idle0->assigned_voice_vtft[0].access_width_bits==8 &&
+          idle0->assigned_voice_vtft[1].port==0x620 &&
+          idle0->assigned_voice_vtft[1].value==0x0000ffffu &&
+          idle0->assigned_voice_vtft[1].access_width_bits==32);
+    CHECK(idle3->assigned_voice_vtft[0].value==0x63);
+    CHECK(idle6->assigned_voice_vtft[0].value==0x66);
     CHECK(idle0->initial.pitch[1].value==0xC962);
     CHECK(idle3->initial.filter_and_attenuation[0].value==0x23);
     probes[9].driver_key_marker=0x1000; // physical 9 is NOT verified idle

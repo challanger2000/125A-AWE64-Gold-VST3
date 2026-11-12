@@ -37,6 +37,8 @@ struct OriginalRomAllocatedRegisterCandidates {
     // Confirmed original VXD selection exit: DCYSUSV=0x00FF must precede
     // subsequent pitch/IFATN voice initialization on this path.
     std::array<OriginalWin95VxdPortWrite,2> selected_voice_dcysusv{};
+    // Exact next original assignment writes, DATA0 VTFT=0x0000FFFF.
+    std::array<OriginalWin95VxdPortWrite,2> assigned_voice_vtft{};
     OriginalRomInitialRegisterCandidates initial{};
 };
 class CreativeBoundVoiceController {

@@ -98,6 +98,20 @@ int main() {
     CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
         OriginalWin95MonoSelection{2,
            static_cast<Reason>(255),0}));
+    // After the original selection exit, SBAWE.VXD +0x3DDB
+    // writes a full 32-bit 0000FFFF into DATA0/VTFT, not a 16-bit A20 word.
+    const auto vtft0=candidateOriginalWin95AssignedVoiceVtftWrites(0);
+    const auto vtft3=candidateOriginalWin95AssignedVoiceVtftWrites(3);
+    const auto vtft29=candidateOriginalWin95AssignedVoiceVtftWrites(29);
+    CHECK(vtft0 && (*vtft0)[0].port==0xE22 &&
+          (*vtft0)[0].value==0x60 && (*vtft0)[0].access_width_bits==8);
+    CHECK((*vtft0)[1].port==0x620 && (*vtft0)[1].value==0x0000ffffu &&
+          (*vtft0)[1].access_width_bits==32);
+    CHECK(vtft3 && (*vtft3)[0].value==0x63);
+    CHECK(vtft29 && (*vtft29)[0].value==0x7d);
+    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(30));
+    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(31));
+    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(255));
     std::cout<<"P002_REAL_VXD_MODE0_MONO_SELECTION_PRIORITY_PASS"
              <<" idle=TRUE busy_scoring=TRUE sample_end=TRUE"
              <<" original_voice_steal_IO_and_PCM_UNVERIFIED=TRUE\n";

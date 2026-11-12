@@ -64,9 +64,12 @@ CreativeBoundVoiceController::bindFirstOriginalIdleMono(
         OriginalWin95MonoSelection{
             *voice,OriginalWin95MonoSelectionReason::CompletelyIdle,0});
     if(!originalReset)return std::nullopt;
+    const auto originalVtft=candidateOriginalWin95AssignedVoiceVtftWrites(*voice);
+    if(!originalVtft)return std::nullopt;
     const auto initial=bind(plan,layer,*voice,terms);
     if(!initial)return std::nullopt;
-    return OriginalRomAllocatedRegisterCandidates{*voice,*originalReset,*initial};
+    return OriginalRomAllocatedRegisterCandidates{
+        *voice,*originalReset,*originalVtft,*initial};
 }
 std::optional<BoundVoiceActions> CreativeBoundVoiceController::process(
     const MidiMessage& message) noexcept {

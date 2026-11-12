@@ -621,3 +621,27 @@ hardware register index and voice number.
 The other P002 pitch/IFATN candidates still use the earlier
 PortWord abstraction; their original exact I/O widths and
 frame-level ordering remain separate unproven gates.
+
+## Driver-derived immediate VTFT hardware write after voice assignment
+
+Original installed Win95 `SBAWE.VXD` LCOD function around
+`+0x3DDB..+0x3E07` calls the original 32-bit register writer with
+`selector=(3<<5)|physicalVoice` and **32-bit datum 0x0000FFFF**,
+after the earlier mono voice-selection branch performed its
+`DCYSUSV=0x00FF` 16-bit register write.
+
+The private exact VXD writer around `+0x3D1B` uses `OUT DX,AL` to
+select on `E22` (8 bits), and `OUT DX,EAX` to deliver **32 bits** on
+`620`. The pinned original fork's register map independently labels
+DATA0/index3 as **VTFT**. This is not the same as an A20 16-bit write.
+
+Native `candidateOriginalWin95AssignedVoiceVtftWrites()` produces
+these two typed port writes, rejects physical 30/31, and the verified
+idle-mono binding returns the required **ordered groups**:
+(1) original DCYSUSV selection exit, (2) original DWORD VTFT
+assignment, (3) independently calculated IP and IFATN candidates.
+
+The native tests now explicitly reject wrong data-width assumptions
+and verify index and pitch/IFATN composition. The remaining
+original hardware registers, their ordering and timing, and a
+full MIDI-generated PCM comparison are still NOT proven.

@@ -40,7 +40,7 @@ struct OriginalWin95MonoSelection {
     std::uint32_t original_driver_mode_count) noexcept;
 struct OriginalWin95VxdPortWrite {
     std::uint16_t port=0;
-    std::uint16_t value=0;
+    std::uint32_t value=0; // exact 8-, 16-, or 32-bit I/O data word
     std::uint8_t access_width_bits=0;
 };
 // On *both* the completely-idle and selected-busy VXD paths, the actual
@@ -49,6 +49,14 @@ struct OriginalWin95VxdPortWrite {
 // OUT AX to A20; port writes must preserve this access width when replaying.
 // This selects original EMU8000 DCYSUSV (DATA1) via E22/A20; it is not a
 // replacement for the complete voice start/stop and envelope sequence.
+// Caller at original VXD +0x3DD5, after the selector has returned,
+ // writes VTFT=0x0000FFFF to the newly assigned physical voice,
+ // via byte pointer select and DWORD DATA0 register output.
+ // The stereo extra-voice and conditionally paired release paths are
+ // NOT part of this mode-0 mono helper.
+[[nodiscard]] std::optional<std::array<OriginalWin95VxdPortWrite,2>>
+candidateOriginalWin95AssignedVoiceVtftWrites(
+    std::uint8_t physical_voice) noexcept;
 [[nodiscard]] std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95SelectedVoiceDcysusvWrites(
     const OriginalWin95MonoSelection& selected) noexcept;

@@ -52,6 +52,19 @@ std::optional<OriginalWin95MonoSelection> candidateOriginalWin95Mode0MonoVoice(
     return best;
 }
 std::optional<std::array<OriginalWin95VxdPortWrite,2>>
+candidateOriginalWin95AssignedVoiceVtftWrites(
+    const std::uint8_t voice) noexcept {
+    if(voice>=kOriginalCreativeMusicVoices)return std::nullopt;
+    // VXD +0x3DDB..+0x3E07: selector (3<<5)|voice, data DWORD 0xFFFF.
+    // Its 0x3D1B writer uses OUT DX,AL for the E22 selector and
+    // OUT DX,EAX for the DATA0 0x620 port. The pinned original 86Box
+    // fork independently identifies DATA0 index 3 as EMU8000 VTFT.
+    return std::array<OriginalWin95VxdPortWrite,2>{{
+        {0xE22u,static_cast<std::uint32_t>((3u<<5)|voice),8},
+        {0x620u,0x0000ffffu,32}
+    }};
+}
+std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95SelectedVoiceDcysusvWrites(
     const OriginalWin95MonoSelection& selected) noexcept {
     if(selected.physical_voice>=kOriginalCreativeMusicVoices ||
