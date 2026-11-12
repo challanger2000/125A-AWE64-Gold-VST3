@@ -58,12 +58,15 @@ std::array<std::uint8_t,148> realSourceDerivedGm0() {
     dword(b,0x7e,0x152bbu);dword(b,0x82,0x152fau);
     return b;
 }
-void writeDiagFixture(const std::filesystem::path& p,bool badSha){
+void writeDiagFixture(const std::filesystem::path& p,bool badSha,
+                      bool releaseV2=false,bool sustain=false,
+                      bool wrongOriginalMarker=false){
     std::ofstream o(p,std::ios::binary|std::ios::trunc);
     require(bool(o),"cannot open synthetic P002 host fixture");
     auto raw=[&](std::uint8_t b){o.put(static_cast<char>(b));};
     for(const char c:std::string("125AP2D1"))o.put(c);
-    const std::array<std::uint8_t,6> head{{1u,0u,0u,60u,90u,1u}};
+    const std::array<std::uint8_t,6> head{{
+        static_cast<std::uint8_t>(releaseV2?2u:1u),0u,0u,60u,90u,1u}};
     for(const auto v:head)raw(v);
     std::array<std::uint8_t,32> vxd{{
         0xd3,0x43,0xf2,0x42,0x8a,0xb3,0xe5,0x93,
@@ -83,6 +86,20 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha){
     std::array<std::uint8_t,0x1592u> state{};
     state[0x158eu]=0x31u;state[0x158fu]=0x4du;
     state[0x1590u]=0x47u;state[0x1591u]=0x4du; // 1MGM
+    if(releaseV2) {
+        // Entirely synthetic but source-shaped *original* 32-byte
+        // physical voice record in the real Win95 VXD state layout.
+        // These are encoded release rates observed in the genuine
+        // LCOD+0x60E4 x86 differential, not guessed ADSR parameters.
+        constexpr unsigned at=0x42u;
+        state[at]=wrongOriginalMarker?61u:60u;
+        state[at+1u]=0u; // physical voice0 MIDI channel0
+        state[at+4u]=sustain?1u:0u;
+        state[at+0x15u]=45u; // original mod release => DATA1 802D
+        state[at+0x16u]=92u; // original vol release => DATA1 805C
+        // +0x06 DWORD retained end 0 for this GM0 ROM mode; the
+        // nonzero path and genuine CSL/PSST reads have native tests.
+    }
     for(const auto v:state)raw(v);
     for(int i=0;i<62;++i)raw(0u); // unused for GM0 attack 125
     raw(0u); // physical voice0, NOT the fixed P001 voice29
@@ -124,6 +141,15 @@ struct Instance {
         if(component){component->setActive(false);component->terminate();component->release();}
     }
 };
+void addNoteOffEvent(EventList& list,int channel,int pitch) {
+    Event e{};
+    e.type=Event::kNoteOffEvent;e.busIndex=0;e.sampleOffset=101;
+    e.noteOff.channel=static_cast<Steinberg::int16>(channel);
+    e.noteOff.pitch=static_cast<Steinberg::int16>(pitch);
+    e.noteOff.velocity=0.f;
+    e.noteOff.noteId=1;
+    require(list.addEvent(e)==kResultOk,"host note-off event");
+}
 void addEvent(EventList& list,float vel) {
     Event e{};
     e.type=Event::kNoteOnEvent;e.busIndex=0;e.sampleOffset=137;
@@ -132,7 +158,9 @@ void addEvent(EventList& list,float vel) {
     require(list.addEvent(e)==kResultOk,"host note on event");
 }
 struct Audio {std::uint64_t nonzero=0;std::uint64_t hash=0xcbf29ce484222325ull;};
-Audio renderNote(IPluginFactory* factory,float velocity){
+Audio renderNote(IPluginFactory* factory,float velocity,
+                 int noteOffBlock=-1,int noteOffChannel=0,
+                 int noteOffPitch=60){
     Instance instance(factory,true);
     Audio audio{};
     for(int block=0;block<30;++block){
@@ -142,6 +170,8 @@ Audio renderNote(IPluginFactory* factory,float velocity){
         bus.numChannels=2;bus.channelBuffers32=buf;
         EventList list;
         if(block==0)addEvent(list,velocity);
+        if(block==noteOffBlock)
+            addNoteOffEvent(list,noteOffChannel,noteOffPitch);
         ProcessData data{};
         data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
         data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
@@ -176,9 +206,18 @@ int wmain(int argc,wchar_t** argv){
         ("125a-p002-native-vst3-test-"+std::to_string(GetCurrentProcessId())+".bin");
     auto mutant=fixture;
     mutant+=L".invalid";
+    auto releaseFixture=fixture;
+    releaseFixture+=L".release";
+    auto sustainedFixture=fixture;
+    sustainedFixture+=L".sustained";
+    auto badMarkerFixture=fixture;
+    badMarkerFixture+=L".badmarker";
     try{
         writeDiagFixture(fixture,false);
         writeDiagFixture(mutant,true);
+        writeDiagFixture(releaseFixture,false,true,false,false);
+        writeDiagFixture(sustainedFixture,false,true,true,false);
+        writeDiagFixture(badMarkerFixture,false,true,false,true);
         require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "private Creative ROM process binding failed");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
@@ -199,6 +238,36 @@ int wmain(int argc,wchar_t** argv){
         const auto wrongVelocity=renderNote(factory,75.f/127.f);
         require(wrongVelocity.nonzero==0,
                 "wrong original x86 fixture velocity unexpectedly played");
+        // New private version2 fixture: source-encoded Win95 release
+        // bytes 0x5C/0x2D (not P001 synthetic 0x7F) live in the
+        // original VXD voice record. Test the EXPORTED VST3 NoteOff
+        // audio against an otherwise identical held-note rendering.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           releaseFixture.c_str())==0,
+                "set source authenticated release fixture");
+        const auto releaseHeld=renderNote(factory,90.f/127.f);
+        const auto released=renderNote(factory,90.f/127.f,8);
+        require(releaseHeld.nonzero>300u && released.nonzero>300u,
+                "real P002 source-released or held audio unexpectedly silent");
+        require(releaseHeld.hash!=released.hash,
+                "genuine source-record NoteOff did not change real PCM");
+        const auto wrongChannel=renderNote(factory,90.f/127.f,8,1,60);
+        require(wrongChannel.hash==releaseHeld.hash,
+                "wrong channel unexpectedly released source VXD voice");
+        const auto wrongKey=renderNote(factory,90.f/127.f,8,0,61);
+        require(wrongKey.hash==releaseHeld.hash,
+                "wrong MIDI key unexpectedly released source VXD voice");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           sustainedFixture.c_str())==0,
+                "set source-authenticated sustain record fixture");
+        const auto sustainHeld=renderNote(factory,90.f/127.f);
+        const auto sustainDeferred=renderNote(factory,90.f/127.f,8);
+        require(sustainHeld.hash==sustainDeferred.hash,
+                "original sustain-deferred NoteOff unexpectedly changed PCM");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           badMarkerFixture.c_str())==0,
+                "set invalid source note identity fixture");
+        {Instance rejectBadMarker(factory,false);}
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            mutant.c_str())==0,"set negative fixture");
         {Instance reject(factory,false);}
@@ -206,6 +275,9 @@ int wmain(int argc,wchar_t** argv){
         FreeLibrary(module);module=nullptr;
         std::error_code ec;std::filesystem::remove(fixture,ec);
         std::filesystem::remove(mutant,ec);
+        std::filesystem::remove(releaseFixture,ec);
+        std::filesystem::remove(sustainedFixture,ec);
+        std::filesystem::remove(badMarkerFixture,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
                  <<" original_ROM_from_hash_locked_external_source=TRUE"
                  <<" synthetic_original_x86_GM0_fixture=TRUE"
@@ -214,14 +286,21 @@ int wmain(int argc,wchar_t** argv){
                  <<" reproducible_pcm=TRUE"
                  <<" wrong_key_velocity_source_rejected=TRUE"
                  <<" corrupted_source_identity_rejected=TRUE"
+                 <<" source_VXD_encoded_NoteOff_changes_actual_PCM=TRUE"
+                 <<" source_VXD_sustain_defers_HW_release=TRUE"
+                 <<" wrong_NoteOff_channel_and_key_ignored=TRUE"
+                 <<" invalid_original_voice_marker_rejected=TRUE"
                  <<" original_Win95_driver_pcm_parity=NOT_PROVEN"
-                 <<" full_SF2_bank_polyphony_NoteOff=NOT_IMPLEMENTED\n";
+                 <<" full_SF2_bank_polyphony_CC64_lifecycle=NOT_IMPLEMENTED\n";
         return 0;
     }catch(const std::exception& e){
         if(factory)factory->release();
         if(module)FreeLibrary(module);
         std::error_code ec;std::filesystem::remove(fixture,ec);
         std::filesystem::remove(mutant,ec);
+        std::filesystem::remove(releaseFixture,ec);
+        std::filesystem::remove(sustainedFixture,ec);
+        std::filesystem::remove(badMarkerFixture,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
         return 1;
     }
