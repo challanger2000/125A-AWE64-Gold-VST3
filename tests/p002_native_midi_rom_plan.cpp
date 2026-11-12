@@ -103,6 +103,8 @@ int main(){
     // generator builder; no unknown Windows original template is inferred.
     std::array<std::int16_t,59> originalPresetTemplate{};
     std::array<std::int16_t,59> originalInstrumentTemplate{};
+    originalInstrumentTemplate[56u]=100; // explicit SYNTHETIC scale
+    originalInstrumentTemplate[58u]=-1;  // explicit root-from-shdr
     const auto verifiedGeneratorWords=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
         plannedSf2->layers[0].metadata,
         originalPresetTemplate,originalInstrumentTemplate);
@@ -135,6 +137,14 @@ int main(){
                      beforeStart->end(),
                      started->begin()+0x8eu)); // sample link/context intact
     CHECK((*started)[0x8au]==60u && (*started)[0x8bu]==0u);
+    // Complete original pitch STAGE after independently supplied dwPitch:
+    // shdr orig-key=60, generator root=-1, scale=100, key60 => E000.
+    const auto firstIp=candidateOriginalSf2InitialIpFromDescriptor(
+        *started,60u,0,0);
+    CHECK(firstIp && *firstIp==0xe000u);
+    const auto transposedIp=candidateOriginalSf2InitialIpFromDescriptor(
+        *started,61u,0,0);
+    CHECK(transposedIp && *transposedIp==0xe155u);
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,sf2,0,24));
     // Real original SF2 x86 builder returns exactly six 148-byte
     // descriptors from a synthetic seven-matching-zone source bank.
