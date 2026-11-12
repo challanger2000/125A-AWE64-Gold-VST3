@@ -69,6 +69,15 @@ target_compile_features(awe64_creative_midi PUBLIC cxx_std_23)
 add_executable(awe64_p002_midi_contract tests/p002_midi_contract.cpp)
 target_link_libraries(awe64_p002_midi_contract PRIVATE awe64_creative_midi)
 add_test(NAME p002_winmm_primary_api_16channel_contract COMMAND awe64_p002_midi_contract)
+# P002 experimentally source-derived/common velocity + independent IFATN
+# port writes. It is NOT silently wired into the approved P001 plugin.
+add_library(awe64_p002_register_candidate STATIC src/creative_compat/CreativeCandidateRegister.cpp)
+target_include_directories(awe64_p002_register_candidate PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/creative_compat")
+target_compile_features(awe64_p002_register_candidate PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_register_candidate PUBLIC awe64_creative_midi)
+add_executable(awe64_p002_register_candidate_test tests/p002_candidate_register_test.cpp)
+target_link_libraries(awe64_p002_register_candidate_test PRIVATE awe64_p002_register_candidate)
+add_test(NAME p002_native_midi_to_ifatn_candidate_contract COMMAND awe64_p002_register_candidate_test)
 
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
