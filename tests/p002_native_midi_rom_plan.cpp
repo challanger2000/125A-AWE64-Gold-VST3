@@ -11,7 +11,8 @@ void w16(Bytes&v,unsigned n){v.push_back(n&255);v.push_back((n>>8)&255);}
 void w32(Bytes&v,unsigned n){w16(v,n);w16(v,n>>16);}
 void name(Bytes&v,std::string_view s){v.insert(v.end(),s.begin(),s.end());v.insert(v.end(),20-s.size(),0);}
 void c(Bytes&v,std::string_view k,const Bytes&b){v.insert(v.end(),k.begin(),k.end());w32(v,b.size());v.insert(v.end(),b.begin(),b.end());if(b.size()&1)v.push_back(0);}
-Bytes fixture(const bool format2=false,const unsigned matchingZones=1u){
+Bytes fixture(const bool format2=false,const unsigned matchingZones=1u,
+              const bool invalidLastZoneSample=false){
     Bytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,pdta,root;
     name(phdr,"SYNTHETIC");w16(phdr,7);w16(phdr,0);w16(phdr,0);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     name(phdr,"SYNTHETICDRUM");w16(phdr,0);w16(phdr,128);w16(phdr,1);w32(phdr,0);w32(phdr,0);w32(phdr,0);
@@ -22,7 +23,11 @@ Bytes fixture(const bool format2=false,const unsigned matchingZones=1u){
     for(unsigned n=0;n<=matchingZones;++n){w16(ibag,2u*n);w16(ibag,0);}
     for(unsigned n=0;n<matchingZones;++n){
         w16(igen,8);w16(igen,format2?9617u:89u);
-        w16(igen,53);w16(igen,0);
+        w16(igen,53);
+        // EOS sampleID1 is intentionally invalid as ROM audio. A
+        // seventh zone referencing EOS is NOT among the six original
+        // started voices; the sixth zone's invalid sample must fail.
+        w16(igen,(invalidLastZoneSample&&n+1u==matchingZones)?1u:0u);
     }
     if(format2){
         // Format2: two standard 46-byte headers, ROM mono and EOS.
@@ -186,6 +191,23 @@ int main(){
     const auto planned16=prepareOriginalCreativeRomNote(
         *on,midi,sixteenZones,0,524288u);
     CHECK(planned16 && planned16->count==6u);
+    // Original builder stops after six. A dormant seventh matched zone
+    // is inventory data only and must not invalidate a legal six-voice
+    // NoteOn, even when its sampleID references the invalid EOS marker.
+    const auto sevenWithBadTail=fixture(true,7u,true);
+    const auto inventoryBadTail=resolveCreativeSbkLayers(
+        sevenWithBadTail,0,7,60,100);
+    CHECK(inventoryBadTail && inventoryBadTail->count==7u);
+    CHECK(inventoryBadTail->layers[6].rom_sample_selector==1u);
+    const auto sixPlay=prepareOriginalCreativeRomNote(
+        *on,midi,sevenWithBadTail,0,524288u);
+    CHECK(sixPlay && sixPlay->count==6u);
+    for(std::size_t i=0;i<sixPlay->count;++i)
+        CHECK(sixPlay->layers[i].address.sample_id==0u);
+    // But a bad sixth voice, which WOULD be started, must fail closed.
+    const auto sixWithBadLast=fixture(true,6u,true);
+    CHECK(!prepareOriginalCreativeRomNote(
+        *on,midi,sixWithBadLast,0,524288u));
     // Zero matched layers still means a valid bank, not a fake voice.
     const auto noSeven=prepareOriginalCreativeRomNote(
         *on,midi,sevenZones,128,524288u);
