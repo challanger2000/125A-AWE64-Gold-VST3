@@ -22,13 +22,19 @@ bool validPair(const OriginalWin95VxdPortWrite& ptr,
     return false;
 }
 }
-bool applyOriginalCreativeVxdVoicePorts(
-    awe64::Chip& chip,
+bool validateOriginalCreativeVxdVoicePorts(
     const std::span<const OriginalWin95VxdPortWrite> commands) noexcept {
-    if(!chip.ready() || commands.empty() || commands.size()%2u!=0u ||
+    if(commands.empty() || commands.size()%2u!=0u ||
        commands.size()>64u)return false;
     for(std::size_t i=0;i<commands.size();i+=2)
         if(!validPair(commands[i],commands[i+1]))return false;
+    return true;
+}
+bool applyOriginalCreativeVxdVoicePorts(
+    awe64::Chip& chip,
+    const std::span<const OriginalWin95VxdPortWrite> commands) noexcept {
+    if(!chip.ready() || !validateOriginalCreativeVxdVoicePorts(commands))
+        return false;
     // No allocation, file I/O or manual DSP math in this bridge.
     // Original fork emu8k_outb(E22) calls its emu8k_outw with the same
     // zero-extended selector value; the public P001 Chip exposes outw.
