@@ -1,13 +1,18 @@
 // P002 private handoff differential adapter. No proprietary bytes embedded.
 // Input: one row = 148-byte hex + bank/key/velocity/CC7/CC11/pan/FX state.
-// Output: one encoded descriptor hex per row; failures are nonzero.
+// Output: one encoded descriptor hex per row; optional --also-ip appends
+// original DATA3/IP hex for the private handoff's zero channel-tune state.
+// Failures are nonzero.
 #include "CreativeSf2VoiceDescriptor.h"
 #include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 using namespace awe64::creative;
-int main() {
+int main(const int argc,char**argv) {
+    const bool withIp=argc==2 && std::string_view(argv[1])=="--also-ip";
+    if(argc!=1 && !withIp)return 2;
     std::string line;
     std::size_t rows=0;
     while(std::getline(std::cin,line)) {
@@ -46,9 +51,26 @@ int main() {
             static_cast<std::uint8_t>(reverb),static_cast<std::uint8_t>(flag),volume};
         const auto encoded=candidateOriginalSf2EncodedVoiceDescriptor(raw,context);
         if(!encoded){std::cerr<<"UNSUPPORTED_OR_INVALID_ROW="<<(rows+1u)<<"\n";return 3;}
+        std::optional<std::uint16_t> ip{};
+        if(withIp) {
+            // The source-locked original bank handoff drives MIDI channel
+            // tuning at zero for all four currently captured voices.
+            // Do not use this mode for arbitrary tuned channel contexts.
+            ip=candidateOriginalSf2InitialIpFromDescriptor(
+                *encoded,static_cast<std::uint8_t>(key),0,0);
+            if(!ip){
+                std::cerr<<"UNSUPPORTED_IP_ROW="<<(rows+1u)<<"\n";
+                return 3;
+            }
+        }
         constexpr char digits[]="0123456789abcdef";
         for(const auto b:*encoded)
             std::cout<<digits[b>>4]<<digits[b&15];
+        if(withIp) {
+            std::cout<<' ';
+            for(unsigned n=4u;n>0u;--n)
+                std::cout<<digits[(*ip>>((n-1u)*4u))&15u];
+        }
         std::cout<<'\n';
         ++rows;
     }
