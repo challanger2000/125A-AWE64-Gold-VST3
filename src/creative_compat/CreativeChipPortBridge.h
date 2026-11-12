@@ -21,6 +21,10 @@ namespace awe64::creative {
 // low-byte behavior for E22; 32-bit VTFT is written as consecutive
 // low/high word registers 620/622, as expected by the original fork.
 // This function is not safe concurrently with Chip::render().
+// Pure preflight permits validating the *entire* multi-voice NoteOn
+// (including all its later 56-OUT segments) BEFORE the first I/O write.
+[[nodiscard]] bool validateOriginalCreativeVxdVoicePorts(
+    std::span<const OriginalWin95VxdPortWrite> commands) noexcept;
 [[nodiscard]] bool applyOriginalCreativeVxdVoicePorts(
     awe64::Chip& chip,
     std::span<const OriginalWin95VxdPortWrite> commands) noexcept;
