@@ -79,6 +79,20 @@ add_executable(awe64_p002_register_candidate_test tests/p002_candidate_register_
 target_link_libraries(awe64_p002_register_candidate_test PRIVATE awe64_p002_register_candidate)
 add_test(NAME p002_native_midi_to_ifatn_candidate_contract COMMAND awe64_p002_register_candidate_test)
 
+
+# P002 bounded native Creative 1MGM zone-to-IFATN bridge.
+# No original bank bytes shipped. No P001 chip or production VST3 changes.
+add_library(awe64_p002_sbk_zone STATIC
+    src/creative_compat/CreativeSbkDescriptor.cpp
+    src/creative_compat/CreativeSbkCandidate.cpp)
+target_include_directories(awe64_p002_sbk_zone PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sbk_zone PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sbk_zone PUBLIC awe64_p002_register_candidate)
+add_executable(awe64_p002_sbk_zone_test tests/p002_native_sbk_zone.cpp)
+target_link_libraries(awe64_p002_sbk_zone_test PRIVATE awe64_p002_sbk_zone)
+add_test(NAME p002_native_creative_sbk_key_zone_to_ifatn_contract
+         COMMAND awe64_p002_sbk_zone_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

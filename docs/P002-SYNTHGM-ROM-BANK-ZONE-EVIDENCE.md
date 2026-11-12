@@ -53,3 +53,35 @@ Public CI at [P002 Windows](https://github.com/challanger2000/125A-AWE64-Gold-VS
 5. Continue native Windows tests and the real 125A Plugin Test Lab during all development. Physical Studio One/ASIO only for final completed GUI/product acceptance.
 
 **Never release original Creative binaries or emulate them via ad-hoc per-preset special-cases. P002 PR #4 remains Draft and the P001 original EMU8000 C kernel remains unchanged.**
+
+## P002 native C++ 1MGM bank/zone selector — bounded follow-up
+
+A new native CreativeSbkDescriptor.h/.cpp reads original Creative-shaped
+RIFF/sfbk descriptors from caller-owned bytes off the audio thread. It resolves
+program/bank/key through preset and instrument bags, global and key-specific
+generators, and requires the **Creative-specific 48-byte shdr** stride.
+It refuses malformed, unsupported, missing, or overlapping zones rather than
+falling back to a constant GM-program cutoff.
+
+CreativeSbkCandidate.h/.cpp is the *bounded native bridge* to the existing
+MIDI→IFATN candidate: the selected C++ zone determines the IFATN **cutoff
+base**; only the existing observed velocity computation determines its value.
+The caller must still supply explicitly unverified combined-volume,
+sample-attenuation and velocity-filter-enable terms; raw Creative gen48 is
+**not** substituted for any of these. Stale keys are rejected. Voice selection,
+program/bank state ownership and clock scheduling remain the caller's work.
+
+The new p002_native_creative_sbk_key_zone_to_ifatn_contract Windows CTest
+uses an entirely **synthetic** 1MGM-shaped bank with key 60→base178,
+key 67→base220, a real MIDI NoteOn→E22/E20 bridge, and destructive negative
+controls for malformed RIFF, forged metadata, 46-byte shdr, invalid generator
+indices, wrong program/bank/key and ambiguous overlapping zones. It does not
+embed the owner's original Creative bank or claim an actual private-bank
+retest. Local Linux GCC C++23 isolated checks were run with address/UB
+sanitizers for the reader and a bounded bridge test; Windows Actions on
+the resulting branch is the authoritative Windows compilation/test result.
+
+**Limit:** this is a read-only metadata selector plus one candidate register
+pair, not a full original bank loader, not a 32-voice allocator, not an
+end-to-end independent Creative Win95 MIDI→register→PCM proof, and not
+wired into the P001 VST3. P002 remains DRAFT/OPEN; P001 core untouched.
