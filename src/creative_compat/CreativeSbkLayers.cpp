@@ -147,4 +147,40 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
     }
     return found;
 }
+
+std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
+    Bytes b, std::uint16_t sample_id, std::size_t rom_words) noexcept {
+    if(b.size()<12 || !equals(b,0,"RIFF") || !equals(b,8,"sfbk") ||
+       u32(b,4)!=b.size()-8 || rom_words==0)return std::nullopt;
+    Chunk info{}, pdta{};
+    if(!visitChunks(b,12,b.size(),[&](std::size_t p,Chunk c) noexcept {
+        if(!equals(b,p,"LIST"))return true;
+        if(c.len<4)return false;
+        if(equals(b,c.begin,"INFO")){if(info.present)return false;info=c;}
+        if(equals(b,c.begin,"pdta")){if(pdta.present)return false;pdta=c;}
+        return true;
+    }) || !info.present || !pdta.present)return std::nullopt;
+    Chunk isng{},iprd{},irom{};
+    if(!visitChunks(b,info.begin+4,info.begin+info.len,[&](std::size_t p,Chunk c) noexcept {
+        if(equals(b,p,"isng")){if(isng.present)return false;isng=c;}
+        if(equals(b,p,"IPRD")){if(iprd.present)return false;iprd=c;}
+        if(equals(b,p,"irom")){if(irom.present)return false;irom=c;}
+        return true;
+    }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
+       !contains(b,irom,"1MGM"))return std::nullopt;
+    Chunk shdr{};
+    if(!visitChunks(b,pdta.begin+4,pdta.begin+pdta.len,[&](std::size_t p,Chunk c) noexcept {
+        if(equals(b,p,"shdr")){if(shdr.present)return false;shdr=c;}
+        return true;
+    }) || !shdr.present || !shdr.len || shdr.len%48u)return std::nullopt;
+    // 48 bytes comprise 3 packed address records, each 4 uint32 words.
+    const auto entries=shdr.len/16u;
+    if(sample_id>=entries)return std::nullopt;
+    const auto offset=shdr.begin+std::size_t(sample_id)*16u;
+    const auto start=u32(b,offset),end=u32(b,offset+4);
+    const auto loop_start=u32(b,offset+8),loop_end=u32(b,offset+12);
+    if(!(start<end && start<=loop_start && loop_start<loop_end &&
+         loop_end<=end && end<=rom_words))return std::nullopt;
+    return SbkRomAddress{sample_id,start,end,loop_start,loop_end};
+}
 }

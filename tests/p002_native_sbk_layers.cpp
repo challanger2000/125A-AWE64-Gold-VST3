@@ -14,6 +14,9 @@ void name(Bytes&v,std::string_view text){v.insert(v.end(),text.begin(),text.end(
 void c(Bytes&v,std::string_view id,Bytes body){v.insert(v.end(),id.begin(),id.end());w32(v,static_cast<unsigned>(body.size()));v.insert(v.end(),body.begin(),body.end());if(body.size()&1)v.push_back(0);}
 Bytes fixture(){
     Bytes phdr,pbag,pgen,inst,ibag,igen,shdr(96,0),info,pdta,root;
+    // A synthetic ROM address entry: start=5, end=25, loop=10..20.
+    Bytes addr;w32(addr,5);w32(addr,25);w32(addr,10);w32(addr,20);
+    std::copy(addr.begin(),addr.end(),shdr.begin());
     name(phdr,"TWO-LAYER");w16(phdr,7);w16(phdr,0);w16(phdr,0);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     name(phdr,"EOP");w16(phdr,0);w16(phdr,0);w16(phdr,3);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     for(unsigned off:{0u,1u,5u,9u}){w16(pbag,off);w16(pbag,0);}
@@ -41,6 +44,12 @@ Bytes fixture(){
 }
 int main(){
     const auto bank=fixture();
+    auto address=resolveCreative1MgmRomAddress(bank,0,524288);
+    CHECK(address && address->start_word==5 && address->end_word==25);
+    CHECK(address->loop_start_word==10 && address->loop_end_word==20);
+    CHECK(!resolveCreative1MgmRomAddress(bank,0,24)); // actual ROM bound
+    CHECK(!resolveCreative1MgmRomAddress(bank,151,524288)); // 2 fake rows, 6 slots
+    CHECK(!resolveCreative1MgmRomAddress(bank,6,524288));   // outside all slots
     auto x=resolveCreativeSbkLayers(bank,0,7,64,100);
     CHECK(x && x->count==2);
     const auto &a=x->layers[0],&b=x->layers[1];
@@ -73,5 +82,11 @@ int main(){
     it=std::search(corrupted.begin(),corrupted.end(),pattern.begin(),pattern.end());
     CHECK(it!=corrupted.end());it[4]=64;
     CHECK(!resolveCreativeSbkLayers(corrupted,0,7,64,100));
+    corrupted=bank;
+    // A malformed sampled loop is not accepted as an audio address.
+    const Bytes addressPattern{5,0,0,0,25,0,0,0,10,0,0,0,20,0,0,0};
+    it=std::search(corrupted.begin(),corrupted.end(),addressPattern.begin(),addressPattern.end());
+    CHECK(it!=corrupted.end());it[8]=26;
+    CHECK(!resolveCreative1MgmRomAddress(corrupted,0,524288));
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }

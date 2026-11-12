@@ -188,3 +188,38 @@ original Creative Win95 driver register output; reproduce original
 32-voice allocation and event order/clock. Do not mistake a bank
 layer count for physical EMU8000 voice allocation. P002 remains
 OPEN/DRAFT pending the full differential result.
+
+
+## P002 decoded Creative 1MGM packed ROM sample-address records
+
+Previously the 48-byte Creative shdr record was treated as one generic
+SF2-like header, which is WRONG. Authentic 1MGM/SYNTHGM.SBK has **51
+48-byte shdr records, each containing 3 consecutive 16-byte ROM sample
+records**, for 153 address slots. One 16-byte record consists of four
+little-endian uint32 addresses: sample start, sample end, loop start
+and loop end. Generator-53 ROM sample ID is the index into these
+16-byte records, NOT the 48-byte outer record index.
+
+The author's actual original SYNTHGM(2).SBK and exact original 1MiB
+awe32(1).raw (SHA256 4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e)
+were locally verified: ALL **152 actually referenced ROM sample IDs
+0..151** map to 16-byte descriptors with
+start < end, start <= loopStart < loopEnd <= end, and sample end no
+larger than **524288 original ROM 16-bit words**. For example,
+ROM sample ID3 gives start 0xFEB9, end 0x152FE; ID55 (Violin)
+start 0x3765B, loopEnd 0x37D18; ID151 end 0x7FC31.
+These are the metadata's ROM *word positions*, not yet proven
+exact hardware CCCA/PSST/CSL register encoding.
+
+Native **CreativeSbkLayers.h/.cpp** now adds a separately tested
+resolveCreative1MgmRomAddress() decoding function.
+Original ROM and bank are private and never placed in public CI.
+Public synthetic tests check packed 16-byte records, ROM memory bounds,
+out-of-range sample IDs, and invalid loop geometry.
+Windows CI must separately confirm this source change.
+
+**P002 remaining:** original-driver chip-address translation
+including any hardware address-base offset, voice allocation, per-layer
+filter/volume/ADSR mapping, clock-exact register ordering, and native
+PCM equivalence. An address-descriptor match is NOT an independent
+MIDI-to-hardware-register PASS.

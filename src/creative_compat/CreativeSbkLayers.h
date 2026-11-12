@@ -43,6 +43,16 @@ struct SbkLayerSet {
     std::array<SbkLayer,kMaxCreative1MgmLayers> layers{};
     std::uint8_t count=0;
 };
+struct SbkRomAddress {
+    std::uint16_t sample_id=0;
+    std::uint32_t start_word=0, end_word=0, loop_start_word=0, loop_end_word=0;
+};
+// Creative 1MGM packs THREE 16-byte ROM sample-address records into each
+// historical 48-byte shdr row, unlike generic SF2 sample headers.
+// Word addresses must stay within the supplied original-ROM size.
+[[nodiscard]] std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
+    std::span<const std::uint8_t> sbk, std::uint16_t sample_id,
+    std::size_t original_rom_word_count) noexcept;
 // Run off the audio thread. Empty result = valid bank but no matching layer.
 // nullopt = malformed/unsupported bank, invalid MIDI input, or layer overflow.
 // This does NOT select physical EMU8000 voices or resolve sample addresses.
