@@ -187,6 +187,17 @@ int main(){
     CHECK(real->voice[3].dcysus==0x8045u);
     CHECK(real->voice[3].csl==0x00015302u);
     CHECK(real->voice[3].psst==0x470152FEu);
+    // First actual note-start CCCA is source start minus four.
+    // Later original VXD writes *another* CCCA value with filter-Q bits.
+    const auto startNoQ=candidateOriginalVxdRomCccaStart(
+        sample3,3,5,true,OriginalVxdCccaStartPhase::StartWithoutFilterQ);
+    const auto startWithQ=candidateOriginalVxdRomCccaStart(
+        sample3,3,5,true,OriginalVxdCccaStartPhase::StartWithEncodedFilterQ);
+    CHECK(startNoQ && startWithQ);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startNoQ));
+    CHECK(real->voice[3].ccca==0x0000FEB5u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startWithQ));
+    CHECK(real->voice[3].ccca==0x5000FEB5u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -210,6 +221,7 @@ int main(){
              <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
              <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
              <<" original_note_start_envelope7_actual_chip=TRUE"
+             <<" original_CCCA_source_minus4_Q_actual_chip=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

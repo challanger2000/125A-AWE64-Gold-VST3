@@ -17,8 +17,9 @@ bool validPair(const OriginalWin95VxdPortWrite& ptr,
                // DATA1: DCYSUSV; DATA1: DCYSUS (note release)
     }
     if(data.access_width_bits==32u)
-        return (reg==2u || reg==3u || reg==6u || reg==7u) &&
-               data.port==0x620u; // VTFT / PSST / CSL
+        return (reg==0u && data.port==0xA20u) || // CCCA (real ROM cursor)
+               ((reg==2u || reg==3u || reg==6u || reg==7u) &&
+                data.port==0x620u); // CVCF / VTFT / PSST / CSL
     return false;
 }
 }
@@ -38,8 +39,9 @@ bool applyOriginalCreativeVxdVoicePorts(
         const auto& d=commands[i+1];
         chip.writePort(0xE22u,static_cast<std::uint16_t>(ptr.value));
         if(d.access_width_bits==32u) {
-            chip.writePort(0x620u,static_cast<std::uint16_t>(d.value));
-            chip.writePort(0x622u,static_cast<std::uint16_t>(d.value>>16));
+            chip.writePort(d.port,static_cast<std::uint16_t>(d.value));
+            chip.writePort(static_cast<std::uint16_t>(d.port+2u),
+                           static_cast<std::uint16_t>(d.value>>16));
         } else {
             chip.writePort(d.port,static_cast<std::uint16_t>(d.value));
         }

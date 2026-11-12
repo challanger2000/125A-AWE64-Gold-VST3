@@ -21,4 +21,21 @@ candidateOriginalVxdSampleAddressUpdate(
     const SbkRomAddress& sample, std::uint8_t physical_voice,
     OriginalVxdSampleAddressCase driver_case,
     std::uint32_t actual_prior_psst) noexcept;
+
+enum class OriginalVxdCccaStartPhase : std::uint8_t {
+    StartWithoutFilterQ=0,
+    StartWithEncodedFilterQ=1
+};
+// The private Creative VXD NOTE START at LCOD +0x5B81 first derives
+// CCCA from ROM word-start -4 and writes it at +0x5F28. At +0x5F58
+// it writes the same CCCA AGAIN with pre-encoded filter Q in bits 31..28.
+// These are separate phases: other envelope registers occur BETWEEN.
+// Caller supplies the original encoded voice filter-Q after original
+// bank/controller conversion. No synthetic resonance approximation.
+[[nodiscard]] std::optional<std::array<OriginalWin95VxdPortWrite,2>>
+candidateOriginalVxdRomCccaStart(
+    const SbkRomAddress& sample,std::uint8_t physical_voice,
+    std::uint8_t encoded_original_filter_q,
+    bool original_driver_filter_q_verified,
+    OriginalVxdCccaStartPhase phase) noexcept;
 } // namespace awe64::creative

@@ -874,3 +874,33 @@ chip tests now execute all seven on a physical voice3, then inspect its
 true VTFT, CVCF, ATKHLDV, LFO1VAL, ATKHLD, DCYSUS and LFO2VAL fields.
 The original DSP source has not changed. Full original event timing and
 MIDI-derived audio PCM parity are still open.
+
+
+## Original VXD note-start CCCA, physical ROM playback cursor and filter Q
+
+The installed original SBAWE.VXD LCOD around +0x5B81 and +0x5F1B..+0x5F58
+reveals **two different writes** to the actual DATA1 index0 CCCA 32-bit register
+at the start of a voice. Its first CCCA word uses the original sample-start
+word address **minus four**; its later CCCA word adds the **already encoded
+filter resonance field** in bits 31..28. These two writes must remain
+separate because other real VXD envelope and voice-register writes occur
+BETWEEN them. The chip's original index0 DATA1 maps to E22 8-bit pointer
+and A20 32-bit data port, not to the 620 VTFT/CSL/PSST DATA0 group.
+
+Native CreativeVxdSampleAddress now exposes both distinct CCCA phases,
+using the exact original ROM sample descriptor (start>=4 and within
+1MiB) and explicitly verified original filter-Q value 0..15. It fails
+closed if the Q conversion from original VXD driver state is unavailable.
+There is no per-preset filter tuning or guessed default.
+
+The pinned-chip bridge now supports a VXD-verified DWORD A20 for DATA1
+CCCA, splitting it over A20/A22 only when its input access width is
+**32 bits**, and explicitly rejects unauthorized index/port combinations.
+The real-chip Windows test checks physical voice3 CCCA=0000FEB5 from
+original sample3 start FEB9; then CCCA=5000FEB5 for an example verified
+encoded Q=5. The test input Q=5 is a **synthetic encoded-record probe**,
+not an unverified assertion that the original GM0 preset has Q=5.
+
+The original complete voice sequencing, subsequent generator mapping,
+register readback differential and audible original-driver PCM parity
+remain open. All original bank/ROM/driver bytes remain private.

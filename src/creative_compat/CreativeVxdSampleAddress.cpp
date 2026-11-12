@@ -31,4 +31,27 @@ candidateOriginalVxdSampleAddressUpdate(
         {0x620u,(old_psst&0xff000000u)|psst_low24,32u}
     }};
 }
+
+std::optional<std::array<OriginalWin95VxdPortWrite,2>>
+candidateOriginalVxdRomCccaStart(
+    const SbkRomAddress& s,const std::uint8_t voice,
+    const std::uint8_t q,const bool verified,
+    const OriginalVxdCccaStartPhase phase) noexcept {
+    if(voice>=kOriginalCreativeMusicVoices || !verified || q>15 ||
+       s.start_word<4 || s.start_word>=s.end_word ||
+       s.end_word>0x80000u ||
+       s.loop_start_word<s.start_word ||
+       s.loop_start_word>=s.loop_end_word ||
+       s.loop_end_word>s.end_word)return std::nullopt;
+    const auto start=s.start_word-4u;
+    std::uint32_t value=start;
+    if(phase==OriginalVxdCccaStartPhase::StartWithEncodedFilterQ)
+        value|=static_cast<std::uint32_t>(q)<<28;
+    else if(phase!=OriginalVxdCccaStartPhase::StartWithoutFilterQ)
+        return std::nullopt;
+    return std::array<OriginalWin95VxdPortWrite,2>{{
+        {0xE22u,static_cast<std::uint32_t>(voice),8u},
+        {0xA20u,value,32u}
+    }};
+}
 } // namespace awe64::creative
