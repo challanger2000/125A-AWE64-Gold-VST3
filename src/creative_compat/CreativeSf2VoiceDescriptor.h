@@ -52,6 +52,21 @@ struct OriginalSf2VoiceStartConditions {
 // 0x76. Everything not explicitly transformed is preserved byte-for-byte.
 // Only ROM-mono sampleType 0x8001 has been verified. The original note-start
 // clears that qualifier in its outgoing 148-byte record to 0x0001.
+// Exact source-executed ORIGINAL SF2 note-start pitch calculation from
+// the already verified descriptor dwPitch at +0x86, root/scale/coarse/fine
+// generators 58/56/51/52, signed sample pitch correction +0x8B, and
+// explicit per-channel tuning terms. Unlike FORMAT-1, the driver uses
+// the fixed integer factor 874 and emits the upper WORD of the resulting
+// 24-bit coordinate (0xE000 for 44.1 kHz, root==played key).
+// Original rootKey=-1 means use shdr.byOrigKey; keys outside 0..127 and
+// unsupported negative intermediate are refused rather than guessed.
+// 0xFFFFFF is the source-confirmed maximum 24-bit pitch coordinate.
+[[nodiscard]] std::optional<std::uint16_t>
+candidateOriginalSf2InitialIpFromDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& original_voice,
+    std::uint8_t played_key,
+    std::int16_t verified_channel_tune_1_cents,
+    std::int16_t verified_channel_tune_2_cents) noexcept;
 // The ORIGINAL format-2 builder performs two separate source-normalized
 // levels and signed-saturating addition across all 59 WORD fields. The
 // format-2 PRECONVERTED template WORDS must come from the original driver;
