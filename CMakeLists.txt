@@ -311,7 +311,8 @@ target_include_directories(awe64_p002_sf2_voice_descriptor
 target_compile_features(awe64_p002_sf2_voice_descriptor PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_voice_descriptor
     PUBLIC awe64_p002_vxd_voice_envelope_prelude
-           awe64_p002_original_controller_volume)
+           awe64_p002_original_controller_volume
+           awe64_p002_sbk_layers)
 add_executable(awe64_p002_sf2_voice_descriptor_test
     tests/p002_native_sf2_voice_descriptor.cpp)
 target_link_libraries(awe64_p002_sf2_voice_descriptor_test
