@@ -1,5 +1,7 @@
 #include "CreativeSbkLayers.h"
 #include <array>
+#include <algorithm>
+#include <cstdint>
 #include <string_view>
 namespace awe64::creative {
 namespace {
@@ -42,6 +44,73 @@ std::optional<bool> rangeOK(std::optional<std::uint16_t> raw,std::uint8_t value)
     if(low>high || high>127)return std::nullopt;
     return value>=low && value<=high;
 }
+}
+std::optional<std::int16_t>
+candidateOriginalSf2InstrumentLoadGenerator(
+    const std::uint16_t op,const std::int16_t raw) noexcept {
+    if(op>58u)return std::nullopt;
+    const auto x=static_cast<std::int32_t>(raw);
+    std::int32_t output=x;
+    // Exact integer-only ORIGINAL PCOD +0x3985, no SoundFont pow/log
+    // approximations; C++ signed integer division truncates toward zero.
+    switch(op) {
+        case 5u:case 6u:case 7u:
+            output=(x*6991+32768)/65536;break;
+        case 8u:output=(x+15)/29-153;break;
+        case 9u:output=x/12;break;
+        case 10u:output=(x*2329+32768)/65536;break;
+        case 11u:output=(x*1165+32768)/65536;break;
+        case 13u:output=(x*128)/120;break; // x<<7 without signed shift UB
+        case 29u:case 37u:output=127+(-127*x)/1000;break;
+        case 51u:output=100*x;break;
+        default:break;
+    }
+    // The authentic original bank compiler stores the low WORD of
+    // each converter output in its internal compressed generator table.
+    return static_cast<std::int16_t>(static_cast<std::uint16_t>(output));
+}
+std::optional<std::int16_t>
+candidateOriginalSf2PresetDeltaGenerator(
+    const std::uint16_t op,const std::int16_t raw) noexcept {
+    const auto converted=candidateOriginalSf2InstrumentLoadGenerator(op,raw);
+    if(!converted)return std::nullopt;
+    // Original PCOD+0x3AF7: a subset of preset generators are OFFSETS
+    // relative to the instrument's load converter's C(op,0).
+    switch(op) {
+        case 5u:case 6u:case 7u:case 8u:case 9u:case 10u:
+        case 11u:case 13u:case 29u:case 37u:case 46u:case 47u:
+        case 49u:case 51u:case 52u:case 56u:case 58u: {
+            const auto zero=candidateOriginalSf2InstrumentLoadGenerator(op,0);
+            if(!zero)return std::nullopt;
+            const auto delta=static_cast<std::int32_t>(*converted)-
+                             static_cast<std::int32_t>(*zero);
+            return static_cast<std::int16_t>(static_cast<std::uint16_t>(delta));
+        }
+        default:return converted;
+    }
+}
+std::optional<std::int16_t>
+candidateOriginalSf2InstVolFromExplicitScopes(
+    const SbkLayer& layer,
+    const std::optional<std::int16_t> preset_default,
+    const std::optional<std::int16_t> instrument_default) noexcept {
+    // Format-2 descriptor instVol(+0x60) is generator48, which is
+    // identity during loading, unlike FORMAT-1's (127-x)*75/10.
+    const auto preset=layer.preset_local.get(48).has_value()
+        ? layer.preset_local.get(48):layer.preset_global.get(48);
+    const auto inst=layer.instrument_local.get(48).has_value()
+        ? layer.instrument_local.get(48):layer.instrument_global.get(48);
+    const auto p=preset
+        ? candidateOriginalSf2PresetDeltaGenerator(
+            48,static_cast<std::int16_t>(*preset)):preset_default;
+    const auto i=inst
+        ? candidateOriginalSf2InstrumentLoadGenerator(
+            48,static_cast<std::int16_t>(*inst)):instrument_default;
+    if(!p || !i)return std::nullopt;
+    const auto joined=std::clamp<std::int32_t>(
+        static_cast<std::int32_t>(*p)+static_cast<std::int32_t>(*i),
+        -32768,32767);
+    return static_cast<std::int16_t>(joined);
 }
 std::optional<SbkLayerSet> resolveCreativeSbkLayers(
     Bytes b,std::uint16_t bank,std::uint8_t program,

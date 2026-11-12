@@ -1,6 +1,7 @@
 #include "CreativeVxdVoiceEnvelopePrelude.h"
 #include <cstdint>
 #include <array>
+#include <algorithm>
 namespace awe64::creative {
 namespace {
 // Original installed owner's private Creative SBAWE.VXD LCOD+0x31A8.
@@ -122,5 +123,19 @@ candidateOriginalCreative1MgmGeneratorEnvelopeRate(
         case 28u:case 30u:case 38u:return originalCreativePcodEnvelopeRateFromWord(original_raw);
         default:return std::nullopt;
     }
+}
+std::uint8_t originalCreativeSf2VoiceAttackRate(
+    const std::int16_t raw) noexcept {
+    const auto x=static_cast<std::int32_t>(raw);
+    // Original Win95 SBAWE.VXD PCOD+0x3BD4 exact signed integer math;
+    // C++ / truncates toward zero, including for negative operands.
+    if(x<-599) {
+        const auto attack=(37-x)/75+8;
+        return static_cast<std::uint8_t>(std::min(128,attack));
+    }
+    if(x>=4300)return 1;
+    const auto q=(x+500)/150;
+    const auto value=((~q&7)|8)>>(q/8&31);
+    return static_cast<std::uint8_t>(std::max(1,value));
 }
 } // namespace awe64::creative

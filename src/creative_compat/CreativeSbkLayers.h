@@ -76,6 +76,25 @@ struct SbkLayer {
         return local?local:instrument_global.get(34);
     }
 };
+// Actual Creative FORMAT-2/SF2 PCOD+0x3985 load arithmetic. Its preset
+// operator offsets use PCOD+0x3AF7 (some are C(x)-C(0)); neither is
+// interchangeable with the old original 48-byte-shdr FORMAT-1/SBK.
+[[nodiscard]] std::optional<std::int16_t>
+candidateOriginalSf2InstrumentLoadGenerator(
+    std::uint16_t generator_id,std::int16_t original_raw) noexcept;
+[[nodiscard]] std::optional<std::int16_t>
+candidateOriginalSf2PresetDeltaGenerator(
+    std::uint16_t generator_id,std::int16_t original_raw) noexcept;
+// Format2 original builder merges preset and instrument levels separately:
+// within each level local replaces global; the converted levels are signed
+// added, saturating int16. Missing level uses an explicit verified original
+// descriptor TEMPLATE default, never a manufactured zero. This bounded
+// entrypoint handles generator48 instVol only; it does NOT parse SF2.
+[[nodiscard]] std::optional<std::int16_t>
+candidateOriginalSf2InstVolFromExplicitScopes(
+    const SbkLayer& layer,
+    std::optional<std::int16_t> verified_preset_template = {},
+    std::optional<std::int16_t> verified_instrument_template = {}) noexcept;
 constexpr std::size_t kMaxCreative1MgmLayers=16;
 struct SbkLayerSet {
     std::array<SbkLayer,kMaxCreative1MgmLayers> layers{};

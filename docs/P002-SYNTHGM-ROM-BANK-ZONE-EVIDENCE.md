@@ -1155,3 +1155,52 @@ externally passed descriptor and ensures that actual IFATN comes
 from generator48; changing the genuine independent Device-State
 then changes the result without altering `instVol`. Original
 full MIDI/register/PCM equality remains OPEN.
+
+
+## Format-2/SF2 original generator loading and attack: true source arithmetic
+
+This implementation integrates the user's independent original SBAWE.VXD
+x86 research `Originale Creative-Bankumrechnung` without a new parser
+or a duplicate voice engine. In the existing `CreativeSbkLayers`
+component, the original **PCOD+0x3985 instrument loader** applies
+integer-only format-2 generator conversion (ops 5/6/7,8,9,10,11,
+13,29/37,51 and identity for the remaining 0..58).
+Original **PCOD+0x3AF7 preset delta converter** uses C(op,x)-C(op,0)
+for the exact source-verified operator set. All values are stored as
+original 16-bit generator WORDs, with C++ signed division truncating
+toward zero. The bounded `candidateOriginalSf2InstVolFromExplicitScopes`
+then chooses local over global within each preset/instrument level,
+adds both converted signed 16-bit terms and saturates to signed16.
+Unlike format-1 operator48 `(127-x)*75/10`, **format-2
+operator48 is identity** before the additive scope merge.
+If a level is absent and its original template default has not been
+explicitly verified, the merge returns nullopt rather than 0.
+
+Synthetic four-scope gen48 values preset-global5, preset-local7,
+instrument-global9, instrument-local11 yield ORIGINAL format-2 instVol
+**18**, while ORIGINAL format-1 yields **870**. Windows tests verify
+both outcomes, missing-template rejection and signed saturation.
+Actual source SF2 cutoffs: generator8 9617->179 (SF2 Piano),
+10561->211 (SF2 Violin), 14400->344 (SF2 high cutoff before clamp).
+These are NOT the earlier owner's distinct 48-byte-shdr SBK cutoffs
+178 and 210. The 46-byte-shdr source SF2 is still NOT imported by
+native parser, and no change to pinned P001 DSP is needed.
+
+The existing `CreativeVxdVoiceEnvelopePrelude` now implements the
+actual FORMAT-2/SF2 `PCOD+0x3BD4` signed piecewise ATTACK
+conversion ONLY. Its real original bank raw values give
+-8800->125 (GM0 Piano), -7972->114 (GM40 Violin),
+-11958->128 (GM100, both layers). The original SF1 127-word
+attack threshold table stays separate and unmodified. Value128
+is retained in descriptor and changed only at hardware ATKHLDV
+port write as previously fixed.
+
+The real unchanged 86Box-EMU8000 core Windows test runs original
+SF2 1MGM GM0 / GM40 / GM100 reference *numeric handoff* values,
+with their explicitly synthetic controller/device defaults and
+no original binary bytes. GM0 at key60/vel90 generates actual chip
+IFATN **B33A** (179/58); GM40 **9532** (149/50); GM100
+**FF2A** and Attack=128/ATKHLDV7F7F. Those exact separate
+source-SF2 x86 reference words are recorded in the user-supplied
+private handoff; no complete end-to-end SF2 parser, live original
+trace timing or PCM parity is claimed.

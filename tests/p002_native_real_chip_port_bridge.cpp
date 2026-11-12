@@ -282,7 +282,9 @@ int main(){
     gm100.volume={100,127,0,0,true};
     gm100.bank=0;
     gm100.initial_cutoff=255;
-    gm100.encoded_volume_attack_rate=128;
+    gm100.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-11958);
+    CHECK(gm100.encoded_volume_attack_rate==128);
     const auto gm100Candidate=candidateOriginalCreativeIfatn(90,gm100);
     CHECK(gm100Candidate && gm100Candidate->word==0xFF2Au &&
           gm100Candidate->cutoff==255);
@@ -308,6 +310,53 @@ int main(){
     }};
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,gm100Typed));
     CHECK(real->voice[12].ifatn==0xFF2Au);
+    // Two additional original 46-byte-SF2 source-bank handoff cases,
+    // measured against actual executed 1990s original VXD x86. We do
+    // NOT call this native SF2 bank import; it remains format2-only
+    // numeric generator conversion with explicitly proven defaults.
+    const auto pianoSf2Cut=candidateOriginalSf2InstrumentLoadGenerator(
+        8,9617);
+    const auto violinSf2Cut=candidateOriginalSf2InstrumentLoadGenerator(
+        8,10561);
+    CHECK(pianoSf2Cut && *pianoSf2Cut==179);
+    CHECK(violinSf2Cut && *violinSf2Cut==211);
+    SbkLayer sf2Piano{};
+    sf2Piano.instrument_global.raw[48]=150;
+    SbkLayer sf2Violin{};
+    sf2Violin.instrument_global.raw[48]=82;
+    // Zero preset term is expressly the actual GM0/40 handoff
+    // descriptor template for these two cases; not a general default.
+    const auto pianoSf2Vol=candidateOriginalSf2InstVolFromExplicitScopes(
+        sf2Piano,0);
+    const auto violinSf2Vol=candidateOriginalSf2InstVolFromExplicitScopes(
+        sf2Violin,0);
+    CHECK(pianoSf2Vol && *pianoSf2Vol==150);
+    CHECK(violinSf2Vol && *violinSf2Vol==82);
+    OriginalCreativeIfatnTerms pianoSf2{};
+    pianoSf2.bank=0;
+    pianoSf2.initial_cutoff=static_cast<std::uint8_t>(*pianoSf2Cut);
+    pianoSf2.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-8800);
+    pianoSf2.volume={100,127,0,*pianoSf2Vol,true};
+    OriginalCreativeIfatnTerms violinSf2=pianoSf2;
+    violinSf2.initial_cutoff=static_cast<std::uint8_t>(*violinSf2Cut);
+    violinSf2.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-7972);
+    violinSf2.volume.encoded_voice_amplitude=*violinSf2Vol;
+    const auto pianoSf2Result=candidateOriginalCreativeIfatn(90,pianoSf2);
+    const auto violinSf2Result=candidateOriginalCreativeIfatn(90,violinSf2);
+    CHECK(pianoSf2Result && pianoSf2Result->word==0xB33Au);
+    CHECK(violinSf2Result && violinSf2Result->word==0x9532u);
+    const std::array<OriginalWin95VxdPortWrite,2> pianoSf2Ports{{
+        {0xE22u,0x2Fu,8},{0xE20u,pianoSf2Result->word,16}
+    }};
+    const std::array<OriginalWin95VxdPortWrite,2> violinSf2Ports{{
+        {0xE22u,0x32u,8},{0xE20u,violinSf2Result->word,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,pianoSf2Ports));
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,violinSf2Ports));
+    CHECK(real->voice[15].ifatn==0xB33Au);
+    CHECK(real->voice[18].ifatn==0x9532u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -336,6 +385,7 @@ int main(){
              <<" selected_original_SBK_gen8_to_REAL_chip_cutoff178=TRUE"
              <<" original_GM40_gen8_105_gen34_10_REAL_chip_cutoff148=TRUE"
              <<" actual_SF2_GM100_attack128_hw127_IFATN_FF2A=TRUE"
+             <<" real_SF2_GM0_IFATN_B33A_GM40_IFATN_9532=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

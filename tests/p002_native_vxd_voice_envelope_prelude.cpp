@@ -100,10 +100,21 @@ int main(){
     CHECK(attackDigest==0xebb9ee405dab7e7full);
     CHECK(attackHist[1]==59596 && attackHist[126]==6 &&
           attackHist[128]==1);
+    // Original actual x86 SF2 bank handoff values, not the SF1 rate table:
+    CHECK(originalCreativeSf2VoiceAttackRate(-8800)==125);  // SF2 GM0
+    CHECK(originalCreativeSf2VoiceAttackRate(-7972)==114);  // SF2 GM40
+    CHECK(originalCreativeSf2VoiceAttackRate(-11958)==128); // two GM100 layers
+    CHECK(originalCreativeSf2VoiceAttackRate(-32768)==128);
+    CHECK(originalCreativeSf2VoiceAttackRate(-600)==16);
+    CHECK(originalCreativeSf2VoiceAttackRate(-599)==15);
+    CHECK(originalCreativeSf2VoiceAttackRate(0)==12);
+    CHECK(originalCreativeSf2VoiceAttackRate(4300)==1);
+    CHECK(originalCreativeSf2VoiceAttackRate(32767)==1);
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
              <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
              <<" strict_less_than=TRUE ATTACK_65536=PASS"
              <<" original_SBK_generator26_28_30_34_38=TRUE"
+             <<" original_SF2_attack=-8800:125_-7972:114_-11958:128"
              <<" native_full_noteon_PCM_UNVERIFIED=TRUE\n";
 }

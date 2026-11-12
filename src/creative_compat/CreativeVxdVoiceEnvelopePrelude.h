@@ -45,4 +45,11 @@ candidateOriginalVxdVoiceEnvelopePrelude(
 candidateOriginalCreative1MgmGeneratorEnvelopeRate(
     std::uint16_t generator_id,
     std::uint16_t original_sbk_raw_word) noexcept;
+// The real Creative FORMAT-2/SF2 PCOD+0x3BD4 converts merged
+// signed timecents to the ORIGINAL 0..128 VOICE DESCRIPTOR attack rate.
+// Unlike FORMAT-1/SBK LCOD+0x74F2, this is integer piecewise math.
+// Value 128 remains in the descriptor; only the existing VXD note
+// register writer transforms its 0x0080 into hardware byte 0x007F.
+[[nodiscard]] std::uint8_t originalCreativeSf2VoiceAttackRate(
+    std::int16_t merged_sf2_attack_timecents) noexcept;
 } // namespace awe64::creative

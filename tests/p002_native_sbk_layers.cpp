@@ -138,5 +138,59 @@ int main(){
     CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==-7);
     sf1.instrument_global.raw[48]=static_cast<std::uint16_t>(-32768);
     CHECK(!sf1.candidateOriginalSf1InstVolFromGenerator48());
+    // Original x86 PCOD+0x3985 format2 SF2, NOT the 48-byte SBK:
+    // genuine source SF2 generator8 cutoffs 9617->179, 10561->211.
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(8,9617)==179);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(8,10561)==211);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(8,14400)==344);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(48,150)==150);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(48,82)==82);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(5,1000)==107);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(9,24)==2);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(10,1000)==36);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(11,1000)==18);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(13,120)==128);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(13,-120)==-128);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(29,1000)==0);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(29,-1000)==254);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(51,3)==300);
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(51,30000)==
+          static_cast<std::int16_t>(static_cast<std::uint16_t>(3000000)));
+    CHECK(!candidateOriginalSf2InstrumentLoadGenerator(59,0));
+    CHECK(candidateOriginalSf2PresetDeltaGenerator(8,0)==0);
+    CHECK(candidateOriginalSf2PresetDeltaGenerator(8,29)==1);
+    CHECK(candidateOriginalSf2PresetDeltaGenerator(29,1000)==-127);
+    CHECK(candidateOriginalSf2PresetDeltaGenerator(51,3)==300);
+    CHECK(candidateOriginalSf2PresetDeltaGenerator(48,7)==7);
+    CHECK(!candidateOriginalSf2PresetDeltaGenerator(59,0));
+    // Exact original SF2 builder: local overrides global within each
+    // level; separately converted preset and instrument are SAT-ADDED.
+    SbkLayer sf2{};
+    sf2.preset_global.raw[48]=5;
+    sf2.preset_local.raw[48]=7;
+    sf2.instrument_global.raw[48]=9;
+    sf2.instrument_local.raw[48]=11;
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==18);
+    // The same four scopes format1 yields 870, not 18.
+    CHECK(sf2.candidateOriginalSf1InstVolFromGenerator48()==870);
+    sf2.preset_local.raw[48].reset();
+    sf2.instrument_local.raw[48].reset();
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==14);
+    sf2.preset_global.raw[48].reset();
+    CHECK(!candidateOriginalSf2InstVolFromExplicitScopes(sf2));
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2,0)==9);
+    sf2.instrument_global.raw[48]=150;
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2,0)==150);
+    sf2.instrument_global.raw[48]=82;
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2,0)==82);
+    sf2.instrument_global.raw[48].reset();
+    CHECK(!candidateOriginalSf2InstVolFromExplicitScopes(sf2,0));
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2,0,0)==0);
+    sf2.preset_local.raw[48]=32767;
+    sf2.instrument_local.raw[48]=32767;
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==32767);
+    sf2.preset_local.raw[48]=static_cast<std::uint16_t>(-32768);
+    sf2.instrument_local.raw[48]=static_cast<std::uint16_t>(-32768);
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==-32768);
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }
