@@ -138,3 +138,53 @@ passed locally; CI is a separate Windows proof.
 P002 is still OPEN: volume/attack conversion, ROM selector-to-chip address,
 voice allocation, all other register writes and exact MIDI-to-register
 timing/PCM have not been proven from these tests.
+
+
+## P002 authentic-bank multilayer inventory and native C++ implementation
+
+The previously uploaded original SYNTHGM(2).SBK, with pinned SHA-256
+fd2e35a260fef22fe809918dda3c921c6d48d53a29c3515af8a41019ce72d586,
+was inspected across ALL 128 melodic GM programs at key 60/velocity 100.
+**71 programs produce one instrument layer and 57 produce two.** All 128
+have one or two matching layers at this key/velocity. The earlier
+single-zone selector can only answer single-layer cases and must NOT
+silently represent multilayer GM programs as a single voice.
+
+New independent native CreativeSbkLayers.h/.cpp resolves ALL
+matching original RIFF/1MGM preset bags, instrument bags, inclusive
+key/velocity zones and raw Creative ROM sample selectors, in order.
+It preserves the original 0..63 generator words separately for
+**preset-global, preset-local, instrument-global, instrument-local**
+scopes. Missing cutoff/envelope/attenuation values remain missing:
+no default/gain/attack formula is invented from metadata alone.
+This avoids treating raw generator 48 as a native IFATN attenuation
+byte, and it avoids treating ROM sample selector 53 as an shdr index.
+No dynamic allocation occurs inside the parser; it is intended to be
+used off the audio thread, before real-time event handling.
+
+**Real private C++23 original-bank test:** native 128/128 GM programs
+at key60 velocity100 matched the independently parsed 71/57
+single/two-layer distribution. GM0 Piano 1 raw cutoff89 and
+GM40 Violin raw cutoff105 were verified separately, while dual-layer
+GM3 Honky-Tonk had *two* independently retained layers with
+absent explicit instrument cutoff (no fabricated value).
+The actual proprietary source bank remains PRIVATE and is NOT
+in GitHub Actions.
+
+**Independent public synthetic Windows CI:** new test
+p002_native_creative_sbk_multilayer_contract models two simultaneous
+preset/instrument layers with differing generator scopes, key/velocity
+ranges and unresolved ROM sample selectors. Negative checks cover
+malformed RIFF, missing original irom identity, illegal generator IDs,
+invalid MIDI and nonmatching ranges. Native isolated GCC C++23
+ASan/UBSan checks passed locally on the synthetic fixture.
+This parser is not yet wired into the production P001 VST3.
+No original Creative voice allocation or end-to-end register/PCM
+equivalence is implied.
+
+**Next evidence required:** map genuine ROM sample selectors and
+all layer-specific initial filter/attenuation/envelopes to exact
+original Creative Win95 driver register output; reproduce original
+32-voice allocation and event order/clock. Do not mistake a bank
+layer count for physical EMU8000 voice allocation. P002 remains
+OPEN/DRAFT pending the full differential result.

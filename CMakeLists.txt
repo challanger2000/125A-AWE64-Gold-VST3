@@ -93,6 +93,18 @@ target_link_libraries(awe64_p002_sbk_zone_test PRIVATE awe64_p002_sbk_zone)
 add_test(NAME p002_native_creative_sbk_key_zone_to_ifatn_contract
          COMMAND awe64_p002_sbk_zone_test)
 
+
+# P002 raw original Creative 1MGM preset/instrument layering. Does not
+# allocate physical voices or modify the approved P001 chip/VST3.
+add_library(awe64_p002_sbk_layers STATIC
+    src/creative_compat/CreativeSbkLayers.cpp)
+target_include_directories(awe64_p002_sbk_layers PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sbk_layers PUBLIC cxx_std_23)
+add_executable(awe64_p002_sbk_layers_test tests/p002_native_sbk_layers.cpp)
+target_link_libraries(awe64_p002_sbk_layers_test PRIVATE awe64_p002_sbk_layers)
+add_test(NAME p002_native_creative_sbk_multilayer_contract
+         COMMAND awe64_p002_sbk_layers_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
