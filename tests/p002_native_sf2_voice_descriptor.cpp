@@ -142,6 +142,21 @@ int main() {
     // All original 59 premerged generator words stay byte-identical.
     CHECK(std::equal(generatorWords.begin(),generatorWords.begin()+0x76u,
                      withSample->begin()));
+    // Continue the SAME input from sample header to NOTE-START encoding.
+    // The original writer changes the sampleType qualifier, but neither
+    // reassigns the authentic sample addresses nor re-invents dwPitch.
+    OriginalCreativeVolumeTerms explicitVolume{};
+    explicitVolume.device_state_additive_attenuation=0u;
+    const OriginalSf2VoiceStartConditions startContext{
+        0u,60u,90u,64u,0u,0u,0u,explicitVolume};
+    const auto started=candidateOriginalSf2EncodedVoiceDescriptor(
+        *withSample,startContext);
+    CHECK(started && get(*started,0x8cu/2u)==0x0001u);
+    for(const unsigned off:{0x76u,0x7au,0x7eu,0x82u,0x86u,0x90u})
+        CHECK(readDword(*started,off)==readDword(*withSample,off));
+    CHECK((*started)[0x8au]==60u && (*started)[0x8bu]==249u);
+    CHECK(get(*started,8u)==127u); // synthetic cutoff179 @velocity90
+    CHECK(get(*started,19u)==42u); // native CC7/CC11/ROM volume, no gen48
     CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
         generatorWords,originalRom,std::nullopt,40u));
     auto invalidRom=originalRom;
