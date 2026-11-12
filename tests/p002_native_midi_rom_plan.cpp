@@ -52,6 +52,9 @@ int main(){
     CHECK(plan && plan->count==1 && plan->program==7 && plan->channel==2);
     CHECK(plan->layers[0].address.start_word==5 && plan->layers[0].address.loop_end_word==20);
     CHECK(plan->layers[0].metadata.instrumentRawCutoff()==89);
+    CHECK(plan->layers[0].address.source_format==
+          OriginalCreativeBankFormat::Format1Sbk);
+    CHECK(plan->layers[0].address.sample_rate_hz==0u);
     auto wrongBank=prepareOriginalCreativeRomNote(*on,midi,sbk,128,524288);
     CHECK(wrongBank && wrongBank->count==0);
     auto noProgram=decodeWinMmShort(0x00643c93u);CHECK(noProgram);
