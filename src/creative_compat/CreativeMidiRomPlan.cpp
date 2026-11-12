@@ -13,7 +13,13 @@ std::optional<CreativeRomNotePlan> prepareOriginalCreativeRomNote(
     CreativeRomNotePlan result{};
     result.channel=event.channel;result.program=program;result.key=event.data1;
     result.velocity=event.data2;result.original_sbk_bank=resolved_bank;
-    result.count=selected->count;
+    // The executed original Creative Format-2 VXD bank builder emits
+    // at most six 148-byte descriptors, even when seven or more zones
+    // match. Preserve the larger inventory separately, but do not start
+    // a seventh emulated ROM voice or reject the otherwise valid bank.
+    result.count=static_cast<std::uint8_t>(
+        selected->count<kOriginalCreativeMaxNoteStartDescriptors
+            ? selected->count:kOriginalCreativeMaxNoteStartDescriptors);
     for(std::size_t i=0;i<selected->count;++i){
         const auto& metadata=selected->layers[i];
         const auto address=resolveCreative1MgmRomAddress(
