@@ -96,13 +96,17 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
     # Actual source-derived offsets, not offsets into the DOS stub or PE.
     # Format2 descriptor static template has a MUTABLE final DWORD.
     template = lcod[0x2D88:0x2D88 + 0x94]
-    table_a = pdat[0x08E8:0x08E8 + 0x200]
-    table_b = pdat[0x0AE8:0x0AE8 + 0x200]
-    if len(template) != 148 or len(table_a) != 512 or len(table_b) != 512:
+    # Original x86 PCOD+0x3735, verified from actual driver instructions:
+    #   ADD EAX, DWORD PTR [index*4 + PDAT+0x8e8] (128 unsigned DWORDs)
+    #   MOVSX EAX, BYTE PTR [index + PDAT+0xae8] (128 signed BYTEs)
+    # The remaining bytes beyond +0xae8+128 belong to other PDAT data.
+    table_a = pdat[0x08E8:0x08E8 + 128 * 4]
+    table_b = pdat[0x0AE8:0x0AE8 + 128]
+    if len(template) != 148 or len(table_a) != 512 or len(table_b) != 128:
         raise InvalidCreativeVxd("Original format-2 resource bounds invalid")
     values = list(struct.unpack("<59h", template[:118]))
-    words_a = list(struct.unpack("<256H", table_a))
-    words_b = list(struct.unpack("<256H", table_b))
+    words_a = list(struct.unpack("<128I", table_a))
+    words_b = list(struct.unpack("<128b", table_b))
     # The template's final DWORD is rewritten for EACH normalized preset.
     # Do not export it as a soundbank-independent default for dwSPadId.
     return {
@@ -115,8 +119,8 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
         "template_group_id_is_mutable": True,
         "pitch_pdat_table_a_offset": "0x08e8",
         "pitch_pdat_table_b_offset": "0x0ae8",
-        "pitch_table_a_unsigned_16": words_a,
-        "pitch_table_b_unsigned_16": words_b,
+        "pitch_table_a_unsigned_32": words_a,
+        "pitch_table_b_signed_8": words_b,
         "pitch_table_a_sha256": hashlib.sha256(table_a).hexdigest(),
         "pitch_table_b_sha256": hashlib.sha256(table_b).hexdigest(),
         "pitch_conversion_pc0d_0x3735_executed": False,
