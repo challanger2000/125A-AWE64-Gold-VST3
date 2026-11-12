@@ -40,7 +40,8 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     std::array<std::uint8_t,32> vxd{},bank{};
     if(!bytes(file,magic) || !bytes(file,header) ||
        !bytes(file,vxd) || !bytes(file,bank) ||
-       magic!=MAGIC || (header[0]!=1u && header[0]!=2u) || vxd!=VXD_SHA ||
+       magic!=MAGIC || (header[0]!=1u && header[0]!=2u &&
+                         header[0]!=3u) || vxd!=VXD_SHA ||
        bank!=BANK_SHA) {
         error="Private P002 diagnostic provenance/header invalid";return false;
     }
@@ -53,7 +54,8 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     candidate.program=header[1];candidate.channel=header[2];
     candidate.key=header[3];candidate.velocity=header[4];
     candidate.voice_count=header[5];
-    candidate.verified_source_note_release=header[0]==2u;
+    candidate.verified_source_note_release=header[0]>=2u;
+    const bool derive_release_from_original_note_start=header[0]==3u;
     std::array<std::uint8_t,62> tables{};
     if(!bytes(file,candidate.original_device_state)||!bytes(file,tables)) {
         error="Private P002 diagnostic original state/tables truncated";return false;
@@ -82,7 +84,8 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
            source.verified_after_start_record[0x8du]!=0u) {
             error="Private P002 diagnostic voice record invalid";return false;
         }
-        if(candidate.verified_source_note_release) {
+        if(candidate.verified_source_note_release &&
+           !derive_release_from_original_note_start) {
             const std::size_t offset=
                 awe64::creative::kOriginalVxdVoiceRowStart+
                 static_cast<std::size_t>(source.physical_voice)*
@@ -97,8 +100,13 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
                 (static_cast<std::uint32_t>(r[offset+7u])<<8u)|
                 (static_cast<std::uint32_t>(r[offset+8u])<<16u)|
                 (static_cast<std::uint32_t>(r[offset+9u])<<24u);
+            // Source LCOD+0x5A9A and +0x5AA3 copy raw low BYTES
+            // from post-start generator30 and generator38, respectively.
+            // A version2 caller cannot claim an unrelated (e.g. 92/45)
+            // voice-record release rate for original GM0 (41/127).
             if(note_marker!=expected || retained_end>0xfffffbu ||
-               r[offset+0x15u]>127u || r[offset+0x16u]>127u) {
+               r[offset+0x15u]!=source.verified_after_start_record[0x3cu] ||
+               r[offset+0x16u]!=source.verified_after_start_record[0x4cu]) {
                 error="Original P002 source NoteOff voice-record invalid";
                 return false;
             }
@@ -107,6 +115,27 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     }
     if(file.peek()!=std::char_traits<char>::eof()) {
         error="Private P002 diagnostic file has trailing data";return false;
+    }
+    if(derive_release_from_original_note_start) {
+        // This v3 path proves the two VXD per-voice release bytes from
+        // ORIGINAL SF2 NoteOn descriptor, not a synthesized static
+        // per-program release preset. The retained sample END remains
+        // separately supplied (zero in the verified ROM diagnostic mode).
+        // Sample mode1 is the only proven no-retained-END branch here.
+        for(const auto& voice:candidate.selectedVoices()) {
+            const auto& desc=voice.assigned_voice.verified_after_start_record;
+            const auto mode=static_cast<unsigned>(desc[2u*54u])|
+                (static_cast<unsigned>(desc[2u*54u+1u])<<8u);
+            if(mode!=1u) {
+                error="Private P002 derived NoteOff sample mode unverified";
+                return false;
+            }
+        }
+        if(!awe64::creative::candidateOriginalSf2StoreNoteOnSourceReleaseState(
+               candidate.original_device_state,true,candidate.selectedVoices())) {
+            error="Private P002 original descriptor release state invalid";
+            return false;
+        }
     }
     // Fail closed by independently calculating the entire original
     // 61/122 OUT plan from this file, including the original source

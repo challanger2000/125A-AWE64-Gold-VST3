@@ -75,6 +75,52 @@ bool candidateOriginalSf2WriteInitialIpToVxdState(
     }
     return true;
 }
+bool candidateOriginalSf2StoreNoteOnSourceReleaseState(
+    const std::span<std::uint8_t> writable,
+    const bool original_state_proven,
+    const std::span<const OriginalSf2VxdSnapshotVoice> assigned) noexcept {
+    const std::span<const std::uint8_t> b(writable.data(),writable.size());
+    if(!original_state_proven || b.size()<kOriginalVxdMinDeviceImage ||
+       le32(b,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
+       le16(b,0x12u)!=0u || assigned.empty() ||
+       assigned.size()>kOriginalCreativeMaxNoteStartDescriptors)
+        return false;
+    const auto channel=assigned[0].original_midi_channel;
+    const auto key=assigned[0].assigned_voice.played_midi_key;
+    if(channel>=kOriginalCreativeMidiChannels || key>127u)return false;
+    struct Verified {std::size_t at;std::uint8_t mod,vol;};
+    std::array<Verified,kOriginalCreativeMaxNoteStartDescriptors> pending{};
+    std::uint32_t seen=0u;
+    std::size_t count=0;
+    for(const auto& src:assigned) {
+        const auto& v=src.assigned_voice;
+        const auto voice=v.physical_voice;
+        const auto& d=v.verified_after_start_record;
+        const auto at=kOriginalVxdVoiceRowStart+
+            static_cast<std::size_t>(voice)*kOriginalVxdVoiceRowStride;
+        if(src.original_midi_channel!=channel ||
+           v.played_midi_key!=key || !v.source_original_voice_verified ||
+           voice>=kOriginalCreativeMusicVoices ||
+           (seen&(1u<<voice))!=0u || at+0x20u>b.size() ||
+           d[0x8cu]!=1u || d[0x8du]!=0u ||
+           d[0x3du]!=0u || d[0x4du]!=0u ||
+           d[0x3cu]>127u || d[0x4cu]>127u)
+            return false;
+        seen|=1u<<voice;
+        pending[count++]={at,d[0x3cu],d[0x4cu]};
+    }
+    // Source x86 writes marker (channel<<8)|key at LCOD+0x3DF8,
+    // followed during original format2 voice construction by the
+    // actual encoded rate bytes at +0x5A9D/+0x5AA6.
+    for(std::size_t i=0;i<count;++i) {
+        const auto& v=pending[i];
+        writable[v.at]=key;
+        writable[v.at+1u]=channel;
+        writable[v.at+0x15u]=v.mod;
+        writable[v.at+0x16u]=v.vol;
+    }
+    return true;
+}
 std::optional<OriginalSf2VxdFinalTargetInputs>
 candidateOriginalSf2TargetStateFromVxdImage(
     const OriginalSf2VerifiedVxdDeviceSnapshot& original,

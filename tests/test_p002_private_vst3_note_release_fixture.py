@@ -46,6 +46,29 @@ class PrivateOriginalNoteOffFixture(unittest.TestCase):
         self.assertEqual(got[8],1)
         self.assertEqual(got[8+6+64+0x42],0)
 
+    def test_v3_automatic_original_noteon_release(self):
+        h,s=data()
+        h["cases"][0]["case"]["after"][0]=(
+            lambda b:b.hex()
+        )(self.make_descriptor())
+        got=mod.generate(h,s,0,derive_noteoff_from_original_descriptor=True)
+        self.assertEqual(got[8],3)
+        self.assertEqual(got[:8],mod.MAGIC)
+
+    @staticmethod
+    def make_descriptor():
+        d=bytearray(148)
+        d[0x8c]=1
+        d[0x3c]=127
+        d[0x4c]=41
+        struct.pack_into("<H",d,2*54,1)
+        return d
+
+    def test_v3_and_explicit_record_mutually_exclusive(self):
+        h,s=data()
+        with self.assertRaisesRegex(ValueError,"not both"):
+            mod.generate(h,s,0,release(),True)
+
     def test_v2_copies_exact_record_bytes(self):
         h,s=data()
         r=release()

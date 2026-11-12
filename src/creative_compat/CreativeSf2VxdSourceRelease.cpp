@@ -57,6 +57,10 @@ applyOriginalSf2MidiNoteOffFromVxdState(
     const auto expected=static_cast<std::uint16_t>(
         (static_cast<std::uint16_t>(channel)<<8u)|key);
     std::size_t count=0;
+    const auto channel_at=kOriginalVxdChannelRowStart+
+        static_cast<std::size_t>(channel)*kOriginalVxdChannelRowStride;
+    if(channel_at+0x24u>read.size())return std::nullopt;
+    const bool channel_sustain=read[channel_at+4u]!=0u;
     // Validate EVERY physical voice and the complete 0x20-byte original
     // state BEFORE changing an original chip register or VXD state byte.
     for(const auto& layer:voices) {
@@ -74,7 +78,9 @@ applyOriginalSf2MidiNoteOffFromVxdState(
         auto& e=pending[count].original;
         e.original_key_channel_match=true;
         e.original_voice_record_verified=true;
-        e.original_sustain_held=read[base+4u]!=0u;
+        // Original LCOD+0x60B4 checks [EBX+4], where EBX is the
+        // channel row at state+0x442+channel*0x24, not voice+4.
+        e.original_sustain_held=channel_sustain;
         e.encoded_volume_release=read[base+0x16u];
         e.encoded_mod_release=read[base+0x15u];
         e.stored_end_word=le32(read,base+6u);

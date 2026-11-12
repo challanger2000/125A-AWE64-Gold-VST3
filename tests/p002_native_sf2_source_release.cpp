@@ -36,7 +36,29 @@ int main(){
         state[p+0x16u]=92u; // source-record volume release
         state[p+0x15u]=45u; // source-record modulation release
     }
-    const std::array<OriginalSf2VxdSnapshotVoice,2> notes{{layer(0),layer(3)}};
+    auto notes=std::array<OriginalSf2VxdSnapshotVoice,2>{{layer(0),layer(3)}};
+    for(auto& n:notes) {
+        n.assigned_voice.verified_after_start_record[0x8cu]=1u;
+        n.assigned_voice.verified_after_start_record[0x3cu]=127u;
+        n.assigned_voice.verified_after_start_record[0x4cu]=41u;
+    }
+    CHECK(candidateOriginalSf2StoreNoteOnSourceReleaseState(state,true,notes));
+    CHECK(state[v0]==60u && state[v3]==60u &&
+          state[v0+0x15u]==127u && state[v3+0x15u]==127u &&
+          state[v0+0x16u]==41u && state[v3+0x16u]==41u);
+    // Reject entire batch before mutating any note marker when a
+    // later layer has a corrupt encoded rate or duplicate voice.
+    auto bad=notes;
+    bad[1].assigned_voice.verified_after_start_record[0x4cu]=128u;
+    const auto unchanged=state;
+    CHECK(!candidateOriginalSf2StoreNoteOnSourceReleaseState(state,true,bad));
+    CHECK(state==unchanged);
+    // Source original sustain = CHANNEL+4. Voice+4 stores a separate
+    // instrument amplitude term and MUST NOT gate NoteOff.
+    const auto ch=kOriginalVxdChannelRowStart;
+    state[v0+4u]=1u;
+    state[v3+4u]=1u;
+    state[ch+4u]=0u;
     const auto wrongKey=state;
     awe64::Chip unopened{};
     CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
@@ -61,9 +83,9 @@ int main(){
     const auto cmd=candidateOriginalVxdMidiNoteRelease(0,e);
     CHECK(cmd && cmd->count==4u);
     CHECK(cmd->writes[1].port==0xa20u &&
-          cmd->writes[1].value==0x805cu);
+          cmd->writes[1].value==0x8029u); // GM0 original gen38=41
     CHECK(cmd->writes[3].port==0xa20u &&
-          cmd->writes[3].value==0x802du);
+          cmd->writes[3].value==0x807fu); // GM0 original gen30=127
     e.original_sustain_held=true;
     const auto held=candidateOriginalVxdMidiNoteRelease(0,e);
     CHECK(held && held->deferred_by_sustain &&
@@ -78,7 +100,9 @@ int main(){
     CHECK(rewrite->writes[7].value==0x630152feu);
     std::cout<<"P002_SOURCE_ORIGINAL_VXD_NOTEOFF_EVIDENCE_PASS"
              <<" two_original_voice_record_byte_rates=TRUE"
-             <<" original_release_805c_802d=TRUE"
+             <<" original_GM0_gen38_8029_gen30_807f=TRUE"
+             <<" original_release_from_SF2_noteon_descriptors=TRUE"
+             <<" sustain_at_MIDI_channel_plus4_NOT_voice_plus4=TRUE"
              <<" original_sustain_defer=TRUE"
              <<" original_CSL_PSST_preserved_high_byte=TRUE"
              <<" actual_exported_VST3_PCM=TEST_SEPARATELY"

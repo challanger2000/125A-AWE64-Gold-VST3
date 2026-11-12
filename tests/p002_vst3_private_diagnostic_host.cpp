@@ -54,6 +54,7 @@ std::array<std::uint8_t,148> realSourceDerivedGm0() {
     word(b,33,static_cast<std::int16_t>(0x8000u));
     word(b,22,128);word(b,54,1);word(b,15,0);word(b,16,27);
     word(b,17,127);word(b,18,129);word(b,36,3);word(b,37,0);
+    word(b,30,127);word(b,38,41); // actual private GM0 x86 handoff
     dword(b,0x76,0xfeb9u);dword(b,0x7a,0x152feu);
     dword(b,0x7e,0x152bbu);dword(b,0x82,0x152fau);
     return b;
@@ -86,6 +87,7 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha,
     std::array<std::uint8_t,0x1592u> state{};
     state[0x158eu]=0x31u;state[0x158fu]=0x4du;
     state[0x1590u]=0x47u;state[0x1591u]=0x4du; // 1MGM
+    state[0x442u+4u]=sustain?1u:0u; // CHANNEL sustain original LCOD 60B4
     if(releaseV2) {
         // Entirely synthetic but source-shaped *original* 32-byte
         // physical voice record in the real Win95 VXD state layout.
@@ -94,9 +96,9 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha,
         constexpr unsigned at=0x42u;
         state[at]=wrongOriginalMarker?61u:60u;
         state[at+1u]=0u; // physical voice0 MIDI channel0
-        state[at+4u]=sustain?1u:0u;
-        state[at+0x15u]=45u; // original mod release => DATA1 802D
-        state[at+0x16u]=92u; // original vol release => DATA1 805C
+        state[at+4u]=1u; // voice+4 is NOT sustain; independent gen48 word
+        state[at+0x15u]=127u; // original GM0 mod-release (gen30)
+        state[at+0x16u]=41u; // original GM0 vol-release (gen38)
         // +0x06 DWORD retained end 0 for this GM0 ROM mode; the
         // nonzero path and genuine CSL/PSST reads have native tests.
     }
@@ -238,8 +240,7 @@ int wmain(int argc,wchar_t** argv){
         const auto wrongVelocity=renderNote(factory,75.f/127.f);
         require(wrongVelocity.nonzero==0,
                 "wrong original x86 fixture velocity unexpectedly played");
-        // New private version2 fixture: source-encoded Win95 release
-        // bytes 0x5C/0x2D (not P001 synthetic 0x7F) live in the
+        // Source-matched original GM0 release bytes 0x29/0x7F live in the
         // original VXD voice record. Test the EXPORTED VST3 NoteOff
         // audio against an otherwise identical held-note rendering.
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",

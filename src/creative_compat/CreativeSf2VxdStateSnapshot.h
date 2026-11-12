@@ -54,6 +54,16 @@ struct OriginalSf2ResolvedSnapshotNote {
 // validated first; any invalid later layer leaves the image untouched.
 // This is the pre-register first phase; allocation, MIDI state lifecycle
 // and actual Win95 OS initialization remain separate work.
+// Original LCOD+0x3DF8 writes the allocated voice marker, and
+// LCOD+0x5A9A/+0x5AA3 copies the already ENCODED per-descriptor
+// generator30/mod-release and generator38/volume-release BYTES into
+// physical voice+0x15/+0x16. All voices are preflighted before state
+// modification. This function does not invent release rates or sample
+// END bookkeeping; input descriptor must be source proven.
+[[nodiscard]] bool candidateOriginalSf2StoreNoteOnSourceReleaseState(
+    std::span<std::uint8_t> original_device_state,
+    bool independently_verified_original_device_state,
+    std::span<const OriginalSf2VxdSnapshotVoice> assigned) noexcept;
 [[nodiscard]] bool candidateOriginalSf2WriteInitialIpToVxdState(
     std::span<std::uint8_t> original_device_state,
     bool independently_verified_original_device_state,

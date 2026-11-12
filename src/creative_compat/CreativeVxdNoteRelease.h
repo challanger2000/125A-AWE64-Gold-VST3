@@ -11,7 +11,7 @@
 namespace awe64::creative {
 struct OriginalVxdNoteReleaseEvidence {
     bool original_key_channel_match=false;
-    bool original_sustain_held=false; // VXD [voice-note record +0x04] nonzero
+    bool original_sustain_held=false; // VXD MIDI *CHANNEL* record +0x04, NOT voice+0x04
     // Already encoded release-rate BYTES from original driver 32-byte
     // physical voice record (+0x16 vol, +0x15 mod). Do not substitute
     // unsolved raw SoundFont generator values.

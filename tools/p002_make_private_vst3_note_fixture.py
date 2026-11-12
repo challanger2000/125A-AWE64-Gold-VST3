@@ -22,7 +22,8 @@ MAGIC=b"125AP2D1"
 STATE_BYTES=0x1592
 
 def generate(handoff:dict, source:dict, program:int,
-             original_release_records:dict|None=None)->bytes:
+             original_release_records:dict|None=None,
+             derive_noteoff_from_original_descriptor:bool=False)->bytes:
     if handoff.get("schema")!=SCHEMA or (
         handoff.get("original_vxd_sha256")!=EXPECTED_VXD_SHA256 or
         handoff.get("original_bank_sha256")!=BANK_SHA or
@@ -55,6 +56,12 @@ def generate(handoff:dict, source:dict, program:int,
     state=bytearray(STATE_BYTES)
     struct.pack_into("<I",state,0x158e,0x4d474d31)
     release_version=1
+    if derive_noteoff_from_original_descriptor:
+        if original_release_records is not None:
+            raise ValueError("Choose verified original NoteOff record or descriptor, not both")
+        # LCOD+0x3DF8 & +0x5A9D/0x5AA6 are now source proven.
+        # v3 native parser performs all original record updates itself.
+        release_version=3
     if original_release_records is not None:
         evidence=original_release_records
         if (evidence.get("schema") !=
@@ -113,6 +120,9 @@ def main():
     p.add_argument("--private-handoff",required=True,type=Path)
     p.add_argument("--private-output",required=True,type=Path)
     p.add_argument("--program",required=True,type=int,choices=(0,40,100))
+    p.add_argument("--derive-noteoff-from-original-descriptor",
+                   action="store_true",
+                   help="v3: reproduce LCOD+0x3DF8/5A9D/5AA6 source note-marker and generator30/38 encoded release bytes")
     p.add_argument("--private-original-noteoff-records",type=Path,
                    help="Separate independently checked 32-byte original VXD voice records; "
                         "enables v2 source-authenticated NoteOff. Never guess envelope rates.")
@@ -127,15 +137,18 @@ def main():
     handoff=json.loads(a.private_handoff.read_text(encoding="utf8"))
     release=(json.loads(a.private_original_noteoff_records.read_text(encoding="utf8"))
              if a.private_original_noteoff_records else None)
-    fixture=generate(handoff,resource,a.program,release)
+    fixture=generate(handoff,resource,a.program,release,
+                     a.derive_noteoff_from_original_descriptor)
     output.parent.mkdir(parents=True,exist_ok=True)
     fd=os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     with os.fdopen(fd,"wb") as f:f.write(fixture)
     print("P002_PRIVATE_ORIGINAL_SF2_DIAGNOSTIC_READY",
           "program",a.program,"bytes",len(fixture),
           "sha256",hashlib.sha256(fixture).hexdigest(),
-          "original_noteoff_release_records_required_for_v2" if release is None
-          else "original_noteoff_records_EXPLICITLY_SUPPLIED_NOT_AUTHENTICATED_BY_PARSER",
+          ("original_noteoff_from_verified_SF2_descriptor_v3" if
+            a.derive_noteoff_from_original_descriptor else
+            "original_noteoff_release_records_required_for_v2" if release is None
+            else "original_noteoff_records_EXPLICITLY_SUPPLIED_NOT_AUTHENTICATED_BY_PARSER"),
           "synthetic_original_x86_channel_state_NOT_actual_Win95_runtime",
           "PCM_PARITY_NOT_PROVEN")
 
