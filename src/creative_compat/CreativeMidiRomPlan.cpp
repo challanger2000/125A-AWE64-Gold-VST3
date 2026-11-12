@@ -20,7 +20,11 @@ std::optional<CreativeRomNotePlan> prepareOriginalCreativeRomNote(
     result.count=static_cast<std::uint8_t>(
         selected->count<kOriginalCreativeMaxNoteStartDescriptors
             ? selected->count:kOriginalCreativeMaxNoteStartDescriptors);
-    for(std::size_t i=0;i<selected->count;++i){
+    // Resolve only voices that the original six-descriptor builder
+    // actually emits. An unplayed seventh (or sixteenth) SF2 zone may
+    // reference RAM or EOS and MUST NOT invalidate the six valid voices.
+    // The raw inventory keeps all matches separately for diagnostics.
+    for(std::size_t i=0;i<result.count;++i){
         const auto& metadata=selected->layers[i];
         const auto address=resolveCreative1MgmRomAddress(
             bank,metadata.rom_sample_selector,rom_words);
