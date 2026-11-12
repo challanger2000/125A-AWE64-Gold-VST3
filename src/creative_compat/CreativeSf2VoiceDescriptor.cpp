@@ -99,6 +99,44 @@ originalCreativeSf2PitchLookupCoordinates(
         static_cast<std::uint8_t>((normalized>>24u)&0x7fu),
         static_cast<std::uint8_t>((normalized>>17u)&0x7fu)};
 }
+std::optional<std::uint32_t>
+originalCreativeSf2SampleRateToDwPitch(
+    const std::uint32_t rate,
+    const OriginalCreativeSf2PitchTables& original_tables) noexcept {
+    // Direct reconstruction of ACTUAL PCOD+0x3735 x86 instructions:
+    //    imul ecx,ecx,0x2f8e; edx=31; shl ecx until bit31
+    //    index=(ecx&0x7f000000)>>24;
+    //    frac=(ecx&0x00fe0000)>>17;
+    //    eax=(signed BYTE slope[index])*frac
+    //      +DWORD base[index]+((edx-15)<<20), wrapping uint32.
+    // Source VXD signed 32-bit multiplication/addition wraps on x86.
+    // Tables must be extracted from the exact private hash-locked VXD;
+    // there are NO embedded copyrighted original tables or log2 proxies.
+    const auto coords=originalCreativeSf2PitchLookupCoordinates(rate);
+    if(!coords)return std::nullopt;
+    const auto edx=31u-coords->normalization_left_shifts;
+    const std::uint32_t exponent=(edx-15u)<<20u;
+    const std::int32_t correction=
+        static_cast<std::int32_t>(original_tables.slope[coords->table_index])*
+        static_cast<std::int32_t>(coords->fraction_7bit);
+    return exponent+original_tables.base[coords->table_index]+
+           static_cast<std::uint32_t>(correction);
+}
+std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2VoiceWithOriginalRomPitchTables(
+    const CreativeSf2VoiceDescriptorBytes& merged,
+    const SbkRomAddress& sample,
+    const OriginalCreativeSf2PitchTables& original_tables,
+    const std::uint32_t original_preset_group) noexcept {
+    if(sample.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       sample.sample_type!=0x8001u || sample.sample_rate_hz==0u)
+        return std::nullopt;
+    const auto pitch=originalCreativeSf2SampleRateToDwPitch(
+        sample.sample_rate_hz,original_tables);
+    if(!pitch)return std::nullopt;
+    return candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        merged,sample,*pitch,original_preset_group);
+}
 std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     const SbkLayer& layer,
