@@ -20,6 +20,7 @@ on:
       - 'tests/p002_native_sf2_voice_descriptor.cpp'
       - 'tests/p002_sf2_descriptor_oracle.cpp'
       - 'tests/p002_private_sf2_descriptor_differential.py'
+      - 'tests/test_p002_private_sf2_descriptor_differential.py'
       - 'tests/p002_native_sbk_layers.cpp'
       - 'tests/p002_native_midi_rom_plan.cpp'
       - 'tests/p002_native_pitch_candidate.cpp'
