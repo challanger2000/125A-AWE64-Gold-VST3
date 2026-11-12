@@ -185,7 +185,8 @@ int main() {
         {85,-32,0,100,0xbe3bu},
         {94,4,0,100,0xb2b5u}
     }};
-    for(const auto& v:authenticIp) {
+    for(std::size_t i=0;i<authenticIp.size();++i) {
+        const auto& v=authenticIp[i];
         CreativeSf2VoiceDescriptorBytes sf2Pitch{};
         sf2Pitch[0x88u]=0xe0u; // LE dwPitch=0x00e00000 at 44100Hz
         sf2Pitch[0x8au]=60u;
@@ -196,6 +197,17 @@ int main() {
         const auto originalIp=candidateOriginalSf2InitialIpFromDescriptor(
             sf2Pitch,60u,0,0);
         CHECK(originalIp && *originalIp==v.expectedIp);
+        const auto physical=static_cast<std::uint8_t>(i==3u?3u:0u);
+        const auto writes=candidateOriginalSf2InitialIpWritesFromDescriptor(
+            sf2Pitch,60u,physical,0,0);
+        CHECK(writes && (*writes)[0].port==0xE22u &&
+              (*writes)[0].value==physical &&
+              (*writes)[1].port==0xE20u &&
+              (*writes)[1].value==v.expectedIp);
+        CHECK(!candidateOriginalSf2InitialIpWritesFromDescriptor(
+            sf2Pitch,60u,30u,0,0));
+        CHECK(!candidateOriginalSf2InitialIpWritesFromDescriptor(
+            sf2Pitch,60u,31u,0,0));
     }
     // SF2 gen58 root=-1 uses shdr.byOrigKey, not a hard-coded C4.
     CreativeSf2VoiceDescriptorBytes pitchControl{};
