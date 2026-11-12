@@ -103,6 +103,60 @@ int main() {
         CHECK(!candidateOriginalSf2EncodedVoiceDescriptor(raw,bad));
         ++tested;
     }
+    // ORIGINAL FORMAT-2 builder (PCOD +0x3985/+0x3AF7) applies the
+    // source's two supplied descriptor templates, local-over-global
+    // resolution and signed saturating 59-WORD merge. Here templates
+    // are explicitly synthetic: these tests certify arithmetic/ownership,
+    // NOT reconstructed original LCOD+0x2D88 default template bytes.
+    std::array<std::int16_t,59> presetTemplate{},instrumentTemplate{};
+    instrumentTemplate[8]=313; // observed GM100 template cutoff
+    instrumentTemplate[34]=-12000;
+    instrumentTemplate[56]=100;
+    presetTemplate[14]=30000;instrumentTemplate[14]=30000;
+    presetTemplate[50]=-30000;instrumentTemplate[50]=-30000;
+    SbkLayer fullLayer{};
+    fullLayer.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    fullLayer.bank=0u;fullLayer.program=0u;
+    fullLayer.key=60u;fullLayer.velocity=90u;
+    fullLayer.instrument=0u;fullLayer.rom_sample_selector=3u;
+    fullLayer.preset_global.raw[48]=5;
+    fullLayer.preset_local.raw[48]=7;
+    fullLayer.instrument_global.raw[48]=9;
+    fullLayer.instrument_local.raw[48]=11;
+    fullLayer.instrument_global.raw[8]=10856;
+    fullLayer.instrument_local.raw[8]=9617;
+    fullLayer.instrument_global.raw[34]=static_cast<std::uint16_t>(-8800);
+    fullLayer.instrument_local.raw[43]=16954;
+    fullLayer.instrument_local.raw[53]=3;
+    fullLayer.instrument_local.raw[52]=4;
+    fullLayer.instrument_local.raw[58]=77;
+    fullLayer.preset_local.raw[46]=127; // original preset keynum zeroed
+    fullLayer.instrument_local.raw[47]=7; // actual NoteOn velocity wins
+    const auto built=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        fullLayer,presetTemplate,instrumentTemplate);
+    CHECK(built);
+    CHECK(get(*built,8)==179u);
+    CHECK(get(*built,34)==static_cast<std::uint16_t>(-8800));
+    CHECK(get(*built,48)==18u);
+    CHECK(get(*built,43)==16954u);
+    CHECK(get(*built,52)==4u && get(*built,58)==77u);
+    CHECK(get(*built,53)==3u);
+    CHECK(get(*built,46)==60u && get(*built,47)==90u);
+    CHECK(get(*built,14)==32767u);
+    CHECK(get(*built,50)==static_cast<std::uint16_t>(-32768));
+    CHECK(get(*built,56)==100u);
+    CHECK(std::all_of(built->begin()+0x76u,built->end(),
+        [](std::uint8_t x){return x==0u;}));
+    auto badLayer=fullLayer;
+    badLayer.instrument_local.raw[53]=4; // cannot silently play wrong sample
+    CHECK(!candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        badLayer,presetTemplate,instrumentTemplate));
+    badLayer=fullLayer;badLayer.source_format=OriginalCreativeBankFormat::Format1Sbk;
+    CHECK(!candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        badLayer,presetTemplate,instrumentTemplate));
+    badLayer=fullLayer;badLayer.velocity=0u;
+    CHECK(!candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        badLayer,presetTemplate,instrumentTemplate));
     // Source-backed SF2 shdr metadata -> exact 148-byte descriptor tail.
     // The original sample-rate->dwPitch conversion remains separately
     // verified by its original x86 helper; no host log2 approximation.
