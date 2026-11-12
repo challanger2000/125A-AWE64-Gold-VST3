@@ -25,6 +25,26 @@ std::uint16_t boundedWord(std::int32_t x,
     return static_cast<std::uint16_t>(std::clamp(x,low,high));
 }
 }
+std::optional<OriginalCreativeSf2PitchLookupCoordinates>
+originalCreativeSf2PitchLookupCoordinates(
+    const std::uint32_t sample_rate_hz) noexcept {
+    if(sample_rate_hz==0u)return std::nullopt;
+    // Original VXD PCOD+0x3735 uses the low DWORD of this multiply.
+    // Explicit uint64 arithmetic then truncation avoids host signed UB.
+    const auto wrapped=static_cast<std::uint32_t>(
+        static_cast<std::uint64_t>(sample_rate_hz)*0x2f8eull);
+    if(wrapped==0u)return std::nullopt; // original normalization unbounded
+    auto normalized=wrapped;
+    std::uint8_t shifts=0;
+    while((normalized&0x80000000u)==0u){
+        normalized<<=1u;
+        ++shifts;
+    }
+    return OriginalCreativeSf2PitchLookupCoordinates{
+        wrapped,normalized,shifts,
+        static_cast<std::uint8_t>((normalized>>24u)&0x7fu),
+        static_cast<std::uint8_t>((normalized>>17u)&0x7fu)};
+}
 std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     const SbkLayer& layer,
