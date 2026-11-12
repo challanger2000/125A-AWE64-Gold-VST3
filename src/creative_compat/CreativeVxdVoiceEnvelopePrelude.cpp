@@ -138,4 +138,65 @@ std::uint8_t originalCreativeSf2VoiceAttackRate(
     const auto value=((~q&7)|8)>>(q/8&31);
     return static_cast<std::uint8_t>(std::max(1,value));
 }
+// Original Format-2 PCOD+0x3BD4 uses a deliberately 32-bit intermediate
+// followed by signed truncation, not floating point. Widen for the multiply
+// then explicitly emulate the x86 low DWORD before signed division.
+namespace {
+std::uint32_t originalSf2PcodExponential(
+    const std::int32_t x,const std::int32_t bias) noexcept {
+    const auto product=(static_cast<std::int64_t>(x)+bias)*65536ll;
+    const auto low=static_cast<std::uint32_t>(product);
+    const auto signedProduct=static_cast<std::int64_t>(low)-
+        (low>=0x80000000u?4294967296ll:0ll);
+    const auto q=static_cast<std::int32_t>(signedProduct/1200ll);
+    const auto shift=static_cast<std::uint32_t>(16-q/65536)&31u;
+    return (65536u+(static_cast<std::uint32_t>(q)&65535u))>>shift;
+}
+}
+std::optional<std::uint16_t> originalCreativeSf2VoiceEnvelopeOrLfoWord(
+    const std::uint16_t op,const std::int16_t merged_word) noexcept {
+    const auto x=static_cast<std::int32_t>(merged_word);
+    switch(op) {
+        case 21u:case 23u:case 25u:case 33u: // LFO and envelope delays
+            if(x<-11999)return 32768u;
+            if(x>=5484)return 0u;
+            return static_cast<std::uint16_t>(std::max(0,
+                32768-static_cast<std::int32_t>(originalSf2PcodExponential(x,12516))));
+        case 22u:case 24u: // LFO frequency
+            if(x<-15999)return 0u;
+            return static_cast<std::uint16_t>(std::min(
+                255u,originalSf2PcodExponential(x,9126)));
+        case 26u:case 34u: // both ORIGINAL SF2 descriptor attack fields
+            return originalCreativeSf2VoiceAttackRate(merged_word);
+        case 27u:case 35u: // envelope hold
+            if(x<=-5369)return 127u;
+            return static_cast<std::uint16_t>(std::max(0,
+                127-static_cast<std::int32_t>(originalSf2PcodExponential(x,4130))));
+        case 28u:case 30u:case 36u:case 38u: { // decay and release
+            if(x<=1800)return static_cast<std::uint16_t>(
+                std::min(127,(37-x)/75+39));
+            const auto q=(x-1800)/150;
+            return static_cast<std::uint16_t>(
+                ((~q&7)|8)>>((q/8)&31));
+        }
+        case 29u:case 37u: // SF2 voice sustain clamp after merge
+            return static_cast<std::uint16_t>(std::clamp(x,0,127));
+        default:return std::nullopt;
+    }
+}
+std::optional<std::int16_t> originalCreativeSf2KeyScaledEnvelopeWord(
+    const std::uint16_t op,const std::int16_t target,
+    const std::int16_t auto_scale,const std::uint8_t key,
+    const std::uint16_t bank) noexcept {
+    if(key>127)return std::nullopt;
+    // Verified pairs: 27<-31, 28<-32, 35<-39 and 36<-40.
+    // The caller supplies the corresponding source field explicitly.
+    if(op!=27u && op!=28u && op!=35u && op!=36u)
+        return std::nullopt;
+    if(bank>=128u)return target; // drum route bypasses melodic key scaling
+    const auto scaled=static_cast<std::int32_t>(target)+
+        (60-static_cast<std::int32_t>(key))*static_cast<std::int32_t>(auto_scale);
+    return static_cast<std::int16_t>(std::clamp<std::int32_t>(
+        scaled,-32768,32767));
+}
 } // namespace awe64::creative
