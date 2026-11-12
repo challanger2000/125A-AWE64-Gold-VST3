@@ -123,6 +123,15 @@ struct SbkLayerSet {
 struct SbkRomAddress {
     std::uint16_t sample_id=0;
     std::uint32_t start_word=0, end_word=0, loop_start_word=0, loop_end_word=0;
+    // Only FORMAT-2 SF2 headers carry the following fields. For historical
+    // packed FORMAT-1/SBK 16-byte records, these remain zero and MUST NOT
+    // be mistaken for original sample-rate/root-key/pitch metadata.
+    OriginalCreativeBankFormat source_format=OriginalCreativeBankFormat::Format1Sbk;
+    std::uint32_t sample_rate_hz=0;
+    std::uint8_t original_pitch=0;
+    std::int8_t pitch_correction=0;
+    std::uint16_t sample_link=0;
+    std::uint16_t sample_type=0;
 };
 // Creative format-1/1MGM packs THREE 16-byte ROM addresses into each
 // 48-byte shdr row; format-2 uses 46-byte SF2 named sample headers.
