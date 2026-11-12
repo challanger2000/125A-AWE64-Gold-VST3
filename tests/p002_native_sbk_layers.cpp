@@ -114,5 +114,29 @@ int main(){
     piano.preset_global.raw[8].reset();
     piano.bank=128;
     CHECK(!piano.candidateOriginal1MgmInstrumentCutoff());
+    // Original format1 operator48 conversion is NOT a device-state
+    // attenuation: 107 -> original instVol descriptor150, 116 -> 82.
+    SbkLayer sf1{};
+    sf1.instrument_global.raw[48]=107;
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==150);
+    sf1.instrument_local.raw[48]=116;
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==82);
+    sf1.preset_global.raw[48]=5;
+    sf1.preset_local.raw[48]=7;
+    sf1.instrument_global.raw[48]=9;
+    sf1.instrument_local.raw[48]=11;
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==870);
+    sf1.instrument_local.raw[48].reset();
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==885);
+    sf1.instrument_global.raw[48].reset();
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==900);
+    sf1.preset_local.raw[48].reset();
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==915);
+    sf1.preset_global.raw[48].reset();
+    CHECK(!sf1.candidateOriginalSf1InstVolFromGenerator48());
+    sf1.instrument_global.raw[48]=128;
+    CHECK(sf1.candidateOriginalSf1InstVolFromGenerator48()==-7);
+    sf1.instrument_global.raw[48]=static_cast<std::uint16_t>(-32768);
+    CHECK(!sf1.candidateOriginalSf1InstVolFromGenerator48());
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }

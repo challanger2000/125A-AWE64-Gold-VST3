@@ -1116,3 +1116,42 @@ bridge and read from the actual unmodified chip; no original
 SF2 driver/ROM bytes or fake musical PCM parity are claimed.
 The 46-byte-shdr SF2 loader, complete original SoundFont scopes
 and full MIDI -> register -> PCM differential remain separate gates.
+
+ 
+## Original SF1 generator48 → signed voice instVol (+0x60), independent device gain
+
+The handoff's independently executed SBAWE.VXD PCOD+0x37BA format-1
+generator48 operation is EXACT signed integer arithmetic:
+`instVol = trunc((127 - int16(rawGen48))*75/10)`; last matching
+generator scope overrides earlier, rather than summing four scope
+contributions. Values from actual original private research:
+raw107 -> descriptor150, raw116 -> 82; synthetic four-scope
+preset-global5/preset-local7/instrument-global9/instrument-local11
+selects raw11 -> instVol870.
+
+The existing `CreativeSbkLayers.h` now exposes a bounded accessor
+`candidateOriginalSf1InstVolFromGenerator48()` rather than a
+second bank reader. The existing `CreativeBoundVoiceController`
+derives the signed descriptor term from the selected SBK layer
+BEFORE using its existing IFATN calculation. Original Device-State
++0x10 additive attenuation is an **independent caller-provided
+original driver state** and is never derived by assuming generator48
+is a device default. An explicit generator48 whose conversion is
+outside the native supported signed-descriptor domain causes a hard
+failure; it will NOT reuse the caller's stale attenuation operand.
+
+The exact operator48 conversion is ONLY the original format-1 SBK
+path. Format-2/SF2 generator48 is identity followed by separate
+preset/instrument signed saturating merge and default handling,
+which is **not** implemented by this format-1 accessor. The real
+SF2 reference with 46-byte shdr is still a separate unavailable
+native end-to-end import, not silently passed through the
+48-byte original-SBK parser.
+
+Windows regressions cover original conversion pairs 107/150,
+116/82, the four scopes (5/7/9/11 -> 870), signed truncation,
+and invalid provenance/overflow. The bound voice test poisons the
+externally passed descriptor and ensures that actual IFATN comes
+from generator48; changing the genuine independent Device-State
+then changes the result without altering `instVol`. Original
+full MIDI/register/PCM equality remains OPEN.

@@ -218,6 +218,47 @@ int main() {
     violinNote.layers[0].metadata.preset_local.raw[34]=2;
     CHECK(!violinController.bindWithOriginalSbkCutoff(
         violinNote,0,9,wrongAttack)); // preset attack offset unresolved
+    // Reuse the existing bank-derived bind path: SF1 instVol must come
+    // from generator48, while DEVICE-STATE attenuation remains unchanged.
+    CreativeBoundVoiceController derivedVolume{};
+    auto volNote=pianoNote();
+    volNote.layers[0].metadata.instrument_local.raw[8]=89;
+    volNote.layers[0].metadata.instrument_global.raw[48]=107;
+    auto volTerms=terms;
+    volTerms.volume.device_state_additive_attenuation=0;
+    volTerms.volume.encoded_voice_amplitude=999; // deliberately poisoned
+    const auto direct=derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,0,volTerms);
+    CHECK(direct);
+    // For original MIDI velocity96, CC7=100/CC11=127 the computed
+    // IFATN low byte comes from instVol150, not the poisoned 999.
+    auto expectedTerms=terms;
+    expectedTerms.volume.device_state_additive_attenuation=0;
+    expectedTerms.volume.encoded_voice_amplitude=150;
+    expectedTerms.initial_cutoff=178;
+    const auto expectedLow=candidateOriginalCreativeIfatn(
+        96,expectedTerms);
+    CHECK(expectedLow && direct->filter_and_attenuation[1].value==expectedLow->word);
+    CHECK(volTerms.volume.encoded_voice_amplitude==999);
+    CHECK(derivedVolume.clearPhysicalVoice(0));
+    // An explicit but unsupported signed WORD may not fall back to the
+    // caller's old instrument descriptor: fail before occupying a voice.
+    volNote.layers[0].metadata.instrument_global.raw[48]=
+        static_cast<std::uint16_t>(-32768);
+    CHECK(!derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,6,volTerms));
+    CHECK(derivedVolume.occupiedVoiceCount()==0);
+    // Device-State and generator48 are genuinely two independent inputs.
+    volNote.layers[0].metadata.instrument_global.raw[48]=107;
+    volTerms.volume.device_state_additive_attenuation=7;
+    const auto withDevice=derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,6,volTerms);
+    CHECK(withDevice);
+    expectedTerms.volume.device_state_additive_attenuation=7;
+    const auto deviceExpected=candidateOriginalCreativeIfatn(96,expectedTerms);
+    CHECK(deviceExpected &&
+          withDevice->filter_and_attenuation[1].value==deviceExpected->word);
+    CHECK(derivedVolume.clearPhysicalVoice(6));
     std::cout<<"P002_BOUND_ORIGINAL_ROM_VOICES_PASS original_live_cc=4 pitchbend=3"
              <<" sustain_release=TRUE all_sound_off=TRUE"
              <<" allocator_and_release_registers_EXPLICITLY_UNVERIFIED=TRUE\n";

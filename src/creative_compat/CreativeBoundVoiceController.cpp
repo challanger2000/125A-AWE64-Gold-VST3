@@ -63,6 +63,19 @@ CreativeBoundVoiceController::bindWithOriginalSbkCutoff(
     if(!cutoff)return std::nullopt;
     auto terms=verified_terms;
     terms.initial_cutoff=*cutoff;
+    // Recover original SF1 bank generator48->signed descriptor+0x60.
+    // Device-state+0x10 remains EXPLICIT and independent. The private
+    // original bank's missing gen48 is not confused with value zero.
+    const bool hasExplicitInstVol=
+        layer.instrument_local.get(48).has_value() ||
+        layer.instrument_global.get(48).has_value() ||
+        layer.preset_local.get(48).has_value() ||
+        layer.preset_global.get(48).has_value();
+    if(hasExplicitInstVol) {
+        const auto instVol=layer.candidateOriginalSf1InstVolFromGenerator48();
+        if(!instVol)return std::nullopt; // never silently reuse stale input
+        terms.volume.encoded_voice_amplitude=*instVol;
+    }
     // Original SF1/1MGM PCOD generator34 is a DISTINCT attack helper,
     // not the table used for generator28/30/38 decay/release rates.
     if(layer.preset_global.get(34) || layer.preset_local.get(34))

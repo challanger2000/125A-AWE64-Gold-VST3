@@ -44,6 +44,29 @@ struct SbkLayer {
         const auto local=preset_local.get(8);
         return local?local:preset_global.get(8);
     }
+    // Source-verified original Creative SF1 (ifil=1) Bank Builder:
+    // operator48 instVol is a signed 16-bit WORD at descriptor +0x60.
+    // The format-1 load converter PCOD+0x37BA yields
+    // trunc((127 - signed(raw))*75/10). The LAST explicit scope wins:
+    // instrument-local > instrument-global > preset-local > preset-global.
+    // This is NOT the separately set DEVICE-STATE attenuation at +0x10.
+    // No missing-generator default is synthesized from an unknown template.
+    [[nodiscard]] std::optional<std::int16_t>
+    candidateOriginalSf1InstVolFromGenerator48() const noexcept {
+        const auto raw=instrument_local.get(48).has_value()
+            ? instrument_local.get(48)
+            : instrument_global.get(48).has_value()
+            ? instrument_global.get(48)
+            : preset_local.get(48).has_value()
+            ? preset_local.get(48) : preset_global.get(48);
+        if(!raw)return std::nullopt;
+        const auto signedRaw=static_cast<std::int16_t>(*raw);
+        const auto original=(127-static_cast<std::int32_t>(signedRaw))*75/10;
+        // The original writes only the resulting low WORD. Stay within
+        // verified signed-descriptor range until wrap cases are checked.
+        if(original<-32768 || original>32767)return std::nullopt;
+        return static_cast<std::int16_t>(original);
+    }
     [[nodiscard]] std::optional<std::uint16_t> presetRawAttenuation() const noexcept {
         const auto local=preset_local.get(48);
         return local?local:preset_global.get(48);
