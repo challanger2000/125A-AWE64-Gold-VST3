@@ -45,7 +45,9 @@ def synthetic_le(*, corrupt_page: int | None = None) -> bytes:
     templ = templ[:144] + b"RNDM"  # final DWORD is dynamic, not static
     # LCOD starts at physical page1: virtual offset==file-relative offset
     raw[DATA + 0x2D88:DATA + 0x2D88 + 148] = templ
-    synthetic_volume = struct.pack("<16H", *(i*137 for i in range(16)))\n    raw[DATA + 0x2FA0:DATA + 0x2FA0 + 32] = synthetic_volume\n    # PDAT starts physical page131.
+    synthetic_volume = struct.pack("<16H", *(i*137 for i in range(16)))
+    raw[DATA + 0x2FA0:DATA + 0x2FA0 + 32] = synthetic_volume
+    # PDAT starts physical page131.
     pd = DATA + (131 - 1) * PAGE
     table1 = struct.pack("<128I", *(1000 + i*10000 for i in range(128)))
     table2 = struct.pack("<128b", *(64 - i//2 for i in range(128)))
@@ -63,7 +65,14 @@ class CreativeVxdPrivateResourcesContract(unittest.TestCase):
         )
         self.assertEqual(result["template_first_59_signed_words"],
                          list(range(-29, 30)))
-        self.assertEqual(result["volume_attack128_table_unsigned_16"],\n                         [i*137 for i in range(16)])\n        self.assertEqual(result["volume_attack128_lcod_offset"],"0x2fa0")\n        self.assertEqual(\n            result["volume_attack128_table_sha256"],\n            hashlib.sha256(struct.pack("<16H",*(i*137 for i in range(16)))).hexdigest()\n        )\n        self.assertEqual(result["pitch_table_a_unsigned_32"],
+        self.assertEqual(result["volume_attack128_table_unsigned_16"],
+                         [i*137 for i in range(16)])
+        self.assertEqual(result["volume_attack128_lcod_offset"],"0x2fa0")
+        self.assertEqual(
+            result["volume_attack128_table_sha256"],
+            hashlib.sha256(struct.pack("<16H",*(i*137 for i in range(16)))).hexdigest()
+        )
+        self.assertEqual(result["pitch_table_a_unsigned_32"],
                          [1000+i*10000 for i in range(128)])
         self.assertEqual(result["pitch_table_b_signed_8"],
                          [64-i//2 for i in range(128)])
