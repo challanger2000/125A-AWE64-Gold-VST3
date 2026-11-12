@@ -65,6 +65,22 @@ candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     const SbkLayer& selected_layer,
     const std::array<std::int16_t,59>& verified_original_preset_template,
     const std::array<std::int16_t,59>& verified_original_instrument_template) noexcept;
+// Source-observed first stage of original SBAWE.VXD PCOD+0x3735
+// sample-rate->dwPitch: rate*0x2F8E in LOW 32 bits, then left-normalize
+// until bit31 is set. The original uses bits30..24 as a table index and
+// bits23..17 as the interpolation fraction (both seven bits).
+// The TWO private PDAT tables and the final interpolation/exponent are
+// NOT available here; this structure is NOT a computed dwPitch.
+struct OriginalCreativeSf2PitchLookupCoordinates {
+    std::uint32_t wrapped_product=0;
+    std::uint32_t normalized_word=0;
+    std::uint8_t normalization_left_shifts=0;
+    std::uint8_t table_index=0;
+    std::uint8_t fraction_7bit=0;
+};
+[[nodiscard]] std::optional<OriginalCreativeSf2PitchLookupCoordinates>
+originalCreativeSf2PitchLookupCoordinates(
+    std::uint32_t sample_rate_hz) noexcept;
 // Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
 // already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
 // The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
