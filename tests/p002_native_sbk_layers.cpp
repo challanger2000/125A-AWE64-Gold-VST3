@@ -205,6 +205,7 @@ int main(){
     // Exact original SF2 builder: local overrides global within each
     // level; separately converted preset and instrument are SAT-ADDED.
     SbkLayer sf2{};
+    sf2.source_format=OriginalCreativeBankFormat::Format2Sf2;
     sf2.preset_global.raw[48]=5;
     sf2.preset_local.raw[48]=7;
     sf2.instrument_global.raw[48]=9;

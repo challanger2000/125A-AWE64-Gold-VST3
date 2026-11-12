@@ -321,8 +321,10 @@ int main(){
     CHECK(pianoSf2Cut && *pianoSf2Cut==179);
     CHECK(violinSf2Cut && *violinSf2Cut==211);
     SbkLayer sf2Piano{};
+    sf2Piano.source_format=OriginalCreativeBankFormat::Format2Sf2;
     sf2Piano.instrument_global.raw[48]=150;
     SbkLayer sf2Violin{};
+    sf2Violin.source_format=OriginalCreativeBankFormat::Format2Sf2;
     sf2Violin.instrument_global.raw[48]=82;
     // Zero preset term is expressly the actual GM0/40 handoff
     // descriptor template for these two cases; not a general default.
