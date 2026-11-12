@@ -278,6 +278,26 @@ add_test(NAME p002_original_win95_midi_note_release_registers
 target_link_libraries(awe64_p002_real_chip_port_bridge
     PUBLIC awe64_p002_vxd_note_release)
 
+
+# Original Win95 SBAWE.VXD +0x5BE4..+0x5CA4 first seven per-voice
+# NOTE START registers: VTFT, CVCF, ATKHLDV, LFO1VAL, ATKHLD,
+# DCYSUS and LFO2VAL. Require already encoded original driver record.
+add_library(awe64_p002_vxd_voice_envelope_prelude STATIC
+    src/creative_compat/CreativeVxdVoiceEnvelopePrelude.cpp)
+target_include_directories(awe64_p002_vxd_voice_envelope_prelude
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_voice_envelope_prelude PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_voice_envelope_prelude
+    PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_voice_envelope_prelude_test
+    tests/p002_native_vxd_voice_envelope_prelude.cpp)
+target_link_libraries(awe64_p002_vxd_voice_envelope_prelude_test
+    PRIVATE awe64_p002_vxd_voice_envelope_prelude)
+add_test(NAME p002_original_creative_vxd_note_start_envelope_prelude
+    COMMAND awe64_p002_vxd_voice_envelope_prelude_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_voice_envelope_prelude)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

@@ -3,6 +3,7 @@
 #include "CreativeControllerVolume.h"
 #include "CreativeVxdSampleAddress.h"
 #include "CreativeVxdNoteRelease.h"
+#include "CreativeVxdVoiceEnvelopePrelude.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -41,6 +42,28 @@ int main(){
     const auto* real=chip.rawForContractTesting();
     CHECK(real->voice[3].dcysusv==0x00ffu);
     CHECK(real->voice[3].vtft==0x0000ffffu);
+    // Real Windows95 VXD +0x5BE4..+0x5CA4 first seven NOTE START
+    // register writes; already encoded original 0x94-byte source fields.
+    OriginalVxdEncodedVoiceEnvelopePrelude envelope{};
+    envelope.from_actual_original_driver_record=true;
+    envelope.attack_hold_volume_low_byte_word=0x0080u;
+    envelope.attack_hold_volume_high_word=0x56;
+    envelope.lfo1_delay_word=static_cast<std::int16_t>(0x8000u);
+    envelope.attack_hold_mod_low_byte_word=0x0080u;
+    envelope.attack_hold_mod_high_word=0x34;
+    envelope.decay_sustain_mod_low_byte=0x12;
+    envelope.decay_sustain_mod_high_word=0x45;
+    envelope.lfo2_delay_word=static_cast<std::int16_t>(0x8010u);
+    const auto startEnvelope=candidateOriginalVxdVoiceEnvelopePrelude(3,envelope);
+    CHECK(startEnvelope && startEnvelope->size()==14);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startEnvelope));
+    CHECK(real->voice[3].vtft==0x0000ffffu);
+    CHECK(real->voice[3].cvcf==0x0000ffffu);
+    CHECK(real->voice[3].atkhldv==0x567fu);
+    CHECK(real->voice[3].lfo1val==0x8000u);
+    CHECK(real->voice[3].atkhld==0x347fu);
+    CHECK(real->voice[3].dcysus==0x4512u);
+    CHECK(real->voice[3].lfo2val==0x8010u);
     // Ensure no other physical voice was changed by the original prelude.
     CHECK(real->voice[4].dcysusv!=0x00ffu ||
           real->voice[4].vtft!=0x0000ffffu);
@@ -186,6 +209,7 @@ int main(){
              <<" DCYSUSV=00FF VTFT=0000FFFF group_stop=807F"
              <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
              <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
+             <<" original_note_start_envelope7_actual_chip=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

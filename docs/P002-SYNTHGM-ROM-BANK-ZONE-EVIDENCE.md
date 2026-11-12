@@ -839,3 +839,38 @@ path, but the live event controller still needs the original driver voice
 record and encoded rate conversion to dispatch it automatically. Complete
 ADSR/program/filter/FX/voice-start native MIDI translation, clock-level
 original trace differential and independently generated PCM remain OPEN.
+
+
+## P002 original Creative Win95 NoteOn envelope/LFO prelude, 7 actual writes
+
+The actual private installed SBAWE.VXD LCOD +0x5BE4..+0x5CA4 proves
+that a new voice first writes these **seven distinct** hardware registers
+in this exact order, via real 8-bit E22 pointer port and 16/32-bit data:
+
+1. DATA0 index3 VTFT = 0x0000FFFF (32-bit 620 DATA0).
+2. DATA0 index2 CVCF = 0x0000FFFF (32-bit 620 DATA0).
+3. DATA2 index4 ATKHLDV = combine(encoded voice record word+0x46,
+   byte from original word+0x44; an exact raw 0x0080 is replaced with
+   0x7F before byte combination) through A22 (16 bit).
+4. DATA2 index5 LFO1VAL = original voice record word+0x2A (A22).
+5. DATA2 index6 ATKHLD = combine(original record word+0x36,
+   lowbyte word+0x34 with same 0x0080 => 0x007F substitution) (A22).
+6. DATA1 index7 DCYSUS = combine(original record word+0x3A,
+   original lowbyte record+0x38) (A20).
+7. DATA2 index7 LFO2VAL = original voice record word+0x2E (A22).
+
+This is an independently transcribed **exact original-VXD register
+sequence subset**. It does not claim the pre-encoded 0x94-byte original
+record is reconstructed from every SoundFont generator. The new native
+CreativeVxdVoiceEnvelopePrelude.{h,cpp} requires an explicitly verified
+original encoded record; it does not invent volume/modulation attack,
+sustain or LFO values. Separate from the MIDI NoteOff and VXD group choke
+paths, and separate from the subsequent native initial IP/IFATN writes.
+
+The Windows C++ test enumerates all seven original hardware writes with
+8/16/32-bit access widths, exact selector and data ports and the original
+0x0080→0x007F special case. Additional **actual real pinned EMU8000**
+chip tests now execute all seven on a physical voice3, then inspect its
+true VTFT, CVCF, ATKHLDV, LFO1VAL, ATKHLD, DCYSUS and LFO2VAL fields.
+The original DSP source has not changed. Full original event timing and
+MIDI-derived audio PCM parity are still open.
