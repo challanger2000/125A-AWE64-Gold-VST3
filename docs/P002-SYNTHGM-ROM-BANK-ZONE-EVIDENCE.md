@@ -679,3 +679,45 @@ that original-driver path match. The real P002 full NoteOff,
 sustain, voice steal side effects, timing and PCM parity gates
 remain open. Private original VXD, ROM and SBK bytes stay outside
 the repository and public Windows CI.
+
+## P002 actual original 86Box-EMU8000 chip execution of VXD-proven ports
+
+Previous C++ P002 tests only compared the independently generated
+port-write arrays. The actual product's P001 Chip adapter takes 16-bit
+port values while the proven VXD paths require an 8-bit `E22`
+register selector, 16-bit DATA1/DATA3 writes and a **32-bit**
+DATA0 VTFT word. The original pinned fork itself implements
+`emu8k_outb(E22)` as a zero-extended call to `emu8k_outw(E22)`,
+and supports 32-bit VTFT via two consecutive 16-bit halves
+(`620` low and `622` high), both through the real chip engine.
+
+New `CreativeChipPortBridge` validates **the entire sequence**
+BEFORE any hardware write and only accepts the explicitly verified
+selector/register/width combinations:
+- E22 pointer width8 then E20 width16 for DATA3 idx1 IFATN;
+- E22 pointer width8 then A20 width16 for DATA1 idx5 DCYSUSV;
+- E22 pointer width8 then 620 width32 for DATA0 idx3 VTFT.
+
+It rejects malformed widths, values, refresh voices 30/31,
+unauthorized register addresses and any unavailable chip.
+When the sequence is valid, it executes directly through the
+real P001 Chip adapter without modifying the calibrated
+`snd_emu8k.c` fork.
+
+The new `p002_real_original_dsp_vxd_register_execution` native
+Windows test creates a **synthetic zero-ROM only**, opens the
+authentic 28-MiB fork core, applies independently generated
+VXD original idle-voice DCYSUSV=0x00FF and VTFT=0x0000FFFF,
+and checks the **actual EMU8000 voice[3] register state**.
+It then applies the verified VXD group-choke path and checks
+physical voice3 IFATN=0x00FF, DCYSUSV=0x807F and independent
+voice6/7 stereo register state. Negative controls reject wrong
+selector width, corrupt DWORD port, high refresh voice numbers
+and truncated 16-bit values, with no partial mutation.
+
+The synthetic zero-ROM test does NOT and cannot prove non-silent
+original-Creative PCM equality, true NoteOff release, full NoteOn
+instrument envelopes, original VXD timing, or end-to-end P002
+audio fidelity. This is the first bounded genuine VXD-derived
+register **execution** path on the original fork, not just candidate
+array comparison. Public CI still ships no original driver or ROM.
