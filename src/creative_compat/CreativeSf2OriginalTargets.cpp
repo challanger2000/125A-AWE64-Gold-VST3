@@ -66,12 +66,46 @@ candidateOriginalSf2ComputeFinalTargetsFromVxdState(
     if(word(note,34u)==128u && word(note,33u)>=0x8000u) {
         const auto attenuation=signedWord(note,19u);
         const auto absolute=attenuation<0?-attenuation:attenuation;
-        const auto index=static_cast<unsigned>(absolute)&15u;
+        const auto magnitude_nibble=static_cast<unsigned>(absolute)&15u;
+        // Actual source x86 LCOD+0x5E80..+0x5EB9 performs:
+        // abs(n) & 15, then XOR/SUB by sign AGAIN, creating a SIGNED
+        // table index [-15,+15]. Negative indices dereference the 15
+        // preceding original LCOD WORDs; not abs(n)&15 in +0x2FA0!
+        // This was independently executed with the genuine original
+        // machine instructions for ALL 65,536 signed 16-bit inputs.
+        const bool negative_index=attenuation<0 && magnitude_nibble!=0u;
+        if(negative_index &&
+           !source.original_lcod_2f82_negative_table_verified)
+            return std::nullopt;
+        const auto value=negative_index
+            ?source.source_lcod_2f82_negative_table[15u-magnitude_nibble]
+            :source.source_lcod_2fa0_table[magnitude_nibble];
+        // x86 cdq, &15, add, sar4 => C++ signed /16 toward zero;
+        // SHRW uses the low five count bits, >=16 yields zero.
         const auto shift=static_cast<unsigned>(
             static_cast<std::uint8_t>(attenuation/16))&31u;
-        volume=shift>=16u?0u:static_cast<std::uint16_t>(
-            source.source_lcod_2fa0_table[index]>>shift);
+        volume=shift>=16u?0u:
+            static_cast<std::uint16_t>(value>>shift);
     }
     return OriginalSf2VerifiedFinalTargetState{true,volume,pitch};
+}
+std::optional<OriginalSf2FullNoteOnPlan>
+candidateOriginalSf2FullNoteOnWithComputedOriginalTargets(
+    const std::span<const OriginalSf2AssignedVoiceAndVxdState> voices) noexcept {
+    if(voices.empty() ||
+       voices.size()>kOriginalCreativeMaxNoteStartDescriptors)
+        return std::nullopt;
+    std::array<OriginalSf2FullNoteOnVoice,
+               kOriginalCreativeMaxNoteStartDescriptors> resolved{};
+    for(std::size_t i=0;i<voices.size();++i) {
+        const auto target=candidateOriginalSf2ComputeFinalTargetsFromVxdState(
+            voices[i].original_assigned_voice.verified_after_start_record,
+            voices[i].original_device_voice_state);
+        if(!target)return std::nullopt;
+        resolved[i]=voices[i].original_assigned_voice;
+        resolved[i].target=*target; // identical existing 56-OUT composer
+    }
+    return candidateOriginalSf2FullNoteOnPorts(
+        std::span<const OriginalSf2FullNoteOnVoice>(resolved.data(),voices.size()));
 }
 } // namespace awe64::creative

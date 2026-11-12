@@ -47,6 +47,9 @@ def synthetic_le(*, corrupt_page: int | None = None) -> bytes:
     raw[DATA + 0x2D88:DATA + 0x2D88 + 148] = templ
     synthetic_volume = struct.pack("<16H", *(i*137 for i in range(16)))
     raw[DATA + 0x2FA0:DATA + 0x2FA0 + 32] = synthetic_volume
+    raw[DATA + 0x2F82:DATA + 0x2FA0] = struct.pack(
+        "<15H", *(i*19+1 for i in range(15))
+    )
     # PDAT starts physical page131.
     pd = DATA + (131 - 1) * PAGE
     table1 = struct.pack("<128I", *(1000 + i*10000 for i in range(128)))
@@ -68,6 +71,14 @@ class CreativeVxdPrivateResourcesContract(unittest.TestCase):
         self.assertEqual(result["volume_attack128_table_unsigned_16"],
                          [i*137 for i in range(16)])
         self.assertEqual(result["volume_attack128_lcod_offset"],"0x2fa0")
+        self.assertEqual(result["volume_attack128_negative_lcod_offset"],"0x2f82")
+        self.assertEqual(result["volume_attack128_negative_table_unsigned_16"],
+                         [i*19+1 for i in range(15)])
+        self.assertEqual(result["volume_attack128_full_signed_31word_sha256"],
+                         hashlib.sha256(
+                             struct.pack("<15H",*(i*19+1 for i in range(15))) +
+                             struct.pack("<16H",*(i*137 for i in range(16)))
+                         ).hexdigest())
         self.assertEqual(
             result["volume_attack128_table_sha256"],
             hashlib.sha256(struct.pack("<16H",*(i*137 for i in range(16)))).hexdigest()

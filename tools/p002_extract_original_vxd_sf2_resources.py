@@ -104,10 +104,11 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
     # attenuation factors. Source x86 indexed by abs(gen19)&15.
     # Its values remain PRIVATE; no source table is committed.
     volume_attack_table = lcod[0x2FA0:0x2FA0 + 16 * 2]
+    volume_attack_negative_table = lcod[0x2F82:0x2FA0]
     table_a = pdat[0x08E8:0x08E8 + 128 * 4]
     table_b = pdat[0x0AE8:0x0AE8 + 128]
-    if len(volume_attack_table) != 32:
-        raise InvalidCreativeVxd("Original LCOD volume lookup truncated")
+    if len(volume_attack_table) != 32 or len(volume_attack_negative_table) != 30:
+        raise InvalidCreativeVxd("Original LCOD signed volume lookup truncated")
     if len(template) != 148 or len(table_a) != 512 or len(table_b) != 128:
         raise InvalidCreativeVxd("Original format-2 resource bounds invalid")
     values = list(struct.unpack("<59h", template[:118]))
@@ -124,6 +125,13 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
         "template_sha256": hashlib.sha256(template).hexdigest(),
         "template_group_id_is_mutable": True,
         "volume_attack128_lcod_offset": "0x2fa0",
+        "volume_attack128_negative_lcod_offset": "0x2f82",
+        "volume_attack128_negative_table_unsigned_16": list(
+            struct.unpack("<15H", volume_attack_negative_table)
+        ),
+        "volume_attack128_full_signed_31word_sha256": hashlib.sha256(
+            volume_attack_negative_table + volume_attack_table
+        ).hexdigest(),
         "volume_attack128_table_unsigned_16": list(
             struct.unpack("<16H", volume_attack_table)
         ),
