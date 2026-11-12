@@ -130,25 +130,37 @@ def main():
         raise ValueError("authentic owner Creative SYNTHGM.SBK SHA-256 mismatch")
     piano=descriptor(data,0,0,60)
     violin=descriptor(data,40,0,60)
+    piano_key67=descriptor(data,0,0,67)
+    violin_key72=descriptor(data,40,0,72)
+    # Independent actual original-EMU8000 observations from P002 matrix:
+    # piano note 64 cutoff 178, note 67 cutoff 220 after zone crossing;
+    # violin note 72 velocity 90 IFATN high byte 148.
     if a.verify_original and not (
         piano["original_measured_chip_cutoff_candidate"]==178 and
         piano["zone_raw_cutoff"]==89 and
         piano["instrument_zone_bag"]==3 and
         violin["original_measured_chip_cutoff_candidate"]==210 and
         violin["global_raw_cutoff"]==105 and
-        violin["instrument_zone_bag"]==219):
+        violin["instrument_zone_bag"]==219 and
+        piano_key67["original_measured_chip_cutoff_candidate"]==220 and
+        piano_key67["instrument_zone_bag"]==4 and
+        violin_key72["original_measured_chip_cutoff_candidate"]==210 and
+        violin_key72["instrument_zone_bag"]==220 and
+        ((max(70,90)*violin_key72["original_measured_chip_cutoff_candidate"]+160)>>7)==148):
         raise ValueError("actual Creative 1MGM original key/zone field identities differ")
     result={"status":"CREATIVE_SBK_ROM_DESCRIPTOR_KEY_ZONE_PASS",
         "sbk_sha256":digest,"creative_special_shdr_stride":48,
         "original_pcm_register_compatibility":"ONLY NOTE60 CUTOFF BASE PARAMETER CROSS-CHECKED",
         "gm0_piano_note60":piano,"gm40_violin_note60":violin,
+        "gm0_piano_note67":piano_key67,"gm40_violin_note72":violin_key72,
         "native_filter_bank_parameter_source":"PROVEN FOR THESE TWO ORIGINAL KEY ZONES",
         "complete_SBK_SF2_voice_translation":"NOT IMPLEMENTED",
         "private_data_in_json":False}
     a.out.parent.mkdir(parents=True,exist_ok=True)
     a.out.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
     print("P002_CREATIVE_ROM_SBK_RAW_KEY_ZONE_CUTOFF_PASS",
-          "GM0_key60=89_to_IFATN178","GM40_key60=105_to_IFATN210",
+          "GM0_key60=89_to_IFATN178","GM0_key67=110_to_IFATN220",
+          "GM40_key60=105_to_base210","GM40_key72_velocity90=IFATN_cutoff148",
           "full_bank_native_P003=NOT_CLAIMED")
 if __name__=="__main__":
     try:main()
