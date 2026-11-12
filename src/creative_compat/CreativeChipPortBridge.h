@@ -8,9 +8,13 @@
 #include <span>
 
 namespace awe64::creative {
-// Only VXD-verified voice-reset/VTFT/forced-group-stop operations:
+// Bounded VXD-verified voice-reset/VTFT/forced-group-stop operations and
+// independently measured original MIDI-driven IP/IFATN word writes:
 // pointer E22 OUT AL 8 bits, data A20/E20 OUT AX 16 bits,
-// and data 620 OUT EAX 32 bits. All other writes FAIL CLOSED.
+// and data 620 OUT EAX 32 bits. Only the actual documented
+// DATA3 register 0 (IP), DATA3 register 1 (IFATN), DATA1 register 5
+// (DCYSUSV), and DATA0 register 3 (VTFT) are accepted.
+ // All other writes FAIL CLOSED.
 // Reject the entire malformed sequence before issuing ANY chip I/O.
 // The fork's word-only Host adapter intentionally mirrors its emu8k_outb
 // low-byte behavior for E22; 32-bit VTFT is written as consecutive

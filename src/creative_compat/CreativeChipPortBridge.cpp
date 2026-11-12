@@ -11,7 +11,7 @@ bool validPair(const OriginalWin95VxdPortWrite& ptr,
     if(data.access_width_bits==16u && data.value<=0xffffu) {
         // These are the specific voice-registers independently read out of
         // the original installed SBAWE.VXD; not a generic VXD driver emulator.
-        return (reg==1u && data.port==0xE20u) || // DATA3: IFATN
+        return ((reg==0u || reg==1u) && data.port==0xE20u) || // IP / IFATN
                (reg==5u && data.port==0xA20u);   // DATA1: DCYSUSV
     }
     if(data.access_width_bits==32u)

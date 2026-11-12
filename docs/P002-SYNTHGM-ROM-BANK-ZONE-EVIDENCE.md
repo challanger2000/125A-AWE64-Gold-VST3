@@ -721,3 +721,32 @@ instrument envelopes, original VXD timing, or end-to-end P002
 audio fidelity. This is the first bounded genuine VXD-derived
 register **execution** path on the original fork, not just candidate
 array comparison. Public CI still ships no original driver or ROM.
+
+### Extended original-bank/MIDI IP + IFATN executed on pinned EMU8000
+
+The P002 bridge now also validates original DATA3 register0 initial
+pitch IP, in addition to DATA3 register1 IFATN and the previous
+VXD voice-init and termination commands. This permits a genuine
+WinMM MIDI note/velocity and live controller state to reach the
+real original fork's **voice registers**, not only an in-memory
+list of candidate port writes.
+
+The updated C++ Windows test runs entirely against the *actual*
+pinned unmodified EMU8000 core with synthetic ROM content and
+explicitly documented original GM0 note60 bank data:
+original pitch generator55=7696, encoded original 1MGM
+amplitude/attenuation terms, cutoff 178 and original controller
+table. The native sequence generated from the MIDI/bank candidate
+writes is executed and checked **on chip**:
+
+- original GM0 C4 hardware IP = 0xC962 (from MIDI and bank);
+- hardware IFATN cutoff high byte = 178;
+- live channel CC7=20 updates the real voice's IFATN to 0xB285;
+- live pitchbend maximum updates that voice's hardware IP to 0xCC0C.
+
+No real Creative ROM data or captured reference trace is in CI.
+This verifies correct *hardware register state* for a proven
+MIDI/controller subset, but **not** original VXD complete register
+write ordering, real audio output, FX sends, chip-clock timestamps
+or original Win95 chip PCM identity. The actual P001 chip source
+has NOT been modified.

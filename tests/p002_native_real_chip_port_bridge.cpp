@@ -1,4 +1,6 @@
 #include "CreativeChipPortBridge.h"
+#include "CreativePitchCandidate.h"
+#include "CreativeControllerVolume.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -60,6 +62,62 @@ int main(){
     CHECK(real->voice[6].ifatn==0xffu && real->voice[7].ifatn==0xffu);
     CHECK(real->voice[6].dcysusv==0x807fu &&
           real->voice[7].dcysusv==0x807fu);
+    // Live original WinMM note program/key + original 1MGM pitch field
+    // + decoded Creative Win95 encoded volume/controller rules are now
+    // actually written into the pinned original EMU8000 chip.
+    CreativeRomNotePlan piano{};
+    piano.channel=0;piano.program=0;piano.key=60;piano.velocity=96;
+    piano.original_sbk_bank=0;piano.count=1;
+    piano.layers[0].metadata.key=60;
+    piano.layers[0].metadata.velocity=96;
+    piano.layers[0].metadata.program=0;
+    piano.layers[0].metadata.bank=0;
+    piano.layers[0].metadata.instrument_local.raw[55]=7696;
+    MidiState state;
+    OriginalCreativeIfatnTerms encoded{};
+    encoded.bank=0; encoded.initial_cutoff=178;
+    encoded.encoded_volume_attack_rate=125;
+    encoded.volume={100,127,16,0,true};
+    const auto message=decodeWinMmShort(0x00603c90u);
+    CHECK(message && message->kind==MidiKind::NoteOn);
+    const auto ip=candidateOriginalRomIpWrites(piano,0,3,state);
+    const auto ifatn=candidateOriginalCreativeIfatnWrites(
+        *message,3,state,encoded);
+    CHECK(ip && ifatn);
+    const std::array<OriginalWin95VxdPortWrite,4> noteParameters{{
+        {(*ip)[0].port,(*ip)[0].value,8},
+        {(*ip)[1].port,(*ip)[1].value,16},
+        {(*ifatn)[0].port,(*ifatn)[0].value,8},
+        {(*ifatn)[1].port,(*ifatn)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,noteParameters));
+    CHECK(real->voice[3].ip==0xC962);
+    const auto expected=candidateOriginalCreativeIfatn(96,encoded);
+    CHECK(expected && real->voice[3].ifatn==expected->word);
+    CHECK(real->voice[3].ifatn_init_filter==178);
+    // Real live CC7 WinMM -> independent VXD lookup -> actual chip IFATN.
+    const auto vol20=decodeWinMmShort(0x001407b0u);
+    CHECK(vol20);state.apply(*vol20);
+    const auto updated=candidateOriginalCreativeIfatnWrites(
+        *message,3,state,encoded);
+    CHECK(updated && (*updated)[1].value==0xB285);
+    const std::array<OriginalWin95VxdPortWrite,2> liveVolume{{
+        {(*updated)[0].port,(*updated)[0].value,8},
+        {(*updated)[1].port,(*updated)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,liveVolume));
+    CHECK(real->voice[3].ifatn==0xB285);
+    // Actual chip pitch update from live WinMM pitchbend maximum.
+    const auto bend=decodeWinMmShort(0x007f7fe0u);
+    CHECK(bend);state.apply(*bend);
+    const auto livePitch=candidateOriginalRomIpWrites(piano,0,3,state);
+    CHECK(livePitch && (*livePitch)[1].value==0xCC0C);
+    const std::array<OriginalWin95VxdPortWrite,2> pitchUpdate{{
+        {(*livePitch)[0].port,(*livePitch)[0].value,8},
+        {(*livePitch)[1].port,(*livePitch)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,pitchUpdate));
+    CHECK(real->voice[3].ip==0xCC0C);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -80,6 +138,7 @@ int main(){
     std::filesystem::remove(rom);
     std::cout<<"P002_ORIGINAL_VXD_PORTS_EXECUTED_ON_PINNED_EMU8000_PASS"
              <<" DCYSUSV=00FF VTFT=0000FFFF group_stop=807F"
+             <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
              <<" original_driver_PCM_parity=NOT_PROVEN\n";
     return 0;

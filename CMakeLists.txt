@@ -234,7 +234,9 @@ target_link_libraries(awe64_p002_real_chip_port_bridge
 add_executable(awe64_p002_real_chip_port_bridge_test
     tests/p002_native_real_chip_port_bridge.cpp)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
-    PRIVATE awe64_p002_real_chip_port_bridge)
+    PRIVATE awe64_p002_real_chip_port_bridge
+            awe64_p002_pitch_candidate
+            awe64_p002_original_controller_volume)
 add_test(NAME p002_real_original_dsp_vxd_register_execution
          COMMAND awe64_p002_real_chip_port_bridge_test)
 
