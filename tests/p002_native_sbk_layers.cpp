@@ -368,6 +368,12 @@ int main(){
           sf2Sample->end_word==1000 &&
           sf2Sample->loop_start_word==200 &&
           sf2Sample->loop_end_word==900);
+    CHECK(sf2Sample->source_format==OriginalCreativeBankFormat::Format2Sf2);
+    CHECK(sf2Sample->sample_rate_hz==44100u &&
+          sf2Sample->original_pitch==60u &&
+          sf2Sample->pitch_correction==0 &&
+          sf2Sample->sample_link==0u &&
+          sf2Sample->sample_type==0x8001u);
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,1,524288)); // EOS
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,0,900)); // out of ROM
     // The ROM-only SF2 resolver must never reinterpret a RAM sample or
