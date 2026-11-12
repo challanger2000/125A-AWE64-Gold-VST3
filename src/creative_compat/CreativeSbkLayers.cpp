@@ -90,29 +90,44 @@ candidateOriginalSf2PresetDeltaGenerator(
     }
 }
 std::optional<std::int16_t>
-candidateOriginalSf2InstVolFromExplicitScopes(
-    const SbkLayer& layer,
+candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+    const SbkLayer& layer,const std::uint16_t generator_id,
     const std::optional<std::int16_t> preset_default,
     const std::optional<std::int16_t> instrument_default) noexcept {
-    // Format-2 descriptor instVol(+0x60) is generator48, which is
-    // identity during loading, unlike FORMAT-1's (127-x)*75/10.
-    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2)
+    // Original format-2 PCOD conversion and separate signed-saturated
+    // preset/instrument merge; restrict to source-backed VOICE quantities.
+    // Other operator semantics (ranges, IDs, sample modes etc.) must not
+    // be presumed additive simply because their words are present.
+    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       (generator_id!=8u && generator_id!=34u && generator_id!=48u))
         return std::nullopt;
-    const auto preset=layer.preset_local.get(48).has_value()
-        ? layer.preset_local.get(48):layer.preset_global.get(48);
-    const auto inst=layer.instrument_local.get(48).has_value()
-        ? layer.instrument_local.get(48):layer.instrument_global.get(48);
+    const auto preset=layer.preset_local.get(generator_id).has_value()
+        ? layer.preset_local.get(generator_id)
+        : layer.preset_global.get(generator_id);
+    const auto inst=layer.instrument_local.get(generator_id).has_value()
+        ? layer.instrument_local.get(generator_id)
+        : layer.instrument_global.get(generator_id);
     const auto p=preset
         ? candidateOriginalSf2PresetDeltaGenerator(
-            48,static_cast<std::int16_t>(*preset)):preset_default;
+            generator_id,static_cast<std::int16_t>(*preset)):preset_default;
     const auto i=inst
         ? candidateOriginalSf2InstrumentLoadGenerator(
-            48,static_cast<std::int16_t>(*inst)):instrument_default;
+            generator_id,static_cast<std::int16_t>(*inst)):instrument_default;
     if(!p || !i)return std::nullopt;
     const auto joined=std::clamp<std::int32_t>(
         static_cast<std::int32_t>(*p)+static_cast<std::int32_t>(*i),
         -32768,32767);
     return static_cast<std::int16_t>(joined);
+}
+std::optional<std::int16_t>
+candidateOriginalSf2InstVolFromExplicitScopes(
+    const SbkLayer& layer,
+    const std::optional<std::int16_t> preset_default,
+    const std::optional<std::int16_t> instrument_default) noexcept {
+    // Descriptor +0x60 is generator48; unlike original FORMAT-1's
+    // (127-x)*75/10 this format-2 conversion is identity and additive.
+    return candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+        layer,48u,preset_default,instrument_default);
 }
 std::optional<SbkLayerSet> resolveCreativeSbkLayers(
     Bytes b,std::uint16_t bank,std::uint8_t program,
