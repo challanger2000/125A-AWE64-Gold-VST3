@@ -60,8 +60,11 @@ class PrivateOriginalSf2BuilderContract(unittest.TestCase):
     def test_missing_original_prestage_descriptor_fails(self):
         handoff = self.fixture()
         handoff["cases"][0]["case"]["before"] = []
-        with self.assertRaisesRegex(ValueError, "Missing"):
-            runner.private_rows(handoff, b"synthetic")
+        with patch.object(runner, "extract", return_value={
+            "template_first_59_signed_words": [0] * 59,
+        }):
+            with self.assertRaisesRegex(ValueError, "Missing"):
+                runner.private_rows(handoff, b"synthetic")
 
     def test_unknown_original_generator_fails_closed(self):
         handoff = self.fixture()
