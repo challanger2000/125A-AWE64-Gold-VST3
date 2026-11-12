@@ -123,8 +123,10 @@ struct SbkRomAddress {
     std::uint16_t sample_id=0;
     std::uint32_t start_word=0, end_word=0, loop_start_word=0, loop_end_word=0;
 };
-// Creative 1MGM packs THREE 16-byte ROM sample-address records into each
-// historical 48-byte shdr row, unlike generic SF2 sample headers.
+// Creative format-1/1MGM packs THREE 16-byte ROM addresses into each
+// 48-byte shdr row; format-2 uses 46-byte SF2 named sample headers.
+// This ROM-only entrypoint accepts SF2 ROM-mono (sampleType 0x8001),
+// but not RAM samples or linked stereo; never mislabel RAM as chip ROM.
 // Word addresses must stay within the supplied original-ROM size.
 [[nodiscard]] std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
     std::span<const std::uint8_t> sbk, std::uint16_t sample_id,
