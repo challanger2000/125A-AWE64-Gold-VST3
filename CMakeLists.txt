@@ -348,6 +348,26 @@ add_test(NAME p002_original_sf2_18_typed_note_start_ports
 # The existing source-pinned chip bridge executes these EXACT 18 typed OUTs.
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_note_start_ports)
+# Source-disassembled original LCOD+0x5CCF..+0x5EE6: following 16
+# contiguous typed OUTs (PEFE/FMMOD/TREMFRQ/FM2FRQ2/ENVVAL/ENVVOL
+# plus source PTRX/CPF resets), not an inferred generic NoteOn.
+add_library(awe64_p002_sf2_note_continuation STATIC
+    src/creative_compat/CreativeSf2NoteContinuationPorts.cpp)
+target_include_directories(awe64_p002_sf2_note_continuation
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_note_continuation PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_note_continuation
+    PUBLIC awe64_p002_sf2_note_start_ports)
+add_executable(awe64_p002_sf2_note_continuation_test
+    tests/p002_native_sf2_note_continuation_ports.cpp)
+target_link_libraries(awe64_p002_sf2_note_continuation_test
+    PRIVATE awe64_p002_sf2_note_continuation)
+add_test(NAME p002_original_sf2_next_16_typed_outs
+    COMMAND awe64_p002_sf2_note_continuation_test)
+# Both original segments are executed on the unchanged real chip core.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_note_continuation)
+
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
 add_executable(awe64_p002_sf2_note_start_prefix_oracle
