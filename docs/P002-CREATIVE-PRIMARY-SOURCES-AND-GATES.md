@@ -2,6 +2,9 @@
 
 **IN DEVELOPMENT — not an original driver sound fidelity PASS.**
 
+**NEW authentic original 1MGM bank/ZONES (12 Nov 2026):** The exact SHA-verified owner SYNTHGM.SBK Creative 48-byte-shdr metadata identifies GM0 Piano 1 note60 cutoff raw89 in keyzone58..66 -> measured IFATN cutoff178, note67 global raw110 -> measured 220, and GM40 Violin note60/72 raw105 -> base210 -> correctly velocity-modulated 116..209 / 148 at note72 v90. A strict read-only original 1MGM descriptor parser plus missing/wrong-zone/bank negative controls have been added without bundling original SBK. Raw initial attenuation and envelope-attack generator mappings remain not yet proven. See [original Creative SYNTHGM ROM bank zone evidence](P002-SYNTHGM-ROM-BANK-ZONE-EVIDENCE.md).
+
+
 **NEW P002 NATIVE IFATN PARTIAL TRANSLATOR (12 Nov 2026):** Source at src/creative_compat/CreativeCandidateRegister.{h,cpp} now generates genuine E22/E20 hardware selector+IFATN pairs independently from MIDI NoteOn velocity and caller-supplied original-bank parameters. Both original Win95/Creative GM0 and GM40 full 127-velocity datasets match numerically (254/254), and all 254 genuine original IFATN port pairs match physical voice, register value and observed 0..2-frame relative start timing. The historical Linux AWE32 volume law corroborates all 127 valid shared levels. The complete independent original-driver MIDI/register translation remains UNVERIFIED; physical voice and bank parameters still must be supplied externally. See [P002 bounded MIDI/IFATN implementation](P002-SHARED-VELOCITY-IFATN-CANDIDATE.md).
 
 
