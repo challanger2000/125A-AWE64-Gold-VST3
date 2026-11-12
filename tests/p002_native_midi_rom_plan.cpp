@@ -91,6 +91,9 @@ int main(){
     CHECK(plannedSf2->layers[0].address.original_pitch==60u);
     CHECK(plannedSf2->layers[0].address.pitch_correction==0);
     CHECK(plannedSf2->layers[0].address.sample_type==0x8001u);
+    // Synthetic PHDR index 0 carries MIDI program 7: group is zero,
+    // NOT the MIDI ProgramChange number 7.
+    CHECK(plannedSf2->layers[0].metadata.original_preset_row_index==0u);
     // Continuous, bounded native P002 path: WinMM channel/program/key/vel
     // -> FORMAT-2 original bank layer -> source cutoff PCOD conversion ->
     // verified 46-byte ROM sample header -> exact 148-byte NOTE START.
@@ -123,9 +126,12 @@ int main(){
     const OriginalCreativeSf2PitchTables syntheticPitchTables{};
     const auto beforeStart=candidateOriginalSf2VoiceWithOriginalRomPitchTables(
         *verifiedGeneratorWords,plannedSf2->layers[0].address,
-        syntheticPitchTables,7u);
+        syntheticPitchTables,
+        plannedSf2->layers[0].metadata.original_preset_row_index);
     CHECK(beforeStart && (*beforeStart)[0x8cu]==1u &&
           (*beforeStart)[0x8du]==128u);
+    CHECK((*beforeStart)[0x90u]==0u &&
+          (*beforeStart)[0x91u]==0u); // PHDR 0, not program 7
     CHECK((*beforeStart)[0x86u]==0u &&
           (*beforeStart)[0x87u]==0u &&
           (*beforeStart)[0x88u]==0xe0u &&
