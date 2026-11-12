@@ -357,6 +357,18 @@ if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
     endif()
 endif()
 
+# Optional private all-192000-sample-rate native SF2 pitch differential.
+# Uses ONLY a user-owned hash-locked original SBAWE.VXD, never public assets.
+# Not gated on the separate original bank handoff; VXD tables suffice.
+if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}")
+    add_test(NAME p002_private_original_sf2_pitch_192000_rates
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_pitch_matrix_differential.py"
+                --private-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+endif()
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
