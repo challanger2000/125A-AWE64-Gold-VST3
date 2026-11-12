@@ -137,6 +137,23 @@ target_link_libraries(awe64_p002_pitch_candidate_test PRIVATE awe64_p002_pitch_c
 add_test(NAME p002_native_original_creative_pitch_bend_candidate
          COMMAND awe64_p002_pitch_candidate_test)
 
+
+# Original Creative Windows95 SBAWE.VXD-derived CC7/CC11/velocity/ROM
+# IFATN register candidate. Bank encoded attenuation still caller-owned.
+add_library(awe64_p002_original_controller_volume STATIC
+    src/creative_compat/CreativeControllerVolume.cpp)
+target_include_directories(awe64_p002_original_controller_volume
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_original_controller_volume PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_original_controller_volume
+    PUBLIC awe64_p002_register_candidate)
+add_executable(awe64_p002_original_controller_volume_test
+    tests/p002_native_controller_volume.cpp)
+target_link_libraries(awe64_p002_original_controller_volume_test
+    PRIVATE awe64_p002_original_controller_volume)
+add_test(NAME p002_native_real_win95_driver_cc7_cc11_ifatn
+         COMMAND awe64_p002_original_controller_volume_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

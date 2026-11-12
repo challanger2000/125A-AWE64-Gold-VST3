@@ -372,3 +372,59 @@ instructions and arithmetic; it does not establish a full
 MIDI-program/volume/voice trace equivalence, sample-accurate
 register scheduling, exact channel-controller combination or PCM
 identity for independently generated P002 sound.
+
+
+## Original installed Creative Win95 driver: CC7 / CC11 / velocity and ROM attenuation
+
+The original user-supplied Windows 95 image includes actual installed
+SBAWE.VXD (original owner SHA-256:
+d343f2428ab3e593c9e42a668cf521b7801e1239792eaf7f2b11b5f179bc7c9a).
+Static disassembly of its LCOD object around offsets +0x4C8B..+0x4D32
+exposes a concrete attenuation calculation, not an imagined soundbank
+volume model. The original binary has **not** been uploaded to GitHub.
+
+Native new CreativeControllerVolume.h/.cpp reconstructs the original
+numeric conversion from MIDI velocity, channel main volume CC7,
+expression CC11, an already-encoded sample attenuation, a signed
+amplitude field, and whether the voice uses the original 1MGM ROM.
+The bounded implementation uses reconstructed numerical CC7/CC11
+conversion tables and the independently measured shared 127-velocity
+table, **with original operation order**:
+
+- CC7 <= 10 saturates to 255 (silent).
+- For CC7 > 10, add its original conversion table to the shared
+  velocity coordinate, and the original encoded amplitude-bucket
+  (amplitude+12)/24. Scale by integer 8/3.
+- Add the supplied **already encoded** sample attenuation, clamp 255.
+- Apply CC11 correction (256-currentAttenuation)*expressionTable/128
+  when CC11 < 127.
+- **Only for the original 1MGM ROM sample**, add 16, clamp at 255.
+  ROM-specific +16 must come AFTER expression, not before.
+- Assemble original IFATN high cutoff by the separately recovered
+  encoded-volume-attack filter gate and original data3 E22/E20 pair.
+
+For the two genuinely observed original instruments, explicit
+sample attenuation inputs (Piano 16 and Violin 8) reproduce
+**254/254 original 127-velocity IFATN attenuation values**.
+They are measured *encoded* terms, **not an asserted generic
+conversion of original SF1 generator48** (Piano raw107/Violin raw116).
+
+Four more independently observed values from the real Creative
+Win95 62-MIDI-event 7-scenario matrix are exactly reproduced
+for GM0 C4 held at velocity 96:
+CC7=20 -> IFATN 0xB285 (atten 133),
+CC7=127 -> 0xB22D (45),
+CC11=30 -> 0xB26C (108),
+CC11=127 -> 0xB22D (45).
+These were measured in the original guest and reproduced by the
+new native driver-derived formula from MIDI channel state; they
+were not copied from an EMU8000 register event stream.
+Independent adversarial tests cover CC7 mute threshold,
+CC11/ROM calculation order, missing/invalid encoded terms, MIDI
+note-on/off and physical-voice bounds.
+
+This is **real additional original-driver register behavior coverage**,
+but does NOT establish that every 1MGM bank generator maps to its
+correct native encoded sample attenuation and attack, nor does it
+supply the original 30-voice allocator, complete register event
+order or chip-frame/PCM equivalence. P002 remains OPEN.

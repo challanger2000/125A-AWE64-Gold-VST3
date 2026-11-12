@@ -23,6 +23,10 @@ constexpr std::array<std::uint8_t,128> kSharedVelocityLevel{{
 static_assert(kSharedVelocityLevel.size()==128);
 static_assert(kSharedVelocityLevel[1]==49 && kSharedVelocityLevel[127]==0);
 }
+std::uint8_t originalCreativeMeasuredVelocityLevel(
+    const std::uint8_t velocity) noexcept {
+    return kSharedVelocityLevel[velocity];
+}
 std::optional<InitialIfatn> candidateInitialIfatn(
     const std::uint8_t velocity, const CandidateVoiceParameters& bank) noexcept {
     if (velocity==0 || velocity>127) return std::nullopt;
