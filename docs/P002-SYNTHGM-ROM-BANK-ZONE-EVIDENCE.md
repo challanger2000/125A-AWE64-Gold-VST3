@@ -791,3 +791,51 @@ No original private ROM/SBK/VXD bytes are in public CI.
 
 This is evidence for authentic sample loop address I/O subset only.
 Full NoteOn register order/timing and audible PCM parity still NOT proven.
+
+
+## P002 genuine Windows95 SBAWE.VXD MIDI NoteOff versus sustain (new)
+
+A direct disassembly of the user's already installed private Win95 Creative
+SBAWE.VXD found the **genuine MIDI note-off VXD routine** +0x6072..+0x6185,
+whose +0x60E4 helper differs materially from the previously reconstructed
+**forced group choke** (+0x4AB5). The original driver first matches its own
+per-channel/per-note voice identity. If the note's original sustain-state
+byte is nonzero, the VXD changes the stored identity's low byte to 0xFF
+and **issues no chip writes**. It only releases the voice when its original
+sustain gate permits.
+
+For a verified matching note and an allowed release, the original writer
+emits **in order**:
+
+1. DATA1 index5 **DCYSUSV = 0x8000 | encoded volume release byte**,
+   via OUT AL E22 (8-bit) and OUT AX A20 (16-bit).
+2. DATA1 index7 **DCYSUS = 0x8000 | encoded modulation release byte**,
+   same 8/16-bit I/O widths. This is **NOT** an IFATN=0xFF force choke.
+3. Only if the original driver's stored sample-end address is nonzero,
+   DATA0 index7 CSL = (old CSL high byte) | ((sampleEnd+4)&0xFFFFFF),
+   then DATA0 index6 PSST = (old PSST high byte) | (sampleEnd&0xFFFFFF).
+   The original VXD uses 32-bit DATA0 OUT EAX and reads both actual chip
+   high bytes before overwriting the low address fields.
+4. Finally the driver marks its internal voice key word 0x0FFE. This
+   internal bookkeeping is reported, **not** mistaken for a completed
+   audio release or automatic available hardware voice.
+
+New native CreativeVxdNoteRelease.h/.cpp returns exactly 0/4/8 typed port
+writes given **verified original record and hardware inputs**. The raw
+SoundFont generator mappings into the already encoded two release bytes
+are not guessed; an absent driver voice-state snapshot fails closed.
+
+Windows tests exercise genuine release ordering, both independent envelope
+bytes, deferred sustain NoteOff with ZERO chip writes, continued sample
+playout using prior CSL/PSST high bytes, reserved physical voices, missing
+original matching IDs/record, and 24-bit address overflow. The extended
+real chip-port test applies that genuine original release to an **actual
+pinned EMU8000 voice**, checking both independent 16-bit envelope
+registers, CSL and PSST in the chip's internal voice structure, without
+shipping any original ROM/VXD/SBK private bytes.
+
+**Evidence boundary:** P002 now has a bounded genuine original-VXD NoteOff
+path, but the live event controller still needs the original driver voice
+record and encoded rate conversion to dispatch it automatically. Complete
+ADSR/program/filter/FX/voice-start native MIDI translation, clock-level
+original trace differential and independently generated PCM remain OPEN.

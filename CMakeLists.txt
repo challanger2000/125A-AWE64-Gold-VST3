@@ -258,6 +258,26 @@ add_test(NAME p002_original_vxd_sample_address_case5_case6
 target_link_libraries(awe64_p002_real_chip_port_bridge
     PUBLIC awe64_p002_vxd_sample_address)
 
+
+# Original Windows95 SBAWE.VXD LCOD +0x6072..+0x6185 MIDI note release.
+# Separate from forced group choke: genuine sustain gate, both envelope
+# release registers and conditional preserved-byte CSL/PSST update.
+# Already-encoded driver per-voice envelope release rates are caller inputs.
+add_library(awe64_p002_vxd_note_release STATIC
+    src/creative_compat/CreativeVxdNoteRelease.cpp)
+target_include_directories(awe64_p002_vxd_note_release PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_note_release PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_note_release
+    PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_note_release_test
+    tests/p002_native_vxd_note_release.cpp)
+target_link_libraries(awe64_p002_vxd_note_release_test
+    PRIVATE awe64_p002_vxd_note_release)
+add_test(NAME p002_original_win95_midi_note_release_registers
+         COMMAND awe64_p002_vxd_note_release_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_note_release)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

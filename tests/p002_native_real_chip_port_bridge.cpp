@@ -2,6 +2,7 @@
 #include "CreativePitchCandidate.h"
 #include "CreativeControllerVolume.h"
 #include "CreativeVxdSampleAddress.h"
+#include "CreativeVxdNoteRelease.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -137,6 +138,32 @@ int main(){
     CHECK(noLoop && applyOriginalCreativeVxdVoicePorts(chip,*noLoop));
     CHECK(real->voice[3].csl==0x00015306u);
     CHECK(real->voice[3].psst==0x47015302u);
+    // The verified *ordinary* VXD NoteOff is different from group choke:
+    // 0x8000|previously ENCODED rate for both envelope generators.
+    // It can also rewrite CSL/PSST if an original stored sample end exists.
+    OriginalVxdNoteReleaseEvidence evidence{};
+    evidence.original_key_channel_match=true;
+    evidence.original_voice_record_verified=true;
+    evidence.current_chip_registers_verified=true;
+    evidence.encoded_volume_release=0x20;
+    evidence.encoded_mod_release=0x45;
+    evidence.stored_end_word=sample3.end_word;
+    evidence.observed_chip_csl=real->voice[3].csl;
+    evidence.observed_chip_psst=real->voice[3].psst;
+    evidence.original_sustain_held=true;
+    const auto deferred=candidateOriginalVxdMidiNoteRelease(3,evidence);
+    CHECK(deferred && deferred->deferred_by_sustain && deferred->count==0);
+    CHECK(real->voice[3].dcysusv==0x807fu); // no HW write when held!
+    evidence.original_sustain_held=false;
+    const auto release=candidateOriginalVxdMidiNoteRelease(3,evidence);
+    CHECK(release && !release->deferred_by_sustain && release->count==8);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,
+         std::span<const OriginalWin95VxdPortWrite>(
+             release->writes.data(),release->count)));
+    CHECK(real->voice[3].dcysusv==0x8020u);
+    CHECK(real->voice[3].dcysus==0x8045u);
+    CHECK(real->voice[3].csl==0x00015302u);
+    CHECK(real->voice[3].psst==0x470152FEu);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -159,6 +186,8 @@ int main(){
              <<" DCYSUSV=00FF VTFT=0000FFFF group_stop=807F"
              <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
              <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
+             <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
+             <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
              <<" original_driver_PCM_parity=NOT_PROVEN\n";
     return 0;
