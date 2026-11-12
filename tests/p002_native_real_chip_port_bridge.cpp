@@ -423,6 +423,16 @@ int main(){
         realSf2GM0,60u,0u,true,0,0);
     CHECK(gm0Prefix && gm0Prefix->size()==18u);
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0Prefix));
+    if(real->voice[0].vtft!=0x0000ffffu) {
+        std::cerr<<std::hex
+                 <<"P002_SF2_CHIP_VTFT_DIAG actual="<<real->voice[0].vtft
+                 <<" cvcf="<<real->voice[0].cvcf
+                 <<" voice0_ip="<<real->voice[0].ip
+                 <<" voice0_ifatn="<<real->voice[0].ifatn
+                 <<" current_voice="<<static_cast<unsigned>(real->cur_voice)
+                 <<" current_reg="<<static_cast<unsigned>(real->cur_reg)
+                 <<std::dec<<"\n";
+    }
     CHECK(real->voice[0].vtft==0x0000ffffu);
     CHECK(real->voice[0].cvcf==0x0000ffffu);
     CHECK(real->voice[0].atkhldv==0x787du);
