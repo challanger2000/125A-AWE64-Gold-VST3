@@ -52,4 +52,19 @@ candidateOriginalCreative1MgmGeneratorEnvelopeRate(
 // register writer transforms its 0x0080 into hardware byte 0x007F.
 [[nodiscard]] std::uint8_t originalCreativeSf2VoiceAttackRate(
     std::int16_t merged_sf2_attack_timecents) noexcept;
+// Original FORMAT-2 SBAWE.VXD PCOD +0x3BD4: signed merged descriptor
+// words -> encoded envelope/LFO words. Includes original integer overflow,
+// truncation and bit shifts, never floating-point SoundFont approximations.
+// Only explicitly supported operators are accepted; no template defaults
+// or actual device-state values are synthesized here.
+[[nodiscard]] std::optional<std::uint16_t>
+originalCreativeSf2VoiceEnvelopeOrLfoWord(
+    std::uint16_t generator_id,std::int16_t merged_word) noexcept;
+// The original format-2 melodic note-start scales only these four fields
+// by their separately converted key-to-hold/decay fields before encoding.
+// Already-merged signed fields are caller inputs; no duplicate bank parser.
+[[nodiscard]] std::optional<std::int16_t>
+originalCreativeSf2KeyScaledEnvelopeWord(
+    std::uint16_t target_generator_id,std::int16_t merged_target,
+    std::int16_t merged_key_scaler,std::uint8_t key,std::uint16_t bank) noexcept;
 } // namespace awe64::creative
