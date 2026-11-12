@@ -52,6 +52,19 @@ struct OriginalSf2VoiceStartConditions {
 // 0x76. Everything not explicitly transformed is preserved byte-for-byte.
 // Only ROM-mono sampleType 0x8001 has been verified. The original note-start
 // clears that qualifier in its outgoing 148-byte record to 0x0001.
+// The ORIGINAL format-2 builder performs two separate source-normalized
+// levels and signed-saturating addition across all 59 WORD fields. The
+// format-2 PRECONVERTED template WORDS must come from the original driver;
+// they are supplied explicitly because its template at LCOD+0x2D88 is
+// not yet pinned in a public/reproducible test vector. Never substitute
+// SoundFont-spec defaults or all-zero templates for original-driver facts.
+// Output only populates the 0x00..0x75 generator region; 0x76..0x93 is
+// left untouched for the existing verified sample-metadata entrypoint.
+[[nodiscard]] std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+    const SbkLayer& selected_layer,
+    const std::array<std::int16_t,59>& verified_original_preset_template,
+    const std::array<std::int16_t,59>& verified_original_instrument_template) noexcept;
 // Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
 // already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
 // The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
