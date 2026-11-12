@@ -1,4 +1,5 @@
 #include "CreativeMidiRomPlan.h"
+#include "CreativeSf2VoiceDescriptor.h"
 #include <algorithm>
 #include <vector>
 #include <string_view>
@@ -19,7 +20,7 @@ Bytes fixture(const bool format2=false){
     for(unsigned n=0;n<2;++n){w16(pgen,41);w16(pgen,0);}
     name(inst,"PIANO");w16(inst,0);name(inst,"EOI");w16(inst,1);
     w16(ibag,0);w16(ibag,0);w16(ibag,2);w16(ibag,0);
-    w16(igen,8);w16(igen,89);w16(igen,53);w16(igen,0);
+    w16(igen,8);w16(igen,format2?9617u:89u);w16(igen,53);w16(igen,0);
     if(format2){
         // Format2: two standard 46-byte headers, ROM mono and EOS.
         // Exercises actual MIDI->layer->ROM planning, not just reader tests.
@@ -87,6 +88,36 @@ int main(){
     CHECK(plannedSf2->layers[0].address.original_pitch==60u);
     CHECK(plannedSf2->layers[0].address.pitch_correction==0);
     CHECK(plannedSf2->layers[0].address.sample_type==0x8001u);
+    // Continuous, bounded native P002 path: WinMM channel/program/key/vel
+    // -> FORMAT-2 original bank layer -> source cutoff PCOD conversion ->
+    // verified 46-byte ROM sample header -> exact 148-byte NOTE START.
+    // Unknown original template fields and sample-rate->dwPitch are not
+    // guessed: they are caller-owned explicit source-backed inputs.
+    const auto sf2Cutoff=candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+        plannedSf2->layers[0].metadata,8u,0);
+    CHECK(sf2Cutoff && *sf2Cutoff==179);
+    CreativeSf2VoiceDescriptorBytes verifiedGeneratorWords{};
+    verifiedGeneratorWords[2u*8u]=static_cast<std::uint8_t>(*sf2Cutoff);
+    const auto beforeStart=candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        verifiedGeneratorWords,plannedSf2->layers[0].address,
+        0x00e00000u,7u); // original PCOD pitch value @44100, explicit group
+    CHECK(beforeStart && (*beforeStart)[0x8cu]==1u &&
+          (*beforeStart)[0x8du]==128u);
+    OriginalCreativeVolumeTerms externalVolume{};
+    externalVolume.device_state_additive_attenuation=0u;
+    const OriginalSf2VoiceStartConditions conditions{
+        0u,60u,100u,64u,0u,0u,0u,externalVolume};
+    const auto started=candidateOriginalSf2EncodedVoiceDescriptor(
+        *beforeStart,conditions);
+    CHECK(started && (*started)[0x8cu]==1u &&
+          (*started)[0x8du]==0u); // original 8001 -> 0001
+    CHECK(std::equal(beforeStart->begin()+0x76u,
+                     beforeStart->begin()+0x8cu,
+                     started->begin()+0x76u)); // ROM addresses/dwPitch intact
+    CHECK(std::equal(beforeStart->begin()+0x8eu,
+                     beforeStart->end(),
+                     started->begin()+0x8eu)); // sample link/context intact
+    CHECK((*started)[0x8au]==60u && (*started)[0x8bu]==0u);
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,sf2,0,24));
     // Valid RAM-mono SF2 must never enter the ROM-only playback plan.
     auto ramSf2=sf2;
