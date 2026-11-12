@@ -6,6 +6,7 @@
 #include "CreativeVxdVoiceEnvelopePrelude.h"
 #include "CreativeSf2VoiceDescriptor.h"
 #include "CreativeSf2NoteStartPorts.h"
+#include "CreativeSf2NoteContinuationPorts.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -453,6 +454,34 @@ int main(){
     CHECK(real->voice[3].atkhldv==0x7f7fu);
     CHECK(real->voice[3].ifatn==0xff2au);
     CHECK(real->voice[3].ip==0xb2b5u);
+    // Original x86 NOTE START continues with 16 MORE typed OUTs.
+    // On actual pinned EMU8000, verify per-register side effects from
+    // the SAME source-encoded SF2 records and their physical voices.
+    fillSf2(realSf2GM0,25u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,33u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,22u,128);
+    const OriginalSf2VerifiedLfoChannelAmounts realSf2Device{true,0,0};
+    const auto gm0Following=candidateOriginalSf2AfterPitchRegisters(
+        realSf2GM0,0u,realSf2Device);
+    CHECK(gm0Following && gm0Following->size()==16u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0Following));
+    CHECK(real->voice[0].pefe==0u && real->voice[0].fmmod==0u);
+    CHECK(real->voice[0].tremfrq==0x0080u);
+    CHECK(real->voice[0].fm2frq2==0u);
+    CHECK(real->voice[0].envval==0x8000u);
+    CHECK(real->voice[0].envvol==0x8000u);
+    CHECK(real->voice[0].ptrx==0u && real->voice[0].cpf==0u);
+    fillSf2(gm100Descriptor,25u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(gm100Descriptor,33u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(gm100Descriptor,22u,128);
+    const auto gm100Following=candidateOriginalSf2AfterPitchRegisters(
+        gm100Descriptor,3u,realSf2Device);
+    CHECK(gm100Following && applyOriginalCreativeVxdVoicePorts(
+        chip,*gm100Following));
+    CHECK(real->voice[3].envval==0x8000u);
+    CHECK(real->voice[3].envvol==0xbfffu); // actual original ATTACK128
+    CHECK(real->voice[3].tremfrq==0x0080u);
+    CHECK(real->voice[3].ptrx==0u && real->voice[3].cpf==0u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -484,6 +513,7 @@ int main(){
              <<" real_SF2_GM0_IFATN_B33A_GM40_IFATN_9532=TRUE"
              <<" actual_SF2_GM0_GM40_GM100_IP_ON_PINNED_CHIP=4_4"
              <<" original_SF2_18_OUT_GM0_GM100_REAL_CHIP=TRUE"
+             <<" original_SF2_NEXT16_OUT_REAL_CHIP=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
