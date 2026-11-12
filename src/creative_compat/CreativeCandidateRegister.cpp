@@ -57,6 +57,20 @@ std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
     terms.velocity_cutoff_enabled=(bank<128 && encoded_vol_attack_rate<125);
     return candidateInitialIfatn(velocity,terms);
 }
+std::optional<InitialIfatn> candidateOriginalSf2IfatnFromMergedCutoff(
+    const std::uint8_t velocity,
+    const CandidateVoiceParameters& verified_terms,
+    const std::int16_t merged_sf2_cutoff,
+    const std::uint16_t creative_bank,
+    const std::uint16_t encoded_vol_attack_rate) noexcept {
+    auto terms=verified_terms;
+    terms.initial_cutoff=static_cast<std::uint8_t>(
+        std::clamp<std::int32_t>(merged_sf2_cutoff,0,255));
+    // Uses the ORIGINAL melodic-bank and <125 encoded-attack filter gate;
+    // descriptor attack128 is legal but never velocity-scales the cutoff.
+    return candidateOriginalIfatnFromEncodedAttack(
+        velocity,terms,creative_bank,encoded_vol_attack_rate);
+}
 std::optional<std::array<PortWord,2>> candidateInitialIfatnWrites(
     const MidiMessage& midi, const std::uint8_t physicalVoice,
     const CandidateVoiceParameters& bank) noexcept {
