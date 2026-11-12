@@ -306,6 +306,7 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
             // ROM word addresses. The final header is EOS.
             if(shdr.len%46u)return std::nullopt;
             stride=46u;addressStart=20u;
+            sourceFormat=OriginalCreativeBankFormat::Format2Sf2;
         } else if(major==1u) {
             if(shdr.len%48u)return std::nullopt;
             stride=16u;
