@@ -103,6 +103,63 @@ int main() {
         CHECK(!candidateOriginalSf2EncodedVoiceDescriptor(raw,bad));
         ++tested;
     }
+    // Source-backed SF2 shdr metadata -> exact 148-byte descriptor tail.
+    // The original sample-rate->dwPitch conversion remains separately
+    // verified by its original x86 helper; no host log2 approximation.
+    CreativeSf2VoiceDescriptorBytes generatorWords{};
+    set(generatorWords,8,179);
+    SbkRomAddress originalRom{};
+    originalRom.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    originalRom.sample_id=3;
+    originalRom.start_word=100;
+    originalRom.end_word=1000;
+    originalRom.loop_start_word=200;
+    originalRom.loop_end_word=900;
+    originalRom.sample_rate_hz=44100;
+    originalRom.original_pitch=60;
+    originalRom.pitch_correction=-7;
+    originalRom.sample_link=0;
+    originalRom.sample_type=0x8001;
+    const auto withSample=candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,originalRom,0x00e00000u,40u);
+    CHECK(withSample);
+    const auto readDword=[](const CreativeSf2VoiceDescriptorBytes& b,
+                            unsigned off)->std::uint32_t {
+        return static_cast<std::uint32_t>(b[off]) |
+            (static_cast<std::uint32_t>(b[off+1])<<8) |
+            (static_cast<std::uint32_t>(b[off+2])<<16) |
+            (static_cast<std::uint32_t>(b[off+3])<<24);
+    };
+    CHECK(readDword(*withSample,0x76u)==100u);
+    CHECK(readDword(*withSample,0x7au)==1000u);
+    CHECK(readDword(*withSample,0x7eu)==200u);
+    CHECK(readDword(*withSample,0x82u)==900u);
+    CHECK(readDword(*withSample,0x86u)==0x00e00000u);
+    CHECK(readDword(*withSample,0x90u)==40u);
+    CHECK((*withSample)[0x8au]==60u && (*withSample)[0x8bu]==249u);
+    CHECK(get(*withSample,0x8cu/2u)==0x8001u);
+    CHECK(get(*withSample,0x8eu/2u)==0u);
+    // All original 59 premerged generator words stay byte-identical.
+    CHECK(std::equal(generatorWords.begin(),generatorWords.begin()+0x76u,
+                     withSample->begin()));
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,originalRom,std::nullopt,40u));
+    auto invalidRom=originalRom;
+    invalidRom.source_format=OriginalCreativeBankFormat::Format1Sbk;
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,invalidRom,0x00e00000u,40u));
+    invalidRom=originalRom;invalidRom.sample_type=0x0001;
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,invalidRom,0x00e00000u,40u));
+    invalidRom=originalRom;invalidRom.sample_type=0x8002;
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,invalidRom,0x00e00000u,40u));
+    invalidRom=originalRom;invalidRom.loop_end_word=1001;
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,invalidRom,0x00e00000u,40u));
+    invalidRom=originalRom;invalidRom.sample_rate_hz=0;
+    CHECK(!candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+        generatorWords,invalidRom,0x00e00000u,40u));
     // The four known private 148-byte before/after vectors were also
     // replayed outside this repository without publishing original bytes:
     // all four compared byte-identically with source-derived volume terms.
