@@ -50,6 +50,20 @@ CreativeBoundVoiceController::bind(
     voice.layer=layer;voice.terms=terms;
     return OriginalRomInitialRegisterCandidates{*pitch,*filter};
 }
+std::optional<OriginalRomAllocatedRegisterCandidates>
+CreativeBoundVoiceController::bindFirstOriginalIdleMono(
+    const CreativeRomNotePlan& plan, const std::size_t layer,
+    const OriginalCreativeIfatnTerms& terms,
+    const std::array<OriginalVxdIdleVoiceProbe,30>& probes,
+    const std::size_t available) noexcept {
+    std::array<bool,30> busy{};
+    for(std::size_t i=0;i<voices_.size();++i)busy[i]=voices_[i].occupied;
+    const auto voice=candidateOriginalWin95IdleMonoVoice(probes,busy,available);
+    if(!voice)return std::nullopt;
+    const auto initial=bind(plan,layer,*voice,terms);
+    if(!initial)return std::nullopt;
+    return OriginalRomAllocatedRegisterCandidates{*voice,*initial};
+}
 std::optional<BoundVoiceActions> CreativeBoundVoiceController::process(
     const MidiMessage& message) noexcept {
     if(message.channel>=16 || message.data1>127 || message.data2>127)

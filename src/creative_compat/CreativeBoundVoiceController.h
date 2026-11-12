@@ -4,6 +4,7 @@
 // original Win95 allocation and generator conversions have been proven.
 #include "CreativeControllerVolume.h"
 #include "CreativePitchCandidate.h"
+#include "CreativeIdleVoiceAllocator.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,10 @@ struct OriginalRomInitialRegisterCandidates {
     std::array<PortWord,2> filter_and_attenuation{};
     // Pair ordering and exact chip-frame scheduling remain UNVERIFIED.
 };
+struct OriginalRomAllocatedRegisterCandidates {
+    std::uint8_t physical_voice=0;
+    OriginalRomInitialRegisterCandidates initial{};
+};
 class CreativeBoundVoiceController {
 public:
     // Bind a caller-allocated EMU8000 voice to exactly one original ROM
@@ -37,6 +42,15 @@ public:
     [[nodiscard]] std::optional<OriginalRomInitialRegisterCandidates> bind(
         const CreativeRomNotePlan& plan, std::size_t layer_index,
         std::uint8_t physical_voice, const OriginalCreativeIfatnTerms& encoded_terms) noexcept;
+    // The original VXD's exact idle MONO search is available when the caller
+    // supplies its observed driver-key and chip-target state for 30 voices.
+    // Busy-envelope priority and stealing are NOT guessed.
+    [[nodiscard]] std::optional<OriginalRomAllocatedRegisterCandidates>
+    bindFirstOriginalIdleMono(
+        const CreativeRomNotePlan& plan, std::size_t layer_index,
+        const OriginalCreativeIfatnTerms& encoded_terms,
+        const std::array<OriginalVxdIdleVoiceProbe,30>& original_probe,
+        std::size_t available_voices=30) noexcept;
     // Controller CC7/CC11 -> IFATN, pitchbend -> IP, NoteOff/CC64/CC120/
     // CC121/CC123 -> semantic release/kill requests.
     [[nodiscard]] std::optional<BoundVoiceActions> process(

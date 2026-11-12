@@ -134,6 +134,26 @@ int main() {
     CHECK(!original.process(invalid));
     CHECK(original.midi().channel(1).cc7_volume==20);
     CHECK(original.clearPhysicalVoice(9));
+    // Original Win95 SBAWE.VXD mode-0 idle mono scan visits 0,3,6
+    // before the next lane. Here physical IDs are no longer supplied.
+    CreativeBoundVoiceController idleAllocated{};
+    std::array<OriginalVxdIdleVoiceProbe,30> probes{};
+    CHECK(!idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes));
+    for(auto& p:probes)p.driver_eligible=true;
+    const auto idle0=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    const auto idle3=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    const auto idle6=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(idle0 && idle3 && idle6);
+    CHECK(idle0->physical_voice==0 && idle3->physical_voice==3 &&
+          idle6->physical_voice==6);
+    CHECK(idle0->initial.pitch[1].value==0xC962);
+    CHECK(idle3->initial.filter_and_attenuation[0].value==0x23);
+    probes[9].driver_key_marker=0x1000; // physical 9 is NOT verified idle
+    const auto idle12=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(idle12 && idle12->physical_voice==12);
+    CHECK(idleAllocated.clearPhysicalVoice(3));
+    const auto reused=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(reused && reused->physical_voice==3);
     std::cout<<"P002_BOUND_ORIGINAL_ROM_VOICES_PASS original_live_cc=4 pitchbend=3"
              <<" sustain_release=TRUE all_sound_off=TRUE"
              <<" allocator_and_release_registers_EXPLICITLY_UNVERIFIED=TRUE\n";

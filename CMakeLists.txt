@@ -171,6 +171,20 @@ target_link_libraries(awe64_p002_bound_voices_test
 add_test(NAME p002_native_real_creative_live_voice_controllers
          COMMAND awe64_p002_bound_voices_test)
 
+
+# Exact *idle* branch of Creative Win95 SBAWE.VXD mono-voice scan:
+# 30 musical voices visited in original 3-lane order; no invented stealing.
+add_library(awe64_p002_idle_allocator STATIC
+    src/creative_compat/CreativeIdleVoiceAllocator.cpp)
+target_include_directories(awe64_p002_idle_allocator PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_idle_allocator PUBLIC cxx_std_23)
+add_executable(awe64_p002_idle_allocator_test
+    tests/p002_native_idle_voice_allocator.cpp)
+target_link_libraries(awe64_p002_idle_allocator_test PRIVATE awe64_p002_idle_allocator)
+add_test(NAME p002_native_original_win95_idle_mono_voice_allocator
+         COMMAND awe64_p002_idle_allocator_test)
+target_link_libraries(awe64_p002_bound_voices PUBLIC awe64_p002_idle_allocator)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

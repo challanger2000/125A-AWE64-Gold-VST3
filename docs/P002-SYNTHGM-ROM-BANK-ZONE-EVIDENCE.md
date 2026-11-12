@@ -509,3 +509,39 @@ This is an expanded independent native MIDI->register **subset**;
 the full original VXD voice allocation / envelope release register
 values / exact event sample clock / full PCM parity remain required.
 No private Creative bytes were committed.
+
+## Original Win95 SBAWE.VXD free-mono-voice allocator — proven idle path
+
+The actual private installed SBAWE.VXD LCOD object at approximately
++0x3EA1 contains a physical-voice allocator with **three outer passes
+and an inner voice-index increment of three**. The observed idle-mono
+search order is 0,3,6,...,27; then 1,4,7,...,28; then 2,5,8,...,29.
+The chip uses physical voices 30 and 31 for refresh, not regular
+musical allocation. This is corroborated by the previously recorded
+actual original Win95 7-scenario matrix, including starts at
+physical 0,3,6,9,12.
+
+New C++23 CreativeIdleVoiceAllocator.{h,cpp} implements the exact
+**totally idle** branch of that scan, requiring ALL of:
+- original driver's assigned-key idle marker 0x0FFE,
+- observed EMU8000 register target high16 = 0,
+- caller-verified original driver eligibility predicate,
+- native voice not currently occupied.
+
+When any input is missing, or all voices are busy, it FAILS CLOSED.
+The VXD's separate per-voice ENV/CCCA priority scores and its
+mono/stereo/narrow-range steal modes are **NOT** silently simulated.
+
+CreativeBoundVoiceController::bindFirstOriginalIdleMono() integrates
+this verified idle subset with the existing original-note ROM
+layer plan, independently generated pitch and IFATN port pairs.
+No user-supplied physical index is needed **for this confirmed
+completely-idle case**. Test cases verify free hardware order
+0,3,6, then skip a non-idle voice 9 in favor of 12, then reuse
+physical 3 after explicit hardware-released notification. An
+independent 30-slot test exercises all three lanes and negative
+controls for VXD marker, register highword and unverified eligibility.
+
+This is a real original-driver allocator improvement, not a full
+voice-stealing/full-register/PCM parity claim. Original Creative
+driver and private VM bytes are not copied into public GitHub.
