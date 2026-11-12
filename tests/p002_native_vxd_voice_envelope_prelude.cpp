@@ -168,6 +168,33 @@ int main(){
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(35,-799)==120);
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(36,4386)==3);
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(38,-667)==48);
+    // Exhaustive 16-bit INPUT-DOMAIN regression of each distinct
+    // original PCOD formula family, 6*65536 input cases. Digests were
+    // independently transcribed from the private source-backed integer
+    // equations, then confirmed with the isolated C++23 smoke harness.
+    // This is an arithmetic checksum, NOT an original-driver execution.
+    struct Sf2FamilyDigest{std::uint16_t op;std::uint64_t digest;};
+    constexpr Sf2FamilyDigest sf2FamilyDigests[]{
+        {21,0x5844ab16dbd6fe4aull}, // delay
+        {22,0x6443dbf5a797d75aull}, // frequency
+        {26,0xa3e477dda8a5389aull}, // attack
+        {27,0xddafd61f0aebb3eaull}, // hold
+        {28,0x49f2e4688b1810b5ull}, // decay/release
+        {29,0xd8c63e679c6d2e25ull}  // sustain clamp
+    };
+    for(const auto& family:sf2FamilyDigests) {
+        std::uint64_t digest=14695981039346656037ull;
+        for(std::uint32_t raw=0;raw<65536u;++raw) {
+            const auto input=static_cast<std::int16_t>(
+                static_cast<std::uint16_t>(raw));
+            const auto word=originalCreativeSf2VoiceEnvelopeOrLfoWord(
+                family.op,input);
+            CHECK(word);
+            digest=(digest^(*word&255u))*1099511628211ull;
+            digest=(digest^(*word>>8))*1099511628211ull;
+        }
+        CHECK(digest==family.digest);
+    }
     // Full bounded layer->merged SF2 descriptor->melodic key scaling->
     // encoded original SF2 decay, using explicit preconverted fields.
     SbkLayer mergedDecays{};
