@@ -95,12 +95,24 @@ candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
     const std::optional<std::int16_t> preset_default,
     const std::optional<std::int16_t> instrument_default) noexcept {
     // Original format-2 PCOD conversion and separate signed-saturated
-    // preset/instrument merge; restrict to source-backed VOICE quantities.
-    // Other operator semantics (ranges, IDs, sample modes etc.) must not
-    // be presumed additive simply because their words are present.
-    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
-       (generator_id!=8u && generator_id!=34u && generator_id!=48u))
+    // preset/instrument merge. Only numerical VOICE fields supported by
+    // original PCOD conversion/delta branches are eligible. Structural
+    // operators (key/velocity ranges, instrument/sample IDs, key number,
+    // sample mode, exclusive class and root key) are NOT additive fields.
+    // This subset is not proof of default-template or complete voice parity.
+    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2)
         return std::nullopt;
+    switch(generator_id) {
+        case 5u: case 6u: case 7u:  // modulation pitch destinations
+        case 8u: case 9u:           // filter cutoff and resonance
+        case 10u: case 11u:         // modulation filter destinations
+        case 13u:                   // mod-LFO volume
+        case 29u: case 34u: case 37u: // envelope sustain / attack
+        case 48u:                   // attenuation/instVol
+        case 51u: case 52u:         // coarse/fine tune
+            break;
+        default:return std::nullopt;
+    }
     const auto preset=layer.preset_local.get(generator_id).has_value()
         ? layer.preset_local.get(generator_id)
         : layer.preset_global.get(generator_id);
