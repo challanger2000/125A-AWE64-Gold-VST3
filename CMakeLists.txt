@@ -121,6 +121,22 @@ target_link_libraries(awe64_p002_rom_note_plan_test
 add_test(NAME p002_winmm_program_to_original_rom_address_contract
          COMMAND awe64_p002_rom_note_plan_test)
 
+
+# Native P002 original-1MGM pitch candidate. Generates actual hardware IP
+# E22/E20 port words from MIDI key, gen55 and pitchbend, with soundbank
+# and physical-voice validation. Not an original-driver equivalence pass.
+add_library(awe64_p002_pitch_candidate STATIC
+    src/creative_compat/CreativePitchCandidate.cpp)
+target_include_directories(awe64_p002_pitch_candidate PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_pitch_candidate PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_pitch_candidate
+    PUBLIC awe64_p002_rom_note_plan awe64_p002_register_candidate)
+add_executable(awe64_p002_pitch_candidate_test
+    tests/p002_native_pitch_candidate.cpp)
+target_link_libraries(awe64_p002_pitch_candidate_test PRIVATE awe64_p002_pitch_candidate)
+add_test(NAME p002_native_original_creative_pitch_bend_candidate
+         COMMAND awe64_p002_pitch_candidate_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

@@ -292,3 +292,44 @@ envelope conversions, original 30/32 voice allocation and controller
 events, complete independently generated sample-clock EMU8000 port
 sequence, and digital PCM equality under the original Win95 Creative
 driver. P002 is DRAFT/OPEN until those gates pass.
+
+
+## Original Creative Win95: independent MIDI → initial pitch (IP) candidate
+
+Native source `CreativePitchCandidate.{h,cpp}` now generates a **real EMU8000
+IP register port pair** (selector E22, IP value E20) from the original
+1MGM instrument layer, its raw generator **55**, the MIDI key, and
+the active 14-bit MIDI pitchbend state. The physical voice number is
+currently supplied explicitly because original Creative voice selection
+has not been independently recreated.
+
+**Actual authentic original-bank measurements reproduced mathematically:**
+Piano GM0 note60 original zone generator55=7696 gives IP=0xC962;
+Violin GM40 note60 original zone generator55=8670 gives IP=0xBC66.
+This uses an *experimental original-1MGM relationship*:
+base_IP = 0xE000 + floor((key*100 - sourceGen55)*4096/1200).
+These are two independent original-driver register observations, not
+two hard-coded program branches. At the Win95-measured default bend
+range of 200 cents, the signed 14-bit bend coordinate generates
+Piano original IP 0xC6B8 (min), 0xC962 (center),
+0xCC0C (maximum), exactly. No arbitrary floating-point rounding.
+
+**Important limitation:** generator55 is *format-specific* in
+SoundFont 1.0; other historical conversion tools describe it
+as a pitch-increment/sample-rate value. The above relationship has
+been verified against the cited ORIGINAL 1MGM Win95 IP values,
+not proven generically against all SF1 banks, alternate tunings, root
+overrides, or sample-rate interpretations. Unsupported nonzero
+coarse/fine/forced-key/root/scale variants reject instead of silently
+using fabricated defaults. No generator55 present also rejects;
+initial pitch outside the EMU8000 16-bit range rejects instead of
+wrapping. Pitchbend range beyond the established 200-cent default
+is an explicit parameter, not claimed original-driver-validated.
+
+The public new native CTest
+`p002_native_original_creative_pitch_bend_candidate`
+contains adversarial stale key/velocity/voice, missing bank
+pitch, invalid MIDI bend and root/tuning controls.
+This is **bounded original-pitch register coverage**, not a complete
+note-on sequence or claim of original timer/voice/PCM parity.
+The frozen P001 original EMU8000 DSP and VST3 remain unchanged.
