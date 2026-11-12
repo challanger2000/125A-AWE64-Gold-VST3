@@ -319,6 +319,23 @@ target_link_libraries(awe64_p002_sf2_voice_descriptor_test
 add_test(NAME p002_original_sf2_148byte_voice_descriptor
     COMMAND awe64_p002_sf2_voice_descriptor_test)
 
+# The original Creative source-bank handoff is PRIVATE and never committed.
+# If configured in the runner/Test Lab environment, compare the native
+# encoded descriptors against ALL provided actual original 148-byte outputs.
+# Without this private fixture, no private/original differential PASS is claimed.
+add_executable(awe64_p002_sf2_descriptor_oracle
+    tests/p002_sf2_descriptor_oracle.cpp)
+target_link_libraries(awe64_p002_sf2_descriptor_oracle
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}")
+    add_test(NAME p002_private_original_sf2_148byte_differential
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_descriptor_differential.py"
+                --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+endif()
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
