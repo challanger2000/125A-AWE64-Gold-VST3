@@ -112,6 +112,8 @@ int main() {
     instrumentTemplate[8]=313; // observed GM100 template cutoff
     instrumentTemplate[34]=-12000;
     instrumentTemplate[56]=100;
+    instrumentTemplate[43]=static_cast<std::int16_t>(0x7f00);
+    instrumentTemplate[44]=static_cast<std::int16_t>(0x7f00);
     presetTemplate[14]=30000;instrumentTemplate[14]=30000;
     presetTemplate[50]=-30000;instrumentTemplate[50]=-30000;
     SbkLayer fullLayer{};
@@ -138,7 +140,19 @@ int main() {
     CHECK(get(*built,8)==179u);
     CHECK(get(*built,34)==static_cast<std::uint16_t>(-8800));
     CHECK(get(*built,48)==18u);
-    CHECK(get(*built,43)==16954u);
+    CHECK(get(*built,43)==0x7f00u);
+    CHECK(get(*built,44)==0x7f00u);
+    // The actual original SF2 driver selected these four different zone
+    // ranges, but every final pre-start voice descriptor kept 0x7F00.
+    for(const std::uint16_t rawRange:{16954u,17920u,27392u,29440u}) {
+        auto zone=fullLayer;
+        zone.instrument_local.raw[43]=rawRange;
+        zone.instrument_local.raw[44]=static_cast<std::uint16_t>(0x423au);
+        const auto afterSelection=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+            zone,presetTemplate,instrumentTemplate);
+        CHECK(afterSelection && get(*afterSelection,43)==0x7f00u &&
+              get(*afterSelection,44)==0x7f00u);
+    }
     CHECK(get(*built,52)==4u && get(*built,58)==77u);
     CHECK(get(*built,53)==3u);
     CHECK(get(*built,46)==60u && get(*built,47)==90u);
