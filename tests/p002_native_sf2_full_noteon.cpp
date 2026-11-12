@@ -85,8 +85,13 @@ int main(){
     //           + [5 allocator OUTs for voice3]
     //           + [56 full NoteStart OUTs for voice0]
     //           + [56 full NoteStart OUTs for voice3] => 122 exactly.
-    const auto gm100a=voice(0,0x74a48,0x76dd5,0x74a6b,0x76dd1,
+    auto gm100a=voice(0,0x74a48,0x76dd5,0x74a6b,0x76dd1,
         85,-32,255,42,128,127,127,118,9,0,0x260c,0x1254);
+    // Original GM100 first layer differs from layer2 in FMMOD (0700)
+    // and TREMFRQ (00FE): these source fields must not be silently
+    // copied from the second layer or tested with fake neutral values.
+    set(gm100a.verified_after_start_record,5u,7);
+    set(gm100a.verified_after_start_record,22u,254);
     const auto gm100b=voice(3,0x34116,0x36804,0x3460e,0x36800,
         94,4,255,42,128,127,127,122,9,0,0x260c,0x0ae7);
     const std::array<OriginalSf2FullNoteOnVoice,2> pair{{gm100a,gm100b}};
