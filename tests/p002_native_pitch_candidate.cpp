@@ -82,7 +82,8 @@ int main() {
     auto otherChannel=decodeWinMmShort(0x007f7fe3u);CHECK(otherChannel);
     state.apply(*otherChannel);
     CHECK(!candidateOriginalCreativeLivePitchBendWrites(*otherChannel,state,note,0,3));
-    CHECK(!candidateOriginalCreativeLivePitchBendWrites(*on,state,note,0,3));
+    const auto nonPitch=decodeWinMmShort(0x00643c92u);CHECK(nonPitch);
+    CHECK(!candidateOriginalCreativeLivePitchBendWrites(*nonPitch,state,note,0,3));
     CHECK(!candidateOriginalCreativeLivePitchBendWrites(*bendMaximum,state,note,0,30));
     std::cout<<"P002_NATIVE_CREATIVE_IP_CANDIDATE_PASS original_GM0_GM40_C4=2 original_pitchbend=3 no_GM_ID_branches=TRUE\n";
 }
