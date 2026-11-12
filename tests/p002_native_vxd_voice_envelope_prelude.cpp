@@ -134,6 +134,40 @@ int main(){
     CHECK(originalCreativeSf2VoiceAttackRate(
         *candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
             sf2Attack,34))==114); // original GM40 signed attack case
+    // Real Creative SF2 PCOD +0x3BD4 source-derived integer boundary
+    // vectors. These deliberately include measured original GM0/40 cases.
+    struct Sf2PcodCase{std::uint16_t op;std::int16_t input;std::uint16_t output;};
+    constexpr Sf2PcodCase sf2PcodCases[]{
+        {21,-12000,32768},{21,-11999,32767},{21,5483,14},{21,5484,0},
+        {23,0,31304},{25,-2332,32388},{33,-32768,32768},
+        {22,-16000,0},{22,-8800,1},{22,0,205},{22,1800,255},
+        {24,-2332,53},
+        {26,-11958,128},{34,-8800,125},{34,-7972,114},
+        {27,-5369,127},{27,-799,120},{27,0,116},{35,-2332,125},
+        {28,-32768,127},{28,1800,16},{28,1801,15},{28,4386,3},
+        {30,3975,4},{36,3975,4},{38,-667,48},
+        {29,-200,0},{29,50,50},{37,255,127}
+    };
+    for(const auto& v:sf2PcodCases){
+        CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(v.op,v.input)==v.output);
+    }
+    for(const std::uint16_t op:{0u,8u,20u,31u,40u,41u,255u})
+        CHECK(!originalCreativeSf2VoiceEnvelopeOrLfoWord(op,0));
+    // Original SF2 melodic key scaling occurs before rate encoding.
+    // Independently observed original format1/format2 branch structure;
+    // key72 with original scale100 produces 4000+(60-72)*100=2800.
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(36,4000,100,72,0)==2800);
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(36,4000,100,72,128)==4000);
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(28,4000,100,60,0)==4000);
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(27,-799,100,72,0)==-1999);
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(35,32000,1000,0,0)==32767);
+    CHECK(originalCreativeSf2KeyScaledEnvelopeWord(36,-32000,1000,127,0)==-32768);
+    CHECK(!originalCreativeSf2KeyScaledEnvelopeWord(29,0,0,60,0));
+    CHECK(!originalCreativeSf2KeyScaledEnvelopeWord(36,0,0,128,0));
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(38,-148)==41);
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(35,-799)==120);
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(36,4386)==3);
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(38,-667)==48);
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
              <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
