@@ -41,6 +41,18 @@ candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     // Every original operator 0..58 has an established PCOD load converter.
     CreativeSf2VoiceDescriptorBytes out{};
     for(unsigned op=0;op<59u;++op) {
+        // Actual original-driver differential: instrument keyRange local
+        // values 0x423A/0x4600/0x6B00/0x7300 select matching zones, but
+        // the built 148-byte descriptor's generator43 remains 0x7F00.
+        // keyRange/velRange are SELECTION predicates, not merged sound
+        // parameters. Preserve the separately verified template values.
+        if(op==43u || op==44u) {
+            const auto sum=static_cast<std::int32_t>(original_preset_template[op])+
+                           static_cast<std::int32_t>(original_instrument_template[op]);
+            word(out,op,static_cast<std::uint16_t>(
+                std::clamp(sum,-32768,32767)));
+            continue;
+        }
         const auto rawPreset=layer.preset_local.get(op).has_value()
             ? layer.preset_local.get(op):layer.preset_global.get(op);
         const auto rawInstrument=layer.instrument_local.get(op).has_value()
