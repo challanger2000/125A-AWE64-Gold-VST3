@@ -1086,3 +1086,33 @@ passing a hardcoded measured filter value as the input.
 The full volume/attenuation provenance (+0x10 DEVICE STATE and +0x60
 VOICE RECORD), additional generator scopes and complete original
 sample-clock MIDI->register->PCM parity remain open.
+
+ 
+## Original SF2 descriptor Attack=128 must NOT be rejected (control #6824347943)
+
+Independently executed original 46-byte-shdr Creative SF2 ROM bank
+`DOS/DEMO/SYNTHGM.SF2` SHA256 `78f8739a25d49e519b3fdc92a7f03d4ddd68588fd0260578a880296e304b7b5f`
+has real original GM100 key60 vel90 two-layer descriptors with
+`attackEnv2=128`. These records and the *synthetically and explicitly
+initialized* device/controller state are in the privately provided
+actual-bank-handoff.json. This is NOT the owner's 48-byte-shdr SBK.
+
+The existing `candidateOriginalIfatnFromEncodedAttack` now accepts
+the full original descriptor domain 0..128 (reject >128). The VXD
+velocity-filter gate is `encoded_attack < 125`, so 128 correctly
+LEAVES the initial cutoff unchanged. The EXISTING
+`CreativeVxdVoiceEnvelopePrelude` (not a duplicate) is responsible
+for the later **exact 0x0080 -> 0x007F** register-byte substitution.
+This retains 128 in the descriptor until the port write.
+
+Windows tests check 124=filter enabled, 125/128=filter disabled,
+129=invalid, including original bank128 gate behavior. The pinned
+original EMU8000 core test uses the independent original GM100
+reference: voice descriptor attack=128, hardware ATKHLDV=0x7F7F,
+and IFATN=0xFF2A at key60/velocity90, original CC7=100/CC11=127,
+explicit device attenuation=0 and instVol=0.
+Those registers are written through the existing typed native
+bridge and read from the actual unmodified chip; no original
+SF2 driver/ROM bytes or fake musical PCM parity are claimed.
+The 46-byte-shdr SF2 loader, complete original SoundFont scopes
+and full MIDI -> register -> PCM differential remain separate gates.

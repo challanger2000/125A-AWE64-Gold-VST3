@@ -76,6 +76,9 @@ int main() {
     violinIfatn.bank=0;violinIfatn.encoded_volume_attack_rate=125;
     CHECK(candidateOriginalCreativeIfatn(90,violinIfatn)->cutoff==210);
     violinIfatn.encoded_volume_attack_rate=128;
+    // 128 is valid in original SF2 descriptors; only values >128 reject.
+    CHECK(candidateOriginalCreativeIfatn(90,violinIfatn)->cutoff==210);
+    violinIfatn.encoded_volume_attack_rate=129;
     CHECK(!candidateOriginalCreativeIfatn(90,violinIfatn));
     // 16-channel live MIDI CC7/CC11 state feeds real E22/E20 IFATN writes.
     MidiState midiState;

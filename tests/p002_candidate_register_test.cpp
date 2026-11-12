@@ -28,7 +28,12 @@ int main() {
     CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,0,124)->cutoff==148);
     CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,0,125)->cutoff==210);
     CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,128,10)->cutoff==210);
-    CHECK(!candidateOriginalIfatnFromEncodedAttack(90,b,0,128));
+    // Independently supplied original SF2 bank case (GM100 layer1/2):
+    // attackEnv2=128 is legal and prevents velocity-scaled cutoff.
+    // This 128 remains the VOICE DESCRIPTOR value, not an ATKHLDV byte.
+    CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,0,128)->cutoff==210);
+    CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,128,128)->cutoff==210);
+    CHECK(!candidateOriginalIfatnFromEncodedAttack(90,b,0,129));
     CHECK(!candidateOriginalIfatnFromEncodedAttack(0,b,0,10));
     // Explicitly calculated parameter combinations are not
     // hardcoded program-specific gain or filter exceptions.

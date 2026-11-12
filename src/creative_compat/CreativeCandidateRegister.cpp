@@ -48,7 +48,11 @@ std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
     // This predicate is recovered independently from the exact installed
     // original SBAWE.VXD branch (LE locked-code near 0x4D36). The original
     // generator34->encoded-rate conversion remains outside this function.
-    if(encoded_vol_attack_rate>127)return std::nullopt;
+    // Original Format-2/SF2 voice builder legitimately encodes the
+    // descriptor attack as 128. Only the later ATKHLDV port writer maps
+    // exact 0x0080 to 0x007F; the velocity-filter gate tests <125.
+    // Keeping descriptor 128 here is essential for original GM100.
+    if(encoded_vol_attack_rate>128)return std::nullopt;
     auto terms=original_terms;
     terms.velocity_cutoff_enabled=(bank<128 && encoded_vol_attack_rate<125);
     return candidateInitialIfatn(velocity,terms);

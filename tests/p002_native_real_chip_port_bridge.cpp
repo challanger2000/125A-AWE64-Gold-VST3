@@ -273,6 +273,41 @@ int main(){
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,writesViolin));
     CHECK(real->voice[9].ip==0xBC66);
     CHECK(real->voice[9].ifatn_init_filter==148);
+    // Actual independently executed original Creative SF2 reference bank:
+    // GM100 key60 vel90 layer1/layer2 produces attackEnv2=128,
+    // IFATN=0xFF2A for the explicitly supplied Win95 synthetic
+    // device state (CC7=100, CC11=127, device attenuation=0,
+    // instVol=0, 1MGM ROM). No 46-byte SF2 parser is asserted here.
+    OriginalCreativeIfatnTerms gm100{};
+    gm100.volume={100,127,0,0,true};
+    gm100.bank=0;
+    gm100.initial_cutoff=255;
+    gm100.encoded_volume_attack_rate=128;
+    const auto gm100Candidate=candidateOriginalCreativeIfatn(90,gm100);
+    CHECK(gm100Candidate && gm100Candidate->word==0xFF2Au &&
+          gm100Candidate->cutoff==255);
+    OriginalVxdEncodedVoiceEnvelopePrelude gm100Envelope{};
+    gm100Envelope.from_actual_original_driver_record=true;
+    gm100Envelope.attack_hold_volume_low_byte_word=128;
+    gm100Envelope.attack_hold_volume_high_word=0x7f;
+    const auto gm100Prelude=candidateOriginalVxdVoiceEnvelopePrelude(
+        12,gm100Envelope);
+    CHECK(gm100Prelude && (*gm100Prelude)[5].value==0x7f7fu);
+    CHECK(gm100Envelope.attack_hold_volume_low_byte_word==128);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm100Prelude));
+    CHECK(real->voice[12].atkhldv==0x7f7fu);
+    const auto gm100Midi=decodeWinMmShort(0x005a3c90u);
+    CHECK(gm100Midi && gm100Midi->kind==MidiKind::NoteOn);
+    MidiState gm100State{};
+    const auto gm100Ifatn=candidateOriginalCreativeIfatnWrites(
+        *gm100Midi,12,gm100State,gm100);
+    CHECK(gm100Ifatn && (*gm100Ifatn)[1].value==0xFF2Au);
+    const std::array<OriginalWin95VxdPortWrite,2> gm100Typed{{
+        {(*gm100Ifatn)[0].port,(*gm100Ifatn)[0].value,8},
+        {(*gm100Ifatn)[1].port,(*gm100Ifatn)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,gm100Typed));
+    CHECK(real->voice[12].ifatn==0xFF2Au);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -300,6 +335,7 @@ int main(){
              <<" original_NoteOn_PSST_CSL_geometry_chip=TRUE"
              <<" selected_original_SBK_gen8_to_REAL_chip_cutoff178=TRUE"
              <<" original_GM40_gen8_105_gen34_10_REAL_chip_cutoff148=TRUE"
+             <<" actual_SF2_GM100_attack128_hw127_IFATN_FF2A=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
