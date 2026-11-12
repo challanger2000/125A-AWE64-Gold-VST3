@@ -69,9 +69,14 @@ int main(){
     const auto v0=kOriginalVxdVoiceRowStart;
     const auto v3=kOriginalVxdVoiceRowStart+3*kOriginalVxdVoiceRowStride;
     write16(originalState,row0+0x0e,0);
+    write16(originalState,row0+0x10,0); // ORIGINAL channel pitch term #1
+    write16(originalState,row0+0x12,0); // ORIGINAL channel pitch term #2
     write32(originalState,row0+0x14,0);
-    write16(originalState,v0+0x0e,0xbe00);
-    write16(originalState,v3+0x0e,0xb200);
+    // Original source LCOD+0x574F writes these FROM the encoded
+    // descriptor in the *first* NoteOn pass; no synthetic pitch-word
+    // defaults are allowed before that source transition runs.
+    write16(originalState,v0+0x0e,0);
+    write16(originalState,v3+0x0e,0);
     OriginalSf2VerifiedVxdDeviceSnapshot snapshot{};
     snapshot.original_state_bytes=originalState;
     snapshot.independently_verified_original_vxd_snapshot=true;
@@ -79,20 +84,30 @@ int main(){
     // One specific authentic scalar 0x9830 is known; rest is synthetic
     // zero and never accepted as full private table extraction.
     snapshot.source_positive_16word_table[10]=0x9830u;
+    std::array<OriginalSf2VxdSnapshotVoice,2> pair{{
+        layer(0,85,-32,7,254,0x74a48,0x76dd5,0x74a6b,0x76dd1,118),
+        layer(3,94,4,0,128,0x34116,0x36804,0x3460e,0x36800,122)
+    }};
+    CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot));
+    // Execute EXACT source x86 LCOD+0x574F storage for both assigned
+    // voices transactionally before interpreting later source state.
+    CHECK(candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,true,pair));
     const auto zeroInputs=candidateOriginalSf2TargetStateFromVxdImage(
         snapshot,0u,0u);
     const auto threeInputs=candidateOriginalSf2TargetStateFromVxdImage(
         snapshot,0u,3u);
     CHECK(zeroInputs && threeInputs);
     CHECK(zeroInputs->channel_word_plus_0e==0);
-    CHECK(zeroInputs->allocated_voice_word_plus_0e==0xbe00u);
-    CHECK(threeInputs->allocated_voice_word_plus_0e==0xb200u);
+    CHECK(zeroInputs->allocated_voice_word_plus_0e==0xbe3bu);
+    CHECK(threeInputs->allocated_voice_word_plus_0e==0xb2b5u);
     CHECK(zeroInputs->channel_dword_plus_14==0u);
-
-    std::array<OriginalSf2VxdSnapshotVoice,2> pair{{
-        layer(0,85,-32,7,254,0x74a48,0x76dd5,0x74a6b,0x76dd1,118),
-        layer(3,94,4,0,128,0x34116,0x36804,0x3460e,0x36800,122)
-    }};
+    // Existing caller-provided tune and LFO metadata is intentionally
+    // wrong; it must be overridden by source channel+0x0A/B/10/12.
+    pair[0].assigned_voice.verified_channel_tune_1_cents=999;
+    pair[0].assigned_voice.verified_channel_tune_2_cents=-999;
+    pair[0].assigned_voice.lfo={false,99,99};
+    pair[1].assigned_voice.lfo={false,99,99};
     const auto got=candidateOriginalSf2FullNoteOnFromVxdSnapshot(
         pair,snapshot);
     CHECK(got && got->count==122u && got->voices==2u);
@@ -123,15 +138,14 @@ int main(){
         CHECK(got->out[i].access_width_bits==expected->out[i].access_width_bits);
         CHECK(got->out[i].value==expected->out[i].value);
     }
-    // Actual independent source values: mutate ONLY voice3 state word.
-    // The first voice's target must remain identical, proving correctly
-    // indexed per-physical-voice, not a global constant/preset override.
+    // A stale or tampered physical voice IP cannot be used as an
+    // independent pitch-target parameter. Original LCOD+0x574F MUST
+    // have written the same IP from the source descriptor first.
     write16(originalState,v3+0x0eu,0xc800u);
-    const auto changed=candidateOriginalSf2FullNoteOnFromVxdSnapshot(
-        pair,snapshot);
-    CHECK(changed && changed->out[61].value==0x12541b81u);
-    CHECK(changed->out[117].value==0x1c481b81u);
-    write16(originalState,v3+0x0eu,0xb200u);
+    CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot));
+    CHECK(candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,true,pair));
+    CHECK(candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot));
 
     // Original channel state 0x0E signed and 0x14 DWORD are not
     // "device master" fields. Mutate only channel+0x14 and confirm
@@ -144,6 +158,29 @@ int main(){
     CHECK(channelChanged->out[117].value!=got->out[117].value);
     CHECK(channelChanged->out[10+34+1].value==got->out[10+34+1].value);
     write32(originalState,row0+0x14u,0);
+    // Original LCOD+0x56DE reads two signed channel tuning WORDs.
+    // Editing one now invalidates stored voice pitch until the source
+    // LCOD+0x574F transition is executed again.
+    write16(originalState,row0+0x10u,100u);
+    CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot));
+    CHECK(candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,true,pair));
+    const auto tuned=candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot);
+    CHECK(tuned && tuned->out[25].value!=got->out[25].value);
+    write16(originalState,row0+0x10u,0u);
+    CHECK(candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,true,pair));
+    CHECK(candidateOriginalSf2FullNoteOnFromVxdSnapshot(pair,snapshot));
+    // ORIGINAL LCOD+0x5CEB reads two CHANNEL BYTES at +0x0A/+0x0B.
+    // They must affect FMMOD, not the unrelated device+0x0A/+0x0B.
+    originalState[row0+0x0au]=5u;
+    originalState[row0+0x0bu]=9u;
+    const auto channelLfo=candidateOriginalSf2FullNoteOnFromVxdSnapshot(
+        pair,snapshot);
+    CHECK(channelLfo && channelLfo->out[10+18+3].value==0x1500u);
+    CHECK(channelLfo->out[66+18+3].value==0x0e00u);
+    originalState[row0+0x0au]=0u;
+    originalState[row0+0x0bu]=0u;
     write16(originalState,row0+0x0eu,0xffffu);
     const auto signedInput=candidateOriginalSf2TargetStateFromVxdImage(
         snapshot,0u,0u);
@@ -174,15 +211,26 @@ int main(){
     wrong=pair;wrong[1].assigned_voice.physical_voice=0u;
     CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(wrong,snapshot));
     wrong=pair;wrong[1].assigned_voice.lfo.source_original_state_verified=false;
-    CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(wrong,snapshot));
+    CHECK(candidateOriginalSf2FullNoteOnFromVxdSnapshot(wrong,snapshot));
     wrong=pair;wrong[1].assigned_voice.verified_after_start_record[0x8du]=0x80u;
     CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot(wrong,snapshot));
+    const auto originalVoice0Ip=static_cast<std::uint16_t>(
+        originalState[v0+0xeu]|(originalState[v0+0xfu]<<8u));
+    CHECK(!candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,true,wrong));
+    CHECK(originalState[v0+0xeu]==static_cast<std::uint8_t>(originalVoice0Ip));
+    CHECK(originalState[v0+0xfu]==static_cast<std::uint8_t>(originalVoice0Ip>>8u));
+    CHECK(!candidateOriginalSf2WriteInitialIpToVxdState(
+        originalState,false,pair));
     CHECK(!candidateOriginalSf2FullNoteOnFromVxdSnapshot({},snapshot));
 
     std::cout<<"P002_SOURCE_ORIGINAL_VXD_STATE_SNAPSHOT_PASS "
              <<"30_physical_voices_16_channels_1MGM_dry_mode=TRUE "
              <<"signed_channel_and_unsigned_voice_le=TRUE "
              <<"two_voice_122_TYPED_OUT_IDENTICAL=TRUE "
+             <<"original_LCOD_574F_per_voice_IP_state_write=TRUE "
+             <<"original_channel_0A_0B_lfo_10_12_tune=TRUE "
+             <<"reject_stale_voice_pitches_and_atomic_source_state_write=TRUE "
              <<"state_mutation_changes_only_relevant_voice_targets=TRUE "
              <<"missing_original_snapshot_fail_closed=TRUE "
              <<"real_Win95_runtime_state_acquisition=NOT_PROVEN "

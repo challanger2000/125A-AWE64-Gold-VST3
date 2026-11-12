@@ -6,8 +6,12 @@
 // source NoteOn LCOD+0x5B4D/0x5D7B):
 //   voice = device_state + 0x42 + 0x20*physical (30 music voices)
 //   channel = device_state + 0x442 + 0x24*midi_channel (16 channels)
+//   channel +0x0a/+0x0b: two original LFO1 channel BYTES,
 //   channel +0x0e signed WORD; physical voice +0x0e unsigned WORD;
-//   channel +0x14 DWORD.
+//   channel +0x10/+0x12 signed WORD pitch cents; +0x14 DWORD.
+// Original x86 LCOD+0x574F writes the computed NoteOn initial IP into
+// voice+0x0e before LCOD+0x5B54 later reads it. Source +0x5CEB uses
+// channel+0x0a/+0x0b; +0x56DE uses channel+0x10/+0x12.
 // Uses original ROM id at device+0x158e ("1MGM") and original dry
 // mode word at device+0x12. The synth state must be an independently
 // verified original snapshot: it is NOT synthesized by this adapter.
@@ -45,6 +49,15 @@ struct OriginalSf2ResolvedSnapshotNote {
                kOriginalCreativeMaxNoteStartDescriptors> voices{};
     std::size_t count=0;
 };
+// Apply only the independently identified ORIGINAL voice-state write
+// (LCOD+0x574F) to a mutable VXD device-state image. ALL voices are
+// validated first; any invalid later layer leaves the image untouched.
+// This is the pre-register first phase; allocation, MIDI state lifecycle
+// and actual Win95 OS initialization remain separate work.
+[[nodiscard]] bool candidateOriginalSf2WriteInitialIpToVxdState(
+    std::span<std::uint8_t> original_device_state,
+    bool independently_verified_original_device_state,
+    std::span<const OriginalSf2VxdSnapshotVoice> assigned) noexcept;
 [[nodiscard]] std::optional<OriginalSf2VxdFinalTargetInputs>
 candidateOriginalSf2TargetStateFromVxdImage(
     const OriginalSf2VerifiedVxdDeviceSnapshot& original,
