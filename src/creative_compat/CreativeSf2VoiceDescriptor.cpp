@@ -147,6 +147,7 @@ candidateOriginalSf2NoteFromVerifiedVxdResources(
     if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
        sample.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
        sample.sample_id!=layer.rom_sample_selector ||
+       original_preset_group!=layer.original_preset_row_index ||
        state.creative_bank!=layer.bank ||
        state.midi_key!=layer.key ||
        state.midi_velocity!=layer.velocity)return std::nullopt;
