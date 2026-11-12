@@ -328,6 +328,27 @@ target_link_libraries(awe64_p002_real_chip_port_bridge_test
 add_test(NAME p002_original_sf2_148byte_voice_descriptor
     COMMAND awe64_p002_sf2_voice_descriptor_test)
 
+# Actual original Win95 SBAWE.VXD 18 contiguous typed NOTE START OUTs:
+# reset VTFT/CVCF, envelope/LFO prelude, then DATA3 IP and IFATN.
+# This is a bounded verified register phase, not a full voice allocator.
+add_library(awe64_p002_sf2_note_start_ports STATIC
+    src/creative_compat/CreativeSf2NoteStartPorts.cpp)
+target_include_directories(awe64_p002_sf2_note_start_ports
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_note_start_ports PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_note_start_ports
+    PUBLIC awe64_p002_sf2_voice_descriptor
+           awe64_p002_vxd_voice_envelope_prelude)
+add_executable(awe64_p002_sf2_note_start_ports_test
+    tests/p002_native_sf2_note_start_ports.cpp)
+target_link_libraries(awe64_p002_sf2_note_start_ports_test
+    PRIVATE awe64_p002_sf2_note_start_ports)
+add_test(NAME p002_original_sf2_18_typed_note_start_ports
+    COMMAND awe64_p002_sf2_note_start_ports_test)
+# The existing source-pinned chip bridge executes these EXACT 18 typed OUTs.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_note_start_ports)
+
 # The original Creative source-bank handoff is PRIVATE and never committed.
 # If configured in the runner/Test Lab environment, compare the native
 # encoded descriptors against ALL provided actual original 148-byte outputs.
