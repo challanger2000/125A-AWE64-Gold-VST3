@@ -386,6 +386,33 @@ add_test(NAME p002_original_sf2_final_22_typed_noteon_outs
     COMMAND awe64_p002_sf2_final_note_ports_test)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_final_note_ports)
+# Original Win95 SF2 full one-note batch: all allocator/stop OUTs
+# first, then 56 actual note-start OUTs per voice. One-voice=61 writes,
+# two-voice=122, up to original six; source operands remain explicit.
+add_library(awe64_p002_sf2_full_noteon STATIC
+    src/creative_compat/CreativeSf2FullNoteOnPorts.cpp)
+target_include_directories(awe64_p002_sf2_full_noteon
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_full_noteon PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_full_noteon
+    PUBLIC awe64_p002_sf2_final_note_ports)
+add_executable(awe64_p002_sf2_full_noteon_test
+    tests/p002_native_sf2_full_noteon.cpp)
+target_link_libraries(awe64_p002_sf2_full_noteon_test
+    PRIVATE awe64_p002_sf2_full_noteon)
+add_test(NAME p002_original_sf2_complete_noteon_order
+    COMMAND awe64_p002_sf2_full_noteon_test)
+# Actual unchanged 86Box EMU8000 execution; prevalidate the ENTIRE
+# source-derived 61/122 OUT batch before a first chip write.
+add_library(awe64_p002_sf2_full_noteon_chip STATIC
+    src/creative_compat/CreativeSf2FullNoteOnChip.cpp)
+target_include_directories(awe64_p002_sf2_full_noteon_chip
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_full_noteon_chip PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_full_noteon_chip
+    PUBLIC awe64_p002_sf2_full_noteon awe64_p002_chip_port_bridge)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_full_noteon_chip)
 
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
