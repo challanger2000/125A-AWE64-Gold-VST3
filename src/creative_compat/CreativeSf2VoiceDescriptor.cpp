@@ -137,6 +137,34 @@ candidateOriginalSf2VoiceWithOriginalRomPitchTables(
     return candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
         merged,sample,*pitch,original_preset_group);
 }
+std::optional<OriginalCreativeSf2NoteDescriptors>
+candidateOriginalSf2NoteFromVerifiedVxdResources(
+    const SbkLayer& layer,
+    const SbkRomAddress& sample,
+    const OriginalCreativeSf2DriverResources& resources,
+    const std::uint32_t original_preset_group,
+    const OriginalSf2VoiceStartConditions& state) noexcept {
+    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       sample.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       sample.sample_id!=layer.rom_sample_selector ||
+       state.creative_bank!=layer.bank ||
+       state.midi_key!=layer.key ||
+       state.midi_velocity!=layer.velocity)return std::nullopt;
+    // The exact same existing three independently tested stages. There
+    // is NO separate sample/address parser, float tuning algorithm,
+    // allocator, or second original chip. Caller supplies original VXD
+    // template/table bytes through a PRIVATE source-locked resource path.
+    const auto merged=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        layer,resources.preset_template,resources.instrument_template);
+    if(!merged)return std::nullopt;
+    const auto built=candidateOriginalSf2VoiceWithOriginalRomPitchTables(
+        *merged,sample,resources.pitch_tables,original_preset_group);
+    if(!built)return std::nullopt;
+    const auto started=candidateOriginalSf2EncodedVoiceDescriptor(
+        *built,state);
+    if(!started)return std::nullopt;
+    return OriginalCreativeSf2NoteDescriptors{*built,*started};
+}
 std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     const SbkLayer& layer,
