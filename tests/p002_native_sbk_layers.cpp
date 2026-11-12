@@ -246,6 +246,67 @@ int main(){
     sf2.preset_global.raw[34].reset();
     CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34));
     CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34,0)==-8800);
+    // Bounded source-backed numerical PCOD voice-generator matrix.
+    // Instrument C(x), preset C(x)-C(0) where the original table says
+    // OFFSET; identity elsewhere. No private bank bytes enter this test.
+    struct NumericVoiceCase {
+        std::uint16_t op;
+        std::int16_t preset, instrument, expected;
+    };
+    constexpr std::array<NumericVoiceCase,14> numericCases{{
+        {5,1000,1000,214}, {6,1000,1000,214},
+        {7,1000,1000,214}, {8,29,9617,180},
+        {9,24,-24,0}, {10,1000,1000,72},
+        {11,1000,1000,36}, {13,120,-120,0},
+        {29,1000,-1000,127}, {34,200,-11958,-11758},
+        {37,1000,-1000,127}, {48,7,11,18},
+        {51,3,-2,100}, {52,200,-100,100}
+    }};
+    for(const auto& v:numericCases) {
+        SbkLayer layer{};
+        layer.source_format=OriginalCreativeBankFormat::Format2Sf2;
+        layer.preset_global.raw[v.op]=static_cast<std::uint16_t>(v.preset);
+        layer.instrument_global.raw[v.op]=static_cast<std::uint16_t>(v.instrument);
+        CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            layer,v.op)==v.expected);
+        // A missing level must not turn into an invented zero.
+        layer.preset_global.raw[v.op].reset();
+        CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            layer,v.op));
+        CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            layer,v.op,0)==
+            candidateOriginalSf2InstrumentLoadGenerator(v.op,v.instrument));
+        layer.preset_local.raw[v.op]=static_cast<std::uint16_t>(v.preset);
+        CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            layer,v.op)==v.expected);
+        layer.source_format=OriginalCreativeBankFormat::Format1Sbk;
+        CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            layer,v.op,0,0));
+    }
+    // Preset local always replaces preset global, instrument local always
+    // replaces instrument global, including when the local value is zero.
+    SbkLayer replace{};
+    replace.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    replace.preset_global.raw[51]=3;
+    replace.preset_local.raw[51]=0;
+    replace.instrument_global.raw[51]=2;
+    replace.instrument_local.raw[51]=0;
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==0);
+    replace.preset_local.raw[51].reset();
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==300);
+    replace.instrument_local.raw[51].reset();
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==500);
+    replace.preset_global.raw[51]=300;
+    replace.instrument_global.raw[51]=300;
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==32767);
+    replace.preset_global.raw[51]=static_cast<std::uint16_t>(-300);
+    replace.instrument_global.raw[51]=static_cast<std::uint16_t>(-300);
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==-32768);
+    // Non-numeric structure/control generators must never enter arithmetic.
+    for(const unsigned id:{0u,4u,25u,41u,43u,44u,46u,47u,49u,
+                           53u,54u,56u,57u,58u,63u})
+        CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            replace,static_cast<std::uint16_t>(id),0,0));
     // The same four scopes format1 yields 870, not 18.
     auto identicalRawAsFormat1=sf2;
     identicalRawAsFormat1.source_format=OriginalCreativeBankFormat::Format1Sbk;
