@@ -11,6 +11,7 @@
 // The two private original device-state target values are explicit inputs.
 // This API does not manufacture a scheduler, PCM output, or RAM soundfont.
 #include "CreativeSf2NoteFinalPorts.h"
+#include "CreativeMidiRomPlan.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
