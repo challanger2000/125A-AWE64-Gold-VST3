@@ -55,6 +55,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
         processing_=false; active_=false; playingKey_=-1;
         p002DiagnosticEnabled_=false;
+        p002DiagnosticNoteConsumed_=false;
         chip_.close(); // non-RT activation thread only
         return kResultOk;
     }
@@ -86,6 +87,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002DiagnosticEnabled_=true;
     }
     active_=true; playingKey_=-1;
+    p002DiagnosticNoteConsumed_=false;
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::setProcessing(TBool state) {
@@ -103,13 +105,14 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
 }
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
-    if (!(velocity>0.f)) {noteOff(pitch);return;}
+    if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
     if(p002DiagnosticEnabled_) {
         // This is ONLY a one-note authenticated ORIGINAL x86 VXD source
         // diagnostic, not a GM soundbank manager, MIDI program map,
         // multi-key/polyphonic allocator or production release path.
         // MIDI note value and velocity are fixed by independently
         // captured ORIGINAL SBAWE.VXD 148-byte voice descriptors.
+        if(p002DiagnosticNoteConsumed_)return; // no invented polyphonic allocator
         const auto expected=static_cast<int>(p002Fixture_.velocity);
         const auto incoming=static_cast<int>(velocity*127.f+0.5f);
         if(channel!=p002Fixture_.channel || pitch!=p002Fixture_.key ||
@@ -120,6 +123,7 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
         if(!awe64::creative::applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
                chip_,notes,p002Fixture_.sourceState()))return;
         playingKey_=pitch;
+        p002DiagnosticNoteConsumed_=true;
         return;
     }
     // Fixed ROM voice with pitch-tracked IP. Creative velocity and bank
@@ -149,13 +153,25 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     write(5,kVoice,0xA20,0x7F00); // original chip trigger
     playingKey_=pitch;
 }
-void Minimal::noteOff(int pitch) noexcept {
+void Minimal::noteOff(int channel,int pitch) noexcept {
     if (active_ && playingKey_==pitch) {
         if(p002DiagnosticEnabled_) {
-            // Not yet a verified full original VXD voice-state/CC64
-            // lifecycle. Do not apply P001 synthetic release to P002.
-            // The original driver note-off handler remains separately
-            // gated until its dynamic runtime-state source is proven.
+            if(channel!=p002Fixture_.channel)return;
+            // P002 private fixture v2: exact original VXD LCOD+0x6072
+            // note marker, sustain, encoded release bytes and conditional
+            // readback of the genuine chip's CSL/PSST. Version 1 still
+            // has no authenticated release state: never guess it.
+            if(p002Fixture_.verified_source_note_release) {
+                const auto executed=
+                    awe64::creative::applyOriginalSf2MidiNoteOffFromVxdState(
+                        chip_,p002Fixture_.original_device_state,
+                        p002Fixture_.selectedVoices(),
+                        static_cast<std::uint8_t>(channel),
+                        static_cast<std::uint8_t>(pitch),true);
+                if(!executed)return;
+            }
+            // Source-original sustain-deferred NoteOff intentionally does
+            // not stop playback. CC64 pedal-release state is still OPEN.
             playingKey_=-1;
             return;
         }
@@ -212,7 +228,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             noteOn(e.noteOn.channel,e.noteOn.pitch,e.noteOn.velocity);
         else if(e.type==Event::kNoteOffEvent &&
                 (p002DiagnosticEnabled_ || e.noteOff.channel==0))
-            noteOff(e.noteOff.pitch);
+            noteOff(e.noteOff.channel,e.noteOff.pitch);
     }
     render(pos,data.numSamples,left,right);
     data.outputs[0].silenceFlags=0; // conservative if held note just ended

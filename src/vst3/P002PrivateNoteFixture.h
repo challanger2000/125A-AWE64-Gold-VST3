@@ -19,6 +19,10 @@ struct P002PrivateNoteFixture {
     std::uint8_t key=0;
     std::uint8_t velocity=0;
     std::uint8_t voice_count=0;
+    // v1 = source-proven NoteOn only; v2 additionally supplies each
+    // original 0x20-byte VXD per-voice release record (synthetic CI
+    // fixture tests are NOT original Win95 runtime captures).
+    bool verified_source_note_release=false;
     std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> original_device_state{};
     std::array<std::uint16_t,15> negative_attenuation{};
     std::array<std::uint16_t,16> positive_attenuation{};

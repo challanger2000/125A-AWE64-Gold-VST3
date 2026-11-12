@@ -3,6 +3,7 @@
 // The unchanged EMU8000 chip runs at 44100 Hz. No heap/file/lock on process().
 #include "Chip.h"
 #include "P002PrivateNoteFixture.h"
+#include "CreativeSf2VxdSourceRelease.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
 #include <cstddef>
@@ -33,7 +34,7 @@ public:
     REFCOUNT_METHODS(SingleComponentEffect)
 private:
     void noteOn(int channel, int pitch, float velocity) noexcept;
-    void noteOff(int pitch) noexcept;
+    void noteOff(int channel,int pitch) noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
     void write(uint16_t reg, uint16_t voice, uint16_t port, uint16_t value) noexcept;
@@ -42,6 +43,7 @@ private:
     awe64::Chip chip_;
     P002PrivateNoteFixture p002Fixture_{};
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
+    bool p002DiagnosticNoteConsumed_=false; // no fake retrigger allocator
     std::array<int32_t, 980u*2u> scratch_{};
     int playingKey_ = -1;
     bool active_ = false;

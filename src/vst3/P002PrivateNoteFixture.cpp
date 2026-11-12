@@ -40,7 +40,7 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     std::array<std::uint8_t,32> vxd{},bank{};
     if(!bytes(file,magic) || !bytes(file,header) ||
        !bytes(file,vxd) || !bytes(file,bank) ||
-       magic!=MAGIC || header[0]!=1u || vxd!=VXD_SHA ||
+       magic!=MAGIC || (header[0]!=1u && header[0]!=2u) || vxd!=VXD_SHA ||
        bank!=BANK_SHA) {
         error="Private P002 diagnostic provenance/header invalid";return false;
     }
@@ -53,6 +53,7 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     candidate.program=header[1];candidate.channel=header[2];
     candidate.key=header[3];candidate.velocity=header[4];
     candidate.voice_count=header[5];
+    candidate.verified_source_note_release=header[0]==2u;
     std::array<std::uint8_t,62> tables{};
     if(!bytes(file,candidate.original_device_state)||!bytes(file,tables)) {
         error="Private P002 diagnostic original state/tables truncated";return false;
@@ -80,6 +81,27 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
            source.verified_after_start_record[0x8cu]!=1u ||
            source.verified_after_start_record[0x8du]!=0u) {
             error="Private P002 diagnostic voice record invalid";return false;
+        }
+        if(candidate.verified_source_note_release) {
+            const std::size_t offset=
+                awe64::creative::kOriginalVxdVoiceRowStart+
+                static_cast<std::size_t>(source.physical_voice)*
+                awe64::creative::kOriginalVxdVoiceRowStride;
+            const auto& r=candidate.original_device_state;
+            const auto note_marker=static_cast<std::uint16_t>(
+                static_cast<unsigned>(r[offset])|
+                (static_cast<unsigned>(r[offset+1u])<<8u));
+            const auto expected=static_cast<std::uint16_t>(
+                (static_cast<unsigned>(candidate.channel)<<8u)|candidate.key);
+            const auto retained_end=static_cast<std::uint32_t>(r[offset+6u])|
+                (static_cast<std::uint32_t>(r[offset+7u])<<8u)|
+                (static_cast<std::uint32_t>(r[offset+8u])<<16u)|
+                (static_cast<std::uint32_t>(r[offset+9u])<<24u);
+            if(note_marker!=expected || retained_end>0xfffffbu ||
+               r[offset+0x15u]>127u || r[offset+0x16u]>127u) {
+                error="Original P002 source NoteOff voice-record invalid";
+                return false;
+            }
         }
         seen|=1u<<source.physical_voice;
     }

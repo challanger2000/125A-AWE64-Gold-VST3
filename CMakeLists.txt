@@ -564,7 +564,8 @@ if(AWE64_BUILD_P001_VST3)
     target_include_directories(AWE64_Gold_P001 PRIVATE
         "${AWE64_VST3_SDK_ROOT}")
     target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip
-        awe64_p002_sf2_vxd_state_snapshot)
+        awe64_p002_sf2_vxd_state_snapshot
+        awe64_p002_sf2_source_note_release)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
     add_executable(awe64_p001_vst3_host tests/p001_vst3_host.cpp)
