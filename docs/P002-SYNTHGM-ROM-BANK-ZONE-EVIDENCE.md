@@ -428,3 +428,28 @@ but does NOT establish that every 1MGM bank generator maps to its
 correct native encoded sample attenuation and attack, nor does it
 supply the original 30-voice allocator, complete register event
 order or chip-frame/PCM equivalence. P002 remains OPEN.
+
+
+## Held-note original Creative CC7/CC11 live register writes
+
+The original 62-event Win95/Cakewalk-free driver matrix holds GM0 C4
+velocity96 and changes CC7/CC11 on that **same active voice**.
+Native candidateOriginalCreativeLiveVolumeWrites now accepts the
+actual MIDI Controller event, already-applied 16-channel MIDI state
+and an explicitly assigned/sounding physical EMU8000 voice. It emits
+the real DATA3 E22/E20 IFATN word independently from the original
+driver trace, preserving the note's original velocity.
+
+The actual original original-driver register samples:
+- held C4 velocity96, CC7=20 -> B285,
+- same held note, CC7=127 -> B22D,
+- same held note, CC11=30 -> B26C,
+- same held note, CC11=127 -> B22D.
+
+The Windows CTest asserts all four **held-note updates** (distinct
+from fresh NoteOn IFATN initialization) and rejects controllers on
+another channel, unrelated controls, stale un-applied MIDI states,
+retired voices and invalid physical voice indices. This still requires
+the original Creative allocator and sampleclock scheduling to be
+implemented separately; testing supplied physical voice 3 does not
+validate the original driver's voice selection.

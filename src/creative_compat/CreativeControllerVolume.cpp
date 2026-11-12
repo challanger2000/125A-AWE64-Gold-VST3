@@ -89,4 +89,31 @@ std::optional<std::array<PortWord,2>> candidateOriginalCreativeIfatnWrites(
         PortWord{0xE20u,result->word}
     }};
 }
+
+std::optional<std::array<PortWord,2>> candidateOriginalCreativeLiveVolumeWrites(
+    const MidiMessage& event,const MidiState& state,
+    const ActiveOriginalCreativeVoice& v) noexcept {
+    if(event.kind!=MidiKind::Controller ||
+       (event.data1!=7 && event.data1!=11) ||
+       event.channel>=16 || event.channel!=v.channel ||
+       event.data2>127 || !v.sounding ||
+       v.midi_key>127 || v.note_on_velocity==0 ||
+       v.note_on_velocity>127 || v.physical_voice>=30)
+        return std::nullopt;
+    const auto& channel=state.channel(event.channel);
+    // A caller that forgot to apply the event first must not produce stale
+    // register traffic. Another channel must not update this voice.
+    if((event.data1==7 && channel.cc7_volume!=event.data2) ||
+       (event.data1==11 && channel.cc11_expression!=event.data2))
+        return std::nullopt;
+    auto terms=v.instrument;
+    terms.volume.cc7=channel.cc7_volume;
+    terms.volume.cc11=channel.cc11_expression;
+    const auto current=candidateOriginalCreativeIfatn(v.note_on_velocity,terms);
+    if(!current)return std::nullopt;
+    return std::array<PortWord,2>{{
+        PortWord{0xE22u,static_cast<std::uint16_t>(0x20u|v.physical_voice)},
+        PortWord{0xE20u,current->word}
+    }};
+}
 } // namespace awe64::creative

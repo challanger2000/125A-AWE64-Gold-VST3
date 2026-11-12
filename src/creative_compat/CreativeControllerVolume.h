@@ -34,4 +34,19 @@ struct OriginalCreativeIfatnTerms {
 [[nodiscard]] std::optional<std::array<PortWord,2>> candidateOriginalCreativeIfatnWrites(
     const MidiMessage& midi, std::uint8_t physical_voice, const MidiState& state,
     const OriginalCreativeIfatnTerms& instrument) noexcept;
+
+struct ActiveOriginalCreativeVoice {
+    std::uint8_t channel=0, midi_key=0, note_on_velocity=0;
+    std::uint8_t physical_voice=0; // assigned externally, never MIDI channel
+    bool sounding=false;           // must still be allocated/playing
+    OriginalCreativeIfatnTerms instrument{};
+};
+// Actual Win95 Creative CC7 and CC11 MIDI events update existing *sounding*
+// physical voices. Call only AFTER MidiState::apply(event), and fail closed
+// if the controller state's value does not match the original event.
+// This does not define allocation, voice-stealing or CC64 release timing.
+[[nodiscard]] std::optional<std::array<PortWord,2>>
+candidateOriginalCreativeLiveVolumeWrites(
+    const MidiMessage& controller_event, const MidiState& state_after_event,
+    const ActiveOriginalCreativeVoice& existing_voice) noexcept;
 } // namespace awe64::creative

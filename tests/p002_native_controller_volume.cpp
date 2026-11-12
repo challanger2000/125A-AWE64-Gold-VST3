@@ -102,6 +102,44 @@ int main() {
     const auto zero=decodeWinMmShort(midi(0x90+2,60,0));CHECK(zero);
     CHECK(!candidateOriginalCreativeIfatnWrites(*zero,3,midiState,terms));
     CHECK(!candidateOriginalCreativeIfatnWrites(*note,30,midiState,terms));
+
+    // The original 62-MIDI-message Win95 trace measured these four IFATN
+    // updates WHILE a note was already sounding, not on new NoteOn.
+    ActiveOriginalCreativeVoice held{};
+    held.channel=2;held.midi_key=60;held.note_on_velocity=96;
+    held.physical_voice=3;held.sounding=true;
+    held.instrument=terms;
+    MidiState live;
+    const auto cc7low=decodeWinMmShort(midi(0xB0+2,7,20));
+    CHECK(cc7low);
+    // A stale channel state must not silently emit a register write.
+    CHECK(!candidateOriginalCreativeLiveVolumeWrites(*cc7low,live,held));
+    live.apply(*cc7low);
+    auto liveWrites=candidateOriginalCreativeLiveVolumeWrites(*cc7low,live,held);
+    CHECK(liveWrites && (*liveWrites)[0].value==0x23 &&
+          (*liveWrites)[1].value==0xB285);
+    const auto cc7high=decodeWinMmShort(midi(0xB0+2,7,127));CHECK(cc7high);
+    live.apply(*cc7high);
+    liveWrites=candidateOriginalCreativeLiveVolumeWrites(*cc7high,live,held);
+    CHECK(liveWrites && (*liveWrites)[1].value==0xB22D);
+    const auto cc11low=decodeWinMmShort(midi(0xB0+2,11,30));CHECK(cc11low);
+    live.apply(*cc11low);
+    liveWrites=candidateOriginalCreativeLiveVolumeWrites(*cc11low,live,held);
+    CHECK(liveWrites && (*liveWrites)[1].value==0xB26C);
+    const auto cc11high=decodeWinMmShort(midi(0xB0+2,11,127));CHECK(cc11high);
+    live.apply(*cc11high);
+    liveWrites=candidateOriginalCreativeLiveVolumeWrites(*cc11high,live,held);
+    CHECK(liveWrites && (*liveWrites)[1].value==0xB22D);
+    const auto otherVoice=decodeWinMmShort(midi(0xB0+3,7,127));CHECK(otherVoice);
+    live.apply(*otherVoice);
+    CHECK(!candidateOriginalCreativeLiveVolumeWrites(*otherVoice,live,held));
+    const auto unrelated=decodeWinMmShort(midi(0xB0+2,10,64));CHECK(unrelated);
+    live.apply(*unrelated);
+    CHECK(!candidateOriginalCreativeLiveVolumeWrites(*unrelated,live,held));
+    CHECK(!candidateOriginalCreativeLiveVolumeWrites(*note,live,held));
+    held.sounding=false;CHECK(!candidateOriginalCreativeLiveVolumeWrites(*cc11high,live,held));
+    held.sounding=true;held.physical_voice=30;
+    CHECK(!candidateOriginalCreativeLiveVolumeWrites(*cc11high,live,held));
     std::cout<<"P002_REAL_DRIVER_CC7_CC11_VELOCITY_REGISTER_CANDIDATE_PASS"
         <<" original_sweep=254 original_cc7_cc11=4"
         <<" original_1MGM_order=TRUE private_driver_bytes=NONE"
