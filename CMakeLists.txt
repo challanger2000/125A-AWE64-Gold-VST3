@@ -105,6 +105,22 @@ target_link_libraries(awe64_p002_sbk_layers_test PRIVATE awe64_p002_sbk_layers)
 add_test(NAME p002_native_creative_sbk_multilayer_contract
          COMMAND awe64_p002_sbk_layers_test)
 
+
+# MIDI NoteOn + 16-channel program state -> original Creative bank layers
+# -> genuine ROM word-address descriptors, without voice/allocation guesses.
+add_library(awe64_p002_rom_note_plan STATIC
+    src/creative_compat/CreativeMidiRomPlan.cpp)
+target_include_directories(awe64_p002_rom_note_plan PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_rom_note_plan PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_rom_note_plan
+    PUBLIC awe64_p002_sbk_layers awe64_creative_midi)
+add_executable(awe64_p002_rom_note_plan_test
+    tests/p002_native_midi_rom_plan.cpp)
+target_link_libraries(awe64_p002_rom_note_plan_test
+    PRIVATE awe64_p002_rom_note_plan)
+add_test(NAME p002_winmm_program_to_original_rom_address_contract
+         COMMAND awe64_p002_rom_note_plan_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

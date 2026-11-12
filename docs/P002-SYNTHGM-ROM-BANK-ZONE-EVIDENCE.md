@@ -223,3 +223,32 @@ including any hardware address-base offset, voice allocation, per-layer
 filter/volume/ADSR mapping, clock-exact register ordering, and native
 PCM equivalence. An address-descriptor match is NOT an independent
 MIDI-to-hardware-register PASS.
+
+
+## P002 native WinMM MIDI/Program -> original Creative ROM note-plan
+
+New CreativeMidiRomPlan.h/.cpp bridges actual decoded 16-channel
+WinMM NoteOn and the channel's live MIDI Program Change state to
+all matching original Creative 1MGM instrument layers. It also
+resolves each layer's original ROM sample ID to its independently
+decoded start/end/loop ROM word addresses. The active Creative bank
+is an **explicit** input, not a guessed CC0/CC32 or channel-10 bank.
+A correct empty bank/program match is distinguished from malformed
+original media. NoteOff and zero-velocity NoteOn cannot create
+a new voice plan.
+
+**Actual original private owner-bank test:** WinMM Program Change on
+channel 1 to GM3 Honky Tonk followed by NoteOn note60/velocity100
+produced two separate original layers and ROM sample address 0xFEB9;
+GM40 Violin on channel2 produced one layer starting at 0x3765B;
+GM channel10 kick note36 with explicitly selected original SBK bank128
+resolved its authentic ROM sample selector 92. No GM-program-specific
+DSP workaround and no private bank bytes were committed.
+
+**Public synthetic Windows regression:** p002_winmm_program_to_original_rom_address_contract
+checks program switching on two MIDI channels, explicit bank0/128,
+ROM word bounds, rejecting NoteOff/velocity-zero and mismatched
+programs; isolated GCC C++23 ASan/UBSan checks also passed.
+This produces a per-layer *note plan*, not original physical
+EMU8000 allocation, register I/O, envelopes, or sample-clock timing.
+The P001 VST3 and original EMU8000 kernel remain unchanged.

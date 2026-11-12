@@ -1,0 +1,57 @@
+#include "CreativeMidiRomPlan.h"
+#include <algorithm>
+#include <vector>
+#include <string_view>
+#include <iostream>
+using namespace awe64::creative;
+using Bytes=std::vector<std::uint8_t>;
+#define CHECK(c) do{if(!(c)){std::cerr<<"P002_ROM_PLAN_FAIL line="<<__LINE__<<" "<<#c<<"\n";return 1;}}while(0)
+void w16(Bytes&v,unsigned n){v.push_back(n&255);v.push_back((n>>8)&255);}
+void w32(Bytes&v,unsigned n){w16(v,n);w16(v,n>>16);}
+void name(Bytes&v,std::string_view s){v.insert(v.end(),s.begin(),s.end());v.insert(v.end(),20-s.size(),0);}
+void c(Bytes&v,std::string_view k,const Bytes&b){v.insert(v.end(),k.begin(),k.end());w32(v,b.size());v.insert(v.end(),b.begin(),b.end());if(b.size()&1)v.push_back(0);}
+Bytes fixture(){
+    Bytes phdr,pbag,pgen,inst,ibag,igen,shdr(96,0),info,pdta,root;
+    name(phdr,"SYNTHETIC");w16(phdr,7);w16(phdr,0);w16(phdr,0);w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    name(phdr,"SYNTHETICDRUM");w16(phdr,0);w16(phdr,128);w16(phdr,1);w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    name(phdr,"EOP");w16(phdr,0);w16(phdr,0);w16(phdr,2);w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    for(unsigned n:{0u,1u,2u}){w16(pbag,n);w16(pbag,0);}
+    for(unsigned n=0;n<2;++n){w16(pgen,41);w16(pgen,0);}
+    name(inst,"PIANO");w16(inst,0);name(inst,"EOI");w16(inst,1);
+    w16(ibag,0);w16(ibag,0);w16(ibag,2);w16(ibag,0);
+    w16(igen,8);w16(igen,89);w16(igen,53);w16(igen,0);
+    // One valid 16-byte ROM sample address record (3 fit into one shdr row).
+    for(unsigned i=0;i<4;++i){const unsigned value=(i==0?5:i==1?25:i==2?10:20);for(unsigned j=0;j<4;++j)shdr[i*4+j]=(value>>(8*j))&255;}
+    c(info,"isng",Bytes{'E','M','U','8','0','0','0',0});c(info,"IPRD",Bytes{'S','B','A','W','E','3','2',0});c(info,"irom",Bytes{'1','M','G','M',0});
+    Bytes i{'I','N','F','O'};i.insert(i.end(),info.begin(),info.end());
+    Bytes p{'p','d','t','a'};c(p,"phdr",phdr);c(p,"pbag",pbag);c(p,"pgen",pgen);c(p,"inst",inst);c(p,"ibag",ibag);c(p,"igen",igen);c(p,"shdr",shdr);
+    c(root,"LIST",i);c(root,"LIST",p);
+    Bytes b{'R','I','F','F'};w32(b,root.size()+4);b.insert(b.end(),{'s','f','b','k'});b.insert(b.end(),root.begin(),root.end());return b;
+}
+int main(){
+    const auto sbk=fixture();MidiState midi;
+    auto pg=decodeWinMmShort(0x000007c2u);CHECK(pg && pg->kind==MidiKind::Program);midi.apply(*pg);
+    auto on=decodeWinMmShort(0x00643c92u);CHECK(on && on->channel==2);
+    auto plan=prepareOriginalCreativeRomNote(*on,midi,sbk,0,524288);
+    CHECK(plan && plan->count==1 && plan->program==7 && plan->channel==2);
+    CHECK(plan->layers[0].address.start_word==5 && plan->layers[0].address.loop_end_word==20);
+    CHECK(plan->layers[0].metadata.instrumentRawCutoff()==89);
+    auto wrongBank=prepareOriginalCreativeRomNote(*on,midi,sbk,128,524288);
+    CHECK(wrongBank && wrongBank->count==0);
+    auto noProgram=decodeWinMmShort(0x00643c93u);CHECK(noProgram);
+    auto unselected=prepareOriginalCreativeRomNote(*noProgram,midi,sbk,0,524288);
+    CHECK(unselected && unselected->count==0);
+    auto kick=decodeWinMmShort(0x00642499u);CHECK(kick);
+    auto drum=prepareOriginalCreativeRomNote(*kick,midi,sbk,128,524288);
+    CHECK(drum && drum->count==1 && drum->original_sbk_bank==128);
+    CHECK(!prepareOriginalCreativeRomNote(*kick,midi,sbk,128,24));
+    auto off=decodeWinMmShort(0x00003c92u);CHECK(off && off->kind==MidiKind::NoteOff);
+    CHECK(!prepareOriginalCreativeRomNote(*off,midi,sbk,0,524288));
+    auto zero=decodeWinMmShort(0x00003c92u);CHECK(zero);
+    CHECK(!prepareOriginalCreativeRomNote(*zero,midi,sbk,0,524288));
+    // Switching programs via channel state is live; no GM-ID special-case.
+    auto pg0=decodeWinMmShort(0x000000c2u);CHECK(pg0);midi.apply(*pg0);
+    auto switched=prepareOriginalCreativeRomNote(*on,midi,sbk,0,524288);
+    CHECK(switched && switched->count==0);
+    std::cout<<"P002_SYNTHETIC_16CH_MIDI_PROGRAM_TO_ROM_ADDRESS_PASS private_bytes=NONE\n";
+}
