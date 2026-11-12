@@ -25,6 +25,43 @@ std::uint16_t boundedWord(std::int32_t x,
     return static_cast<std::uint16_t>(std::clamp(x,low,high));
 }
 }
+std::optional<std::uint16_t> candidateOriginalSf2InitialIpFromDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& descriptor,
+    const std::uint8_t played_key,
+    const std::int16_t channel_tune_1,
+    const std::int16_t channel_tune_2) noexcept {
+    if(played_key>127u || descriptor[0x8au]>127u)
+        return std::nullopt;
+    const auto rawRoot=static_cast<std::int32_t>(signedWord(descriptor,58u));
+    const auto root=rawRoot==-1
+        ? static_cast<std::int32_t>(descriptor[0x8au]):rawRoot;
+    if(root<0 || root>127)return std::nullopt;
+    // The source stores dwPitch as an unsigned DWORD at +0x86.
+    const std::uint32_t dwPitch=
+        static_cast<std::uint32_t>(descriptor[0x86u]) |
+        (static_cast<std::uint32_t>(descriptor[0x87u])<<8u) |
+        (static_cast<std::uint32_t>(descriptor[0x88u])<<16u) |
+        (static_cast<std::uint32_t>(descriptor[0x89u])<<24u);
+    if(dwPitch>0xffffffu)return std::nullopt;
+    const auto correctionByte=static_cast<std::int32_t>(descriptor[0x8bu]);
+    const auto correction=correctionByte<128?correctionByte:correctionByte-256;
+    const auto scale=static_cast<std::int64_t>(signedWord(descriptor,56u));
+    // Original PCOD note-start: all inputs are integer cents. CoarseTune
+    // (gen51) has already been multiplied by 100 at the format-2 bank
+    // conversion stage; do NOT scale it twice. Emit exact source 874
+    // integer steps/cent, not a floating point pitch approximation.
+    const auto offsetCents=static_cast<std::int64_t>(correction)+
+        signedWord(descriptor,52u)+
+        static_cast<std::int64_t>(channel_tune_1)+channel_tune_2+
+        signedWord(descriptor,51u)+
+        (static_cast<std::int64_t>(played_key)-root)*scale;
+    const auto pitch=static_cast<std::int64_t>(dwPitch)+offsetCents*874ll;
+    // Source confirms upper 24-bit saturation. Negative pitch behavior
+    // has not been independently characterized: reject instead of wrap.
+    if(pitch<0)return std::nullopt;
+    return static_cast<std::uint16_t>(
+        static_cast<std::uint64_t>(std::min<std::int64_t>(pitch,0xffffffll))>>8u);
+}
 std::optional<OriginalCreativeSf2PitchLookupCoordinates>
 originalCreativeSf2PitchLookupCoordinates(
     const std::uint32_t sample_rate_hz) noexcept {
