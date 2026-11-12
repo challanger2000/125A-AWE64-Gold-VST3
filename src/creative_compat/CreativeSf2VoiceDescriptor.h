@@ -67,6 +67,15 @@ candidateOriginalSf2InitialIpFromDescriptor(
     std::uint8_t played_key,
     std::int16_t verified_channel_tune_1_cents,
     std::int16_t verified_channel_tune_2_cents) noexcept;
+// Reuse the established 2-write DATA3 IP register contract. The physical
+// EMU8000 voice is already assigned by the caller; this is not a second
+// allocator or a generic register scheduler. Voices 30/31 are reserved.
+[[nodiscard]] std::optional<std::array<PortWord,2>>
+candidateOriginalSf2InitialIpWritesFromDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& original_voice,
+    std::uint8_t played_key,std::uint8_t physical_voice,
+    std::int16_t verified_channel_tune_1_cents,
+    std::int16_t verified_channel_tune_2_cents) noexcept;
 // The ORIGINAL format-2 builder performs two separate source-normalized
 // levels and signed-saturating addition across all 59 WORD fields. The
 // format-2 PRECONVERTED template WORDS must come from the original driver;
