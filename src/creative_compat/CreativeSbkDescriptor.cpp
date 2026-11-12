@@ -79,12 +79,14 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
         return true;
     }) || !info.present || !pdta.present) return std::nullopt;
 
-    Chunk isng{}, iprd{};
+    Chunk isng{}, iprd{}, irom{};
     if (!walk(b,info.at+4,info.at+info.length,[&](std::size_t p,Chunk c) noexcept {
         if (tag(b,p,"isng")) { if (isng.present) return false; isng=c; }
         if (tag(b,p,"IPRD")) { if (iprd.present) return false; iprd=c; }
+        if (tag(b,p,"irom")) { if (irom.present) return false; irom=c; }
         return true;
-    }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32"))
+    }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
+        !contains(b,irom,"1MGM"))
         return std::nullopt;
 
     constexpr std::array<std::string_view,7> names{
@@ -162,8 +164,13 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
                 auto g=readGen(IGEN,IBAG,ib);
                 if(!g) return std::nullopt;
                 if(!g->sample_id) continue;
-                // The final shdr record is an EOS terminal, not a sample.
-                if(*g->sample_id>=counts[SHDR]-1) return std::nullopt;
+                // IMPORTANT: In the authentic Creative 1MGM ROM descriptor,
+                // igen generator 53 values are ROM sample selectors, NOT
+                // necessarily 0..shdr-count-2 array indices. The owner's
+                // SHA-pinned bank has 51 Creative 48-byte shdr records but
+                // valid melodic ROM IDs 55..59 (Violin) and IDs up to 151.
+                // We retain the value *unresolved* until original ROM/driver
+                // sample mapping is established. Do not index shdr here.
                 const auto instrumentVelocity=eligible(g->velocity_range,velocity);
                 if(!instrumentVelocity) return std::nullopt;
                 if(!*instrumentVelocity) continue;

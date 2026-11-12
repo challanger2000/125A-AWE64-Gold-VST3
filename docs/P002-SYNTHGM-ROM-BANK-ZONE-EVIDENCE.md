@@ -90,8 +90,9 @@ wired into the P001 VST3. P002 remains DRAFT/OPEN; P001 core untouched.
 
 The native C++ descriptor now requires the actual NoteOn velocity, validates
 **preset key/velocity ranges (gen43/gen44)** and instrument key/velocity
-ranges, and verifies the selected sample ID is not outside the Creative
-shdr table or the terminal EOS entry. The IFATN bridge rejects a stale
+ranges. The prior generic-SF2 shdr-index check was disproved by
+the original Creative 1MGM file and replaced by preservation of raw ROM IDs;
+their address resolution is deliberately deferred. The IFATN bridge rejects a stale
 selection when either note number **or velocity** differs.
 
 CI's invented metadata fixture deliberately separates instrument velocity
@@ -101,3 +102,39 @@ The original owner Creative SYNTHGM.SBK is still private and **was not run**
 through this revision in public CI. No bank-agnostic attenuation, attack-
 envelope, original Creative allocator or full chip-clock parity is implied.
 This remains a bounded safety correction to P002, not a P002 approval.
+
+## Private owner-file gate: real 1MGM sample selectors, not SF2 shdr indices
+
+After retrieving the previously uploaded exact owner file `SYNTHGM(2).SBK`
+(34,832 bytes, SHA-256 `fd2e35a260fef22fe809918dda3c921c6d48d53a29c3515af8a41019ce72d586`),
+the **previous** native C++ selector passed only **4/8** direct original-bank
+cutoff checks: Piano program 0 succeeded, but Violin program 40 failed.
+A falsely assumed SF2/EOS `sampleID < shdr_count-1` bound caused the rejection.
+Authentic Creative **1MGM** descriptors contain 51 special 48-byte shdr records
+and ROM generator-53 sample selector values through **151**; program 40 violin
+note 60 uses selector **55**, note 72 uses **56**. This demonstrates that these
+ROM selectors are **not** generic SF2 sample header indices.
+
+The native 1MGM parser now requires the private-bank `irom=1MGM` identity
+in addition to `EMU8000/SBAWE32`, preserves generator-53 selectors as
+**unresolved raw ROM IDs**, and no longer indexes shdr with them.
+This is not a completed sample-address validation (P003).
+
+**Actual private, native C++23 execution with original owner bank: 8/8**:
+Piano GM0 note 60 at velocities 1/64/127 resolves raw89 → 178,
+GM0 note 67 velocity 110 resolves raw110 → 220,
+Violin GM40 note 60 velocities 1/64/127 resolves raw105 → 210,
+and Violin GM40 note 72 velocity 90 resolves raw105 → 210
+(base; original velocity-modulated IFATN high byte 148).
+The original raw SBK bytes were not committed, and neither are they
+present in public Actions.
+
+**Synthetic Windows regression** now requires a ROM selector 151 to remain
+readable despite an invented shdr table of only six 48-byte records, and
+rejects corrupted `irom` instead of silently parsing a different bank.
+Native GCC C++23 tests with ASan/UBSan and the actual owner-file probe
+passed locally; CI is a separate Windows proof.
+
+P002 is still OPEN: volume/attack conversion, ROM selector-to-chip address,
+voice allocation, all other register writes and exact MIDI-to-register
+timing/PCM have not been proven from these tests.

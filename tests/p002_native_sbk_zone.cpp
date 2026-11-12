@@ -29,6 +29,7 @@ Bytes fixture(){
     gen(igen,43,0x7F43);gen(igen,53,4); // key 67..127
     ascii(info,"INFO");chunk(info,"isng",Bytes{'E','M','U','8','0','0','0',0});
     chunk(info,"IPRD",Bytes{'S','B','A','W','E','3','2',0});
+    chunk(info,"irom",Bytes{'1','M','G','M',0});
     ascii(pdta,"pdta");
     chunk(pdta,"phdr",phdr);chunk(pdta,"pbag",pbag);chunk(pdta,"pgen",pgen);
     chunk(pdta,"inst",inst);chunk(pdta,"ibag",ibag);chunk(pdta,"igen",igen);chunk(pdta,"shdr",shdr);
@@ -84,10 +85,18 @@ int main(){
     it=std::search(broken.begin(),broken.end(),ibagTag.begin(),ibagTag.end());
     CHECK(it!=broken.end());it[8+8]=0xff;CHECK(!resolveCreativeSbkZone(broken,0,0,60,64));
     broken=raw;
-    // Sample 5 is the EOS terminal in this invented six-record bank.
+    // Creative 1MGM generator 53 uses ROM IDs, not SF2 shdr array indices.
     const Bytes sampleTag{53,0,4,0};
     it=std::search(broken.begin(),broken.end(),sampleTag.begin(),sampleTag.end());
-    CHECK(it!=broken.end());it[2]=5;CHECK(!resolveCreativeSbkZone(broken,0,0,67,64));
+    CHECK(it!=broken.end());it[2]=151;
+    const auto rom_id=resolveCreativeSbkZone(broken,0,0,67,64);
+    CHECK(rom_id && rom_id->sample_id_raw==151);
+    broken=raw;
+    // Ordinary sfbk or a different ROM descriptor cannot use this 1MGM-only path.
+    const Bytes romTag{'1','M','G','M'};
+    it=std::search(broken.begin(),broken.end(),romTag.begin(),romTag.end());
+    CHECK(it!=broken.end()); *it='X';
+    CHECK(!resolveCreativeSbkZone(broken,0,0,60,64));
     broken=raw;
     // Invalid preset key-range encoding (low>high).
     const Bytes presetRange{43,0,0x32,0x5A};

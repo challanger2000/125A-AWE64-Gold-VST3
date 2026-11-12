@@ -15,7 +15,7 @@ struct SbkZoneDescriptor {
     std::uint16_t instrument_index = 0;
     std::uint16_t instrument_zone_bag = 0;
     std::uint8_t key_low = 0, key_high = 0;
-    std::uint16_t sample_id_raw = 0; // unvalidated sample address, P003
+    std::uint16_t sample_id_raw = 0; // unresolved Creative ROM sample selector, NOT shdr index
     std::uint8_t effective_raw_cutoff = 0;
     std::uint8_t chip_cutoff_candidate = 0; // measured 1MGM mapping 2*raw
     std::optional<std::uint16_t> global_raw_cutoff;
