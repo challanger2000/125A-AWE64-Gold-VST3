@@ -93,8 +93,8 @@ candidateOriginalSf2GeneratorsWithVerifiedTemplates(
 // sample-rate->dwPitch: rate*0x2F8E in LOW 32 bits, then left-normalize
 // until bit31 is set. The original uses bits30..24 as a table index and
 // bits23..17 as the interpolation fraction (both seven bits).
-// The TWO private PDAT tables and the final interpolation/exponent are
-// NOT available here; this structure is NOT a computed dwPitch.
+// The exact original table formats and interpolation/exponent arithmetic
+// are now recovered. Coordinates remain useful independently for debugging.
 struct OriginalCreativeSf2PitchLookupCoordinates {
     std::uint32_t wrapped_product=0;
     std::uint32_t normalized_word=0;
@@ -105,6 +105,27 @@ struct OriginalCreativeSf2PitchLookupCoordinates {
 [[nodiscard]] std::optional<OriginalCreativeSf2PitchLookupCoordinates>
 originalCreativeSf2PitchLookupCoordinates(
     std::uint32_t sample_rate_hz) noexcept;
+// Original SBAWE.VXD PCOD+0x3735, disassembled directly from the hash-locked
+// 77,370-byte driver. Table A: PDAT+0x8E8 (128 unsigned DWORDs); table B:
+// PDAT+0xAE8 (128 signed BYTES). The caller supplies these PRIVATE original
+// tables after LE-page-map and SHA-256 verification; they are not distributed
+// in this repository, nor fabricated from floating-point approximations.
+struct OriginalCreativeSf2PitchTables {
+    std::array<std::uint32_t,128> base{};
+    std::array<std::int8_t,128> slope{};
+};
+[[nodiscard]] std::optional<std::uint32_t>
+originalCreativeSf2SampleRateToDwPitch(
+    std::uint32_t sample_rate_hz,
+    const OriginalCreativeSf2PitchTables& verified_original_tables) noexcept;
+// Build the real shdr sample metadata with the same verified original
+// table-driven conversion, rather than requiring a precomputed dwPitch.
+[[nodiscard]] std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2VoiceWithOriginalRomPitchTables(
+    const CreativeSf2VoiceDescriptorBytes& merged_generator_words,
+    const SbkRomAddress& actual_original_sf2_rom_sample,
+    const OriginalCreativeSf2PitchTables& verified_original_tables,
+    std::uint32_t original_normalized_preset_group_id) noexcept;
 // Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
 // already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
 // The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
