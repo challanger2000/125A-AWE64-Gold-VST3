@@ -5,6 +5,7 @@
 #include "CreativeVxdNoteRelease.h"
 #include "CreativeVxdVoiceEnvelopePrelude.h"
 #include "CreativeSf2VoiceDescriptor.h"
+#include "CreativeSf2NoteStartPorts.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -396,6 +397,52 @@ int main(){
         CHECK(!candidateOriginalSf2InitialIpWritesFromDescriptor(
             encodedSf2,60u,30u,0,0));
     }
+    // CONTIGUOUS real VXD SF2 voice-start register slice: 18 typed
+    // E22/(620|A22|A20|E20) OUTs, now derived from the encoded 148-byte
+    // source record and actually executed through the pinned chip core.
+    // GM0's independently observed x86 values, not private ROM bytes.
+    CreativeSf2VoiceDescriptorBytes realSf2GM0{};
+    const auto fillSf2=[&](CreativeSf2VoiceDescriptorBytes& b,
+                           unsigned op,std::int16_t val) {
+        const auto w=static_cast<std::uint16_t>(val);
+        b[op*2u]=static_cast<std::uint8_t>(w);
+        b[op*2u+1u]=static_cast<std::uint8_t>(w>>8u);
+    };
+    realSf2GM0[0x88u]=0xe0u;
+    realSf2GM0[0x8au]=60u;
+    realSf2GM0[0x8cu]=1u; // actual post-note-start descriptor
+    fillSf2(realSf2GM0,58u,77);fillSf2(realSf2GM0,56u,100);
+    fillSf2(realSf2GM0,52u,4);
+    fillSf2(realSf2GM0,8u,179);fillSf2(realSf2GM0,19u,58);
+    fillSf2(realSf2GM0,34u,125);fillSf2(realSf2GM0,35u,120);
+    fillSf2(realSf2GM0,21u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,26u,125);fillSf2(realSf2GM0,27u,127);
+    fillSf2(realSf2GM0,28u,127);fillSf2(realSf2GM0,29u,0);
+    fillSf2(realSf2GM0,23u,static_cast<std::int16_t>(0x8000u));
+    const auto gm0Prefix=candidateOriginalSf2NoteStartRegisterPrefix(
+        realSf2GM0,60u,0u,true,0,0);
+    CHECK(gm0Prefix && gm0Prefix->size()==18u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0Prefix));
+    CHECK(real->voice[0].vtft==0x0000ffffu);
+    CHECK(real->voice[0].cvcf==0x0000ffffu);
+    CHECK(real->voice[0].atkhldv==0x787du);
+    CHECK(real->voice[0].lfo1val==0x8000u);
+    CHECK(real->voice[0].atkhld==0x7f7du);
+    CHECK(real->voice[0].dcysus==0x007fu);
+    CHECK(real->voice[0].lfo2val==0x8000u);
+    CHECK(real->voice[0].ip==0xc961u && real->voice[0].ifatn==0xb33au);
+    // Original GM100 second layer physical voice3 uses attack=128,
+    // encoded as hardware 127 ONLY in the register writer.
+    auto gm100=realSf2GM0;
+    fillSf2(gm100,58u,94);fillSf2(gm100,8u,255);
+    fillSf2(gm100,19u,42);fillSf2(gm100,34u,128);
+    fillSf2(gm100,35u,127);
+    const auto gm100Prefix=candidateOriginalSf2NoteStartRegisterPrefix(
+        gm100,60u,3u,true,0,0);
+    CHECK(gm100Prefix && applyOriginalCreativeVxdVoicePorts(chip,*gm100Prefix));
+    CHECK(real->voice[3].atkhldv==0x7f7fu);
+    CHECK(real->voice[3].ifatn==0xff2au);
+    CHECK(real->voice[3].ip==0xb2b5u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -426,6 +473,7 @@ int main(){
              <<" actual_SF2_GM100_attack128_hw127_IFATN_FF2A=TRUE"
              <<" real_SF2_GM0_IFATN_B33A_GM40_IFATN_9532=TRUE"
              <<" actual_SF2_GM0_GM40_GM100_IP_ON_PINNED_CHIP=4_4"
+             <<" original_SF2_18_OUT_GM0_GM100_REAL_CHIP=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
