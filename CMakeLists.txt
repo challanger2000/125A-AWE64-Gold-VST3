@@ -321,6 +321,10 @@ target_link_libraries(awe64_p002_sf2_voice_descriptor_test
 # test, so the entire source-backed SF2 note-start path is executed.
 target_link_libraries(awe64_p002_rom_note_plan_test
     PRIVATE awe64_p002_sf2_voice_descriptor)
+# Apply original SF2 DATA3/IP words on the pinned P001 chip via the
+# pre-existing transactional VXD port bridge, without modifying DSP.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
 add_test(NAME p002_original_sf2_148byte_voice_descriptor
     COMMAND awe64_p002_sf2_voice_descriptor_test)
 
