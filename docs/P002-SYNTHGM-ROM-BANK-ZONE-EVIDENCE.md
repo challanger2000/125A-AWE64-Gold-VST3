@@ -471,3 +471,41 @@ stale/unapplied event, channel mismatch, non-PitchBend events and
 out-of-range physical voice. No event time or voice allocation is
 invented. It does NOT itself implement note stealing, original
 voice selection, full port ordering or exact frame/PCM parity.
+
+## P002 live stateful voice/controller bridge — bounded native implementation
+
+The first P002 native CreativeBoundVoiceController.h/.cpp
+binds a concrete original 1MGM note-plan layer to a **caller-assigned**
+real 0..29 physical EMU8000 voice and validated **already encoded**
+Creative IFATN terms. The binding independently generates
+IP and IFATN hardware port pairs from the same original-bank note
+and decoded MIDI state; neither pair is trace replay.
+
+The class owns no sample clock, no 32-voice allocator and no fabricated
+complete original NoteOn register sequence. It tracks which physical
+voices are bound to MIDI channel/key/velocity, uses fixed-capacity
+arrays without allocation and declines duplicate physical assignments.
+It does not steal a voice without an external original-allocator
+decision.
+
+For live messages, original 16-channel MIDI state updates CC7/CC11
+and pitchbend; each currently sounding/sustained bound voice receives
+the proper independently generated IFATN or IP port pair.
+NoteOff under CC64 sustain does **not** immediately release the voice;
+CC64 pedal-up issues an explicit **semantic** release request.
+CC123 requests note-off respecting sustain, CC120 requests immediate
+kill, and CC121 controller reset preserves program/bank and releases
+previously pedal-held voices. These release/kill requests **do not**
+invent EMU8000 DCYSUSV values, timings or port writes.
+
+A new public C++ Windows contract tests the actually observed
+Win95 original held Piano note 60 velocity96:
+CC7 20=>B285, CC7 127=>B22D, CC11 30=>B26C,
+CC11 127=>B22D; and IP for bend low/center/high
+C6B8/C962/CC0C. Negative controls cover wrong bank, malformed
+ROM address, occupied/reserved physical voice, cross-channel
+isolation, sustain-held NoteOff and controller state reset.
+This is an expanded independent native MIDI->register **subset**;
+the full original VXD voice allocation / envelope release register
+values / exact event sample clock / full PCM parity remain required.
+No private Creative bytes were committed.

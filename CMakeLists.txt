@@ -154,6 +154,23 @@ target_link_libraries(awe64_p002_original_controller_volume_test
 add_test(NAME p002_native_real_win95_driver_cc7_cc11_ifatn
          COMMAND awe64_p002_original_controller_volume_test)
 
+
+# P002 stateful ROM voice binding + live controller register words.
+# Physical voice allocation and release/kill register encodings remain
+# explicit inputs/semantic actions, never invented Creative driver parity.
+add_library(awe64_p002_bound_voices STATIC
+    src/creative_compat/CreativeBoundVoiceController.cpp)
+target_include_directories(awe64_p002_bound_voices PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_bound_voices PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_bound_voices
+    PUBLIC awe64_p002_original_controller_volume awe64_p002_pitch_candidate)
+add_executable(awe64_p002_bound_voices_test
+    tests/p002_native_bound_voice_controller.cpp)
+target_link_libraries(awe64_p002_bound_voices_test
+    PRIVATE awe64_p002_bound_voices)
+add_test(NAME p002_native_real_creative_live_voice_controllers
+         COMMAND awe64_p002_bound_voices_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
