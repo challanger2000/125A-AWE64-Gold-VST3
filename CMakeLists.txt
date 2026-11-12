@@ -275,6 +275,23 @@ target_link_libraries(awe64_p002_vxd_note_release_test
     PRIVATE awe64_p002_vxd_note_release)
 add_test(NAME p002_original_win95_midi_note_release_registers
          COMMAND awe64_p002_vxd_note_release_test)
+
+# Original source LCOD+0x6072/0x60E4 VXD-state NoteOff applies genuine
+# per-voice byte rates; when release rewrites the sample loop, it READS
+# the original hardware CSL/PSST upper bytes through pinned chip IO.
+add_library(awe64_p002_sf2_source_note_release STATIC
+    src/creative_compat/CreativeSf2VxdSourceRelease.cpp)
+target_include_directories(awe64_p002_sf2_source_note_release
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_source_note_release PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_source_note_release
+    PUBLIC awe64_p002_sf2_vxd_state_snapshot awe64_p002_vxd_note_release)
+add_executable(awe64_p002_sf2_source_note_release_test
+    tests/p002_native_sf2_source_release.cpp)
+target_link_libraries(awe64_p002_sf2_source_note_release_test
+    PRIVATE awe64_p002_sf2_source_note_release)
+add_test(NAME p002_source_original_vxd_note_release
+    COMMAND awe64_p002_sf2_source_note_release_test)
 target_link_libraries(awe64_p002_real_chip_port_bridge
     PUBLIC awe64_p002_vxd_note_release)
 
