@@ -36,7 +36,12 @@ struct InitialIfatn {
 [[nodiscard]] std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
     std::uint8_t velocity, const CandidateVoiceParameters& terms,
     std::uint16_t creative_bank, std::uint16_t encoded_vol_attack_rate) noexcept;
-// The recovered original VXD has an explicit 128-entry velocity lookup.\n// Its v1..127 values independently match the existing GM0/GM40 measured\n// shared curve; velocity zero never starts a new voice.\n[[nodiscard]] std::uint8_t originalCreativeMeasuredVelocityLevel(\n    std::uint8_t velocity) noexcept;\n// The physical voice is supplied by the as-yet unverified Creative allocator.
+// The recovered original VXD has an explicit 128-entry velocity lookup.
+// Its v1..127 values independently match the existing GM0/GM40 measured
+// shared curve; velocity zero never starts a new voice.
+[[nodiscard]] std::uint8_t originalCreativeMeasuredVelocityLevel(
+    std::uint8_t velocity) noexcept;
+// The physical voice is supplied by the as-yet unverified Creative allocator.
 // Port writes are generated independently from MIDI and parameter inputs,
 // not copied from original EMU8K_TRACE. Only IFATN is generated so far.
 [[nodiscard]] std::optional<std::array<PortWord,2>> candidateInitialIfatnWrites(
