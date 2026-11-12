@@ -252,3 +252,43 @@ programs; isolated GCC C++23 ASan/UBSan checks also passed.
 This produces a per-layer *note plan*, not original physical
 EMU8000 allocation, register I/O, envelopes, or sample-clock timing.
 The P001 VST3 and original EMU8000 kernel remain unchanged.
+
+
+## P002 complete 1MGM program/key/velocity native-vs-independent audit
+
+The owner's SHA-pinned original SYNTHGM(2).SBK was tested off-CI
+over **66048 distinct original-bank note queries**:
+128 melodic programs x 128 MIDI keys x four velocities (1, 64, 100, 127)
+= 65536, plus original SBK drum bank128/program0 x 128 keys x four
+velocities = 512. An independent Python parser of the raw Creative
+preset/instrument metadata was compared to the new native C++23
+CreativeSbkLayers API on each query, preserving physical layer order,
+instrument bag, ROM sample ID and **instrument-scoped** raw cutoff.
+**66048/66048 comparisons passed, zero mismatches.**
+
+At the four velocity positions:
+- Melodic bank0: 36,380 single-layer and 29,156 two-layer matches;
+  no zero-layer matches.
+- Drum bank128: 268 zero-layer, 216 single-layer, 28 two-layer matches.
+
+The independent oracle initially produced a false cutoff discrepancy
+at GM72 due to its own incorrect fallback from *instrument* generator
+8 to *preset* generator 8. Those must remain separate in the
+metadata because the original Creative combining rule is not proven.
+After comparing matching raw generator scopes independently, there
+were **zero** differences. No Creative attenuation, attack, physical
+voice assignment, MIDI clock, or chip PCM parity is claimed by this
+pure descriptor test. No private SBK or ROM bytes are committed.
+
+Public Windows CI at run
+https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43140724440
+passed **7/7 CTests and 49/49 Python tests**, plus the actual 125A
+Plugin Test Lab P74/P73 headless VST3 inventory. This CI does NOT
+have the owner's original bank, so the full 66048 original-bank
+oracle was run privately as described, not in public CI.
+
+The next P002 gates remain: source-validated Creative volume and
+envelope conversions, original 30/32 voice allocation and controller
+events, complete independently generated sample-clock EMU8000 port
+sequence, and digital PCM equality under the original Win95 Creative
+driver. P002 is DRAFT/OPEN until those gates pass.
