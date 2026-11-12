@@ -332,6 +332,20 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
     const auto loop_start=u32(b,offset+8),loop_end=u32(b,offset+12);
     if(!(start<end && start<=loop_start && loop_start<loop_end &&
          loop_end<=end && end<=rom_words))return std::nullopt;
-    return SbkRomAddress{sample_id,start,end,loop_start,loop_end};
+    SbkRomAddress out{sample_id,start,end,loop_start,loop_end};
+    out.source_format=sourceFormat;
+    if(sourceFormat==OriginalCreativeBankFormat::Format2Sf2) {
+        // These fields are an actual, independently encoded standard SF2
+        // shdr at +36..+45, not the three packed SBK ROM address records.
+        const auto header=shdr.begin+std::size_t(sample_id)*stride;
+        out.sample_rate_hz=u32(b,header+36u);
+        out.original_pitch=b[header+40u];
+        out.pitch_correction=static_cast<std::int8_t>(b[header+41u]);
+        out.sample_link=u16(b,header+42u);
+        out.sample_type=u16(b,header+44u);
+        if(out.sample_rate_hz==0u || out.original_pitch>127u)
+            return std::nullopt;
+    }
+    return out;
 }
 }
