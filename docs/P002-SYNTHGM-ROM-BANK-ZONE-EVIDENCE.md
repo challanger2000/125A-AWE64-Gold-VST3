@@ -1020,3 +1020,69 @@ Voice-Descriptor+0x60 amplitude provenance are established, but actual
 generator48->device and generator34/36/38/...->voice conversions are
 still open. Complete native MIDI->original register->PCM comparison
 is still NOT an accepted PASS.
+
+ 
+## Original Creative 1MGM envelope generator dispatch fully localized (PCOD)
+
+The private ORIGINAL installed SBAWE.VXD LE object was examined at
+PCOD+0x37BA. The native SF1/1MGM preset/instrument parser calls this
+dispatcher at PCOD+0x2A92 and PCOD+0x2AF3 with the actual original
+16-bit generator ID, signed generator value, and scale argument 1.
+The generator jump table is NOT guessed from conventional SF2:
+- Original PCOD+0x37CA has a 44-byte generator-ID -> handler index
+  table whose relocation maps to PCOD+0x3959.
+- Its subsequent 23-entry DWORD jump-target table is at PCOD+0x38FD.
+  These pointer targets were recovered from the actual LE page-fixup
+  records for PCOD page113, NOT from a generic SoundFont specification.
+
+Exact original branch mapping for validated envelope IDs:
+- generator26 and generator34 (attackModEnv and attackVolEnv) go to
+  original PCOD+0x3849, which calls the distinct original LCOD+0x74F2
+  ATTACK search helper; its 127 WORD thresholds begin at LCOD+0x30AA.
+- generator28, generator30, generator38 (decay/release paths) go to
+  original PCOD+0x3885 or +0x38C4, both using PCOD+0x3791 with
+  the 128 WORD thresholds at LCOD+0x31A8.
+- Original generator8 goes to PCOD+0x3807, which doubles its raw value.
+  This source-dispatch proof supports the earlier GM0/GM40 cutoff*2
+  results without installing special cases for those programs.
+- Generator36 and generator48 have DIFFERENT original operations;
+  the strict rate lookup is not used for them. Neither the original
+  VOICE RECORD +0x60 amplitude nor DEVICE STATE +0x10 additive volume
+  is inferred from raw generator48.
+
+Original attack lookup at LCOD+0x74F2: raw input0 returns 128;
+otherwise the first threshold STRICTLY BELOW the original uint16
+input wins, scanning threshold indices 1..126 (index0 is skipped);
+if none wins, return 126. This differs materially from the PCOD+0x3791
+decay/release helper (default127). A second full 65,536-input oracle
+digest was calculated independently from the owner's PRIVATE original
+LCOD+0x30AA bytes: FNV1a64 EBB9EE405DAB7E7F. Native C++ now performs
+both real generator branches in the EXISTING envelope-prelude source
+component, testing all uint16 inputs and comparing both complete
+original-table digests and boundary/ID negative cases.
+
+Original owner SYNTHGM.SBK C4 cases:
+- GM0 Piano selected original instrument zone has local gen8=89,
+  no explicit gen34: existing verified original-driver attack default
+  is retained instead of inventing a raw generator.
+- GM40 Violin selected instrument has global gen8=105 AND
+  global gen34=10. Actual original PCOD attack helper maps raw10
+  to encoded attack115 (NOT 10 and NOT decay-helper 127).
+  That activates the original VXD velocity filter branch:
+  floor((90 * (105*2) + 160)/128) = 148, which independently matches
+  original Win95 Violin velocity90 filter register observations.
+
+The existing CreativeBoundVoiceController::bindWithOriginalSbkCutoff()
+now uses this SAME original PCOD generator34 conversion IF the
+instrument generator is explicit; absent generator34 leaves the
+caller's genuinely driver-verified default; preset generator34
+scope is rejected until the original merge operation is known.
+No alternative engine, duplicate bank reader, or new branch is added.
+The original VST and pinned EMU8000 core remain unchanged.
+Native WinMM/ROM-layer tests and the actual chip test verify generated
+GM40 C4 IP=BC66 and hardware IFATN high byte=148, rather than
+passing a hardcoded measured filter value as the input.
+
+The full volume/attenuation provenance (+0x10 DEVICE STATE and +0x60
+VOICE RECORD), additional generator scopes and complete original
+sample-clock MIDI->register->PCM parity remain open.

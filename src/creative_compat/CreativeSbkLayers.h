@@ -19,7 +19,8 @@ struct SbkLayer {
     std::uint8_t program=0, key=0, velocity=0;
     std::uint16_t rom_sample_selector=0; // NOT an index into Creative shdr
     SbkGeneratorScope preset_global{}, preset_local{}, instrument_global{}, instrument_local{};
-    // Instrument generator 8 is demonstrably used for the verified GM0/GM40 cases.
+    // Original 1MGM PCOD generator8 dispatcher directly doubles the
+    // instrument raw value; also verified by actual GM0/GM40 chip traces.
     // No instrument generator: return nullopt, not a guessed chip cutoff.
     [[nodiscard]] std::optional<std::uint16_t> instrumentRawCutoff() const noexcept {
         const auto local=instrument_local.get(8);

@@ -67,8 +67,43 @@ int main(){
     }
     CHECK(fnv==0xedaf6dc7659a5db1ull);
     CHECK(hist[0]==18022 && hist[127]==25);
+    // Independently recovered ORIGINAL LE PCOD+0x37BA generator-dispatch
+    // mapping: gen26 and gen34 -> LCOD+0x74F2 ATTACK lookup; gen28,
+    // gen30 and gen38 -> PCOD+0x3791 RELEASE/DECAY lookup.
+    CHECK(originalCreativePcodAttackRateFromWord(0)==128);
+    CHECK(originalCreativePcodAttackRateFromWord(10)==115);
+    CHECK(originalCreativePcodAttackRateFromWord(127)==55);
+    CHECK(originalCreativePcodAttackRateFromWord(1000)==11);
+    CHECK(originalCreativePcodAttackRateFromWord(65535)==1);
+    CHECK(candidateOriginalCreative1MgmGeneratorEnvelopeRate(26,10)==115);
+    CHECK(candidateOriginalCreative1MgmGeneratorEnvelopeRate(34,10)==115);
+    CHECK(candidateOriginalCreative1MgmGeneratorEnvelopeRate(28,1000)==39);
+    CHECK(candidateOriginalCreative1MgmGeneratorEnvelopeRate(30,680)==49);
+    CHECK(candidateOriginalCreative1MgmGeneratorEnvelopeRate(38,918)==41);
+    // These IDs use OTHER original VXD processing: do not assume the
+    // PCOD threshold is a universal timecents converter.
+    CHECK(!candidateOriginalCreative1MgmGeneratorEnvelopeRate(36,10));
+    CHECK(!candidateOriginalCreative1MgmGeneratorEnvelopeRate(48,10));
+    CHECK(!candidateOriginalCreative1MgmGeneratorEnvelopeRate(8,10));
+    CHECK(!candidateOriginalCreative1MgmGeneratorEnvelopeRate(255,10));
+    std::uint64_t attackDigest=14695981039346656037ull;
+    std::array<std::uint32_t,129> attackHist{};
+    for(std::uint32_t input=0;input<65536u;++input) {
+        const auto rate=originalCreativePcodAttackRateFromWord(
+            static_cast<std::uint16_t>(input));
+        CHECK(rate<=128);
+        ++attackHist[rate];
+        attackDigest=(attackDigest^rate)*1099511628211ull;
+    }
+    // Independent original owner's LCOD 0x30AA private table, full
+    // exhaustive 65,536-case native-vs-original functional checksum.
+    CHECK(attackDigest==0xebb9ee405dab7e7full);
+    CHECK(attackHist[1]==59596 && attackHist[126]==6 &&
+          attackHist[128]==1);
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
              <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
-             <<" strict_less_than=TRUE native_full_noteon_PCM_UNVERIFIED=TRUE\n";
+             <<" strict_less_than=TRUE ATTACK_65536=PASS"
+             <<" original_SBK_generator26_28_30_34_38=TRUE"
+             <<" native_full_noteon_PCM_UNVERIFIED=TRUE\n";
 }

@@ -228,6 +228,51 @@ int main(){
               oneShotGeometry->loop_address_ports));
     CHECK(real->voice[3].psst==0x47015302u);
     CHECK(real->voice[3].csl==0x53015306u);
+    // Actual original GM40 Violin instrument zone:
+    // gen8=105 -> cutoff210, gen34=10 -> attack115. At velocity90
+    // original hardware cutoff=148. Use a fresh centered MIDI pitch
+    // state; the earlier test explicitly pitchbent channel0 to max.
+    CreativeRomNotePlan violin{};
+    violin.channel=0;violin.program=40;
+    violin.key=60;violin.velocity=90;
+    violin.original_sbk_bank=0;violin.count=1;
+    auto& vl=violin.layers[0].metadata;
+    vl.bank=0;vl.program=40;vl.key=60;vl.velocity=90;
+    vl.rom_sample_selector=55;
+    violin.layers[0].address={
+        55,0x3765bu,0x37d1eu,0x37cf5u,0x37d18u};
+    vl.instrument_global.raw[8]=105;
+    vl.instrument_global.raw[34]=10;
+    vl.instrument_local.raw[55]=8670;
+    const auto rawAttack=vl.instrumentRawAttackVolEnv();
+    CHECK(rawAttack && *rawAttack==10);
+    const auto convertedAttack=candidateOriginalCreative1MgmGeneratorEnvelopeRate(
+        34u,*rawAttack);
+    CHECK(convertedAttack && *convertedAttack==115);
+    const auto originalCut=vl.candidateOriginal1MgmInstrumentCutoff();
+    CHECK(originalCut && *originalCut==210);
+    auto violinTerms=bankTerms;
+    violinTerms.initial_cutoff=*originalCut;
+    violinTerms.encoded_volume_attack_rate=*convertedAttack;
+    violinTerms.volume.device_state_additive_attenuation=8;
+    const auto violinOn=decodeWinMmShort(0x005a3c90u);
+    CHECK(violinOn);
+    MidiState violinMidi{}; // centered pitchbend, original C4
+    const auto vip=candidateOriginalRomIpWrites(
+        violin,0,9,violinMidi);
+    const auto vif=candidateOriginalCreativeIfatnWrites(
+        *violinOn,9,violinMidi,violinTerms);
+    CHECK(vip && vif && (*vip)[1].value==0xBC66 &&
+          ((*vif)[1].value>>8)==148);
+    const std::array<OriginalWin95VxdPortWrite,4> writesViolin{{
+        {(*vip)[0].port,(*vip)[0].value,8},
+        {(*vip)[1].port,(*vip)[1].value,16},
+        {(*vif)[0].port,(*vif)[0].value,8},
+        {(*vif)[1].port,(*vif)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,writesViolin));
+    CHECK(real->voice[9].ip==0xBC66);
+    CHECK(real->voice[9].ifatn_init_filter==148);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -254,6 +299,7 @@ int main(){
              <<" original_CCCA_source_minus4_Q_actual_chip=TRUE"
              <<" original_NoteOn_PSST_CSL_geometry_chip=TRUE"
              <<" selected_original_SBK_gen8_to_REAL_chip_cutoff178=TRUE"
+             <<" original_GM40_gen8_105_gen34_10_REAL_chip_cutoff148=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

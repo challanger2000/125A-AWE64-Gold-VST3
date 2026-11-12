@@ -1,4 +1,5 @@
 #include "CreativeBoundVoiceController.h"
+#include "CreativeVxdVoiceEnvelopePrelude.h"
 namespace awe64::creative {
 namespace {
 MidiMessage originalNote(const std::uint8_t channel,const std::uint8_t key,
@@ -62,6 +63,17 @@ CreativeBoundVoiceController::bindWithOriginalSbkCutoff(
     if(!cutoff)return std::nullopt;
     auto terms=verified_terms;
     terms.initial_cutoff=*cutoff;
+    // Original SF1/1MGM PCOD generator34 is a DISTINCT attack helper,
+    // not the table used for generator28/30/38 decay/release rates.
+    if(layer.preset_global.get(34) || layer.preset_local.get(34))
+        return std::nullopt; // unknown preset-level rate combination
+    const auto rawAttack=layer.instrumentRawAttackVolEnv();
+    if(rawAttack) {
+        const auto encoded=candidateOriginalCreative1MgmGeneratorEnvelopeRate(
+            34u,*rawAttack);
+        if(!encoded)return std::nullopt;
+        terms.encoded_volume_attack_rate=*encoded;
+    }
     // Use the EXISTING single native bind logic and controls. No parallel
     // voice allocator or second chip register writer is introduced.
     return bind(note,index,voice,terms);

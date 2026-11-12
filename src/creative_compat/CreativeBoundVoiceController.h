@@ -50,8 +50,10 @@ public:
         std::uint8_t physical_voice, const OriginalCreativeIfatnTerms& encoded_terms) noexcept;
     // Derive actual original GM0/GM40 instrument cutoff from the selected
     // SBK generator8 (local overrides global), not a caller-made value.
-    // Unknown preset generator offsets / drums fail closed. Other original
-    // VXD-ENCODED volume and attack fields remain explicit inputs.
+    // When original instrument generator34 exists, also derive its actual
+    // PCOD+0x37BA/LCOD+0x74F2 encoded attack rate. Missing generator34
+    // retains the caller-proven driver default; other encoded terms
+    // remain explicit. Preset offsets and bank128 drums fail closed.
     [[nodiscard]] std::optional<OriginalRomInitialRegisterCandidates>
     bindWithOriginalSbkCutoff(
         const CreativeRomNotePlan& plan,std::size_t layer_index,

@@ -187,6 +187,37 @@ int main() {
         bankNote,0,9,poisoned));
     CHECK(originalBankBound.occupiedVoiceCount()==1);
     CHECK(originalBankBound.clearPhysicalVoice(0));
+    // Actual owner's original GM40/Violin C4 raw instrument values:
+    // global generator8=105, generator34=10, local pitch=8670.
+    // The PCOD+0x37BA generator34 attack path maps raw10 -> 115,
+    // which activates the genuine Creative velocity cutoff branch:
+    // (90*210+160)>>7 == 148 (measured original Win95 C4).
+    CreativeBoundVoiceController violinController{};
+    auto violinNote=pianoNote();
+    violinNote.program=40;violinNote.velocity=90;
+    violinNote.layers[0].metadata.program=40;
+    violinNote.layers[0].metadata.velocity=90;
+    violinNote.layers[0].metadata.rom_sample_selector=55;
+    violinNote.layers[0].address={
+        55,0x3765bu,0x37d1eu,0x37cf5u,0x37d18u};
+    violinNote.layers[0].metadata.instrument_global.raw[8]=105;
+    violinNote.layers[0].metadata.instrument_local.raw[8].reset();
+    violinNote.layers[0].metadata.instrument_global.raw[34]=10;
+    violinNote.layers[0].metadata.instrument_local.raw[55]=8670;
+    CHECK(violinController.process(decode(msg(0xC2,40,0))));
+    auto wrongAttack=terms;
+    wrongAttack.initial_cutoff=12; // wrong on purpose
+    wrongAttack.encoded_volume_attack_rate=125; // wrong on purpose
+    const auto violinBound=violinController.bindWithOriginalSbkCutoff(
+        violinNote,0,9,wrongAttack);
+    CHECK(violinBound &&
+          (violinBound->filter_and_attenuation[1].value>>8)==148);
+    CHECK(violinBound->pitch[1].value==0xBC66);
+    CHECK(wrongAttack.encoded_volume_attack_rate==125);
+    CHECK(violinController.clearPhysicalVoice(9));
+    violinNote.layers[0].metadata.preset_local.raw[34]=2;
+    CHECK(!violinController.bindWithOriginalSbkCutoff(
+        violinNote,0,9,wrongAttack)); // preset attack offset unresolved
     std::cout<<"P002_BOUND_ORIGINAL_ROM_VOICES_PASS original_live_cc=4 pitchbend=3"
              <<" sustain_release=TRUE all_sound_off=TRUE"
              <<" allocator_and_release_registers_EXPLICITLY_UNVERIFIED=TRUE\n";

@@ -34,4 +34,15 @@ candidateOriginalVxdVoiceEnvelopePrelude(
 // Physical input units are UNKNOWN: raw SF1/SBK generator34 is NOT input.
 [[nodiscard]] std::uint8_t originalCreativePcodEnvelopeRateFromWord(
     std::uint16_t actual_original_driver_time_word) noexcept;
+// Actual original Creative 1MGM PCOD generator dispatcher +0x37BA,
+// resolved via the LE page-fixup jump table. Generator 26/34 use the
+// DIFFERENT ATTACK helper in LCOD+0x74F2; 28/30/38 use PCOD+0x3791.
+// This maps genuine SBK generator WORDS in the original SF1/1MGM path,
+// not unverified generalized SF2 timecents. Other generators fail closed.
+[[nodiscard]] std::uint8_t originalCreativePcodAttackRateFromWord(
+    std::uint16_t actual_original_sbk_word) noexcept;
+[[nodiscard]] std::optional<std::uint8_t>
+candidateOriginalCreative1MgmGeneratorEnvelopeRate(
+    std::uint16_t generator_id,
+    std::uint16_t original_sbk_raw_word) noexcept;
 } // namespace awe64::creative
