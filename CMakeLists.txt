@@ -292,7 +292,7 @@ target_link_libraries(awe64_p002_vxd_voice_envelope_prelude
 add_executable(awe64_p002_vxd_voice_envelope_prelude_test
     tests/p002_native_vxd_voice_envelope_prelude.cpp)
 target_link_libraries(awe64_p002_vxd_voice_envelope_prelude_test
-    PRIVATE awe64_p002_vxd_voice_envelope_prelude)
+    PRIVATE awe64_p002_vxd_voice_envelope_prelude awe64_p002_sbk_layers)
 add_test(NAME p002_original_creative_vxd_note_start_envelope_prelude
     COMMAND awe64_p002_vxd_voice_envelope_prelude_test)
 target_link_libraries(awe64_p002_real_chip_port_bridge
