@@ -61,13 +61,15 @@ std::array<std::uint8_t,148> realSourceDerivedGm0() {
 }
 void writeDiagFixture(const std::filesystem::path& p,bool badSha,
                       bool releaseV2=false,bool sustain=false,
-                      bool wrongOriginalMarker=false){
+                      bool wrongOriginalMarker=false,
+                      bool sourceDerivedV3=false){
     std::ofstream o(p,std::ios::binary|std::ios::trunc);
     require(bool(o),"cannot open synthetic P002 host fixture");
     auto raw=[&](std::uint8_t b){o.put(static_cast<char>(b));};
     for(const char c:std::string("125AP2D1"))o.put(c);
     const std::array<std::uint8_t,6> head{{
-        static_cast<std::uint8_t>(releaseV2?2u:1u),0u,0u,60u,90u,1u}};
+        static_cast<std::uint8_t>(sourceDerivedV3?3u:releaseV2?2u:1u),
+        0u,0u,60u,90u,1u}};
     for(const auto v:head)raw(v);
     std::array<std::uint8_t,32> vxd{{
         0xd3,0x43,0xf2,0x42,0x8a,0xb3,0xe5,0x93,
@@ -214,12 +216,18 @@ int wmain(int argc,wchar_t** argv){
     sustainedFixture+=L".sustained";
     auto badMarkerFixture=fixture;
     badMarkerFixture+=L".badmarker";
+    auto sourceDerivedFixture=fixture;
+    sourceDerivedFixture+=L".derived";
+    auto derivedSustainFixture=fixture;
+    derivedSustainFixture+=L".derivedsustain";
     try{
         writeDiagFixture(fixture,false);
         writeDiagFixture(mutant,true);
         writeDiagFixture(releaseFixture,false,true,false,false);
         writeDiagFixture(sustainedFixture,false,true,true,false);
         writeDiagFixture(badMarkerFixture,false,true,false,true);
+        writeDiagFixture(sourceDerivedFixture,false,false,false,false,true);
+        writeDiagFixture(derivedSustainFixture,false,false,true,false,true);
         require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "private Creative ROM process binding failed");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
@@ -265,6 +273,29 @@ int wmain(int argc,wchar_t** argv){
         const auto sustainDeferred=renderNote(factory,90.f/127.f,8);
         require(sustainHeld.hash==sustainDeferred.hash,
                 "original sustain-deferred NoteOff unexpectedly changed PCM");
+        // Version3 is the new authentic source-code dataflow: the
+        // instrument's already ORIGINAL-encoded descriptor gen30 and
+        // gen38 are copied to the live Win95 voice state by the VST3
+        // parser itself (LCOD+0x5A9D/+0x5AA6). No caller-supplied
+        // fabricated release-rate fields are accepted or required.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           sourceDerivedFixture.c_str())==0,
+                "set descriptor-derived original NoteOff fixture");
+        const auto descriptorHeld=renderNote(factory,90.f/127.f);
+        const auto descriptorReleased=renderNote(factory,90.f/127.f,8);
+        require(descriptorHeld.hash==releaseHeld.hash,
+                "source-derived NoteOn differs from source-verified v2");
+        require(descriptorReleased.hash==released.hash,
+                "original SF2 gen30/38 NoteOff differs from exact v2 record");
+        require(descriptorHeld.hash!=descriptorReleased.hash,
+                "original descriptor-derived NoteOff did not change PCM");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           derivedSustainFixture.c_str())==0,
+                "set descriptor-derived channel sustain fixture");
+        const auto derivedSustainHeld=renderNote(factory,90.f/127.f);
+        const auto derivedSustainOff=renderNote(factory,90.f/127.f,8);
+        require(derivedSustainOff.hash==derivedSustainHeld.hash,
+                "original CHANNEL+4 sustain wrongly released source voice");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            badMarkerFixture.c_str())==0,
                 "set invalid source note identity fixture");
@@ -279,6 +310,8 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(releaseFixture,ec);
         std::filesystem::remove(sustainedFixture,ec);
         std::filesystem::remove(badMarkerFixture,ec);
+        std::filesystem::remove(sourceDerivedFixture,ec);
+        std::filesystem::remove(derivedSustainFixture,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
                  <<" original_ROM_from_hash_locked_external_source=TRUE"
                  <<" synthetic_original_x86_GM0_fixture=TRUE"
@@ -289,6 +322,8 @@ int wmain(int argc,wchar_t** argv){
                  <<" corrupted_source_identity_rejected=TRUE"
                  <<" source_VXD_encoded_NoteOff_changes_actual_PCM=TRUE"
                  <<" source_VXD_sustain_defers_HW_release=TRUE"
+                 <<" source_original_SF2_gen30_gen38_NoteOff_v3_PCM_parity=TRUE"
+                 <<" sustain_from_channel_plus4_NOT_voice_plus4=TRUE"
                  <<" wrong_NoteOff_channel_and_key_ignored=TRUE"
                  <<" invalid_original_voice_marker_rejected=TRUE"
                  <<" original_Win95_driver_pcm_parity=NOT_PROVEN"
@@ -302,6 +337,8 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(releaseFixture,ec);
         std::filesystem::remove(sustainedFixture,ec);
         std::filesystem::remove(badMarkerFixture,ec);
+        std::filesystem::remove(sourceDerivedFixture,ec);
+        std::filesystem::remove(derivedSustainFixture,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
         return 1;
     }
