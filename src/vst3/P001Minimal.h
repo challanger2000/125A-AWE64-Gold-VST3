@@ -2,6 +2,7 @@
 // P001 only: one fixed ROM test voice, NOT yet Creative GM, SBK, SF2 or a user GUI.
 // The unchanged EMU8000 chip runs at 44100 Hz. No heap/file/lock on process().
 #include "Chip.h"
+#include "P002PrivateNoteFixture.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
 #include <cstddef>
@@ -31,7 +32,7 @@ public:
     OBJ_METHODS(Minimal, SingleComponentEffect)
     REFCOUNT_METHODS(SingleComponentEffect)
 private:
-    void noteOn(int pitch, float velocity) noexcept;
+    void noteOn(int channel, int pitch, float velocity) noexcept;
     void noteOff(int pitch) noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
@@ -39,6 +40,8 @@ private:
     void write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t value) noexcept;
 
     awe64::Chip chip_;
+    P002PrivateNoteFixture p002Fixture_{};
+    bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     std::array<int32_t, 980u*2u> scratch_{};
     int playingKey_ = -1;
     bool active_ = false;

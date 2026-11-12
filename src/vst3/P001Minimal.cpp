@@ -54,6 +54,7 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
         processing_=false; active_=false; playingKey_=-1;
+        p002DiagnosticEnabled_=false;
         chip_.close(); // non-RT activation thread only
         return kResultOk;
     }
@@ -68,6 +69,21 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!chip_.open(std::filesystem::path(path),error)) {
         std::fprintf(stderr,"125A P001 ROM init failed: %s\n",error.c_str());
         return kResultFalse;
+    }
+    // P002 private ORIGINAL x86 one-note diagnostic opt-in. Never
+    // changes approved P001 normal playback or accepts a bankless fake
+    // preset when the private fixture is missing/corrupt.
+    p002DiagnosticEnabled_=false;
+    if(const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
+       diag && *diag) {
+        std::string why;
+        if(!loadP002PrivateNoteFixture(std::filesystem::path(diag),p002Fixture_,why)) {
+            std::fprintf(stderr,"125A P002 source diagnostic rejected: %s\\n",why.c_str());
+            chip_.close();return kResultFalse;
+        }
+        chip_.writePort(0xe22u,(1u<<5u)|31u); // original HWCF3 unmute
+        chip_.writePort(0xa20u,0x0004u);
+        p002DiagnosticEnabled_=true;
     }
     active_=true; playingKey_=-1;
     return kResultOk;
@@ -85,9 +101,27 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
     chip_.writePort(port,uint16_t(value));
     chip_.writePort(uint16_t(port+2),uint16_t(value>>16));
 }
-void Minimal::noteOn(int pitch,float velocity) noexcept {
+void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(pitch);return;}
+    if(p002DiagnosticEnabled_) {
+        // This is ONLY a one-note authenticated ORIGINAL x86 VXD source
+        // diagnostic, not a GM soundbank manager, MIDI program map,
+        // multi-key/polyphonic allocator or production release path.
+        // MIDI note value and velocity are fixed by independently
+        // captured ORIGINAL SBAWE.VXD 148-byte voice descriptors.
+        const auto expected=static_cast<int>(p002Fixture_.velocity);
+        const auto incoming=static_cast<int>(velocity*127.f+0.5f);
+        if(channel!=p002Fixture_.channel || pitch!=p002Fixture_.key ||
+           incoming!=expected) return;
+        auto notes=p002Fixture_.selectedVoices();
+        if(!awe64::creative::candidateOriginalSf2WriteInitialIpToVxdState(
+               p002Fixture_.original_device_state,true,notes))return;
+        if(!awe64::creative::applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+               chip_,notes,p002Fixture_.sourceState()))return;
+        playingKey_=pitch;
+        return;
+    }
     // Fixed ROM voice with pitch-tracked IP. Creative velocity and bank
     // translation are explicitly reserved for P002/P003.
     write(1,31,0xA20,0x0004); // P001 audible stereo unmute
@@ -117,6 +151,14 @@ void Minimal::noteOn(int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int pitch) noexcept {
     if (active_ && playingKey_==pitch) {
+        if(p002DiagnosticEnabled_) {
+            // Not yet a verified full original VXD voice-state/CC64
+            // lifecycle. Do not apply P001 synthetic release to P002.
+            // The original driver note-off handler remains separately
+            // gated until its dynamic runtime-state source is proven.
+            playingKey_=-1;
+            return;
+        }
         // On this original chip, bit 0x0080 DISABLES the envelope
         // generator. 0x8080 therefore freezes its current level and leaves
         // the PCM audible: it is NOT a working NoteOff. Keep the engine on
@@ -165,9 +207,11 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         if (offset<pos) return kInvalidArgument; // sorted real host events required
         render(pos,offset,left,right);
         pos=offset;
-        if (e.type==Event::kNoteOnEvent && e.noteOn.channel==0)
-            noteOn(e.noteOn.pitch,e.noteOn.velocity);
-        else if(e.type==Event::kNoteOffEvent && e.noteOff.channel==0)
+        if (e.type==Event::kNoteOnEvent &&
+            (p002DiagnosticEnabled_ || e.noteOn.channel==0))
+            noteOn(e.noteOn.channel,e.noteOn.pitch,e.noteOn.velocity);
+        else if(e.type==Event::kNoteOffEvent &&
+                (p002DiagnosticEnabled_ || e.noteOff.channel==0))
             noteOff(e.noteOff.pitch);
     }
     render(pos,data.numSamples,left,right);
