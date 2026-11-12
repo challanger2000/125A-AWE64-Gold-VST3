@@ -142,6 +142,12 @@ int main(){
     const auto firstIp=candidateOriginalSf2InitialIpFromDescriptor(
         *started,60u,0,0);
     CHECK(firstIp && *firstIp==0xe000u);
+    const auto sf2IpPorts=candidateOriginalSf2InitialIpWritesFromDescriptor(
+        *started,60u,3u,0,0);
+    CHECK(sf2IpPorts && (*sf2IpPorts)[0].port==0xe22u &&
+          (*sf2IpPorts)[0].value==3u &&
+          (*sf2IpPorts)[1].port==0xe20u &&
+          (*sf2IpPorts)[1].value==0xe000u);
     const auto transposedIp=candidateOriginalSf2InitialIpFromDescriptor(
         *started,61u,0,0);
     CHECK(transposedIp && *transposedIp==0xe155u);
