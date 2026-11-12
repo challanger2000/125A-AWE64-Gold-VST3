@@ -250,6 +250,28 @@ int main() {
     pitchControl[0x89u]=1u; // above documented original 24-bit pitch
     CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
         pitchControl,60u,0,0));
+    // Complete original PCOD+0x3735 x86 arithmetic (with SYNTHETIC,
+    // explicitly caller-supplied resource tables in the public test).
+    // Original private PDAT values are never embedded in this source.
+    OriginalCreativeSf2PitchTables syntheticPitchTables{};
+    syntheticPitchTables.base[11]=12345u;
+    syntheticPitchTables.slope[11]=-4;
+    CHECK(originalCreativeSf2SampleRateToDwPitch(
+        44100u,syntheticPitchTables)==0x00e00000u);
+    CHECK(originalCreativeSf2SampleRateToDwPitch(
+        22050u,syntheticPitchTables)==0x00d00000u);
+    CHECK(originalCreativeSf2SampleRateToDwPitch(
+        88200u,syntheticPitchTables)==0x00f00000u);
+    CHECK(originalCreativeSf2SampleRateToDwPitch(
+        48000u,syntheticPitchTables)==
+        0x00e00000u+12345u-4u*41u);
+    CHECK(originalCreativeSf2SampleRateToDwPitch(
+        96000u,syntheticPitchTables)==
+        0x00f00000u+12345u-4u*41u);
+    CHECK(!originalCreativeSf2SampleRateToDwPitch(
+        0u,syntheticPitchTables));
+    CHECK(!originalCreativeSf2SampleRateToDwPitch(
+        0x80000000u,syntheticPitchTables)); // low32 multiply wraps to 0
     // Reconstructed PCOD+0x3735 rate-domain prefix, not an invented
     // general dwPitch converter. The two original PDAT interpolation
     // tables remain explicit missing dependencies.
@@ -328,6 +350,13 @@ int main() {
     CHECK(readDword(*withSample,0x82u)==900u);
     CHECK(readDword(*withSample,0x86u)==0x00e00000u);
     CHECK(readDword(*withSample,0x90u)==40u);
+    // The same real-SF2 shdr metadata can now compute dwPitch FROM its
+    // sample_rate_hz, rather than requiring caller-precomputed dwPitch.
+    // Public tables are intentionally synthetic and have no Creative bytes.
+    const auto withRate=candidateOriginalSf2VoiceWithOriginalRomPitchTables(
+        generatorWords,originalRom,syntheticPitchTables,40u);
+    CHECK(withRate && readDword(*withRate,0x86u)==0x00e00000u);
+    CHECK(std::equal(withRate->begin(),withRate->end(),withSample->begin()));
     CHECK((*withSample)[0x8au]==60u && (*withSample)[0x8bu]==249u);
     CHECK(get(*withSample,0x8cu/2u)==0x8001u);
     CHECK(get(*withSample,0x8eu/2u)==0u);
