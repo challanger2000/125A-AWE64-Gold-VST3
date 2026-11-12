@@ -1,11 +1,23 @@
 #include "CreativePitchCandidate.h"
 #include <cstdint>
+#include <algorithm>
+#include <initializer_list>
 namespace awe64::creative {
 namespace {
-constexpr std::int64_t floorQuotient(std::int64_t numerator,
-                                     std::int64_t positive_denominator) noexcept {
-    const auto quotient=numerator/positive_denominator;
-    return quotient-(numerator<0 && numerator%positive_denominator!=0 ? 1 : 0);
+// Independent transcription of the arithmetic *meaning* of the author's
+// original Creative Windows 95 SBAWE.VXD code, not copied original code.
+// Private SHA256 d343f242...; LE locked-code pitch helper near 0x53AA:
+// add 16800 cents, split in 1200-cent octaves, encode 4096 steps per octave
+// with an exact 3*remainder + floor(31*remainder/75) fractional term.
+// The driver saturates the octave field to 15.
+constexpr std::optional<std::uint16_t> originalDriverCentsToIp(
+    const std::int64_t pitch_cents) noexcept {
+    const auto absolute=pitch_cents+16800;
+    if(absolute<0)return std::nullopt;
+    const auto octave=std::min<std::int64_t>(15,absolute/1200);
+    const auto remainder=absolute%1200;
+    const auto fractional=3*remainder+(31*remainder)/75;
+    return static_cast<std::uint16_t>((octave<<12)|fractional);
 }
 std::optional<std::uint16_t> inherited(const SbkGeneratorScope& local,
                                        const SbkGeneratorScope& global,
@@ -39,18 +51,23 @@ std::optional<CreativePitchResult> candidateOriginalRomIp(
     const auto raw=inherited(layer.instrument_local,layer.instrument_global,55);
     if(!raw || *raw>12799 || layer.preset_global.get(55) ||
        layer.preset_local.get(55))return std::nullopt;
-    // EMU8000 IP: E000 = unity; 100 cents = 1 semitone;
-    // 4096 chip pitch steps per octave. Negative base shifts round DOWN.
-    const auto base_numerator=(std::int64_t(midi_key)*100-*raw)*4096;
-    const auto base=floorQuotient(base_numerator,1200);
-    // In the measured Creative default pitch bend range (200 cents),
-    // center is 8192; signed fractions truncate toward zero.
+    // Original Win95 1MGM branch supplies this source-relative pitch in
+    // cents to its hardware-IP encoder. Generalized generator-55 behavior
+    // under other SF1 bank formats still requires original-driver traces.
+    const auto cents=std::int64_t(midi_key)*100-*raw;
+    const auto unbent=originalDriverCentsToIp(cents);
+    if(!unbent)return std::nullopt;
+    // The measured default bend range is +/-200 cents. Express the signed
+    // 14-bit fraction in chip pitch steps, truncating fractional steps toward
+    // zero; the original register measurements confirm the three endpoints.
     const auto bend=(std::int64_t(bend14)-8192)*
                     std::int64_t(bend_range_cents)*4096/(8192*1200);
-    const auto ip=0xe000+base+bend;
-    if(ip<0 || ip>0xffff)return std::nullopt; // no arbitrary wrap or gain trick
+    // The original Win95 voice writepath saturates its computed 16-bit
+    // pitch word after per-voice and per-channel offsets; no wraparound.
+    const auto summed=std::int64_t(*unbent)+bend;
+    const auto ip=std::clamp<std::int64_t>(summed,0,65535);
     return CreativePitchResult{static_cast<std::uint16_t>(ip),
-        static_cast<std::int32_t>(base),
+        static_cast<std::int32_t>(*unbent)-0xe000,
         static_cast<std::int32_t>(bend),*raw};
 }
 std::optional<std::array<PortWord,2>> candidateOriginalRomIpWrites(

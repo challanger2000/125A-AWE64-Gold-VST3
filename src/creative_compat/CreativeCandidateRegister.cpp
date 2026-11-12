@@ -38,6 +38,17 @@ std::optional<InitialIfatn> candidateInitialIfatn(
                         static_cast<std::uint8_t>(attenuation),
                         static_cast<std::uint16_t>((cutoff<<8)|attenuation)};
 }
+std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
+    std::uint8_t velocity, const CandidateVoiceParameters& original_terms,
+    std::uint16_t bank, std::uint16_t encoded_vol_attack_rate) noexcept {
+    // This predicate is recovered independently from the exact installed
+    // original SBAWE.VXD branch (LE locked-code near 0x4D36). The original
+    // generator34->encoded-rate conversion remains outside this function.
+    if(encoded_vol_attack_rate>127)return std::nullopt;
+    auto terms=original_terms;
+    terms.velocity_cutoff_enabled=(bank<128 && encoded_vol_attack_rate<125);
+    return candidateInitialIfatn(velocity,terms);
+}
 std::optional<std::array<PortWord,2>> candidateInitialIfatnWrites(
     const MidiMessage& midi, const std::uint8_t physicalVoice,
     const CandidateVoiceParameters& bank) noexcept {

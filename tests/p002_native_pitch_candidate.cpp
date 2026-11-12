@@ -19,6 +19,20 @@ int main() {
     CHECK(!candidateOriginalRomIp(violin,61,8192)); // stale selected key
     CHECK(!candidateOriginalRomIp(violin,60,16384));
     CHECK(!candidateOriginalRomIp(violin,60,8192,2401));
+    // Exact integer octave/fraction conversion reconstructed from the
+    // genuine Win95 Creative SBAWE.VXD helper (private binary, no copied code).
+    SbkLayer extreme{};extreme.key=127;extreme.velocity=100;
+    extreme.instrument_local.raw[55]=0;
+    const auto upperOctave=candidateOriginalRomIp(extreme,127,8192);
+    CHECK(upperOctave && upperOctave->ip==0xF955); // 15-octave field saturation
+    const auto saturation=candidateOriginalRomIp(extreme,127,16383,2400);
+    CHECK(saturation && saturation->ip==0xFFFF); // no wrap to wrong pitch
+    extreme.key=0;extreme.instrument_local.raw[55]=0;
+    CHECK(candidateOriginalRomIp(extreme,0,8192)->ip==0xE000);
+    extreme.instrument_local.raw[55]=1199;
+    CHECK(candidateOriginalRomIp(extreme,0,8192)->ip==0xD003);
+    extreme.instrument_local.raw[55]=12799;
+    CHECK(candidateOriginalRomIp(extreme,0,8192)->ip==0x3558);
     violin.instrument_global.raw[51]=1;
     CHECK(!candidateOriginalRomIp(violin,60,8192)); // unknown coarse tune
     violin.instrument_global.raw[51].reset();

@@ -29,6 +29,13 @@ struct InitialIfatn {
 // No heap operations, no IO and no unexpected fallback to a fake instrument.
 [[nodiscard]] std::optional<InitialIfatn> candidateInitialIfatn(
     std::uint8_t velocity, const CandidateVoiceParameters& bank) noexcept;
+// The actual original Windows 95 SBAWE.VXD (author's installed driver)
+// branches on original bank < 128 and its already ENCODED volume-attack
+// rate < 125 before scaling the initial filter cutoff by velocity.
+// This is NOT a converter for raw SoundFont generator 34.
+[[nodiscard]] std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
+    std::uint8_t velocity, const CandidateVoiceParameters& terms,
+    std::uint16_t creative_bank, std::uint16_t encoded_vol_attack_rate) noexcept;
 // The physical voice is supplied by the as-yet unverified Creative allocator.
 // Port writes are generated independently from MIDI and parameter inputs,
 // not copied from original EMU8K_TRACE. Only IFATN is generated so far.

@@ -333,3 +333,42 @@ pitch, invalid MIDI bend and root/tuning controls.
 This is **bounded original-pitch register coverage**, not a complete
 note-on sequence or claim of original timer/voice/PCM parity.
 The frozen P001 original EMU8000 DSP and VST3 remain unchanged.
+
+## Original installed Creative driver binary: private static reverse-analysis
+
+A local, private copy of the author's existing retro Windows 95 VM was
+unpacked from the previously supplied ZIP. The actual installed
+Creative binary `WINDOWS/SYSTEM/SBAWE.VXD` (LE, 77,370 bytes, SHA-256
+`d343f2428ab3e593c9e42a668cf521b7801e1239792eaf7f2b11b5f179bc7c9a`)
+was **read in place**. The driver binary has NOT been copied into
+the project or CI.
+
+The original VxD locked-code region contains a cents→IP encoder
+(its code object relative offset around 0x53AA) that adds a
+16800-cent reference, divides by 1200 per octave and encodes
+the remainder with the integer expression 3*r + floor(31*r/75),
+with the octave field saturated at 15. This is the mathematically
+exact 4096-step/octave fraction. The native
+CreativePitchCandidate.cpp now uses this actual driver-derived
+integer encoder instead of the prior merely equivalent
+approximation. The extracted original-file SHA is the private
+provenance lock. Original observed GM0/GM40 C4 IP and the three GM0
+bend extremes continue to be required by tests.
+
+Separately, the same real Win95 VxD locked-code branch near 0x4D36
+checks the melodic instrument bank (<128) and the **already encoded**
+volume-envelope attack rate (<0x7D) before the
+((max(70,velocity) * base_cutoff + 0xA0) >> 7)
+velocity-filter calculation. This corroborates observed original
+Violin 90 velocity cutoff 148 from base210, plus the stationary
+GM0 cutoff. The new explicit
+candidateOriginalIfatnFromEncodedAttack() accepts that **already
+encoded attack rate** and original bank as distinct inputs, with
+invalid attack rates rejected; it does NOT assert that SF1/SF2 raw
+generator34 directly equals this hardware rate.
+
+**Evidence boundary:** the original binary validates specific
+instructions and arithmetic; it does not establish a full
+MIDI-program/volume/voice trace equivalence, sample-accurate
+register scheduling, exact channel-controller combination or PCM
+identity for independently generated P002 sound.
