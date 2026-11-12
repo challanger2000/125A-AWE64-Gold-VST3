@@ -98,16 +98,23 @@ int main(){
     piano.layers[0].metadata.program=0;
     piano.layers[0].metadata.bank=0;
     piano.layers[0].metadata.instrument_local.raw[55]=7696;
+    piano.layers[0].metadata.instrument_global.raw[8]=110;
+    piano.layers[0].metadata.instrument_local.raw[8]=89;
     MidiState state;
     OriginalCreativeIfatnTerms encoded{};
-    encoded.bank=0; encoded.initial_cutoff=178;
+    encoded.bank=0; encoded.initial_cutoff=12; // poisoned caller cutoff
     encoded.encoded_volume_attack_rate=125;
     encoded.volume={100,127,16,0,true};
+    const auto cutoffFromOriginalBank=
+        piano.layers[0].metadata.candidateOriginal1MgmInstrumentCutoff();
+    CHECK(cutoffFromOriginalBank && *cutoffFromOriginalBank==178);
+    auto bankTerms=encoded;
+    bankTerms.initial_cutoff=*cutoffFromOriginalBank;
     const auto message=decodeWinMmShort(0x00603c90u);
     CHECK(message && message->kind==MidiKind::NoteOn);
     const auto ip=candidateOriginalRomIpWrites(piano,0,3,state);
     const auto ifatn=candidateOriginalCreativeIfatnWrites(
-        *message,3,state,encoded);
+        *message,3,state,bankTerms);
     CHECK(ip && ifatn);
     const std::array<OriginalWin95VxdPortWrite,4> noteParameters{{
         {(*ip)[0].port,(*ip)[0].value,8},
@@ -117,14 +124,14 @@ int main(){
     }};
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,noteParameters));
     CHECK(real->voice[3].ip==0xC962);
-    const auto expected=candidateOriginalCreativeIfatn(96,encoded);
+    const auto expected=candidateOriginalCreativeIfatn(96,bankTerms);
     CHECK(expected && real->voice[3].ifatn==expected->word);
     CHECK(real->voice[3].ifatn_init_filter==178);
     // Real live CC7 WinMM -> independent VXD lookup -> actual chip IFATN.
     const auto vol20=decodeWinMmShort(0x001407b0u);
     CHECK(vol20);state.apply(*vol20);
     const auto updated=candidateOriginalCreativeIfatnWrites(
-        *message,3,state,encoded);
+        *message,3,state,bankTerms);
     CHECK(updated && (*updated)[1].value==0xB285);
     const std::array<OriginalWin95VxdPortWrite,2> liveVolume{{
         {(*updated)[0].port,(*updated)[0].value,8},
@@ -246,6 +253,7 @@ int main(){
              <<" original_note_start_envelope7_actual_chip=TRUE"
              <<" original_CCCA_source_minus4_Q_actual_chip=TRUE"
              <<" original_NoteOn_PSST_CSL_geometry_chip=TRUE"
+             <<" selected_original_SBK_gen8_to_REAL_chip_cutoff178=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

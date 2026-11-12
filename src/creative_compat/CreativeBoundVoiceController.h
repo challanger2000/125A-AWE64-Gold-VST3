@@ -48,6 +48,15 @@ public:
     [[nodiscard]] std::optional<OriginalRomInitialRegisterCandidates> bind(
         const CreativeRomNotePlan& plan, std::size_t layer_index,
         std::uint8_t physical_voice, const OriginalCreativeIfatnTerms& encoded_terms) noexcept;
+    // Derive actual original GM0/GM40 instrument cutoff from the selected
+    // SBK generator8 (local overrides global), not a caller-made value.
+    // Unknown preset generator offsets / drums fail closed. Other original
+    // VXD-ENCODED volume and attack fields remain explicit inputs.
+    [[nodiscard]] std::optional<OriginalRomInitialRegisterCandidates>
+    bindWithOriginalSbkCutoff(
+        const CreativeRomNotePlan& plan,std::size_t layer_index,
+        std::uint8_t physical_voice,
+        const OriginalCreativeIfatnTerms& verified_remaining_terms) noexcept;
     // The original VXD's exact idle MONO search is available when the caller
     // supplies its observed driver-key and chip-target state for 30 voices.
     // Busy-envelope priority and stealing are NOT guessed.

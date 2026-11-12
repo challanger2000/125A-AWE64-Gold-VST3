@@ -88,5 +88,31 @@ int main(){
     it=std::search(corrupted.begin(),corrupted.end(),addressPattern.begin(),addressPattern.end());
     CHECK(it!=corrupted.end());it[8]=26;
     CHECK(!resolveCreative1MgmRomAddress(corrupted,0,524288));
+    // The synthetic test's preset generator8 offsets are unresolved
+    // by the original VXD. Do not silently discard them.
+    CHECK(!a.candidateOriginal1MgmInstrumentCutoff());
+    CHECK(!b.candidateOriginal1MgmInstrumentCutoff());
+    SbkLayer piano{};piano.bank=0;piano.key=60;piano.velocity=100;
+    piano.instrument_global.raw[8]=110;
+    piano.instrument_local.raw[8]=89;
+    CHECK(piano.candidateOriginal1MgmInstrumentCutoff()==178);
+    SbkLayer violin{};violin.bank=0;violin.program=40;
+    violin.key=60;violin.velocity=100;
+    violin.instrument_global.raw[8]=105;
+    CHECK(violin.candidateOriginal1MgmInstrumentCutoff()==210);
+    piano.instrument_local.raw[8].reset();
+    CHECK(piano.candidateOriginal1MgmInstrumentCutoff()==220);
+    piano.instrument_global.raw[8].reset();
+    CHECK(!piano.candidateOriginal1MgmInstrumentCutoff());
+    piano.instrument_local.raw[8]=127;
+    CHECK(piano.candidateOriginal1MgmInstrumentCutoff()==254);
+    piano.instrument_local.raw[8]=128;
+    CHECK(!piano.candidateOriginal1MgmInstrumentCutoff());
+    piano.instrument_local.raw[8]=89;
+    piano.preset_global.raw[8]=1;
+    CHECK(!piano.candidateOriginal1MgmInstrumentCutoff());
+    piano.preset_global.raw[8].reset();
+    piano.bank=128;
+    CHECK(!piano.candidateOriginal1MgmInstrumentCutoff());
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }

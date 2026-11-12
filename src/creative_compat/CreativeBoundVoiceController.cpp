@@ -50,6 +50,22 @@ CreativeBoundVoiceController::bind(
     voice.layer=layer;voice.terms=terms;
     return OriginalRomInitialRegisterCandidates{*pitch,*filter};
 }
+std::optional<OriginalRomInitialRegisterCandidates>
+CreativeBoundVoiceController::bindWithOriginalSbkCutoff(
+    const CreativeRomNotePlan& note,const std::size_t index,
+    const std::uint8_t voice,
+    const OriginalCreativeIfatnTerms& verified_terms) noexcept {
+    if(index>=note.count || note.count>kMaxCreative1MgmLayers)
+        return std::nullopt;
+    const auto& layer=note.layers[index].metadata;
+    const auto cutoff=layer.candidateOriginal1MgmInstrumentCutoff();
+    if(!cutoff)return std::nullopt;
+    auto terms=verified_terms;
+    terms.initial_cutoff=*cutoff;
+    // Use the EXISTING single native bind logic and controls. No parallel
+    // voice allocator or second chip register writer is introduced.
+    return bind(note,index,voice,terms);
+}
 std::optional<OriginalRomAllocatedRegisterCandidates>
 CreativeBoundVoiceController::bindFirstOriginalIdleMono(
     const CreativeRomNotePlan& plan, const std::size_t layer,

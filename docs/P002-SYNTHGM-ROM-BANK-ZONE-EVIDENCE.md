@@ -982,3 +982,41 @@ does not justify replacing or duplicating it. Chip reads preceding the
 optional NoteOff CSL/PSST writes, original marker updates, actual event
 timing, the complete SBK->voice-record transformation, original binary
 register-order equality, and native generated PCM comparison remain OPEN.
+
+ 
+## Bounded original SBK generator8 to actual native EMU8000 IFATN
+
+The existing CreativeSbkLayers.h (no new architecture / duplicate bank
+parser) now offers candidateOriginal1MgmInstrumentCutoff(). It chooses
+the authentic original instrument-local generator8 when present,
+otherwise the instrument-global generator8. Against the documented
+original Win95 Creative driver register snapshots:
+
+- Piano GM0 C4: local original gen8=89 (global=110) -> chip cutoff=178.
+- Violin GM40 C4: instrument global original gen8=105 -> chip cutoff=210.
+
+No GM program switch, global per-preset volume adjustment or fake default
+is introduced. This is a bounded, two-original-case-proven x2
+instrument generator relationship; preset-level gen8, missing gen8,
+value >127 or original bank128 drums explicitly FAIL CLOSED until the
+exact original VXD additive-generator combination is reconstructed.
+
+CreativeBoundVoiceController::bindWithOriginalSbkCutoff now connects the
+existing selected CreativeRomNotePlan layer to the existing native
+bound-voice path. The previous already-encoded driver input path stays
+available for private original-voice-record comparisons.
+
+The new Windows tests deliberately pass a WRONG caller-supplied cutoff
+of 12 and derive the true chip cutoff=178 exclusively from the original
+SBK zone generator8=89. The test then executes the resulting IFATN on
+the UNMODIFIED pinned 86Box EMU8000 core and reads back the actual
+voice3 IFATN filter byte=178. The prior 254 measured velocity vectors
+and four live CC7/CC11 controller regressions must remain unchanged.
+
+The independent PCOD +0x3791 envelope rate helper has exact 16-bit
+input->rate parity, but its physical input time unit is still UNKNOWN.
+Do not feed raw SBK timecents to it. Device-State+0x10 attenuation and
+Voice-Descriptor+0x60 amplitude provenance are established, but actual
+generator48->device and generator34/36/38/...->voice conversions are
+still open. Complete native MIDI->original register->PCM comparison
+is still NOT an accepted PASS.

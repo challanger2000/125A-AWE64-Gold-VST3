@@ -170,6 +170,23 @@ int main() {
     CHECK(idleAllocated.clearPhysicalVoice(3));
     const auto reused=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
     CHECK(reused && reused->physical_voice==3);
+    // Verified bounded source-to-register integration: genuine original
+    // GM0 C4 gen8=89 must override original instrument-global gen8=110.
+    CreativeBoundVoiceController originalBankBound{};
+    auto bankNote=pianoNote();
+    bankNote.layers[0].metadata.instrument_global.raw[8]=110;
+    bankNote.layers[0].metadata.instrument_local.raw[8]=89;
+    auto poisoned=terms;
+    poisoned.initial_cutoff=12; // intentionally wrong externally
+    const auto fromBank=originalBankBound.bindWithOriginalSbkCutoff(
+        bankNote,0,0,poisoned);
+    CHECK(fromBank && (fromBank->filter_and_attenuation[1].value>>8)==178);
+    CHECK(poisoned.initial_cutoff==12); // caller untouched
+    bankNote.layers[0].metadata.preset_local.raw[8]=3; // unproven offset
+    CHECK(!originalBankBound.bindWithOriginalSbkCutoff(
+        bankNote,0,9,poisoned));
+    CHECK(originalBankBound.occupiedVoiceCount()==1);
+    CHECK(originalBankBound.clearPhysicalVoice(0));
     std::cout<<"P002_BOUND_ORIGINAL_ROM_VOICES_PASS original_live_cc=4 pitchbend=3"
              <<" sustain_release=TRUE all_sound_off=TRUE"
              <<" allocator_and_release_registers_EXPLICITLY_UNVERIFIED=TRUE\n";

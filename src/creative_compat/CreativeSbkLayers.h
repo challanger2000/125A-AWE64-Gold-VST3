@@ -25,6 +25,20 @@ struct SbkLayer {
         const auto local=instrument_local.get(8);
         return local?local:instrument_global.get(8);
     }
+    // Restricted original 1MGM voice-cutoff candidate. The owner's
+    // original GM0 C4 zone gen8=89 -> chip cutoff178 and GM40 C4
+    // gen8=105 -> cutoff210; no per-program branching. This rule has
+    // NOT been shown equivalent for additive preset gen8 offsets,
+    // drum bank128, or missing input. In those cases fail closed.
+    [[nodiscard]] std::optional<std::uint8_t>
+    candidateOriginal1MgmInstrumentCutoff() const noexcept {
+        if(bank>=128 || program>127 || key>127 || velocity==0 ||
+           velocity>127 || preset_global.get(8) || preset_local.get(8))
+            return std::nullopt;
+        const auto raw=instrumentRawCutoff();
+        if(!raw || *raw>127)return std::nullopt;
+        return static_cast<std::uint8_t>(*raw*2u);
+    }
     [[nodiscard]] std::optional<std::uint16_t> presetRawCutoff() const noexcept {
         const auto local=preset_local.get(8);
         return local?local:preset_global.get(8);
