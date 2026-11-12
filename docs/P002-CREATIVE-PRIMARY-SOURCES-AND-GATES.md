@@ -2,6 +2,9 @@
 
 **IN DEVELOPMENT — not an original driver sound fidelity PASS.**
 
+**NEW P002 NATIVE IFATN PARTIAL TRANSLATOR (12 Nov 2026):** Source at src/creative_compat/CreativeCandidateRegister.{h,cpp} now generates genuine E22/E20 hardware selector+IFATN pairs independently from MIDI NoteOn velocity and caller-supplied original-bank parameters. Both original Win95/Creative GM0 and GM40 full 127-velocity datasets match numerically (254/254), and all 254 genuine original IFATN port pairs match physical voice, register value and observed 0..2-frame relative start timing. The historical Linux AWE32 volume law corroborates all 127 valid shared levels. The complete independent original-driver MIDI/register translation remains UNVERIFIED; physical voice and bank parameters still must be supplied externally. See [P002 bounded MIDI/IFATN implementation](P002-SHARED-VELOCITY-IFATN-CANDIDATE.md).
+
+
 **NEW INDEPENDENT ORIGINAL WIN95/CREATIVE EVIDENCE (11 Nov 2026):** 62/62 actual WinMM MIDI commands accepted with guest success marker, 7 scenarios, 13/13 original physical voice starts matched to NoteOns, 94,445 independently captured chip register events, and **23,367,120/23,367,120 PCM16 samples exactly identical** between original Creative/86Box output and subsequently replayed chip adapter. Deliberately mutated audible original sample failed at its exact frame/channel. See [P002 actual original Creative matrix evidence](P002-ORIGINAL-CREATIVE-WIN95-MATRIX-EVIDENCE.md). **This DOES NOT certify an independent native Creative MIDI-to-register translator, which remains P002 work.**
 
 
