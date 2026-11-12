@@ -556,6 +556,19 @@ if(AWE64_BUILD_P001_VST3)
     target_compile_features(awe64_p001_vst3_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_host AWE64_Gold_P001)
 
+    # REAL exported P002-private-note VST3 MIDI→digital PCM (NOT P001
+    # fixed AWETEST voice). A synthetic source-derived mono GM0 fixture
+    # plus independently fetched/hash-pinned ORIGINAL Creative ROM are
+    # used. Provenance mutation and wrong-velocity negative controls.
+    add_executable(awe64_p002_diagnostic_vst3_host
+        tests/p002_vst3_private_diagnostic_host.cpp)
+    target_include_directories(awe64_p002_diagnostic_vst3_host
+        PRIVATE "${AWE64_VST3_SDK_ROOT}")
+    target_link_libraries(awe64_p002_diagnostic_vst3_host
+        PRIVATE sdk sdk_hosting)
+    target_compile_features(awe64_p002_diagnostic_vst3_host PRIVATE cxx_std_23)
+    add_dependencies(awe64_p002_diagnostic_vst3_host AWE64_Gold_P001)
+
     # Test-only real Windows heap interception: downloaded/pinned MinHook
     # is linked into the independent host, NEVER into our VST3/product DLL.
     set(AWE64_MINHOOK_ROOT "${CMAKE_SOURCE_DIR}/external/minhook" CACHE PATH "Pinned test-only MinHook root")

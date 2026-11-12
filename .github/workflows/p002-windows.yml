@@ -25,6 +25,7 @@ on:
       - 'tests/p002_native_sf2_original_targets.cpp'
       - 'tests/p002_native_sf2_vxd_state_snapshot.cpp'
       - 'tests/p002_native_sf2_dry_pcm.cpp'
+      - 'tests/p002_vst3_private_diagnostic_host.cpp'
       - 'tests/p002_sf2_note_start_prefix_oracle.cpp'
       - 'tests/p002_private_sf2_note_start_prefix_differential.py'
       - 'tests/test_p002_private_sf2_note_start_prefix_differential.py'
@@ -126,6 +127,35 @@ jobs:
           $vst = @(Get-ChildItem build-vst3 -Recurse -Directory -Filter 'AWE64_Gold_P001.vst3')
           if ($vst.Count -ne 1) { throw "Expected exactly one real VST3 bundle, got $($vst.Count)" }
           Write-Host "P002_REAL_HEADLESS_VST3_BUNDLE $($vst[0].FullName)"
+      - name: Check actual exported P002 VST3 MIDI-to-real-ROM digital PCM
+        shell: pwsh
+        run: |
+          # The identical original AWE32 ROM is already pinned in P001.
+          # It is downloaded only to ephemeral Windows CI, never uploaded.
+          $rom = Join-Path $env:RUNNER_TEMP 'P002-private-awe32.raw'
+          $url = 'https://raw.githubusercontent.com/86Box/roms/8cbb1acc575418e8afe9741a656dfd1c657574d1/sound/creative/awe32.raw'
+          & curl.exe -fLsS --retry 3 --retry-delay 2 --max-time 120 --output "$rom" "$url"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned original AWE32 ROM download failed' }
+          if ((Get-Item "$rom").Length -ne 1048576 -or
+              (Get-FileHash "$rom" -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+              '4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e') {
+            throw 'Pinned genuine 1-MiB Creative ROM SHA mismatch'
+          }
+          try {
+            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host
+            if ($LASTEXITCODE -ne 0) { throw 'Actual P002 VST3 diagnostic host build failed' }
+            $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' |
+                Where-Object { $_.DirectoryName -match 'x86_64-win' } |
+                Select-Object -First 1
+            $hostExe = Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p002_diagnostic_vst3_host.exe' |
+                Where-Object { $_.DirectoryName -match 'Release' } |
+                Select-Object -First 1
+            if (-not $dll -or -not $hostExe) { throw 'Actual exported VST3 or independent diagnostic host DLL missing' }
+            & $hostExe.FullName $dll.FullName $rom
+            if ($LASTEXITCODE -ne 0) { throw 'Actual VST3 P002 original-ROM MIDI PCM or negative controls failed' }
+          } finally {
+            Remove-Item "$rom" -Force -ErrorAction SilentlyContinue
+          }
       - name: Fetch exact existing 125A Plugin Test Lab P74/P73
         shell: pwsh
         run: |
