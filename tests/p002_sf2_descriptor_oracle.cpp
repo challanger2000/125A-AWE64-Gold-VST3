@@ -7,11 +7,40 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <string_view>
 using namespace awe64::creative;
 namespace {
+// Verify the complete original private 192,000-rate pitch transfer using
+// the CURRENT compiled CreativeSf2VoiceDescriptor.cpp, not a Python port.
+// Input: exactly 128 original DWORD bases and 128 original signed byte slopes.
+// Output: 192000 lines, each exactly eight hex digits (unsigned 32-bit).
+// The original source VXD is SHA-locked and parsed ONLY by the caller; no
+// proprietary tables or pitch samples are included in the public binary.
+int runPrivateSf2PitchMatrix() {
+    OriginalCreativeSf2PitchTables tables{};
+    for(auto& base:tables.base) {
+        std::uint64_t value=0;
+        if(!(std::cin>>value) || value>0xffffffffull)return 2;
+        base=static_cast<std::uint32_t>(value);
+    }
+    for(auto& slope:tables.slope) {
+        int value=0;
+        if(!(std::cin>>value) || value<-128 || value>127)return 2;
+        slope=static_cast<std::int8_t>(value);
+    }
+    std::string extra;
+    if(std::cin>>extra)return 2;
+    for(std::uint32_t rate=1;rate<=192000u;++rate) {
+        const auto pitch=originalCreativeSf2SampleRateToDwPitch(rate,tables);
+        if(!pitch)return 3;
+        std::cout<<std::hex<<std::setw(8)<<std::setfill('0')
+                 <<*pitch<<'\n';
+    }
+    return 0;
+}
 // PRIVATE original builder differential, not a synthetic SoundFont default:
 // token count, then per voice: bank program key velocity sampleId,
 // two 59 signed template WORD arrays (preset then instrument), then
@@ -68,6 +97,8 @@ int runPrivateSf2Builder() {
 }
 }
 int main(const int argc,char**argv) {
+    if(argc==2 && std::string_view(argv[1])=="--pitch-matrix")
+        return runPrivateSf2PitchMatrix();
     if(argc==2 && std::string_view(argv[1])=="--build")
         return runPrivateSf2Builder();
     const bool withIp=argc==2 && std::string_view(argv[1])=="--also-ip";
