@@ -15,7 +15,8 @@ bool validPair(const OriginalWin95VxdPortWrite& ptr,
                (reg==5u && data.port==0xA20u);   // DATA1: DCYSUSV
     }
     if(data.access_width_bits==32u)
-        return reg==3u && data.port==0x620u;       // DATA0: VTFT
+        return (reg==3u || reg==6u || reg==7u) &&
+               data.port==0x620u; // VTFT / PSST / CSL
     return false;
 }
 }

@@ -240,6 +240,24 @@ target_link_libraries(awe64_p002_real_chip_port_bridge_test
 add_test(NAME p002_real_original_dsp_vxd_register_execution
          COMMAND awe64_p002_real_chip_port_bridge_test)
 
+
+# Actual installed Win95 SBAWE.VXD LCOD 0x1B4A/0x1C19 case5/case6
+# sample-address patch; explicit driver mode, no guessed NoteOn flags.
+add_library(awe64_p002_vxd_sample_address STATIC
+    src/creative_compat/CreativeVxdSampleAddress.cpp)
+target_include_directories(awe64_p002_vxd_sample_address PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_sample_address PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_sample_address
+    PUBLIC awe64_p002_sbk_layers awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_sample_address_test
+    tests/p002_native_vxd_sample_address.cpp)
+target_link_libraries(awe64_p002_vxd_sample_address_test
+    PRIVATE awe64_p002_vxd_sample_address)
+add_test(NAME p002_original_vxd_sample_address_case5_case6
+    COMMAND awe64_p002_vxd_sample_address_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_sample_address)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)

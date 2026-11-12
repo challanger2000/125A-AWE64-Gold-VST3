@@ -1,6 +1,7 @@
 #include "CreativeChipPortBridge.h"
 #include "CreativePitchCandidate.h"
 #include "CreativeControllerVolume.h"
+#include "CreativeVxdSampleAddress.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -118,6 +119,24 @@ int main(){
     }};
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,pitchUpdate));
     CHECK(real->voice[3].ip==0xCC0C);
+    // On the actual pinned chip: driver case5/case6 ROM address rewrite.
+    // Establish the prior PSST high byte with a real chip write.
+    const std::array<OriginalWin95VxdPortWrite,2> previousPsst{{
+       {0xE22u,0xC3u,8u},{0x620u,0x47000055u,32u}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,previousPsst));
+    CHECK(real->voice[3].psst==0x47000055u);
+    const SbkRomAddress sample3{3,0xFEB9u,0x152FEu,0x152BAu,0x152F8u};
+    const auto looped=candidateOriginalVxdSampleAddressUpdate(
+        sample3,3,OriginalVxdSampleAddressCase::DriverCase5,real->voice[3].psst);
+    CHECK(looped && applyOriginalCreativeVxdVoicePorts(chip,*looped));
+    CHECK(real->voice[3].csl==0x000152F9u);
+    CHECK(real->voice[3].psst==0x470152BAu);
+    const auto noLoop=candidateOriginalVxdSampleAddressUpdate(
+        sample3,3,OriginalVxdSampleAddressCase::DriverCase6,real->voice[3].psst);
+    CHECK(noLoop && applyOriginalCreativeVxdVoicePorts(chip,*noLoop));
+    CHECK(real->voice[3].csl==0x00015306u);
+    CHECK(real->voice[3].psst==0x47015302u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -139,6 +158,7 @@ int main(){
     std::cout<<"P002_ORIGINAL_VXD_PORTS_EXECUTED_ON_PINNED_EMU8000_PASS"
              <<" DCYSUSV=00FF VTFT=0000FFFF group_stop=807F"
              <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
+             <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
              <<" original_driver_PCM_parity=NOT_PROVEN\n";
     return 0;

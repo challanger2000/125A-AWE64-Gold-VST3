@@ -13,7 +13,8 @@ namespace awe64::creative {
 // pointer E22 OUT AL 8 bits, data A20/E20 OUT AX 16 bits,
 // and data 620 OUT EAX 32 bits. Only the actual documented
 // DATA3 register 0 (IP), DATA3 register 1 (IFATN), DATA1 register 5
-// (DCYSUSV), and DATA0 register 3 (VTFT) are accepted.
+// (DCYSUSV), and DATA0 register 3 (VTFT), 6 (PSST), 7 (CSL)
+ // are accepted after original-driver verification.
  // All other writes FAIL CLOSED.
 // Reject the entire malformed sequence before issuing ANY chip I/O.
 // The fork's word-only Host adapter intentionally mirrors its emu8k_outb

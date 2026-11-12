@@ -750,3 +750,44 @@ MIDI/controller subset, but **not** original VXD complete register
 write ordering, real audio output, FX sends, chip-clock timestamps
 or original Win95 chip PCM identity. The actual P001 chip source
 has NOT been modified.
+
+
+## Original Creative 1MGM ROM CSL/PSST update: VXD verified case5/case6
+
+The private actual installed Windows95 SBAWE.VXD LCOD sections +0x1B4A..+0x1C14
+and +0x1C19..+0x1CF7 implement two DISTINCT sample address UPDATE branches
+selected by the VXD's actual case value 5 or 6. They are not generally proven
+to run on all MIDI NoteOn events.
+
+Driver case 5 writes DATA0 register7 CSL low24 = sample loop end + 1;
+then DATA0 register6 PSST low24 = sample loop start. The original PSST high
+byte from a LIVE chip register read is preserved unchanged.
+
+Driver case 6 writes CSL low24 = sample end + 8; then PSST low24 =
+sample end + 4, preserving the current high PSST byte.
+
+Both cases write CSL BEFORE PSST using E22 OUT AL (8-bit selector) and 620
+OUT EAX (32-bit DATA0). The pinned, unchanged original fork independently
+names DATA0 register7 CSL and register6 PSST.
+
+Native CreativeVxdSampleAddress.h/.cpp implements both alternatives with
+explicit caller-specified original driver case, observed current PSST,
+and the exact original Creative 1MGM ROM sample-address descriptor.
+It rejects corrupt and out-of-1MiB ROM geometry, reserved voices 30/31,
+and any unsupported case. No guessed note flags are used.
+
+Synthetic public Windows tests check only numerical facts from the owner's
+authentic ROM sample ID3 (start FEB9, end 152FE, loop-start 152BA,
+loop-end 152F8): physical voice3/case5 CSL=0x152F9 PSST=0x470152BA
+(preserves high byte 47); case6 CSL=0x15306 PSST=0x47015302.
+Last original ROM sample selector151 and negative cases are also covered.
+
+CreativeChipPortBridge extends its whitelist to actual 32-bit
+DATA0 registers6/7. A native P002 test applies these original-driver
+updates to physical voice3 of the **actual pinned unchanged EMU8000**,
+checks real chip voice[3].csl and voice[3].psst for both operations,
+and uses a real prior PSST hardware write as its high-byte source.
+No original private ROM/SBK/VXD bytes are in public CI.
+
+This is evidence for authentic sample loop address I/O subset only.
+Full NoteOn register order/timing and audible PCM parity still NOT proven.
