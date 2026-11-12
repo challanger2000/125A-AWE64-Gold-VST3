@@ -36,6 +36,16 @@ struct InitialIfatn {
 [[nodiscard]] std::optional<InitialIfatn> candidateOriginalIfatnFromEncodedAttack(
     std::uint8_t velocity, const CandidateVoiceParameters& terms,
     std::uint16_t creative_bank, std::uint16_t encoded_vol_attack_rate) noexcept;
+// The original Format-2/SF2 builder retains a signed WORD cutoff after
+// preset+instrument merge; before IFATN its filter base is clamped 0..255.
+// Feed that value through the EXISTING original-attack/velocity IFATN path.
+// The caller must still supply independently verified volume/attenuation
+// terms; this helper does not pretend to build a complete voice descriptor.
+[[nodiscard]] std::optional<InitialIfatn>
+candidateOriginalSf2IfatnFromMergedCutoff(
+    std::uint8_t velocity,const CandidateVoiceParameters& verified_terms,
+    std::int16_t merged_sf2_cutoff,std::uint16_t creative_bank,
+    std::uint16_t encoded_vol_attack_rate) noexcept;
 // The recovered original VXD has an explicit 128-entry velocity lookup.
 // Its v1..127 values independently match the existing GM0/GM40 measured
 // shared curve; velocity zero never starts a new voice.
