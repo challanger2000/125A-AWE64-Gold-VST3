@@ -26,6 +26,37 @@ std::uint16_t boundedWord(std::int32_t x,
 }
 }
 std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+    const CreativeSf2VoiceDescriptorBytes& merged,
+    const SbkRomAddress& sample,
+    const std::optional<std::uint32_t> verified_pitch,
+    const std::uint32_t original_preset_group) noexcept {
+    if(sample.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       sample.sample_type!=0x8001u || sample.sample_rate_hz==0u ||
+       sample.original_pitch>127u || !verified_pitch ||
+       sample.start_word>=sample.end_word ||
+       sample.start_word>sample.loop_start_word ||
+       sample.loop_start_word>=sample.loop_end_word ||
+       sample.loop_end_word>sample.end_word)
+        return std::nullopt;
+    auto result=merged;
+    const auto dword=[&](const unsigned off,const std::uint32_t value) noexcept {
+        for(unsigned i=0;i<4u;++i)
+            result[off+i]=static_cast<std::uint8_t>(value>>(8u*i));
+    };
+    dword(0x76u,sample.start_word);
+    dword(0x7au,sample.end_word);
+    dword(0x7eu,sample.loop_start_word);
+    dword(0x82u,sample.loop_end_word);
+    dword(0x86u,*verified_pitch);
+    result[0x8au]=sample.original_pitch;
+    result[0x8bu]=static_cast<std::uint8_t>(sample.pitch_correction);
+    word(result,0x8cu/2u,sample.sample_type);
+    word(result,0x8eu/2u,sample.sample_link);
+    dword(0x90u,original_preset_group);
+    return result;
+}
+std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2EncodedVoiceDescriptor(
     const CreativeSf2VoiceDescriptorBytes& merged,
     const OriginalSf2VoiceStartConditions& context) noexcept {
