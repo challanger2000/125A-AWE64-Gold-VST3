@@ -126,6 +126,29 @@ candidateOriginalSf2VoiceWithOriginalRomPitchTables(
     const SbkRomAddress& actual_original_sf2_rom_sample,
     const OriginalCreativeSf2PitchTables& verified_original_tables,
     std::uint32_t original_normalized_preset_group_id) noexcept;
+// Complete original 1996 format-2 PCOD voice-building stages using ONLY
+// original-verified per-driver resources, already selected SF2 zone and ROM
+// sample header. Original tables/template are caller-owned/private; neither
+// the original binary bytes nor a fake log/pow approximation is embedded.
+// The preset template is a separate source stage (zero in the four captured
+// original cases), and the authentic instrument template comes from VXD
+// LCOD+0x2D88. Both remain explicit to prevent hidden guessed defaults.
+struct OriginalCreativeSf2DriverResources {
+    std::array<std::int16_t,59> preset_template{};
+    std::array<std::int16_t,59> instrument_template{};
+    OriginalCreativeSf2PitchTables pitch_tables{};
+};
+struct OriginalCreativeSf2NoteDescriptors {
+    CreativeSf2VoiceDescriptorBytes before_note_start{};
+    CreativeSf2VoiceDescriptorBytes after_note_start{};
+};
+[[nodiscard]] std::optional<OriginalCreativeSf2NoteDescriptors>
+candidateOriginalSf2NoteFromVerifiedVxdResources(
+    const SbkLayer& selected_layer,
+    const SbkRomAddress& original_rom_sample,
+    const OriginalCreativeSf2DriverResources& source_verified_resources,
+    std::uint32_t original_normalized_preset_group_id,
+    const OriginalSf2VoiceStartConditions& explicit_channel_device_state) noexcept;
 // Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
 // already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
 // The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
