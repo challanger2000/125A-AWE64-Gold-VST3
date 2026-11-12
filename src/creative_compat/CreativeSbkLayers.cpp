@@ -313,6 +313,15 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
     }
     const auto entries=shdr.len/stride;
     if(sample_id>=entries)return std::nullopt;
+    if(addressStart==20u) {
+        // Format-2 SF2 has a 46-byte SHDR including sampleType +44.
+        // This ROM-specific resolver cannot resolve ordinary RAM samples,
+        // linked stereo pairs or terminal EOS records as ROM audio.
+        // 0x8001 = ROM mono, as in the verified Creative 1MGM SF2 case.
+        if(std::size_t(sample_id)+1u>=entries ||
+           u16(b,shdr.begin+std::size_t(sample_id)*stride+44u)!=0x8001u)
+            return std::nullopt;
+    }
     const auto offset=shdr.begin+std::size_t(sample_id)*stride+addressStart;
     const auto start=u32(b,offset),end=u32(b,offset+4);
     const auto loop_start=u32(b,offset+8),loop_end=u32(b,offset+12);
