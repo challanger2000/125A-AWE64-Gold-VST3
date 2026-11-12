@@ -283,6 +283,16 @@ int main(){
         CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
             layer,v.op,0,0));
     }
+    // All numeric format-2 envelope/LFO source fields are merged before
+    // the original rate conversion; key-to-hold/decay fields stay signed.
+    for(const std::uint16_t op:{21u,22u,23u,24u,25u,26u,27u,28u,
+                               30u,31u,32u,33u,35u,36u,38u,39u,40u}) {
+        SbkLayer env{};
+        env.source_format=OriginalCreativeBankFormat::Format2Sf2;
+        env.preset_global.raw[op]=10;
+        env.instrument_global.raw[op]=100;
+        CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(env,op)==110);
+    }
     // Preset local always replaces preset global, instrument local always
     // replaces instrument global, including when the local value is zero.
     SbkLayer replace{};
@@ -303,7 +313,7 @@ int main(){
     replace.instrument_global.raw[51]=static_cast<std::uint16_t>(-300);
     CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(replace,51)==-32768);
     // Non-numeric structure/control generators must never enter arithmetic.
-    for(const unsigned id:{0u,4u,25u,41u,43u,44u,46u,47u,49u,
+    for(const unsigned id:{0u,4u,41u,43u,44u,46u,47u,49u,
                            53u,54u,56u,57u,58u,63u})
         CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
             replace,static_cast<std::uint16_t>(id),0,0));
