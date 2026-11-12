@@ -46,6 +46,37 @@ int main(){
     CHECK(state[v0]==60u && state[v3]==60u &&
           state[v0+0x15u]==127u && state[v3+0x15u]==127u &&
           state[v0+0x16u]==41u && state[v3+0x16u]==41u);
+    // The same authenticated ORIGINAL NoteOn generator30/38 bytes must
+    // be used for BOTH NoteOff and CC64 pedal-up. These tests are purely
+    // read-only: no private ROM or audio device is needed to catch a
+    // stale/corrupt original voice row before any chip I/O.
+    const auto v0row=std::span<const std::uint8_t>(state).subspan(
+        v0,kOriginalVxdVoiceRowStride);
+    const auto rates=candidateOriginalSf2VerifiedReleaseRates(v0row,notes[0]);
+    CHECK(rates && rates->modulation==127u && rates->volume==41u);
+    const auto beforeRateFault=state;
+    state[v0+0x15u]^=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        std::span<const std::uint8_t>(state).subspan(
+            v0,kOriginalVxdVoiceRowStride),notes[0]));
+    state=beforeRateFault;
+    state[v0+0x16u]^=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        std::span<const std::uint8_t>(state).subspan(
+            v0,kOriginalVxdVoiceRowStride),notes[0]));
+    state=beforeRateFault;
+    auto changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.verified_after_start_record[0x3du]=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.verified_after_start_record[0x4du]=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.source_original_voice_verified=false;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        v0row.first(kOriginalVxdVoiceRowStride-1u),notes[0]));
+    CHECK(state==beforeRateFault);
     // Reject entire batch before mutating any note marker when a
     // later layer has a corrupt encoded rate or duplicate voice.
     auto bad=notes;
@@ -108,6 +139,7 @@ int main(){
              <<" two_original_voice_record_byte_rates=TRUE"
              <<" original_GM0_gen38_8029_gen30_807f=TRUE"
              <<" original_release_from_SF2_noteon_descriptors=TRUE"
+             <<" noteoff_CC64_release_bytes_both_source_checked=TRUE"
              <<" sustain_at_MIDI_channel_plus4_NOT_voice_plus4=TRUE"
              <<" original_CC64_656D_pedal_off_release_helper_PRESENT=TRUE"
              <<" original_sustain_defer=TRUE"
