@@ -93,11 +93,20 @@ candidateOriginalSf2InstrumentLoadGenerator(
 [[nodiscard]] std::optional<std::int16_t>
 candidateOriginalSf2PresetDeltaGenerator(
     std::uint16_t generator_id,std::int16_t original_raw) noexcept;
-// Format2 original builder merges preset and instrument levels separately:
-// within each level local replaces global; the converted levels are signed
-// added, saturating int16. Missing level uses an explicit verified original
-// descriptor TEMPLATE default, never a manufactured zero. This bounded
-// entrypoint handles generator48 instVol only; it does NOT parse SF2.
+// Bounded FORMAT-2 voice generator merge: original source-supported
+// cutoff (8), volume attack timecents (34), and instVol (48) only.
+// Within each level, local overrides global. Preset deltas and instrument
+// values use their respective PCOD converters, then signed-saturating add.
+// Missing scope values require explicitly verified PRECONVERTED descriptor
+// template defaults. Unknown operator semantics fail closed; this is not
+// a claim of general SF2 generator/voice-descriptor parity.
+[[nodiscard]] std::optional<std::int16_t>
+candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+    const SbkLayer& layer,std::uint16_t generator_id,
+    std::optional<std::int16_t> verified_preset_template = {},
+    std::optional<std::int16_t> verified_instrument_template = {}) noexcept;
+// Existing generator48/instVol entrypoint retained for compatibility.
+// It delegates to the SAME verified format-2 merge implementation.
 [[nodiscard]] std::optional<std::int16_t>
 candidateOriginalSf2InstVolFromExplicitScopes(
     const SbkLayer& layer,
