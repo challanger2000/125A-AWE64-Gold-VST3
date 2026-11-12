@@ -22,6 +22,7 @@ on:
       - 'tests/p002_native_controller_volume.cpp'
       - 'tests/p002_native_bound_voice_controller.cpp'
       - 'tests/p002_native_idle_voice_allocator.cpp'
+      - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'CMakeLists.txt'
       - '.github/workflows/p002-windows.yml'
   workflow_dispatch:
@@ -40,7 +41,7 @@ jobs:
         run: |
           cmake -S . -B build-p002 -G 'Visual Studio 17 2022' -A x64
           if ($LASTEXITCODE -ne 0) { throw 'P002 configure or pinned original DSP verification failed' }
-          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_chip_contract awe64_direct_fork_fixture awe64_replay
+          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_chip_contract awe64_direct_fork_fixture awe64_replay
           if ($LASTEXITCODE -ne 0) { throw 'P002 actual Windows x64 test binaries failed to compile' }
           ctest --test-dir build-p002 -C Release --output-on-failure -V
           if ($LASTEXITCODE -ne 0) { throw 'P001 regression or P002 WinMM contract failed' }

@@ -545,3 +545,42 @@ controls for VXD marker, register highword and unverified eligibility.
 This is a real original-driver allocator improvement, not a full
 voice-stealing/full-register/PCM parity claim. Original Creative
 driver and private VM bytes are not copied into public GitHub.
+
+## P002 actual SBAWE.VXD mode-0 mono VOICE PRIORITY (bounded, read-only)
+
+In addition to free-voice three-lane scanning, the installed original
+SBAWE.VXD LCOD procedure +0x3EA1..+0x3FE8 contains a complete
+**selection-only** mode-0 mono candidate-ranking branch.
+
+Independent authored C++23 CreativeVxdMonoVoiceRanking.h/.cpp
+accepts exact caller-supplied VXD bookkeeping and actual chip register
+readings PER PHYSICAL VOICE: internal assigned-marker word,
+volume-target register upper 16 bits, envelope status word,
+driver-stored sample endpoint, EMU8000 current sample address,
+original mode count and the original low-count exclusion flag.
+The function declines incomplete hardware/driver snapshots and any
+requested voice count above 30 (refresh channels 30/31 excluded).
+
+In the VXD-confirmed order of physical 0,3,...;1,4,...;2,5,...
+it (a) immediately chooses a wholly idle marker 0x0FFE whose actual
+target high16 is zero, (b) computes exact VXD per-voice score terms
+including +0x1200/+0x200 marker penalties, +0x300 when marker
+lowbyte=0xFF and +0x1300 for missing envelope 0x8000 status,
+with later voices winning score ties, and (c) immediately returns
+a sample whose observed current chip address reached its stored
+sample endpoint. The original driver also has a separate
+low-count admissibility gate.
+
+Public native C++ Windows regression independently exercises all
+three branches and deliberate counterexamples, including nonzero
+register target, marker range >=0x2000, sample-completion override,
+low-count exclusion, equal-score tie, missing snapshot, and physical
+30/31 exclusion.
+
+**Important:** a selection result is not a complete original voice
+STEAL, not an EMU8000 release/stop instruction sequence and not a
+clock-exact native driver. The caller still needs real driver-record
+and chip-register inputs; private original traces were not bundled.
+In particular, original mode 1 stereo, mode 2 restricted allocation,
+precise side effects and the full MIDI→register→PCM original-differential
+acceptance remain unimplemented, so P002 remains DRAFT.
