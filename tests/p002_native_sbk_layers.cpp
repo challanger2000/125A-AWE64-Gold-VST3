@@ -212,6 +212,40 @@ int main(){
     sf2.instrument_global.raw[48]=9;
     sf2.instrument_local.raw[48]=11;
     CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==18);
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,48)==18);
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8));
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,9));
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,59));
+    // Original PCOD format2 cutoff: C(9617)=179, C(0)=-153;
+    // preset 29 contributes delta1, preset 58 contributes delta2.
+    sf2.preset_global.raw[8]=29;
+    sf2.instrument_local.raw[8]=9617;
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8)==180);
+    sf2.preset_local.raw[8]=58;
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8)==181);
+    sf2.instrument_global.raw[8]=10561;
+    sf2.instrument_local.raw[8].reset();
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8)==213);
+    sf2.preset_local.raw[8].reset();
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8)==212);
+    sf2.preset_global.raw[8].reset();
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8));
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,8,0)==211);
+    // Source-verified SF2 GM100 signed volume attack descriptor -11958.
+    // The subsequent distinct original PCOD attack rate yields 128;
+    // only the later VXD ATKHLDV hardware writer maps 128 to 127.
+    sf2.preset_global.raw[34]=0;
+    sf2.instrument_local.raw[34]=static_cast<std::uint16_t>(-11958);
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34)==-11958);
+    sf2.preset_local.raw[34]=200;
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34)==-11758);
+    sf2.preset_local.raw[34].reset();
+    sf2.instrument_global.raw[34]=static_cast<std::uint16_t>(-8800);
+    sf2.instrument_local.raw[34].reset();
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34)==-8800);
+    sf2.preset_global.raw[34].reset();
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34));
+    CHECK(candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2,34,0)==-8800);
     // The same four scopes format1 yields 870, not 18.
     auto identicalRawAsFormat1=sf2;
     identicalRawAsFormat1.source_format=OriginalCreativeBankFormat::Format1Sbk;
