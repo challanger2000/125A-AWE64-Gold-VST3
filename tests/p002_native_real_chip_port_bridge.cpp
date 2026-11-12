@@ -433,12 +433,12 @@ int main(){
     CHECK(real->voice[0].ip==0xc961u && real->voice[0].ifatn==0xb33au);
     // Original GM100 second layer physical voice3 uses attack=128,
     // encoded as hardware 127 ONLY in the register writer.
-    auto gm100=realSf2GM0;
-    fillSf2(gm100,58u,94);fillSf2(gm100,8u,255);
-    fillSf2(gm100,19u,42);fillSf2(gm100,34u,128);
-    fillSf2(gm100,35u,127);
+    auto gm100Descriptor=realSf2GM0;
+    fillSf2(gm100Descriptor,58u,94);fillSf2(gm100Descriptor,8u,255);
+    fillSf2(gm100Descriptor,19u,42);fillSf2(gm100Descriptor,34u,128);
+    fillSf2(gm100Descriptor,35u,127);
     const auto gm100Prefix=candidateOriginalSf2NoteStartRegisterPrefix(
-        gm100,60u,3u,true,0,0);
+        gm100Descriptor,60u,3u,true,0,0);
     CHECK(gm100Prefix && applyOriginalCreativeVxdVoicePorts(chip,*gm100Prefix));
     CHECK(real->voice[3].atkhldv==0x7f7fu);
     CHECK(real->voice[3].ifatn==0xff2au);
