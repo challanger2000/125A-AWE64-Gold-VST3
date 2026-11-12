@@ -44,7 +44,13 @@ int main() {
     CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,0,114)->cutoff==149);
     CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,344,0,128)->cutoff==255);
     CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,313,0,128)->cutoff==255);
-    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,-300,0,124)->cutoff==0);
+    // Original ordering is clamp raw signed SF2 cutoff to zero FIRST,
+    // then melodic bank+attack<125 velocity gate: (90*0+160)>>7 = 1.
+    // This is a genuine PCOD/VXD integer-rounding minimum, not zero.
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,-300,0,124)->cutoff==1);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,-300,0,125)->cutoff==0);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,-300,128,124)->cutoff==0);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(1,b,-300,0,124)->cutoff==1);
     CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,128,114)->cutoff==211);
     CHECK(!candidateOriginalSf2IfatnFromMergedCutoff(0,b,179,0,125));
     CHECK(!candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,0,129));
