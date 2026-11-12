@@ -3,6 +3,11 @@
 #include "CreativeMidi.h"
 #include "CreativeSbkLayers.h"
 namespace awe64::creative {
+// Executed original SBAWE.VXD format-2 bank builder produces at most six
+// 0x94-byte voice descriptors per NoteOn. The bank parser intentionally
+// inventories up to 16 matching zones for diagnostics; it is not itself
+// a hardware/driver voice allocator.
+inline constexpr std::size_t kOriginalCreativeMaxNoteStartDescriptors=6u;
 struct CreativeRomPlannedLayer {
     SbkLayer metadata{};
     SbkRomAddress address{};
