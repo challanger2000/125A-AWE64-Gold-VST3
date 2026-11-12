@@ -134,7 +134,6 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
         if(equals(b,p,"IPRD")){if(iprd.present)return false;iprd=c;}
         if(equals(b,p,"irom")){if(irom.present)return false;irom=c;}
         if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
-        if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
         return true;
     }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
        !contains(b,irom,"1MGM"))return std::nullopt;
@@ -258,6 +257,7 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
         if(equals(b,p,"isng")){if(isng.present)return false;isng=c;}
         if(equals(b,p,"IPRD")){if(iprd.present)return false;iprd=c;}
         if(equals(b,p,"irom")){if(irom.present)return false;irom=c;}
+        if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
         return true;
     }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
        !contains(b,irom,"1MGM"))return std::nullopt;

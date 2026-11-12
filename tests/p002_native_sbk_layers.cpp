@@ -1,5 +1,6 @@
 #include "CreativeSbkLayers.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -264,5 +265,28 @@ int main(){
           sf2Sample->loop_end_word==900);
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,1,524288)); // EOS
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,0,900)); // out of ROM
+    // Format selection MUST come from RIFF INFO ifil in BOTH native
+    // readers. Without ifil, this 92-byte named shdr is not a 48-byte
+    // packed SBK and must be rejected, not guessed from coincidences.
+    auto sf2MissingIfil=bankSf2;
+    // Synthetic fixture contains exactly one "ifil" identifier.
+    const std::array<std::uint8_t,4> ifilTag{'i','f','i','l'};
+    const auto loc=std::search(sf2MissingIfil.begin(),sf2MissingIfil.end(),
+                               ifilTag.begin(),ifilTag.end());
+    CHECK(loc!=sf2MissingIfil.end());
+    std::fill_n(loc,4,static_cast<std::uint8_t>('z'));
+    CHECK(!resolveCreativeSbkLayers(sf2MissingIfil,0,0,60,90));
+    CHECK(!resolveCreative1MgmRomAddress(sf2MissingIfil,0,524288));
+    // Corrupt the source-format major: the reader must neither accept
+    // undocumented SF version3 nor fall back to old bank48 layout.
+    auto sf2UnknownVersion=bankSf2;
+    const auto v=std::search(sf2UnknownVersion.begin(),sf2UnknownVersion.end(),
+                             ifilTag.begin(),ifilTag.end());
+    CHECK(v!=sf2UnknownVersion.end());
+    const auto pos=static_cast<std::size_t>(v-sf2UnknownVersion.begin());
+    CHECK(pos+10<sf2UnknownVersion.size());
+    sf2UnknownVersion[pos+8]=3; // byte 8 after FourCC = major low-byte
+    CHECK(!resolveCreativeSbkLayers(sf2UnknownVersion,0,0,60,90));
+    CHECK(!resolveCreative1MgmRomAddress(sf2UnknownVersion,0,524288));
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }
