@@ -91,4 +91,21 @@ std::optional<std::array<PortWord,2>> candidateOriginalRomIpWrites(
         PortWord{0xE20u,pitch->ip}
     }};
 }
+
+std::optional<std::array<PortWord,2>>
+candidateOriginalCreativeLivePitchBendWrites(
+    const MidiMessage& event,const MidiState& after,
+    const CreativeRomNotePlan& active,std::size_t layer_index,
+    const std::uint8_t voice,const std::uint16_t range) noexcept {
+    if(event.kind!=MidiKind::PitchBend || event.channel>=16 ||
+       event.channel!=active.channel || event.data1>127 ||
+       event.data2>127 || active.velocity==0 ||
+       active.velocity>127 || active.key>127 || layer_index>=active.count ||
+       active.count>kMaxCreative1MgmLayers || voice>=30)return std::nullopt;
+    const auto target=static_cast<std::uint16_t>(
+        static_cast<unsigned>(event.data1)|(static_cast<unsigned>(event.data2)<<7));
+    // Prevent accidental playback of stale channel pitch state.
+    if(after.channel(event.channel).pitch_bend14!=target)return std::nullopt;
+    return candidateOriginalRomIpWrites(active,layer_index,voice,after,range);
+}
 } // namespace awe64::creative

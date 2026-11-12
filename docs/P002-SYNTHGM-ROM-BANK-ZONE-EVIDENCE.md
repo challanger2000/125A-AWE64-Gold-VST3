@@ -453,3 +453,21 @@ retired voices and invalid physical voice indices. This still requires
 the original Creative allocator and sampleclock scheduling to be
 implemented separately; testing supplied physical voice 3 does not
 validate the original driver's voice selection.
+
+
+## Pitchbend on a held physical voice (native E22/E20)
+
+The original Creative 62-event Win95 matrix includes live pitchbend
+min/center/max while GM0 C4 remains sounding. Native
+candidateOriginalCreativeLivePitchBendWrites() now validates the
+actual MIDI PitchBend event, the already-applied 14-bit MIDI
+channel state, an existing held note plan, the selected instrument
+layer and the explicitly assigned physical EMU8000 voice. It emits
+the real DATA3 IP E22/E20 port sequence.
+
+Independent original Win95 measured IP values are generated anew:
+C6B8 (minimum), C962 (center), CC0C (maximum). Tests include
+stale/unapplied event, channel mismatch, non-PitchBend events and
+out-of-range physical voice. No event time or voice allocation is
+invented. It does NOT itself implement note stealing, original
+voice selection, full port ordering or exact frame/PCM parity.

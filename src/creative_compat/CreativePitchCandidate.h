@@ -28,4 +28,15 @@ struct CreativePitchResult {
     const CreativeRomNotePlan& note, std::size_t layer_index,
     std::uint8_t physical_voice, const MidiState& state,
     std::uint16_t bend_range_cents=200) noexcept;
+
+ // A live pitchbend message updates an ALREADY ACTIVE original note.
+ // The caller must retain the original note plan and supply the physical
+ // voice selected by the future original-driver allocator. Event must be
+ // applied to MidiState first and channel/14-bit value must match.
+ [[nodiscard]] std::optional<std::array<PortWord,2>>
+ candidateOriginalCreativeLivePitchBendWrites(
+     const MidiMessage& pitchbend_event, const MidiState& state_after_event,
+     const CreativeRomNotePlan& held_note, std::size_t layer_index,
+     std::uint8_t physical_voice,
+     std::uint16_t bend_range_cents=200) noexcept;
 } // namespace awe64::creative

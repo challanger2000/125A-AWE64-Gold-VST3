@@ -60,5 +60,29 @@ int main() {
     note.layers[0].metadata.key=60;
     note.layers[0].metadata.velocity=99;
     CHECK(!candidateOriginalRomIpWrites(note,0,3,state));
+    // Live original Win95 Creative pitchbend on a sounding GM0 C4.
+    note.layers[0].metadata.velocity=100;
+    auto bendMinimum=decodeWinMmShort(0x000000e2u);CHECK(bendMinimum);
+    // The source pitchbend event has not yet been applied. Reject stale state.
+    CHECK(!candidateOriginalCreativeLivePitchBendWrites(
+        *bendMinimum,state,note,0,3));
+    state.apply(*bendMinimum);
+    auto livePitch=candidateOriginalCreativeLivePitchBendWrites(
+        *bendMinimum,state,note,0,3);
+    CHECK(livePitch && (*livePitch)[0].value==3 &&
+          (*livePitch)[1].value==0xC6B8);
+    auto bendCenter=decodeWinMmShort(0x004000e2u);CHECK(bendCenter);
+    state.apply(*bendCenter);
+    livePitch=candidateOriginalCreativeLivePitchBendWrites(*bendCenter,state,note,0,3);
+    CHECK(livePitch && (*livePitch)[1].value==0xC962);
+    auto bendMaximum=decodeWinMmShort(0x007f7fe2u);CHECK(bendMaximum);
+    state.apply(*bendMaximum);
+    livePitch=candidateOriginalCreativeLivePitchBendWrites(*bendMaximum,state,note,0,3);
+    CHECK(livePitch && (*livePitch)[1].value==0xCC0C);
+    auto otherChannel=decodeWinMmShort(0x007f7fe3u);CHECK(otherChannel);
+    state.apply(*otherChannel);
+    CHECK(!candidateOriginalCreativeLivePitchBendWrites(*otherChannel,state,note,0,3));
+    CHECK(!candidateOriginalCreativeLivePitchBendWrites(*on,state,note,0,3));
+    CHECK(!candidateOriginalCreativeLivePitchBendWrites(*bendMaximum,state,note,0,30));
     std::cout<<"P002_NATIVE_CREATIVE_IP_CANDIDATE_PASS original_GM0_GM40_C4=2 original_pitchbend=3 no_GM_ID_branches=TRUE\n";
 }
