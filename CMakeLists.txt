@@ -348,6 +348,20 @@ add_test(NAME p002_original_sf2_18_typed_note_start_ports
 # The existing source-pinned chip bridge executes these EXACT 18 typed OUTs.
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_note_start_ports)
+# Optional *actual* original 1996 x86 PORT TRACE differential. No
+# copyrighted original descriptor/trace is ever embedded in public builds.
+add_executable(awe64_p002_sf2_note_start_prefix_oracle
+    tests/p002_sf2_note_start_prefix_oracle.cpp)
+target_link_libraries(awe64_p002_sf2_note_start_prefix_oracle
+    PRIVATE awe64_p002_sf2_note_start_ports)
+if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}")
+    add_test(NAME p002_private_original_sf2_18_ordered_outs
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_note_start_prefix_differential.py"
+                --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_note_start_prefix_oracle>")
+endif()
 
 # The original Creative source-bank handoff is PRIVATE and never committed.
 # If configured in the runner/Test Lab environment, compare the native
