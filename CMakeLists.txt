@@ -410,7 +410,7 @@ target_include_directories(awe64_p002_sf2_full_noteon_chip
     PUBLIC src/creative_compat)
 target_compile_features(awe64_p002_sf2_full_noteon_chip PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_full_noteon_chip
-    PUBLIC awe64_p002_sf2_full_noteon awe64_p002_chip_port_bridge)
+    PUBLIC awe64_p002_sf2_full_noteon awe64_p002_real_chip_port_bridge)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_full_noteon_chip)
 
