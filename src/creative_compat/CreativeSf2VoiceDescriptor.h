@@ -3,6 +3,7 @@
 // Input is an ALREADY MERGED genuine format-2 voice descriptor, not a bank.
 // This does not manufacture template defaults, sample data, or NoteOn timing.
 #include "CreativeControllerVolume.h"
+#include "CreativeSbkLayers.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -51,6 +52,18 @@ struct OriginalSf2VoiceStartConditions {
 // 0x76. Everything not explicitly transformed is preserved byte-for-byte.
 // Only ROM-mono sampleType 0x8001 has been verified. The original note-start
 // clears that qualifier in its outgoing 148-byte record to 0x0001.
+// Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
+// already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
+// The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
+// independently implemented here. Its true result and the original
+// normalized preset group are therefore EXPLICIT proven caller inputs.
+// A missing verified pitch returns nullopt; never use approximate log2.
+[[nodiscard]] std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+    const CreativeSf2VoiceDescriptorBytes& merged_generator_words,
+    const SbkRomAddress& actual_original_sf2_rom_sample,
+    std::optional<std::uint32_t> verified_original_dw_pitch,
+    std::uint32_t original_normalized_preset_group_id) noexcept;
 [[nodiscard]] std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2EncodedVoiceDescriptor(
     const CreativeSf2VoiceDescriptorBytes& merged,
