@@ -373,6 +373,35 @@ int main() {
     const auto started=candidateOriginalSf2EncodedVoiceDescriptor(
         *withSample,startContext);
     CHECK(started && get(*started,0x8cu/2u)==0x0001u);
+    // One CALL now composes source-backed format2 scope conversion,
+    // verified VXD template, PCOD rate→dwPitch, ROM shdr and NOTE START.
+    // The public test supplies explicitly SYNTHETIC resources, never
+    // privately extracted driver table/template bytes.
+    OriginalCreativeSf2DriverResources testResources{};
+    testResources.preset_template=presetTemplate;
+    testResources.instrument_template=instrumentTemplate;
+    testResources.pitch_tables=syntheticPitchTables;
+    const auto whole=candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,originalRom,testResources,40u,startContext);
+    CHECK(whole);
+    CHECK(std::equal(whole->before_note_start.begin(),
+                     whole->before_note_start.begin()+118u,built->begin()));
+    CHECK(readDword(whole->before_note_start,0x86u)==0x00e00000u);
+    CHECK(readDword(whole->before_note_start,0x90u)==40u);
+    CHECK(get(whole->before_note_start,0x8cu/2u)==0x8001u);
+    CHECK(get(whole->after_note_start,0x8cu/2u)==0x0001u);
+    CHECK(whole->after_note_start[0x8bu]==249u);
+    auto wrongSample=originalRom;
+    wrongSample.sample_id=4u;
+    CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,wrongSample,testResources,40u,startContext));
+    auto wrongChannel=startContext;
+    wrongChannel.midi_key=61u;
+    CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,originalRom,testResources,40u,wrongChannel));
+    wrongChannel=startContext;wrongChannel.creative_bank=128u;
+    CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,originalRom,testResources,40u,wrongChannel));
     for(const unsigned off:{0x76u,0x7au,0x7eu,0x82u,0x86u,0x90u})
         CHECK(readDword(*started,off)==readDword(*withSample,off));
     CHECK((*started)[0x8au]==60u && (*started)[0x8bu]==249u);
