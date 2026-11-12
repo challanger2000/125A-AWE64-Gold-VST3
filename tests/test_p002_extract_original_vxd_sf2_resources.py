@@ -47,10 +47,10 @@ def synthetic_le(*, corrupt_page: int | None = None) -> bytes:
     raw[DATA + 0x2D88:DATA + 0x2D88 + 148] = templ
     # PDAT starts physical page131.
     pd = DATA + (131 - 1) * PAGE
-    table1 = struct.pack("<256H", *range(256))
-    table2 = struct.pack("<256H", *(255 - i for i in range(256)))
+    table1 = struct.pack("<128I", *(1000 + i*10000 for i in range(128)))
+    table2 = struct.pack("<128b", *(64 - i//2 for i in range(128)))
     raw[pd + 0x08E8:pd + 0x08E8 + 512] = table1
-    raw[pd + 0x0AE8:pd + 0x0AE8 + 512] = table2
+    raw[pd + 0x0AE8:pd + 0x0AE8 + 128] = table2
     return bytes(raw)
 
 
@@ -63,9 +63,10 @@ class CreativeVxdPrivateResourcesContract(unittest.TestCase):
         )
         self.assertEqual(result["template_first_59_signed_words"],
                          list(range(-29, 30)))
-        self.assertEqual(result["pitch_table_a_unsigned_16"], list(range(256)))
-        self.assertEqual(result["pitch_table_b_unsigned_16"],
-                         list(range(255, -1, -1)))
+        self.assertEqual(result["pitch_table_a_unsigned_32"],
+                         [1000+i*10000 for i in range(128)])
+        self.assertEqual(result["pitch_table_b_signed_8"],
+                         [64-i//2 for i in range(128)])
         self.assertEqual(
             result["source_le_object_sizes"],
             {name: size for name, size, _, _ in EXPECTED_OBJECTS},
