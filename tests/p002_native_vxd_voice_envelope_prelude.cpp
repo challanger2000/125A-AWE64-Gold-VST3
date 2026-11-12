@@ -168,6 +168,28 @@ int main(){
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(35,-799)==120);
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(36,4386)==3);
     CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(38,-667)==48);
+    // Full bounded layer->merged SF2 descriptor->melodic key scaling->
+    // encoded original SF2 decay, using explicit preconverted fields.
+    SbkLayer mergedDecays{};
+    mergedDecays.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    mergedDecays.preset_global.raw[36]=4000;
+    mergedDecays.instrument_global.raw[36]=0;
+    mergedDecays.preset_global.raw[40]=100;
+    mergedDecays.instrument_global.raw[40]=0;
+    const auto decay2=candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+        mergedDecays,36);
+    const auto keyDecay2=candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+        mergedDecays,40);
+    CHECK(decay2 && keyDecay2 && *decay2==4000 && *keyDecay2==100);
+    const auto key72=originalCreativeSf2KeyScaledEnvelopeWord(
+        36,*decay2,*keyDecay2,72,0);
+    CHECK(key72 && *key72==2800);
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(36,*key72)==9);
+    // The same descriptor with drum bank128 bypasses the melodic key term.
+    const auto drum72=originalCreativeSf2KeyScaledEnvelopeWord(
+        36,*decay2,*keyDecay2,72,128);
+    CHECK(drum72 && *drum72==4000);
+    CHECK(originalCreativeSf2VoiceEnvelopeOrLfoWord(36,*drum72)==4);
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
              <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
