@@ -360,6 +360,22 @@ int main(){
           sf2Sample->loop_end_word==900);
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,1,524288)); // EOS
     CHECK(!resolveCreative1MgmRomAddress(bankSf2,0,900)); // out of ROM
+    // The ROM-only SF2 resolver must never reinterpret a RAM sample or
+    // an unsupported linked-stereo member as a raw ROM address.
+    const std::array<std::uint8_t,6> sampleName{'S','A','M','P','L','E'};
+    const auto sampleIt=std::search(bankSf2.begin(),bankSf2.end(),
+                                    sampleName.begin(),sampleName.end());
+    CHECK(sampleIt!=bankSf2.end());
+    const auto sampleStart=static_cast<std::size_t>(sampleIt-bankSf2.begin());
+    CHECK(sampleStart+45u<bankSf2.size());
+    CHECK(bankSf2[sampleStart+44u]==1u && bankSf2[sampleStart+45u]==128u);
+    auto sf2RamSample=bankSf2;
+    sf2RamSample[sampleStart+45u]=0u; // sampleType 0x0001: RAM mono
+    CHECK(resolveCreativeSbkLayers(sf2RamSample,0,0,60,90));
+    CHECK(!resolveCreative1MgmRomAddress(sf2RamSample,0,524288));
+    auto sf2StereoMember=bankSf2;
+    sf2StereoMember[sampleStart+44u]=2u; // ROM right, requires link handling
+    CHECK(!resolveCreative1MgmRomAddress(sf2StereoMember,0,524288));
     // Format selection MUST come from RIFF INFO ifil in BOTH native
     // readers. Without ifil, this 92-byte named shdr is not a 48-byte
     // packed SBK and must be rejected, not guessed from coincidences.
