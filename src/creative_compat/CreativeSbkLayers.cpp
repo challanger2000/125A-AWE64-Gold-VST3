@@ -254,9 +254,13 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
                 const auto ik=rangeOK(g->get(43),key),iv=rangeOK(g->get(44),velocity);
                 if(!ik || !iv)return std::nullopt;
                 if(!*ik || !*iv)continue;
-                if(found.count>=kMaxCreative1MgmLayers)return std::nullopt;
+                if(found.count>=kMaxCreative1MgmLayers || pi>65535u)
+                    return std::nullopt;
                 auto& out=found.layers[found.count++];
                 out.source_format=sourceFormat;
+                // Real original VXD builds dwSPadId from the normalized
+                // PHDR row index, not this program or the selected PBAG.
+                out.original_preset_row_index=static_cast<std::uint16_t>(pi);
                 out.bank=bank;out.program=program;out.key=key;out.velocity=velocity;
                 out.preset_bag=static_cast<std::uint16_t>(pb);
                 out.instrument=static_cast<std::uint16_t>(instrument);
