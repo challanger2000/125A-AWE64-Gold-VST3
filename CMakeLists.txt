@@ -367,6 +367,25 @@ add_test(NAME p002_original_sf2_next_16_typed_outs
 # Both original segments are executed on the unchanged real chip core.
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_note_continuation)
+# Actual remaining 22 original typed OUTs: decoded source ROM sample
+# geometry, CCCA/Q, Z1/Z2, VTFT/CVCF, PTRX, CPF and DCYSUSV trigger.
+# Only two VXD device/voice state targets are explicit verified inputs.
+add_library(awe64_p002_sf2_final_note_ports STATIC
+    src/creative_compat/CreativeSf2NoteFinalPorts.cpp)
+target_include_directories(awe64_p002_sf2_final_note_ports
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_final_note_ports PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_final_note_ports
+    PUBLIC awe64_p002_sf2_note_continuation
+           awe64_p002_vxd_sample_address)
+add_executable(awe64_p002_sf2_final_note_ports_test
+    tests/p002_native_sf2_note_final_ports.cpp)
+target_link_libraries(awe64_p002_sf2_final_note_ports_test
+    PRIVATE awe64_p002_sf2_final_note_ports)
+add_test(NAME p002_original_sf2_final_22_typed_noteon_outs
+    COMMAND awe64_p002_sf2_final_note_ports_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_final_note_ports)
 
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
