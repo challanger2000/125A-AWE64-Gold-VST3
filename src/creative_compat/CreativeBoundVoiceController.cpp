@@ -60,9 +60,13 @@ CreativeBoundVoiceController::bindFirstOriginalIdleMono(
     for(std::size_t i=0;i<voices_.size();++i)busy[i]=voices_[i].occupied;
     const auto voice=candidateOriginalWin95IdleMonoVoice(probes,busy,available);
     if(!voice)return std::nullopt;
+    const auto originalReset=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{
+            *voice,OriginalWin95MonoSelectionReason::CompletelyIdle,0});
+    if(!originalReset)return std::nullopt;
     const auto initial=bind(plan,layer,*voice,terms);
     if(!initial)return std::nullopt;
-    return OriginalRomAllocatedRegisterCandidates{*voice,*initial};
+    return OriginalRomAllocatedRegisterCandidates{*voice,*originalReset,*initial};
 }
 std::optional<BoundVoiceActions> CreativeBoundVoiceController::process(
     const MidiMessage& message) noexcept {

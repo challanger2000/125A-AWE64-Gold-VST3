@@ -2,8 +2,11 @@
 // Original Win95 Creative SBAWE.VXD mode-0 MONO voice priority evaluator.
 // *Caller* must supply the original driver's per-slot bookkeeping and chip
 // register reads. Without those the returned result is NOT driver-equivalent.
-// The corresponding VXD hardware stop/steal writes are not implemented.
+// Selection is a bounded candidate; original driver release/steal is NOT
+// inferred. Its immediately following word-write to DCYSUSV is independently
+// extracted from actual original VXD and observed in the Win95 trace.
 #include "CreativeIdleVoiceAllocator.h"
+#include "CreativeCandidateRegister.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -35,4 +38,11 @@ struct OriginalWin95MonoSelection {
     const std::array<OriginalWin95MonoVoiceSnapshot,kOriginalCreativeMusicVoices>& snapshots,
     std::size_t available_music_voices,
     std::uint32_t original_driver_mode_count) noexcept;
+// On *both* the completely-idle and selected-busy VXD paths, the actual
+// code invokes its 16-bit hardware writer with (5 << 5)|voice and value 0x00FF.
+// This selects original EMU8000 DCYSUSV (DATA1) via E22/A20; it is not a
+// replacement for the complete voice start/stop and envelope sequence.
+[[nodiscard]] std::optional<std::array<PortWord,2>>
+candidateOriginalWin95SelectedVoiceDcysusvWrites(
+    const OriginalWin95MonoSelection& selected) noexcept;
 } // namespace awe64::creative

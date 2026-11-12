@@ -146,6 +146,12 @@ int main() {
     CHECK(idle0 && idle3 && idle6);
     CHECK(idle0->physical_voice==0 && idle3->physical_voice==3 &&
           idle6->physical_voice==6);
+    CHECK(idle0->selected_voice_dcysusv[0].port==0xE22 &&
+          idle0->selected_voice_dcysusv[0].value==0xA0 &&
+          idle0->selected_voice_dcysusv[1].port==0xA20 &&
+          idle0->selected_voice_dcysusv[1].value==0x00FF);
+    CHECK(idle3->selected_voice_dcysusv[0].value==0xA3);
+    CHECK(idle6->selected_voice_dcysusv[0].value==0xA6);
     CHECK(idle0->initial.pitch[1].value==0xC962);
     CHECK(idle3->initial.filter_and_attenuation[0].value==0x23);
     probes[9].driver_key_marker=0x1000; // physical 9 is NOT verified idle

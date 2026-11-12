@@ -5,6 +5,7 @@
 #include "CreativeControllerVolume.h"
 #include "CreativePitchCandidate.h"
 #include "CreativeIdleVoiceAllocator.h"
+#include "CreativeVxdMonoVoiceRanking.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +34,9 @@ struct OriginalRomInitialRegisterCandidates {
 };
 struct OriginalRomAllocatedRegisterCandidates {
     std::uint8_t physical_voice=0;
+    // Confirmed original VXD selection exit: DCYSUSV=0x00FF must precede
+    // subsequent pitch/IFATN voice initialization on this path.
+    std::array<PortWord,2> selected_voice_dcysusv{};
     OriginalRomInitialRegisterCandidates initial{};
 };
 class CreativeBoundVoiceController {

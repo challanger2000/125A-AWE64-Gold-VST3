@@ -73,6 +73,27 @@ int main() {
     CHECK(!candidateOriginalWin95Mode0MonoVoice(slots,30,3));
     slots[27].complete=true;
     CHECK(candidateOriginalWin95Mode0MonoVoice(slots,30,3)->physical_voice==0);
+    // Actual original VXD selection exits via 0x3FBA -> its word writer
+    // at 0x3CB1, selecting hardware DATA1/voice DCYSUSV with 0x00FF.
+    const auto reset=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{3,Reason::CompletelyIdle,0});
+    CHECK(reset && (*reset)[0].port==0xE22 &&
+          (*reset)[0].value==0xA3 &&
+          (*reset)[1].port==0xA20 &&
+          (*reset)[1].value==0x00FF);
+    const auto resetBusy=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{29,Reason::LowestEnvelopePriority,0x2200});
+    CHECK(resetBusy && (*resetBusy)[0].value==0xBD);
+    const auto resetFinished=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{9,Reason::SampleEndReached,0});
+    CHECK(resetFinished && (*resetFinished)[0].value==0xA9);
+    CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{30,Reason::CompletelyIdle,0}));
+    CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{31,Reason::LowestEnvelopePriority,0}));
+    CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{2,
+           static_cast<Reason>(255),0}));
     std::cout<<"P002_REAL_VXD_MODE0_MONO_SELECTION_PRIORITY_PASS"
              <<" idle=TRUE busy_scoring=TRUE sample_end=TRUE"
              <<" original_voice_steal_IO_and_PCM_UNVERIFIED=TRUE\n";

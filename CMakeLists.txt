@@ -194,7 +194,8 @@ add_library(awe64_p002_vxd_mono_priority STATIC
 target_include_directories(awe64_p002_vxd_mono_priority PUBLIC src/creative_compat)
 target_compile_features(awe64_p002_vxd_mono_priority PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_vxd_mono_priority
-    PUBLIC awe64_p002_idle_allocator)
+    PUBLIC awe64_p002_idle_allocator awe64_p002_register_candidate)
+target_link_libraries(awe64_p002_bound_voices PUBLIC awe64_p002_vxd_mono_priority)
 add_executable(awe64_p002_vxd_mono_priority_test
     tests/p002_native_vxd_mono_ranking.cpp)
 target_link_libraries(awe64_p002_vxd_mono_priority_test

@@ -584,3 +584,24 @@ and chip-register inputs; private original traces were not bundled.
 In particular, original mode 1 stereo, mode 2 restricted allocation,
 precise side effects and the full MIDI→register→PCM original-differential
 acceptance remain unimplemented, so P002 remains DRAFT.
+
+## Original VXD selected-voice DCYSUSV register write (2026-11-12)
+
+The original owner's installed SBAWE.VXD LCOD disassembly has the
+selection-exit branch at approximately +0x3FBA. Whether the voice
+was completely idle, the sample read pointer reached the end, or
+it was selected by the lowest priority score, the code sends a word
+0x00FF using the original 16-bit register writer (+0x3CB1) with
+voice register selector (5 << 5)|physicalVoice to EMU8000 DATA1.
+The original Win95 captured trace independently identifies these
+physical note-start register events as DCYSUSV=0x00FF.
+
+New native candidateOriginalWin95SelectedVoiceDcysusvWrites()
+produces the concrete E22 selector / A20 DATA1 port pair for
+all real musical physical voices 0..29. It rejects refresh voices
+30/31 and invalid ranking outcomes. The original completely-idle
+voice-binding path now returns the concrete DCYSUSV reset pair
+separately and ahead of the existing independently calculated
+IP and IFATN pairs. This does NOT establish that all other
+register writes, release sequence, clock schedule, full voice steal
+or sample PCM are correct. The original VXD bytes stay private.
