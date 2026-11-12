@@ -62,6 +62,25 @@ std::optional<std::size_t> releaseOriginalVoice(
     return writes;
 }
 }
+std::optional<OriginalSf2VerifiedReleaseRates>
+candidateOriginalSf2VerifiedReleaseRates(
+    const std::span<const std::uint8_t> original_32byte_voice_record,
+    const OriginalSf2VxdSnapshotVoice& voice) noexcept {
+    if(original_32byte_voice_record.size()!=kOriginalVxdVoiceRowStride ||
+       !voice.assigned_voice.source_original_voice_verified)
+        return std::nullopt;
+    const auto& d=voice.assigned_voice.verified_after_start_record;
+    // In the genuine format-2 VXD, the NoteOn source writes generator30
+    // to voice+0x15 and generator38 to voice+0x16. Both values must be
+    // low-byte encoded 0..127, with zero high descriptor byte.
+    if(d[0x8cu]!=1u || d[0x8du]!=0u ||
+       d[0x3du]!=0u || d[0x4du]!=0u ||
+       d[0x3cu]>127u || d[0x4cu]>127u ||
+       original_32byte_voice_record[0x15u]!=d[0x3cu] ||
+       original_32byte_voice_record[0x16u]!=d[0x4cu])
+        return std::nullopt;
+    return OriginalSf2VerifiedReleaseRates{d[0x3cu],d[0x4cu]};
+}
 std::optional<OriginalSf2SourceNoteReleaseResult>
 applyOriginalSf2MidiNoteOffFromVxdState(
     awe64::Chip& chip,const std::span<std::uint8_t> state,
@@ -102,8 +121,11 @@ applyOriginalSf2MidiNoteOffFromVxdState(
            (seen&(1u<<physical))!=0u)return std::nullopt;
         const auto base=kOriginalVxdVoiceRowStart+
             static_cast<std::size_t>(physical)*kOriginalVxdVoiceRowStride;
-        if(base+0x20u>read.size() || le16(read,base)!=expected ||
-           read[base+0x15u]>127u || read[base+0x16u]>127u)return std::nullopt;
+        if(base+0x20u>read.size() || le16(read,base)!=expected)
+            return std::nullopt;
+        const auto rates=candidateOriginalSf2VerifiedReleaseRates(
+            read.subspan(base,kOriginalVxdVoiceRowStride),layer);
+        if(!rates)return std::nullopt;
         seen|=1u<<physical;
         auto& e=pending[count].original;
         e.original_key_channel_match=true;
@@ -111,8 +133,8 @@ applyOriginalSf2MidiNoteOffFromVxdState(
         // Original LCOD+0x60B4 checks [EBX+4], where EBX is the
         // channel row at state+0x442+channel*0x24, not voice+4.
         e.original_sustain_held=channel_sustain;
-        e.encoded_volume_release=read[base+0x16u];
-        e.encoded_mod_release=read[base+0x15u];
+        e.encoded_volume_release=rates->volume;
+        e.encoded_mod_release=rates->modulation;
         e.stored_end_word=le32(read,base+6u);
         // Actual original helper accepts a max 24-bit cursor +4.
         if(e.stored_end_word>0xfffffbu)return std::nullopt;
@@ -190,13 +212,10 @@ applyOriginalSf2MidiCc64FromVxdState(
         if((marker&0xffu)!=0xffu ||
            (marker>>8u)!=channel || cc_value>=64u)
             continue;
-        const auto& d=layer.assigned_voice.verified_after_start_record;
+        const auto rates=candidateOriginalSf2VerifiedReleaseRates(
+            read.subspan(base,kOriginalVxdVoiceRowStride),layer);
         const auto end=le32(read,base+6u);
-        if(d[0x8cu]!=1u || d[0x8du]!=0u ||
-           read[base+0x15u]>127u || read[base+0x16u]>127u ||
-           read[base+0x15u]!=d[0x3cu] ||
-           read[base+0x16u]!=d[0x4cu] ||
-           end>0xfffffbu)return std::nullopt;
+        if(!rates || end>0xfffffbu)return std::nullopt;
         auto& p=pending[count++];
         p.base=base;p.physical=v;
         auto& e=p.original;
@@ -204,8 +223,8 @@ applyOriginalSf2MidiCc64FromVxdState(
         e.original_voice_record_verified=true;
         e.current_chip_registers_verified=true;
         e.original_sustain_held=false;
-        e.encoded_mod_release=read[base+0x15u];
-        e.encoded_volume_release=read[base+0x16u];
+        e.encoded_mod_release=rates->modulation;
+        e.encoded_volume_release=rates->volume;
         e.stored_end_word=end;
         const auto proof=candidateOriginalVxdMidiNoteRelease(v,e);
         if(!proof || proof->count<4u)return std::nullopt;
