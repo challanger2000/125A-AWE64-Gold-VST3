@@ -349,6 +349,8 @@ int main(){
     CHECK(parsedSf2 && parsedSf2->count==1);
     const auto& fromSf2=parsedSf2->layers[0];
     CHECK(fromSf2.source_format==OriginalCreativeBankFormat::Format2Sf2);
+    CHECK(fromSf2.original_preset_row_index==0u);
+    CHECK(fromSf2.preset_bag==0u);
     CHECK(fromSf2.preset_global.get(48)==5);
     CHECK(fromSf2.preset_local.get(48)==7);
     CHECK(fromSf2.instrument_global.get(48)==9);
