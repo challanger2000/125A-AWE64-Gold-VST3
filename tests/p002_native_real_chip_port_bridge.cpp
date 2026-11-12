@@ -7,6 +7,7 @@
 #include "CreativeSf2VoiceDescriptor.h"
 #include "CreativeSf2NoteStartPorts.h"
 #include "CreativeSf2NoteContinuationPorts.h"
+#include "CreativeSf2NoteFinalPorts.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -482,6 +483,56 @@ int main(){
     CHECK(real->voice[3].envvol==0xbfffu); // actual original ATTACK128
     CHECK(real->voice[3].tremfrq==0x0080u);
     CHECK(real->voice[3].ptrx==0u && real->voice[3].cpf==0u);
+    // Complete the final 22 ORIGINAL x86 SF2 NOTE START OUTs on the
+    // SAME physical pinned EMU8000, immediately after the previous
+    // 18+16 writes; source-true 60-operation note start (not the five
+    // separate source voice allocator/prologue operations).
+    const auto setSf2Dword=[](CreativeSf2VoiceDescriptorBytes& b,
+                              const unsigned at,std::uint32_t value) {
+        for(unsigned n=0;n<4u;++n)
+            b[at+n]=static_cast<std::uint8_t>(value>>(8u*n));
+    };
+    setSf2Dword(realSf2GM0,0x76u,0xfeb9u);
+    setSf2Dword(realSf2GM0,0x7au,0x152feu);
+    setSf2Dword(realSf2GM0,0x7eu,0x152bbu);
+    setSf2Dword(realSf2GM0,0x82u,0x152fau);
+    fillSf2(realSf2GM0,54u,1); // source loop mode
+    fillSf2(realSf2GM0,17u,127);fillSf2(realSf2GM0,15u,0);
+    fillSf2(realSf2GM0,16u,27);fillSf2(realSf2GM0,18u,129);
+    fillSf2(realSf2GM0,36u,3);fillSf2(realSf2GM0,37u,0);
+    const auto gm0End=candidateOriginalSf2FinalNoteStartPorts(
+        realSf2GM0,0u,{true,0u,0x1c48u});
+    CHECK(gm0End && gm0End->size()==22u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0End));
+    CHECK(real->voice[0].psst==0x7f0152bau);
+    CHECK(real->voice[0].csl==0x000152f9u);
+    CHECK(real->voice[0].ccca==0x0000feb5u);
+    CHECK(real->voice[0].z1==0u && real->voice[0].z2==0u);
+    CHECK(real->voice[0].vtft==0x0000b300u &&
+          real->voice[0].cvcf==0x0000b300u);
+    CHECK(real->voice[0].ptrx==0x1c481b81u);
+    CHECK(real->voice[0].cpf==0x1c480000u);
+    CHECK(real->voice[0].dcysusv==0x0003u);
+    setSf2Dword(gm100Descriptor,0x76u,0x34116u);
+    setSf2Dword(gm100Descriptor,0x7au,0x36804u);
+    setSf2Dword(gm100Descriptor,0x7eu,0x3460eu);
+    setSf2Dword(gm100Descriptor,0x82u,0x36800u);
+    fillSf2(gm100Descriptor,54u,1);
+    fillSf2(gm100Descriptor,17u,127);fillSf2(gm100Descriptor,15u,122);
+    fillSf2(gm100Descriptor,16u,27);fillSf2(gm100Descriptor,18u,129);
+    fillSf2(gm100Descriptor,36u,9);fillSf2(gm100Descriptor,37u,0);
+    const auto gm100End=candidateOriginalSf2FinalNoteStartPorts(
+        gm100Descriptor,3u,{true,0x260cu,0x0ae7u});
+    CHECK(gm100End && applyOriginalCreativeVxdVoicePorts(chip,*gm100End));
+    CHECK(real->voice[3].psst==0x7f03460du);
+    CHECK(real->voice[3].csl==0x7a0367ffu);
+    CHECK(real->voice[3].ccca==0x00034112u);
+    CHECK(real->voice[3].z1==0u && real->voice[3].z2==0u);
+    CHECK(real->voice[3].vtft==0x260cff00u &&
+          real->voice[3].cvcf==0x260cff00u);
+    CHECK(real->voice[3].ptrx==0x0ae71b81u);
+    CHECK(real->voice[3].cpf==0x0ae70000u);
+    CHECK(real->voice[3].dcysusv==0x0009u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -514,6 +565,7 @@ int main(){
              <<" actual_SF2_GM0_GM40_GM100_IP_ON_PINNED_CHIP=4_4"
              <<" original_SF2_18_OUT_GM0_GM100_REAL_CHIP=TRUE"
              <<" original_SF2_NEXT16_OUT_REAL_CHIP=TRUE"
+             <<" original_SF2_FINAL22_OUT_REAL_CHIP=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
