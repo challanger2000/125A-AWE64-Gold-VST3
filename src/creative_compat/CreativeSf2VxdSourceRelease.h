@@ -35,4 +35,25 @@ applyOriginalSf2MidiNoteOffFromVxdState(
     std::uint8_t original_midi_channel,
     std::uint8_t played_key,
     bool independently_verified_original_voice_records) noexcept;
+struct OriginalSf2SourceCc64Result {
+    bool sustain_enabled=false;
+    std::size_t released_deferred_voices=0;
+    std::size_t typed_port_writes=0;
+};
+// Genuine original VXD LCOD+0x656D MIDI CC64 driver path:
+// CC64 >=64 -> set channel-state+0x04 to 1, zero voice port writes.
+// CC64 <64 -> set channel-state+0x04 to 0, scan the physical voice
+// rows for markers with note low BYTE 0xFF and HIGH BYTE == channel,
+// then call the *same actual source* LCOD+0x60E4 release on each.
+// The public function is bounded to the separately source-verified
+// assigned voices supplied by the active P002 diagnostic/allocator;
+// complete 30-voice runtime scan/stealing is not claimed.
+[[nodiscard]] std::optional<OriginalSf2SourceCc64Result>
+applyOriginalSf2MidiCc64FromVxdState(
+    awe64::Chip& chip,
+    std::span<std::uint8_t> verified_mutable_vxd_state,
+    std::span<const OriginalSf2VxdSnapshotVoice> original_assigned_voices,
+    std::uint8_t original_midi_channel,
+    std::uint8_t controller_value_0_to_127,
+    bool independently_verified_original_voice_records) noexcept;
 } // namespace awe64::creative

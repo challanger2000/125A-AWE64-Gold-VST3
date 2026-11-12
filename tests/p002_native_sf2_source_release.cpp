@@ -72,6 +72,12 @@ int main(){
         unopened,state,notes,16u,60u,true));
     CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
         unopened,state,notes,0u,60u,false));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,0u,127u,true));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,0u,0u,true));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,16u,0u,true));
     // Existing (already source proven) port-plan helper handles exact
     // rate byte values, sustain deferral, and optional CSL/PSST updates.
     OriginalVxdNoteReleaseEvidence e{};
@@ -103,6 +109,7 @@ int main(){
              <<" original_GM0_gen38_8029_gen30_807f=TRUE"
              <<" original_release_from_SF2_noteon_descriptors=TRUE"
              <<" sustain_at_MIDI_channel_plus4_NOT_voice_plus4=TRUE"
+             <<" original_CC64_656D_pedal_off_release_helper_PRESENT=TRUE"
              <<" original_sustain_defer=TRUE"
              <<" original_CSL_PSST_preserved_high_byte=TRUE"
              <<" actual_exported_VST3_PCM=TEST_SEPARATELY"
