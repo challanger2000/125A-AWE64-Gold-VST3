@@ -4,6 +4,7 @@
 #include "CreativeVxdSampleAddress.h"
 #include "CreativeVxdNoteRelease.h"
 #include "CreativeVxdVoiceEnvelopePrelude.h"
+#include "CreativeSf2VoiceDescriptor.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -359,6 +360,42 @@ int main(){
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,violinSf2Ports));
     CHECK(real->voice[15].ifatn==0xB33Au);
     CHECK(real->voice[18].ifatn==0x9532u);
+    // Native original FORMAT-2 SF2 note-start pitch, verified by the
+    // independently executed Creative SBAWE.VXD GM0, GM40 and GM100 x2.
+    // The original sample-rate→dwPitch stage remains an explicitly
+    // verified input (44100 Hz => 0x00E00000), not an approximate LUT.
+    struct ActualOriginalSf2Ip {std::int16_t root,fine;std::uint16_t ip;};
+    constexpr std::array<ActualOriginalSf2Ip,4> sf2Cases{{
+        {77,4,0xc961u},{87,30,0xbc64u},
+        {85,-32,0xbe3bu},{94,4,0xb2b5u}
+    }};
+    for(std::size_t i=0;i<sf2Cases.size();++i) {
+        const auto& v=sf2Cases[i];
+        CreativeSf2VoiceDescriptorBytes encodedSf2{};
+        encodedSf2[0x88u]=0xe0u; // dwPitch, independently verified
+        encodedSf2[0x8au]=60u;   // SF2 original sample root key
+        const auto setWord=[&](const unsigned op,const std::int16_t val) {
+            const auto w=static_cast<std::uint16_t>(val);
+            encodedSf2[op*2u]=static_cast<std::uint8_t>(w);
+            encodedSf2[op*2u+1u]=static_cast<std::uint8_t>(w>>8u);
+        };
+        setWord(58u,v.root);
+        setWord(52u,v.fine);
+        setWord(56u,100);
+        const auto physical=static_cast<std::uint8_t>(i==3u?3u:0u);
+        const auto writes=candidateOriginalSf2InitialIpWritesFromDescriptor(
+            encodedSf2,60u,physical,0,0);
+        CHECK(writes && (*writes)[0].value==physical &&
+              (*writes)[1].value==v.ip);
+        const std::array<OriginalWin95VxdPortWrite,2> typed{{
+            {(*writes)[0].port,(*writes)[0].value,8u},
+            {(*writes)[1].port,(*writes)[1].value,16u}
+        }};
+        CHECK(applyOriginalCreativeVxdVoicePorts(chip,typed));
+        CHECK(real->voice[physical].ip==v.ip);
+        CHECK(!candidateOriginalSf2InitialIpWritesFromDescriptor(
+            encodedSf2,60u,30u,0,0));
+    }
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -388,6 +425,7 @@ int main(){
              <<" original_GM40_gen8_105_gen34_10_REAL_chip_cutoff148=TRUE"
              <<" actual_SF2_GM100_attack128_hw127_IFATN_FF2A=TRUE"
              <<" real_SF2_GM0_IFATN_B33A_GM40_IFATN_9532=TRUE"
+             <<" actual_SF2_GM0_GM40_GM100_IP_ON_PINNED_CHIP=4_4"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
