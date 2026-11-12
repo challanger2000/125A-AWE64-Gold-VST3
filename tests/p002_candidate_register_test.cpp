@@ -35,6 +35,19 @@ int main() {
     CHECK(candidateOriginalIfatnFromEncodedAttack(90,b,128,128)->cutoff==210);
     CHECK(!candidateOriginalIfatnFromEncodedAttack(90,b,0,129));
     CHECK(!candidateOriginalIfatnFromEncodedAttack(0,b,0,10));
+    // Independently executed real Creative Format-2/SF2 ROM bank:
+    // GM0 merged cutoff179, encoded attack125 => no velocity filter;
+    // GM40 cutoff211 / attack114 => vel90 scales to149;
+    // GM100 cutoff344 and attack128 => clamps to255, no velocity filter.
+    // Volume terms stay explicit; no supposed Windows Device-State default.
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,179,0,125)->cutoff==179);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,0,114)->cutoff==149);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,344,0,128)->cutoff==255);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,313,0,128)->cutoff==255);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,-300,0,124)->cutoff==0);
+    CHECK(candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,128,114)->cutoff==211);
+    CHECK(!candidateOriginalSf2IfatnFromMergedCutoff(0,b,179,0,125));
+    CHECK(!candidateOriginalSf2IfatnFromMergedCutoff(90,b,211,0,129));
     // Explicitly calculated parameter combinations are not
     // hardcoded program-specific gain or filter exceptions.
     const CandidateVoiceParameters alternate{13,8,210,true};
