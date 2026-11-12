@@ -24,6 +24,10 @@ struct SbkLayer {
     std::uint8_t program=0, key=0, velocity=0;
     std::uint16_t rom_sample_selector=0; // NOT an index into Creative shdr
     SbkGeneratorScope preset_global{}, preset_local{}, instrument_global{}, instrument_local{};
+    // The ORIGINAL VXD copies normalized PHDR index to the voice's
+    // dwSPadId at +0x90. Neither MIDI program nor PBAG zone index is
+    // equivalent (e.g. original program 40/pbag55; program100/pbag140/141).
+    std::uint16_t original_preset_row_index=0;
     // Original 1MGM PCOD generator8 dispatcher directly doubles the
     // instrument raw value; also verified by actual GM0/GM40 chip traces.
     // No instrument generator: return nullopt, not a guessed chip cutoff.
