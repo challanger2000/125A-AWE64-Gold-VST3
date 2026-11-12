@@ -85,3 +85,19 @@ the resulting branch is the authoritative Windows compilation/test result.
 pair, not a full original bank loader, not a 32-voice allocator, not an
 end-to-end independent Creative Win95 MIDI→register→PCM proof, and not
 wired into the P001 VST3. P002 remains DRAFT/OPEN; P001 core untouched.
+
+## P002 native zone safety extension — key AND velocity (2026-11-12)
+
+The native C++ descriptor now requires the actual NoteOn velocity, validates
+**preset key/velocity ranges (gen43/gen44)** and instrument key/velocity
+ranges, and verifies the selected sample ID is not outside the Creative
+shdr table or the terminal EOS entry. The IFATN bridge rejects a stale
+selection when either note number **or velocity** differs.
+
+CI's invented metadata fixture deliberately separates instrument velocity
+64..127, preset velocity 32..127 and preset keys 50..90; negative tests
+require each exclusion to reject the note instead of choosing a wrong voice.
+The original owner Creative SYNTHGM.SBK is still private and **was not run**
+through this revision in public CI. No bank-agnostic attenuation, attack-
+envelope, original Creative allocator or full chip-clock parity is implied.
+This remains a bounded safety correction to P002, not a P002 approval.

@@ -44,13 +44,14 @@ bool walk(Bytes b, std::size_t begin, std::size_t end, Visitor visit) noexcept {
     return p==end;
 }
 struct Generators {
-    std::optional<std::uint16_t> cutoff, attack, key_range, sample_id, instrument, attenuation;
+    std::optional<std::uint16_t> cutoff, attack, key_range, velocity_range, sample_id, instrument, attenuation;
 };
 void addGenerator(Generators& g, std::uint16_t op, std::uint16_t v) noexcept {
     switch(op) {
     case 8: g.cutoff=v; break;
     case 34: g.attack=v; break;
     case 43: g.key_range=v; break;
+    case 44: g.velocity_range=v; break;
     case 53: g.sample_id=v; break;
     case 41: g.instrument=v; break;
     case 48: g.attenuation=v; break;
@@ -60,8 +61,9 @@ void addGenerator(Generators& g, std::uint16_t op, std::uint16_t v) noexcept {
 } // namespace
 
 std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
-    Bytes b, std::uint16_t bank, std::uint8_t program, std::uint8_t key) noexcept {
-    if (program>127 || key>127 || b.size()<12 || !tag(b,0,"RIFF") ||
+    Bytes b, std::uint16_t bank, std::uint8_t program, std::uint8_t key,
+    std::uint8_t velocity) noexcept {
+    if (program>127 || key>127 || velocity==0 || velocity>127 || b.size()<12 || !tag(b,0,"RIFF") ||
         !tag(b,8,"sfbk") || u32(b,4)!=b.size()-8) return std::nullopt;
     Chunk info{}, pdta{};
     if (!walk(b,12,b.size(),[&](std::size_t p,Chunk c) noexcept {
@@ -119,6 +121,16 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
             addGenerator(g,word(genTable,i,0),word(genTable,i,2));
         return g;
     };
+    // A SoundFont range is inclusive, encoded low | high<<8. A malformed
+    // range rejects a bank rather than silently selecting a wrong layer.
+    const auto eligible=[&](std::optional<std::uint16_t> raw,
+                            std::uint8_t value)->std::optional<bool> {
+        if (!raw) return true;
+        const auto lo=static_cast<std::uint8_t>(*raw&0xffu);
+        const auto hi=static_cast<std::uint8_t>(*raw>>8);
+        if (lo>hi || hi>127) return std::nullopt;
+        return value>=lo && value<=hi;
+    };
     std::optional<SbkZoneDescriptor> found;
     for(std::size_t preset=0;preset+1<counts[PHDR];++preset) {
         if(word(PHDR,preset,20)!=program || word(PHDR,preset,22)!=bank) continue;
@@ -127,6 +139,10 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
         for(std::size_t pb=begin;pb<end;++pb) {
             auto pg=readGen(PGEN,PBAG,pb);
             if(!pg) return std::nullopt;
+            const auto presetKey=eligible(pg->key_range,key);
+            const auto presetVelocity=eligible(pg->velocity_range,velocity);
+            if(!presetKey || !presetVelocity) return std::nullopt;
+            if(!*presetKey || !*presetVelocity) continue;
             if(!pg->instrument) continue;
             const auto inst=static_cast<std::size_t>(*pg->instrument);
             if(inst+1>=counts[INST]) return std::nullopt;
@@ -137,7 +153,7 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
                 auto g=readGen(IGEN,IBAG,ib);
                 if(!g) return std::nullopt;
                 if(!g->sample_id) {
-                    if(g->key_range) return std::nullopt;
+                    if(g->key_range || g->velocity_range) return std::nullopt;
                     if(g->cutoff) globals.cutoff=g->cutoff;
                     if(g->attack) globals.attack=g->attack;
                 }
@@ -146,6 +162,11 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
                 auto g=readGen(IGEN,IBAG,ib);
                 if(!g) return std::nullopt;
                 if(!g->sample_id) continue;
+                // The final shdr record is an EOS terminal, not a sample.
+                if(*g->sample_id>=counts[SHDR]-1) return std::nullopt;
+                const auto instrumentVelocity=eligible(g->velocity_range,velocity);
+                if(!instrumentVelocity) return std::nullopt;
+                if(!*instrumentVelocity) continue;
                 const auto range=g->key_range.value_or(0x7F00);
                 const auto lo=static_cast<std::uint8_t>(range&0xFFu);
                 const auto hi=static_cast<std::uint8_t>(range>>8);
@@ -153,7 +174,7 @@ std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
                 if(key<lo || key>hi) continue;
                 const auto cutoff=g->cutoff ? g->cutoff : globals.cutoff;
                 if(!cutoff || *cutoff>127 || found) return std::nullopt;
-                found=SbkZoneDescriptor{bank,program,key,static_cast<std::uint16_t>(inst),
+                found=SbkZoneDescriptor{bank,program,key,velocity,static_cast<std::uint16_t>(inst),
                     static_cast<std::uint16_t>(ib),lo,hi,*g->sample_id,
                     static_cast<std::uint8_t>(*cutoff),static_cast<std::uint8_t>(*cutoff*2u),
                     globals.cutoff,g->cutoff,pg->attenuation,globals.attack};

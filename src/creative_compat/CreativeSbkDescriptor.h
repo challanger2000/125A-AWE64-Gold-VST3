@@ -11,6 +11,7 @@ struct SbkZoneDescriptor {
     std::uint16_t bank = 0;
     std::uint8_t program = 0;
     std::uint8_t selected_key = 0;
+    std::uint8_t selected_velocity = 0;
     std::uint16_t instrument_index = 0;
     std::uint16_t instrument_zone_bag = 0;
     std::uint8_t key_low = 0, key_high = 0;
@@ -27,5 +28,6 @@ struct SbkZoneDescriptor {
 // Original Creative 48-byte shdr records are required (not 46-byte SF2).
 [[nodiscard]] std::optional<SbkZoneDescriptor> resolveCreativeSbkZone(
     std::span<const std::uint8_t> sbk,
-    std::uint16_t bank, std::uint8_t program, std::uint8_t key) noexcept;
+    std::uint16_t bank, std::uint8_t program, std::uint8_t key,
+    std::uint8_t velocity) noexcept;
 } // namespace awe64::creative
