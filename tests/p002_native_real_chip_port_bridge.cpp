@@ -198,6 +198,29 @@ int main(){
     CHECK(real->voice[3].ccca==0x0000FEB5u);
     CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startWithQ));
     CHECK(real->voice[3].ccca==0x5000FEB5u);
+    // Original NoteOn voice geometry is a different VXD branch
+    // from the earlier case5/6 sample-update paths.
+    OriginalVxdRomNoteStartMode loopMode{};
+    loopMode.original_driver_mode_verified=true;
+    loopMode.encoded_mode_flags=3;
+    loopMode.original_pan_byte=0x47;
+    loopMode.original_chorus_send_byte=0x53;
+    const auto initialGeometry=candidateOriginalVxdInitialRomNoteGeometry(
+        sample3,3,loopMode);
+    CHECK(initialGeometry &&
+          initialGeometry->driver_retained_release_end==0x15302u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(
+        chip,initialGeometry->loop_address_ports));
+    CHECK(real->voice[3].psst==0x470152B9u);
+    CHECK(real->voice[3].csl==0x530152F7u);
+    loopMode.encoded_mode_flags=0;
+    const auto oneShotGeometry=candidateOriginalVxdInitialRomNoteGeometry(
+        sample3,3,loopMode);
+    CHECK(oneShotGeometry &&
+          applyOriginalCreativeVxdVoicePorts(chip,
+              oneShotGeometry->loop_address_ports));
+    CHECK(real->voice[3].psst==0x47015302u);
+    CHECK(real->voice[3].csl==0x53015306u);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -222,6 +245,7 @@ int main(){
              <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
              <<" original_note_start_envelope7_actual_chip=TRUE"
              <<" original_CCCA_source_minus4_Q_actual_chip=TRUE"
+             <<" original_NoteOn_PSST_CSL_geometry_chip=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"

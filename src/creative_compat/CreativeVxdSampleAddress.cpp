@@ -54,4 +54,35 @@ candidateOriginalVxdRomCccaStart(
         {0xA20u,value,32u}
     }};
 }
+
+std::optional<OriginalVxdRomNoteStartGeometry>
+candidateOriginalVxdInitialRomNoteGeometry(
+    const SbkRomAddress& s, const std::uint8_t voice,
+    const OriginalVxdRomNoteStartMode mode) noexcept {
+    if(voice>=kOriginalCreativeMusicVoices ||
+       !mode.original_driver_mode_verified ||
+       (mode.encoded_mode_flags&0xfcu)!=0 ||
+       s.start_word<4 || s.start_word>=s.end_word ||
+       s.end_word>0x80000u ||
+       s.loop_start_word<s.start_word ||
+       s.loop_start_word>=s.loop_end_word ||
+       s.loop_end_word>s.end_word)return std::nullopt;
+    const bool looped=(mode.encoded_mode_flags&1u)!=0;
+    const std::uint32_t psstLow=looped?s.loop_start_word-1u:s.end_word+4u;
+    const std::uint32_t cslLow=looped?s.loop_end_word-1u:s.end_word+8u;
+    // All actual owner ROM addresses are well under the 24-bit chip limit.
+    if(psstLow>0xffffffu || cslLow>0xffffffu)return std::nullopt;
+    OriginalVxdRomNoteStartGeometry result{};
+    result.driver_retained_release_end=
+        looped&&(mode.encoded_mode_flags&2u)?s.end_word+4u:0u;
+    result.loop_address_ports={{
+        {0xE22u,static_cast<std::uint32_t>((6u<<5)|voice),8},
+        {0x620u,psstLow|(static_cast<std::uint32_t>(
+                    mode.original_pan_byte)<<24),32},
+        {0xE22u,static_cast<std::uint32_t>((7u<<5)|voice),8},
+        {0x620u,cslLow|(static_cast<std::uint32_t>(
+                    mode.original_chorus_send_byte)<<24),32}
+    }};
+    return result;
+}
 } // namespace awe64::creative

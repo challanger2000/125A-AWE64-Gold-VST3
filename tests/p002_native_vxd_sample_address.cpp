@@ -66,9 +66,41 @@ int main(){
         badStart,3,5,true,OriginalVxdCccaStartPhase::StartWithEncodedFilterQ));
     CHECK(!candidateOriginalVxdRomCccaStart(
         piano,3,5,true,static_cast<OriginalVxdCccaStartPhase>(255)));
+    // Actual NOTE-ON LCOD 5B81..5BE4, 5EEB..5F1B (distinct
+    // from the earlier case5/6 UPDATE path).
+    OriginalVxdRomNoteStartMode loopMode{};
+    loopMode.original_driver_mode_verified=true;
+    loopMode.encoded_mode_flags=3; // loop with retained end for NoteOff
+    loopMode.original_pan_byte=0x47;
+    loopMode.original_chorus_send_byte=0x53;
+    const auto geometry=candidateOriginalVxdInitialRomNoteGeometry(
+        piano,3,loopMode);
+    CHECK(geometry && geometry->driver_retained_release_end==0x15302u);
+    CHECK(geometry->loop_address_ports[0].value==0xC3 &&
+          geometry->loop_address_ports[1].value==0x470152B9u);
+    CHECK(geometry->loop_address_ports[2].value==0xE3 &&
+          geometry->loop_address_ports[3].value==0x530152F7u);
+    CHECK(geometry->loop_address_ports[1].access_width_bits==32 &&
+          geometry->loop_address_ports[3].access_width_bits==32);
+    loopMode.encoded_mode_flags=1; // loop only
+    CHECK(candidateOriginalVxdInitialRomNoteGeometry(
+        piano,3,loopMode)->driver_retained_release_end==0);
+    loopMode.encoded_mode_flags=0; // one-shot
+    const auto oneShot=candidateOriginalVxdInitialRomNoteGeometry(
+        piano,3,loopMode);
+    CHECK(oneShot && oneShot->driver_retained_release_end==0 &&
+          oneShot->loop_address_ports[1].value==0x47015302u &&
+          oneShot->loop_address_ports[3].value==0x53015306u);
+    loopMode.encoded_mode_flags=0x80u; // unspecified driver flag
+    CHECK(!candidateOriginalVxdInitialRomNoteGeometry(piano,3,loopMode));
+    loopMode.encoded_mode_flags=1;loopMode.original_driver_mode_verified=false;
+    CHECK(!candidateOriginalVxdInitialRomNoteGeometry(piano,3,loopMode));
+    loopMode.original_driver_mode_verified=true;
+    CHECK(!candidateOriginalVxdInitialRomNoteGeometry(piano,30,loopMode));
     std::cout<<"P002_ORIGINAL_VXD_1MGM_SAMPLE_ADDRESS_CASE5_CASE6_PASS"
              <<" CSL_offset_plus1_or_plus8=TRUE"
              <<" PSST_preserves_upper_byte=TRUE"
              <<" CCCA_start_minus4_and_Q_highbits=TRUE"
+             <<" initial_NoteOn_PSST_CSL_real_geometry=TRUE"
              <<" port_widths_8_32=TRUE original_full_noteon_pcm=NOT_PROVEN\n";
 }

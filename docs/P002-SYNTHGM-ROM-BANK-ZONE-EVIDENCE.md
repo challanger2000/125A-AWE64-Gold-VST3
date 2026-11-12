@@ -904,3 +904,41 @@ not an unverified assertion that the original GM0 preset has Q=5.
 The original complete voice sequencing, subsequent generator mapping,
 register readback differential and audible original-driver PCM parity
 remain open. All original bank/ROM/driver bytes remain private.
+
+
+## Original Voice NoteOn ROM PSST/CSL geometry from installed VXD
+
+Actual owner's SBAWE.VXD LCOD +0x5B81..+0x5BE4 and
++0x5EEB..+0x5F1B provides the **original new-voice geometry**,
+independently of its earlier sample-UPDATE case5/6 routines.
+From the already encoded original voice record's 0x6C flag byte:
+
+* **Loop bit0 set**: PSST low24=loopStart−1, CSL low24=loopEnd−1.
+  If bit1 is ALSO set, store the sampleEnd+4 as the original VXD
+  per-voice future NoteOff end marker. Otherwise store zero.
+* **Loop bit0 clear**: PSST low24=sampleEnd+4, CSL low24=sampleEnd+8,
+  and original NoteOff end marker zero.
+
+The VXD writes PSST **before** CSL during initial NoteOn (the
+sample-update case5/6 functions write CSL before PSST). Both
+preserve the correctly encoded pan and chorus send bytes from the
+original VXD 0x94-byte generator record, respectively, in bits31..24.
+Data0 32-bit on port 620, E22 8-bit selector. The sample start cursor
+CCCA (start-4 and later Q) is a separate later part of the NoteOn path.
+
+Native CreativeVxdSampleAddress::candidateOriginalVxdInitialRomNoteGeometry
+implements this authentic branching from actual 1MGM sample word
+addresses, caller-supplied verified original mode and pan/chorus bytes,
+without per-preset hardcoding or invented SF2 generator-to-byte mappings.
+
+Windows tests verify original ROM sample3: with example encoded pan=0x47,
+chorus=0x53 and mode3, PSST=0x470152B9, CSL=0x530152F7, retained
+release marker=0x15302. In one-shot mode0 PSST=0x47015302,
+CSL=0x53015306. **These pan/chorus/mode numbers are synthetic
+verified-record inputs for deterministic chip testing, NOT proven
+actual original GM0 voice program values.** The register pairs are
+executed on the real unchanged pinned EMU8000, inspecting its physical
+voice[3].psst and voice[3].csl after both runs.
+
+Original generator-to-voice-record conversion, full trigger/FX timing,
+MIDI→original register oracle and native PCM parity remain open.

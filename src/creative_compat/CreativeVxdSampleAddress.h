@@ -38,4 +38,28 @@ candidateOriginalVxdRomCccaStart(
     std::uint8_t encoded_original_filter_q,
     bool original_driver_filter_q_verified,
     OriginalVxdCccaStartPhase phase) noexcept;
+
+struct OriginalVxdRomNoteStartMode {
+    bool original_driver_mode_verified=false;
+    // The genuine original VXD's already encoded record byte +0x6C.
+    // Only mode bits 0 (loop) and 1 (retain release end marker)
+    // are recovered for this code path.
+    std::uint8_t encoded_mode_flags=0;
+    // Raw already encoded original 0x94-byte record pan/chorus fields;
+    // caller must not substitute generic uncalibrated SF2 quantities.
+    std::uint8_t original_pan_byte=0;
+    std::uint8_t original_chorus_send_byte=0;
+};
+struct OriginalVxdRomNoteStartGeometry {
+    std::array<OriginalWin95VxdPortWrite,4> loop_address_ports{};
+    std::uint32_t driver_retained_release_end=0;
+};
+// Private original SBAWE.VXD +0x5B81..+0x5BE4 and +0x5EEB..+0x5F1B:
+// initial NoteOn loops and pan/chorus send. Unlike the separate source
+// case5/6 update, initial NoteOn writes PSST FIRST, CSL SECOND.
+// The CCCA filter Q writes occur later and remain separate.
+[[nodiscard]] std::optional<OriginalVxdRomNoteStartGeometry>
+candidateOriginalVxdInitialRomNoteGeometry(
+    const SbkRomAddress& sample,std::uint8_t physical_voice,
+    OriginalVxdRomNoteStartMode encoded_record) noexcept;
 } // namespace awe64::creative
