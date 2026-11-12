@@ -605,3 +605,19 @@ separately and ahead of the existing independently calculated
 IP and IFATN pairs. This does NOT establish that all other
 register writes, release sequence, clock schedule, full voice steal
 or sample PCM are correct. The original VXD bytes stay private.
+
+### Port access width: correction from original x86 I/O instructions
+
+The private original SBAWE.VXD writer at LCOD +0x3CB1
+uses x86 OUT AL for the E22 selector and OUT AX for the A20
+data register. These are **different hardware I/O widths**.
+The first native draft represented both as PortWord (no access
+width), which was insufficient for strict future bit-exact
+original port-trace comparison. The corrected API now exposes
+OriginalWin95VxdPortWrite {port,value,access_width_bits}
+and the synthetic Windows regressions verify precisely
+E22/8-bit followed by A20/16-bit, independently of the
+hardware register index and voice number.
+The other P002 pitch/IFATN candidates still use the earlier
+PortWord abstraction; their original exact I/O widths and
+frame-level ordering remain separate unproven gates.

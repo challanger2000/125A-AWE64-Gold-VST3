@@ -79,11 +79,15 @@ int main() {
         OriginalWin95MonoSelection{3,Reason::CompletelyIdle,0});
     CHECK(reset && (*reset)[0].port==0xE22 &&
           (*reset)[0].value==0xA3 &&
+          (*reset)[0].access_width_bits==8 &&
           (*reset)[1].port==0xA20 &&
-          (*reset)[1].value==0x00FF);
+          (*reset)[1].value==0x00FF &&
+          (*reset)[1].access_width_bits==16);
     const auto resetBusy=candidateOriginalWin95SelectedVoiceDcysusvWrites(
         OriginalWin95MonoSelection{29,Reason::LowestEnvelopePriority,0x2200});
-    CHECK(resetBusy && (*resetBusy)[0].value==0xBD);
+    CHECK(resetBusy && (*resetBusy)[0].value==0xBD &&
+          (*resetBusy)[0].access_width_bits==8 &&
+          (*resetBusy)[1].access_width_bits==16);
     const auto resetFinished=candidateOriginalWin95SelectedVoiceDcysusvWrites(
         OriginalWin95MonoSelection{9,Reason::SampleEndReached,0});
     CHECK(resetFinished && (*resetFinished)[0].value==0xA9);

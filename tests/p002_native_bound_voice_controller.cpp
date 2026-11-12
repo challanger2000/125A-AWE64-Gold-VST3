@@ -148,8 +148,10 @@ int main() {
           idle6->physical_voice==6);
     CHECK(idle0->selected_voice_dcysusv[0].port==0xE22 &&
           idle0->selected_voice_dcysusv[0].value==0xA0 &&
+          idle0->selected_voice_dcysusv[0].access_width_bits==8 &&
           idle0->selected_voice_dcysusv[1].port==0xA20 &&
-          idle0->selected_voice_dcysusv[1].value==0x00FF);
+          idle0->selected_voice_dcysusv[1].value==0x00FF &&
+          idle0->selected_voice_dcysusv[1].access_width_bits==16);
     CHECK(idle3->selected_voice_dcysusv[0].value==0xA3);
     CHECK(idle6->selected_voice_dcysusv[0].value==0xA6);
     CHECK(idle0->initial.pitch[1].value==0xC962);

@@ -38,11 +38,18 @@ struct OriginalWin95MonoSelection {
     const std::array<OriginalWin95MonoVoiceSnapshot,kOriginalCreativeMusicVoices>& snapshots,
     std::size_t available_music_voices,
     std::uint32_t original_driver_mode_count) noexcept;
+struct OriginalWin95VxdPortWrite {
+    std::uint16_t port=0;
+    std::uint16_t value=0;
+    std::uint8_t access_width_bits=0;
+};
 // On *both* the completely-idle and selected-busy VXD paths, the actual
 // code invokes its 16-bit hardware writer with (5 << 5)|voice and value 0x00FF.
+// The original VXD emits an 8-bit OUT AL to E22 followed by a 16-bit
+// OUT AX to A20; port writes must preserve this access width when replaying.
 // This selects original EMU8000 DCYSUSV (DATA1) via E22/A20; it is not a
 // replacement for the complete voice start/stop and envelope sequence.
-[[nodiscard]] std::optional<std::array<PortWord,2>>
+[[nodiscard]] std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95SelectedVoiceDcysusvWrites(
     const OriginalWin95MonoSelection& selected) noexcept;
 } // namespace awe64::creative

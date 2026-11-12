@@ -51,7 +51,7 @@ std::optional<OriginalWin95MonoSelection> candidateOriginalWin95Mode0MonoVoice(
     }
     return best;
 }
-std::optional<std::array<PortWord,2>>
+std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95SelectedVoiceDcysusvWrites(
     const OriginalWin95MonoSelection& selected) noexcept {
     if(selected.physical_voice>=kOriginalCreativeMusicVoices ||
@@ -59,9 +59,9 @@ candidateOriginalWin95SelectedVoiceDcysusvWrites(
         selected.reason!=OriginalWin95MonoSelectionReason::SampleEndReached &&
         selected.reason!=OriginalWin95MonoSelectionReason::LowestEnvelopePriority))
        return std::nullopt;
-    return std::array<PortWord,2>{{
-        {0xE22u,static_cast<std::uint16_t>((5u<<5)|selected.physical_voice)},
-        {0xA20u,0x00FFu}
+    return std::array<OriginalWin95VxdPortWrite,2>{{
+        {0xE22u,static_cast<std::uint16_t>((5u<<5)|selected.physical_voice),8},
+        {0xA20u,0x00FFu,16}
     }};
 }
 } // namespace awe64::creative
