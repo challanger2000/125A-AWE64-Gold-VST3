@@ -32,7 +32,7 @@ candidateOriginalSf2CompileRomBankNote(
        start.device_effects_flag!=0u ||
        start.channel_chorus!=0u ||
        start.channel_reverb!=0u ||
-       original_rom_sample_word_count==0u ||
+       rom_word_count==0u ||
        voice_assignment.empty() ||
        voice_assignment.size()>kOriginalCreativeMaxNoteStartDescriptors)
         return std::nullopt;
