@@ -422,7 +422,7 @@ target_include_directories(awe64_p002_sf2_original_targets
     PUBLIC src/creative_compat)
 target_compile_features(awe64_p002_sf2_original_targets PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_original_targets
-    PUBLIC awe64_p002_sf2_final_note_ports)
+    PUBLIC awe64_p002_sf2_full_noteon)
 add_executable(awe64_p002_sf2_original_targets_test
     tests/p002_native_sf2_original_targets.cpp)
 target_link_libraries(awe64_p002_sf2_original_targets_test
