@@ -171,6 +171,51 @@ int main() {
     badLayer=fullLayer;badLayer.velocity=0u;
     CHECK(!candidateOriginalSf2GeneratorsWithVerifiedTemplates(
         badLayer,presetTemplate,instrumentTemplate));
+    // Reconstructed PCOD+0x3735 rate-domain prefix, not an invented
+    // general dwPitch converter. The two original PDAT interpolation
+    // tables remain explicit missing dependencies.
+    struct PitchInputCase {
+        std::uint32_t rate,wrapped,normalized;
+        std::uint8_t shifts,index,fraction;
+    };
+    constexpr std::array<PitchInputCase,7> pitchInputs{{
+        {44100u,0x200009b8u,0x800026e0u,2u,0u,0u},
+        {22050u,0x100004dcu,0x800026e0u,3u,0u,0u},
+        {88200u,0x40001370u,0x800026e0u,1u,0u,0u},
+        {48000u,0x22d48100u,0x8b520400u,2u,11u,41u},
+        {8000u,0x05ce1580u,0xb9c2b000u,5u,57u,97u},
+        {96000u,0x45a90200u,0x8b520400u,1u,11u,41u},
+        {192000u,0x8b520400u,0x8b520400u,0u,11u,41u}
+    }};
+    for(const auto& v:pitchInputs) {
+        const auto normalized=originalCreativeSf2PitchLookupCoordinates(v.rate);
+        CHECK(normalized && normalized->wrapped_product==v.wrapped);
+        CHECK(normalized->normalized_word==v.normalized);
+        CHECK(normalized->normalization_left_shifts==v.shifts);
+        CHECK(normalized->table_index==v.index);
+        CHECK(normalized->fraction_7bit==v.fraction);
+    }
+    CHECK(!originalCreativeSf2PitchLookupCoordinates(0u));
+    // Signed and unsigned overflow must never cause an infinite loop.
+    CHECK(!originalCreativeSf2PitchLookupCoordinates(0x80000000u));
+    // Independent, pure-Python 1..192000 Hz reference transcript (FNV1a
+    // over LE product, normalized DWORD, shift, index and fraction).
+    // This proves deterministic arithmetic, NOT driver table equality.
+    std::uint64_t rateDigest=14695981039346656037ull;
+    for(std::uint32_t rate=1u;rate<=192000u;++rate) {
+        const auto n=originalCreativeSf2PitchLookupCoordinates(rate);
+        CHECK(n);
+        const auto fold=[&](const std::uint8_t b) noexcept {
+            rateDigest=(rateDigest^b)*1099511628211ull;
+        };
+        for(const std::uint32_t v:{n->wrapped_product,n->normalized_word})
+            for(unsigned s=0u;s<32u;s+=8u)
+                fold(static_cast<std::uint8_t>(v>>s));
+        fold(n->normalization_left_shifts);
+        fold(n->table_index);
+        fold(n->fraction_7bit);
+    }
+    CHECK(rateDigest==0xd97ecef1ec2d2e54ull);
     // Source-backed SF2 shdr metadata -> exact 148-byte descriptor tail.
     // The original sample-rate->dwPitch conversion remains separately
     // verified by its original x86 helper; no host log2 approximation.
