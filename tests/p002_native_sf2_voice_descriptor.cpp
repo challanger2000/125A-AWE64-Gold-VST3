@@ -171,6 +171,73 @@ int main() {
     badLayer=fullLayer;badLayer.velocity=0u;
     CHECK(!candidateOriginalSf2GeneratorsWithVerifiedTemplates(
         badLayer,presetTemplate,instrumentTemplate));
+    // Four independently EXECUTED original SBAWE.VXD SF2 voices:
+    // GM0/GM40/GM100 x2 (true ROM sample dwPitch=0x00E00000).
+    // Root/key/scale/fine are from actual 148-byte pre-start fields;
+    // no individual-preset correction or float cents->IP is permitted.
+    struct OriginalSf2IpCase {
+        std::int16_t root,fine,coarse,scale;
+        std::uint16_t expectedIp;
+    };
+    constexpr std::array<OriginalSf2IpCase,4> authenticIp{{
+        {77,4,0,100,0xc961u},
+        {87,30,0,100,0xbc64u},
+        {85,-32,0,100,0xbe3bu},
+        {94,4,0,100,0xb2b5u}
+    }};
+    for(const auto& v:authenticIp) {
+        CreativeSf2VoiceDescriptorBytes sf2Pitch{};
+        sf2Pitch[0x88u]=0xe0u; // LE dwPitch=0x00e00000 at 44100Hz
+        sf2Pitch[0x8au]=60u;
+        set(sf2Pitch,58u,v.root);
+        set(sf2Pitch,52u,v.fine);
+        set(sf2Pitch,51u,v.coarse);
+        set(sf2Pitch,56u,v.scale);
+        const auto originalIp=candidateOriginalSf2InitialIpFromDescriptor(
+            sf2Pitch,60u,0,0);
+        CHECK(originalIp && *originalIp==v.expectedIp);
+    }
+    // SF2 gen58 root=-1 uses shdr.byOrigKey, not a hard-coded C4.
+    CreativeSf2VoiceDescriptorBytes pitchControl{};
+    pitchControl[0x88u]=0xe0u;
+    pitchControl[0x8au]=60u;
+    set(pitchControl,58u,-1);
+    set(pitchControl,56u,100);
+    CHECK(candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0)==0xe000u);
+    CHECK(candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,100,0)==0xe155u);
+    CHECK(candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,-100)==0xdeaau);
+    // Original 874 correction steps/cent, signed 8-bit sample correction.
+    pitchControl[0x8bu]=static_cast<std::uint8_t>(-7);
+    CHECK(candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0)==0xdfe8u);
+    pitchControl[0x8bu]=0u;
+    // Source encodes upper bound as FF.FFFF (IP=FFFF), never wraps 16b.
+    set(pitchControl,51u,10000);
+    CHECK(candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0)==0xffffu);
+    set(pitchControl,51u,-30000);
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0)); // negative intermediate uncharacterized
+    set(pitchControl,51u,0);
+    set(pitchControl,58u,128);
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0));
+    set(pitchControl,58u,-2);
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0));
+    set(pitchControl,58u,-1);
+    pitchControl[0x8au]=128u;
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0));
+    pitchControl[0x8au]=60u;
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,128u,0,0));
+    pitchControl[0x89u]=1u; // above documented original 24-bit pitch
+    CHECK(!candidateOriginalSf2InitialIpFromDescriptor(
+        pitchControl,60u,0,0));
     // Reconstructed PCOD+0x3735 rate-domain prefix, not an invented
     // general dwPitch converter. The two original PDAT interpolation
     // tables remain explicit missing dependencies.
