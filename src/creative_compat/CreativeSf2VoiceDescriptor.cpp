@@ -62,6 +62,23 @@ std::optional<std::uint16_t> candidateOriginalSf2InitialIpFromDescriptor(
     return static_cast<std::uint16_t>(
         static_cast<std::uint64_t>(std::min<std::int64_t>(pitch,0xffffffll))>>8u);
 }
+std::optional<std::array<PortWord,2>>
+candidateOriginalSf2InitialIpWritesFromDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& descriptor,
+    const std::uint8_t played_key,const std::uint8_t physical_voice,
+    const std::int16_t channel_tune_1,
+    const std::int16_t channel_tune_2) noexcept {
+    // Original AWE32 uses 30 musical voices; 30/31 are special/DRAM
+    // refresh voices. Never silently emit an IP write to those lanes.
+    if(physical_voice>=30u)return std::nullopt;
+    const auto ip=candidateOriginalSf2InitialIpFromDescriptor(
+        descriptor,played_key,channel_tune_1,channel_tune_2);
+    if(!ip)return std::nullopt;
+    return std::array<PortWord,2>{{
+        PortWord{0xE22u,physical_voice},
+        PortWord{0xE20u,*ip}
+    }};
+}
 std::optional<OriginalCreativeSf2PitchLookupCoordinates>
 originalCreativeSf2PitchLookupCoordinates(
     const std::uint32_t sample_rate_hz) noexcept {
