@@ -26,6 +26,54 @@ std::uint16_t boundedWord(std::int32_t x,
 }
 }
 std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+    const SbkLayer& layer,
+    const std::array<std::int16_t,59>& original_preset_template,
+    const std::array<std::int16_t,59>& original_instrument_template) noexcept {
+    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       layer.key>127u || layer.velocity==0u || layer.velocity>127u ||
+       layer.program>127u || layer.instrument_local.get(53u).has_value() &&
+       *layer.instrument_local.get(53u)!=layer.rom_sample_selector)
+        return std::nullopt;
+    // The original Format-2 PCOD load stage is NOT the format-1 1MGM
+    // overwrite rule. Each level starts with its own original template,
+    // and within that level the latest local generator overrides global.
+    // Every original operator 0..58 has an established PCOD load converter.
+    CreativeSf2VoiceDescriptorBytes out{};
+    for(unsigned op=0;op<59u;++op) {
+        const auto rawPreset=layer.preset_local.get(op).has_value()
+            ? layer.preset_local.get(op):layer.preset_global.get(op);
+        const auto rawInstrument=layer.instrument_local.get(op).has_value()
+            ? layer.instrument_local.get(op):layer.instrument_global.get(op);
+        const auto preset=rawPreset
+            ? candidateOriginalSf2PresetDeltaGenerator(
+                static_cast<std::uint16_t>(op),
+                static_cast<std::int16_t>(*rawPreset))
+            : std::optional<std::int16_t>(original_preset_template[op]);
+        const auto inst=rawInstrument
+            ? candidateOriginalSf2InstrumentLoadGenerator(
+                static_cast<std::uint16_t>(op),
+                static_cast<std::int16_t>(*rawInstrument))
+            : std::optional<std::int16_t>(original_instrument_template[op]);
+        if(!preset || !inst)return std::nullopt;
+        // Original driver zeros the PRESET keynum/velocity before the
+        // 59-WORD signed merge; the actual NoteOn key/velocity are known
+        // only after zone selection. Never add them as two WORD deltas.
+        const auto p=(op==46u || op==47u)?0:static_cast<std::int32_t>(*preset);
+        const auto sum=static_cast<std::int32_t>(*inst)+p;
+        word(out,op,static_cast<std::uint16_t>(
+            std::clamp(sum,-32768,32767)));
+    }
+    // The driver resolves structural linkage through the selected zone,
+    // not by signed-adding unrelated instrument and sample indices.
+    // The key/velocity fields in this note's descriptor reflect its
+    // actual MIDI selection, not the two unresolved template words.
+    word(out,46u,layer.key);
+    word(out,47u,layer.velocity);
+    word(out,53u,layer.rom_sample_selector);
+    return out;
+}
+std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
     const CreativeSf2VoiceDescriptorBytes& merged,
     const SbkRomAddress& sample,
