@@ -392,6 +392,19 @@ int main(){
     auto sf2StereoMember=bankSf2;
     sf2StereoMember[sampleStart+44u]=2u; // ROM right, requires link handling
     CHECK(!resolveCreative1MgmRomAddress(sf2StereoMember,0,524288));
+    // Valid ROM-mono sample must also have a usable SF2 sample rate and
+    // genuine original pitch. A 46-byte header is NOT a packed SBK row.
+    auto zeroSampleRate=bankSf2;
+    std::fill_n(zeroSampleRate.begin()+sampleStart+36u,4,0u);
+    CHECK(!resolveCreative1MgmRomAddress(zeroSampleRate,0,524288));
+    auto invalidOriginalPitch=bankSf2;
+    invalidOriginalPitch[sampleStart+40u]=128u;
+    CHECK(!resolveCreative1MgmRomAddress(invalidOriginalPitch,0,524288));
+    auto negativeCorrection=bankSf2;
+    negativeCorrection[sampleStart+41u]=static_cast<std::uint8_t>(-7);
+    const auto signedPitch=resolveCreative1MgmRomAddress(
+        negativeCorrection,0,524288);
+    CHECK(signedPitch && signedPitch->pitch_correction==-7);
     // Format selection MUST come from RIFF INFO ifil in BOTH native
     // readers. Without ifil, this 92-byte named shdr is not a 48-byte
     // packed SBK and must be rejected, not guessed from coincidences.
