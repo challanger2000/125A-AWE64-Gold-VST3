@@ -447,6 +447,15 @@ target_link_libraries(awe64_p002_sf2_vxd_state_snapshot_test
     PRIVATE awe64_p002_sf2_vxd_state_snapshot)
 add_test(NAME p002_original_sf2_native_vxd_state_snapshot
     COMMAND awe64_p002_sf2_vxd_state_snapshot_test)
+# First actual non-silent DIGITAL PCM rendered from ORIGINAL P002 SF2
+# NoteOn register engine on immutable pinned EMU8000 using SYNTHETIC
+# ROM only. This is not Win95 original-driver/ROM audio parity.
+add_executable(awe64_p002_original_sf2_dry_pcm_test
+    tests/p002_native_sf2_dry_pcm.cpp)
+target_link_libraries(awe64_p002_original_sf2_dry_pcm_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot)
+add_test(NAME p002_source_original_sf2_native_digital_pcm
+    COMMAND awe64_p002_original_sf2_dry_pcm_test)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_vxd_state_snapshot)
 
