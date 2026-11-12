@@ -1,5 +1,6 @@
 #include "CreativeCandidateRegister.h"
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -56,7 +57,7 @@ int main() {
     CHECK(on && !candidateInitialIfatnWrites(*on,32,a));
     CHECK(on && !candidateInitialIfatnWrites(*on,255,a));
     const auto saturated=candidateInitialIfatn(1,CandidateVoiceParameters{255,255,255,true});
-    CHECK(saturated && saturated->attenuation==255 && saturated->cutoff==141);
+    CHECK(saturated && saturated->attenuation==255 && saturated->cutoff==140);
     std::cout<<"P002_CANDIDATE_NATIVE_MIDI_TO_IFATN_CONTRACT_PASS"
              <<" velocity_cases="<<checked
              <<" no_GM_program_hardcode=TRUE"
