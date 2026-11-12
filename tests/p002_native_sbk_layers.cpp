@@ -212,7 +212,10 @@ int main(){
     sf2.instrument_local.raw[48]=11;
     CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==18);
     // The same four scopes format1 yields 870, not 18.
-    CHECK(sf2.candidateOriginalSf1InstVolFromGenerator48()==870);
+    auto identicalRawAsFormat1=sf2;
+    identicalRawAsFormat1.source_format=OriginalCreativeBankFormat::Format1Sbk;
+    CHECK(identicalRawAsFormat1.candidateOriginalSf1InstVolFromGenerator48()==870);
+    CHECK(!sf2.candidateOriginalSf1InstVolFromGenerator48());
     sf2.preset_local.raw[48].reset();
     sf2.instrument_local.raw[48].reset();
     CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==14);
