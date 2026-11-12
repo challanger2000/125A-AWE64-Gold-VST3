@@ -297,6 +297,7 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
         return true;
     }) || !shdr.present || !shdr.len)return std::nullopt;
     std::size_t stride=16u, addressStart=0u;
+    OriginalCreativeBankFormat sourceFormat=OriginalCreativeBankFormat::Format1Sbk;
     if(ifil.present) {
         if(ifil.len!=4)return std::nullopt;
         const auto major=u16(b,ifil.begin);
