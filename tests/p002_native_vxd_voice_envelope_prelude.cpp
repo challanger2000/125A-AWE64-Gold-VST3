@@ -1,4 +1,5 @@
 #include "CreativeVxdVoiceEnvelopePrelude.h"
+#include "CreativeSbkLayers.h"
 #include <iostream>
 #include <array>
 #include <cstdint>
@@ -110,6 +111,29 @@ int main(){
     CHECK(originalCreativeSf2VoiceAttackRate(0)==12);
     CHECK(originalCreativeSf2VoiceAttackRate(4300)==1);
     CHECK(originalCreativeSf2VoiceAttackRate(32767)==1);
+    // Format2 generator34 SOURCE words -> within-level override ->
+    // signed merge -> original PCOD voice attack encoder. No arbitrary
+    // default from a synthetic Windows device_state is fabricated here.
+    SbkLayer sf2Attack{};
+    sf2Attack.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    sf2Attack.instrument_local.raw[34]=static_cast<std::uint16_t>(-11958);
+    CHECK(!candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(sf2Attack,34));
+    sf2Attack.preset_global.raw[34]=0;
+    const auto mergedAttack=candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+        sf2Attack,34);
+    CHECK(mergedAttack && *mergedAttack==-11958);
+    const auto descriptorAttack=originalCreativeSf2VoiceAttackRate(*mergedAttack);
+    CHECK(descriptorAttack==128); // original GM100 SF2 special descriptor
+    // The separate original VXD note-start contract above checks that an
+    // actual descriptor value 128 is emitted as ATKHLDV low byte 127.
+    sf2Attack.instrument_local.raw[34]=static_cast<std::uint16_t>(-8800);
+    CHECK(originalCreativeSf2VoiceAttackRate(
+        *candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            sf2Attack,34))==125); // original GM0 signed attack case
+    sf2Attack.instrument_local.raw[34]=static_cast<std::uint16_t>(-7972);
+    CHECK(originalCreativeSf2VoiceAttackRate(
+        *candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
+            sf2Attack,34))==114); // original GM40 signed attack case
     std::cout<<"P002_ORIGINAL_CREATIVE_VXD_VOICE_ENVELOPE_PRELUDE_PASS"
              <<" actual_vtft_cvcf=FFFF two_attacks_and_lfos=TRUE"
              <<" special_0080_to_007f=TRUE PCOD_65536=PASS"
