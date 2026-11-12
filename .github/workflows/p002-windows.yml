@@ -24,6 +24,7 @@ on:
       - 'tests/p002_native_sf2_full_noteon.cpp'
       - 'tests/p002_native_sf2_original_targets.cpp'
       - 'tests/p002_native_sf2_vxd_state_snapshot.cpp'
+      - 'src/creative_compat/CreativeSf2RomBankNoteCompiler.cpp'
       - 'tests/p002_native_sf2_source_release.cpp'
       - 'tests/p002_native_sf2_dry_pcm.cpp'
       - 'tests/p002_vst3_private_diagnostic_host.cpp'

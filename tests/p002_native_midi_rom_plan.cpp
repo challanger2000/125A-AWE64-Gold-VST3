@@ -1,5 +1,6 @@
 #include "CreativeMidiRomPlan.h"
 #include "CreativeSf2VoiceDescriptor.h"
+#include "CreativeSf2RomBankNoteCompiler.h"
 #include <algorithm>
 #include <vector>
 #include <string_view>
@@ -167,6 +168,62 @@ int main(){
           (*sf2IpPorts)[0].value==3u &&
           (*sf2IpPorts)[1].port==0xe20u &&
           (*sf2IpPorts)[1].value==0xe000u);
+    // ACTUAL unified runtime-format2 ORIGINAL bank pipeline: the
+    // existing SF2 parser, ORIGINAL generator template/pitch table
+    // interpreter, live channel state, original VXD voice release
+    // init and the source-ordered full 61-OUT register plan. No hand-
+    // authored 148-byte after-NoteOn descriptor in this test.
+    OriginalCreativeSf2DriverResources verifiedSyntheticResources{};
+    verifiedSyntheticResources.preset_template=originalPresetTemplate;
+    verifiedSyntheticResources.instrument_template=originalInstrumentTemplate;
+    verifiedSyntheticResources.pitch_tables=syntheticPitchTables;
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> originalState{};
+    originalState[kOriginalVxdRomIdOffset]=0x31u;
+    originalState[kOriginalVxdRomIdOffset+1u]=0x4du;
+    originalState[kOriginalVxdRomIdOffset+2u]=0x47u;
+    originalState[kOriginalVxdRomIdOffset+3u]=0x4du;
+    OriginalSf2VerifiedVxdDeviceSnapshot verifiedSyntheticVxd{};
+    verifiedSyntheticVxd.original_state_bytes=originalState;
+    verifiedSyntheticVxd.independently_verified_original_vxd_snapshot=true;
+    verifiedSyntheticVxd.original_lcod_31word_table_verified=true;
+    const std::array<std::uint8_t,1> allocated{{3u}};
+    const auto compiled=candidateOriginalSf2CompileRomBankNote(
+        sf2,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
+        verifiedSyntheticVxd,allocated,true);
+    CHECK(compiled && compiled->voice_count==1u &&
+          compiled->typed_original_outs.count==61u);
+    CHECK(compiled->assignments[0].assigned_voice.physical_voice==3u);
+    CHECK(compiled->assignments[0].assigned_voice.verified_after_start_record==
+          *started);
+    CHECK(compiled->typed_original_outs.out[0].port==0xe22u);
+    const auto row=kOriginalVxdVoiceRowStart+3u*kOriginalVxdVoiceRowStride;
+    CHECK(compiled->vxd_state_after_noteon[row]==60u &&
+          compiled->vxd_state_after_noteon[row+1u]==2u);
+    CHECK(compiled->vxd_state_after_noteon[row+0x15u]==(*started)[0x3cu]);
+    CHECK(compiled->vxd_state_after_noteon[row+0x16u]==(*started)[0x4cu]);
+    CHECK(originalState[row]==0u && originalState[row+0x15u]==0u);
+    // The physical original assignment is NOT guessed from MIDI or
+    // from the preset number. A duplicate/busy source is refused.
+    const std::array<std::uint8_t,1> invalidPhysical{{30u}};
+    CHECK(!candidateOriginalSf2CompileRomBankNote(
+        sf2,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
+        verifiedSyntheticVxd,invalidPhysical,true));
+    CHECK(!candidateOriginalSf2CompileRomBankNote(
+        sf2,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
+        verifiedSyntheticVxd,allocated,false));
+    auto wrongConditions=conditions;
+    wrongConditions.channel_pan=67;
+    CHECK(!candidateOriginalSf2CompileRomBankNote(
+        sf2,*on,midi,0u,524288u,verifiedSyntheticResources,wrongConditions,
+        verifiedSyntheticVxd,allocated,true));
+    wrongConditions=conditions;
+    wrongConditions.volume.device_state_additive_attenuation=11;
+    CHECK(!candidateOriginalSf2CompileRomBankNote(
+        sf2,*on,midi,0u,524288u,verifiedSyntheticResources,wrongConditions,
+        verifiedSyntheticVxd,allocated,true));
+    CHECK(!candidateOriginalSf2CompileRomBankNote(
+        sbk,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
+        verifiedSyntheticVxd,allocated,true)); // format1 ≠ format2
     const auto transposedIp=candidateOriginalSf2InitialIpFromDescriptor(
         *started,61u,0,0);
     CHECK(transposedIp && *transposedIp==0xe155u);
