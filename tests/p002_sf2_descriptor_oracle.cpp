@@ -4,13 +4,72 @@
 // original DATA3/IP hex for the private handoff's zero channel-tune state.
 // Failures are nonzero.
 #include "CreativeSf2VoiceDescriptor.h"
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <string_view>
 using namespace awe64::creative;
+namespace {
+// PRIVATE original builder differential, not a synthetic SoundFont default:
+// token count, then per voice: bank program key velocity sampleId,
+// two 59 signed template WORD arrays (preset then instrument), then
+// four 64 raw-generator lists in scope order preset global/local,
+// instrument global/local. -1 means genuinely absent; raw65535 is valid.
+// Prints only the freshly built first 118 descriptor bytes, which the
+// private Python runner compares with independently executed x86 data.
+int runPrivateSf2Builder() {
+    std::size_t records=0;
+    if(!(std::cin>>records) || records==0u || records>100000u)return 2;
+    constexpr char digits[]="0123456789abcdef";
+    for(std::size_t row=0;row<records;++row) {
+        unsigned bank=0,program=0,key=0,velocity=0,sample=0;
+        if(!(std::cin>>bank>>program>>key>>velocity>>sample) ||
+           bank>65535u || program>127u || key>127u ||
+           velocity==0u || velocity>127u || sample>65535u)return 2;
+        SbkLayer layer{};
+        layer.source_format=OriginalCreativeBankFormat::Format2Sf2;
+        layer.bank=static_cast<std::uint16_t>(bank);
+        layer.program=static_cast<std::uint8_t>(program);
+        layer.key=static_cast<std::uint8_t>(key);
+        layer.velocity=static_cast<std::uint8_t>(velocity);
+        layer.rom_sample_selector=static_cast<std::uint16_t>(sample);
+        std::array<std::int16_t,59> presetTemplate{},instrumentTemplate{};
+        for(auto* selected:{&presetTemplate,&instrumentTemplate})
+            for(auto& v:*selected) {
+                std::int32_t word=0;
+                if(!(std::cin>>word) || word<-32768 || word>32767)
+                    return 2;
+                v=static_cast<std::int16_t>(word);
+            }
+        for(auto* scope:{&layer.preset_global,&layer.preset_local,
+                          &layer.instrument_global,&layer.instrument_local})
+            for(auto& v:scope->raw) {
+                std::int32_t raw=-1;
+                if(!(std::cin>>raw) || raw<-1 || raw>65535)return 2;
+                if(raw>=0)v=static_cast<std::uint16_t>(raw);
+            }
+        const auto built=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+            layer,presetTemplate,instrumentTemplate);
+        if(!built) {
+            std::cerr<<"ORIGINAL_SF2_BUILDER_REJECTED_ROW="<<(row+1u)<<"\n";
+            return 3;
+        }
+        for(std::size_t i=0;i<118u;++i){
+            const auto b=(*built)[i];
+            std::cout<<digits[b>>4]<<digits[b&15u];
+        }
+        std::cout<<'\n';
+    }
+    std::string extra;
+    if(std::cin>>extra)return 2;
+    return 0;
+}
+}
 int main(const int argc,char**argv) {
+    if(argc==2 && std::string_view(argv[1])=="--build")
+        return runPrivateSf2Builder();
     const bool withIp=argc==2 && std::string_view(argv[1])=="--also-ip";
     if(argc!=1 && !withIp)return 2;
     std::string line;
