@@ -96,6 +96,8 @@ candidateOriginalSf2InstVolFromExplicitScopes(
     const std::optional<std::int16_t> instrument_default) noexcept {
     // Format-2 descriptor instVol(+0x60) is generator48, which is
     // identity during loading, unlike FORMAT-1's (127-x)*75/10.
+    if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2)
+        return std::nullopt;
     const auto preset=layer.preset_local.get(48).has_value()
         ? layer.preset_local.get(48):layer.preset_global.get(48);
     const auto inst=layer.instrument_local.get(48).has_value()
@@ -126,16 +128,18 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
         if(equals(b,c.begin,"pdta")){if(pdta.present)return false;pdta=c;}
         return true;
     }) || !info.present || !pdta.present)return std::nullopt;
-    Chunk isng{},iprd{},irom{};
+    Chunk isng{},iprd{},irom{},ifil{};
     if(!visitChunks(b,info.begin+4,info.begin+info.len,[&](std::size_t p,Chunk c) noexcept {
         if(equals(b,p,"isng")){if(isng.present)return false;isng=c;}
         if(equals(b,p,"IPRD")){if(iprd.present)return false;iprd=c;}
         if(equals(b,p,"irom")){if(irom.present)return false;irom=c;}
+        if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
+        if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
         return true;
     }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
        !contains(b,irom,"1MGM"))return std::nullopt;
     constexpr std::array<std::string_view,7> tags{"phdr","pbag","pgen","inst","ibag","igen","shdr"};
-    constexpr std::array<std::size_t,7> strides{38,4,4,22,4,4,48};
+    std::array<std::size_t,7> strides{38,4,4,22,4,4,48};
     enum :std::size_t {PHDR,PBAG,PGEN,INST,IBAG,IGEN,SHDR};
     std::array<Chunk,7> table{};
     if(!visitChunks(b,pdta.begin+4,pdta.begin+pdta.len,[&](std::size_t p,Chunk c) noexcept {
@@ -146,6 +150,20 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
         }
         return true;
     }))return std::nullopt;
+    // Original owner SYNTHGM.SBK declares ifil=1.0, with 48-byte
+    // shdr containing THREE packed 16-byte ROM address records.
+    // The separately verified original ROM SF2 declares ifil=2.0
+    // with STANDARD 46-byte named sample headers. Never pick a stride
+    // just by divisibility: format is determined from the INFO tag.
+    OriginalCreativeBankFormat sourceFormat=OriginalCreativeBankFormat::Format1Sbk;
+    if(ifil.present) {
+        if(ifil.len!=4)return std::nullopt;
+        const auto major=u16(b,ifil.begin);
+        if(major==2u) {
+            sourceFormat=OriginalCreativeBankFormat::Format2Sf2;
+            strides[SHDR]=46;
+        } else if(major!=1u)return std::nullopt;
+    }
     std::array<std::size_t,7> count{};
     for(std::size_t i=0;i<count.size();++i){
         if(!table[i].present || !table[i].len || table[i].len%strides[i])return std::nullopt;
@@ -165,6 +183,11 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
             const auto op=word(gen,i,0);
             if(op>=64)return std::nullopt;
             result.raw[op]=word(gen,i,2);
+            // Real original format-2 VXD instrument builder stops at
+            // first sampleId; a late keyRange (Bird Tweet preset 123)
+            // MUST NOT retroactively exclude the selected voice.
+            if(sourceFormat==OriginalCreativeBankFormat::Format2Sf2 &&
+               gen==IGEN && op==53u)break;
         }
         return result;
     };
@@ -204,6 +227,7 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
                 if(!*ik || !*iv)continue;
                 if(found.count>=kMaxCreative1MgmLayers)return std::nullopt;
                 auto& out=found.layers[found.count++];
+                out.source_format=sourceFormat;
                 out.bank=bank;out.program=program;out.key=key;out.velocity=velocity;
                 out.preset_bag=static_cast<std::uint16_t>(pb);
                 out.instrument=static_cast<std::uint16_t>(instrument);
@@ -229,7 +253,7 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
         if(equals(b,c.begin,"pdta")){if(pdta.present)return false;pdta=c;}
         return true;
     }) || !info.present || !pdta.present)return std::nullopt;
-    Chunk isng{},iprd{},irom{};
+    Chunk isng{},iprd{},irom{},ifil{};
     if(!visitChunks(b,info.begin+4,info.begin+info.len,[&](std::size_t p,Chunk c) noexcept {
         if(equals(b,p,"isng")){if(isng.present)return false;isng=c;}
         if(equals(b,p,"IPRD")){if(iprd.present)return false;iprd=c;}
@@ -241,11 +265,28 @@ std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
     if(!visitChunks(b,pdta.begin+4,pdta.begin+pdta.len,[&](std::size_t p,Chunk c) noexcept {
         if(equals(b,p,"shdr")){if(shdr.present)return false;shdr=c;}
         return true;
-    }) || !shdr.present || !shdr.len || shdr.len%48u)return std::nullopt;
-    // 48 bytes comprise 3 packed address records, each 4 uint32 words.
-    const auto entries=shdr.len/16u;
+    }) || !shdr.present || !shdr.len)return std::nullopt;
+    std::size_t stride=16u, addressStart=0u;
+    if(ifil.present) {
+        if(ifil.len!=4)return std::nullopt;
+        const auto major=u16(b,ifil.begin);
+        if(major==2u) {
+            // Standard 46-byte SF2 shdr: 20-byte name precedes four
+            // ROM word addresses. The final header is EOS.
+            if(shdr.len%46u)return std::nullopt;
+            stride=46u;addressStart=20u;
+        } else if(major==1u) {
+            if(shdr.len%48u)return std::nullopt;
+            stride=16u;
+        } else return std::nullopt;
+    } else {
+        // Historical synthetic fixtures omit ifil: accept only
+        // unambiguously old 48-byte original SBK geometry.
+        if(shdr.len%48u)return std::nullopt;
+    }
+    const auto entries=shdr.len/stride;
     if(sample_id>=entries)return std::nullopt;
-    const auto offset=shdr.begin+std::size_t(sample_id)*16u;
+    const auto offset=shdr.begin+std::size_t(sample_id)*stride+addressStart;
     const auto start=u32(b,offset),end=u32(b,offset+4);
     const auto loop_start=u32(b,offset+8),loop_end=u32(b,offset+12);
     if(!(start<end && start<=loop_start && loop_start<loop_end &&

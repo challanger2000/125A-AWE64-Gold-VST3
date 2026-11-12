@@ -42,6 +42,45 @@ Bytes fixture(){
     Bytes b; b.insert(b.end(),{'R','I','F','F'});w32(b,static_cast<unsigned>(root.size()+4));
     b.insert(b.end(),{'s','f','b','k'});b.insert(b.end(),root.begin(),root.end());return b;
 }
+Bytes fixtureSf2(){
+    // Synthetic 46-byte-shdr, ifil2.0 Creative ROM-bank fixture.
+    // It exercises the SAME native SbkLayer resolver as old SBK;
+    // no proprietary SF2 file, ROM or driver bytes are published.
+    Bytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,pdta,root;
+    name(phdr,"SF2-ONE");w16(phdr,0);w16(phdr,0);w16(phdr,0);
+    w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    name(phdr,"EOP");w16(phdr,0);w16(phdr,0);w16(phdr,2);
+    w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    for(unsigned genIndex:{0u,1u,3u}){w16(pbag,genIndex);w16(pbag,0);}
+    word(pgen,48,5); // original SF2 preset global
+    word(pgen,41,0);word(pgen,48,7); // local wins global
+    name(inst,"SF2-INST");w16(inst,0);
+    name(inst,"EOI");w16(inst,2);
+    for(unsigned genIndex:{0u,2u,6u}){w16(ibag,genIndex);w16(ibag,0);}
+    word(igen,8,9617);word(igen,48,9); // instrument global
+    word(igen,43,0x7F00);word(igen,48,11);
+    word(igen,53,0); // first sampleId ENDS the zone in original VXD
+    word(igen,43,0x0500); // late range excludes key60 ONLY if bugged
+    name(shdr,"SAMPLE");w32(shdr,100);w32(shdr,1000);
+    w32(shdr,200);w32(shdr,900);w32(shdr,44100);
+    shdr.push_back(60);shdr.push_back(0);w16(shdr,0);w16(shdr,0x8001);
+    name(shdr,"EOS");w32(shdr,0);w32(shdr,0);
+    w32(shdr,0);w32(shdr,0);w32(shdr,44100);
+    shdr.push_back(60);shdr.push_back(0);w16(shdr,0);w16(shdr,0);
+    Bytes ver;w16(ver,2);w16(ver,0);c(info,"ifil",ver);
+    c(info,"isng",Bytes{'E','M','U','8','0','0','0',0});
+    c(info,"IPRD",Bytes{'S','B','A','W','E','3','2',0});
+    c(info,"irom",Bytes{'1','M','G','M',0});
+    Bytes i{'I','N','F','O'};i.insert(i.end(),info.begin(),info.end());
+    Bytes p{'p','d','t','a'};c(p,"phdr",phdr);c(p,"pbag",pbag);
+    c(p,"pgen",pgen);c(p,"inst",inst);c(p,"ibag",ibag);
+    c(p,"igen",igen);c(p,"shdr",shdr);
+    c(root,"LIST",i);c(root,"LIST",p);
+    Bytes b{'R','I','F','F'};w32(b,static_cast<unsigned>(root.size()+4));
+    b.insert(b.end(),{'s','f','b','k'});
+    b.insert(b.end(),root.begin(),root.end());
+    return b;
+}
 int main(){
     const auto bank=fixture();
     auto address=resolveCreative1MgmRomAddress(bank,0,524288);
@@ -192,5 +231,34 @@ int main(){
     sf2.preset_local.raw[48]=static_cast<std::uint16_t>(-32768);
     sf2.instrument_local.raw[48]=static_cast<std::uint16_t>(-32768);
     CHECK(candidateOriginalSf2InstVolFromExplicitScopes(sf2)==-32768);
+    // Original format-2 Creative SF2 structurally differs from SBK:
+    // ifil2, 46-byte shdr with name20+addresses, plus sampleId
+    // terminating the instrument zone before late keyRange.
+    const auto bankSf2=fixtureSf2();
+    const auto parsedSf2=resolveCreativeSbkLayers(bankSf2,0,0,60,90);
+    CHECK(parsedSf2 && parsedSf2->count==1);
+    const auto& fromSf2=parsedSf2->layers[0];
+    CHECK(fromSf2.source_format==OriginalCreativeBankFormat::Format2Sf2);
+    CHECK(fromSf2.preset_global.get(48)==5);
+    CHECK(fromSf2.preset_local.get(48)==7);
+    CHECK(fromSf2.instrument_global.get(48)==9);
+    CHECK(fromSf2.instrument_local.get(48)==11);
+    CHECK(fromSf2.instrument_local.get(43)==0x7F00u);
+    CHECK(fromSf2.instrument_local.get(53)==0);
+    CHECK(candidateOriginalSf2InstVolFromExplicitScopes(fromSf2)==18);
+    CHECK(!fromSf2.candidateOriginalSf1InstVolFromGenerator48());
+    CHECK(!fromSf2.candidateOriginal1MgmInstrumentCutoff());
+    CHECK(candidateOriginalSf2InstrumentLoadGenerator(
+        8,static_cast<std::int16_t>(*fromSf2.instrument_global.get(8)))==179);
+    const auto key127Sf2=resolveCreativeSbkLayers(bankSf2,0,0,127,90);
+    CHECK(key127Sf2 && key127Sf2->count==1); // late keyRange ignored
+    const auto sf2Sample=resolveCreative1MgmRomAddress(
+        bankSf2,0,524288);
+    CHECK(sf2Sample && sf2Sample->start_word==100 &&
+          sf2Sample->end_word==1000 &&
+          sf2Sample->loop_start_word==200 &&
+          sf2Sample->loop_end_word==900);
+    CHECK(!resolveCreative1MgmRomAddress(bankSf2,1,524288)); // EOS
+    CHECK(!resolveCreative1MgmRomAddress(bankSf2,0,900)); // out of ROM
     std::cout<<"P002_CREATIVE_SBK_2_LAYER_NATIVE_CONTRACT_PASS cases=16 private_bytes=NONE\n";
 }

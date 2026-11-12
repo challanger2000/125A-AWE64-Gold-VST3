@@ -1204,3 +1204,36 @@ IFATN **B33A** (179/58); GM40 **9532** (149/50); GM100
 source-SF2 x86 reference words are recorded in the user-supplied
 private handoff; no complete end-to-end SF2 parser, live original
 trace timing or PCM parity is claimed.
+
+ 
+## Same BankReader: original Format-1 48-byte SBK and Format-2 46-byte SF2 headers
+
+The existing `CreativeSbkLayers.cpp` layer resolver and ROM-address reader
+now distinguish format1/format2 from the original RIFF INFO `ifil`
+major value, not merely from a divisible shdr chunk size.
+Owner's actual original 34,832-byte `SYNTHGM.SBK` declares ifil=1.0
+and has 2,448-byte shdr (153 packed 16-byte ROM records, each 48-byte
+chunk holding three). The separately examined reference
+`DOS/DEMO/SYNTHGM.SF2` declares ifil=2.0 and has STANDARD 46-byte
+named sample headers (20-byte name then four ROM word pointers).
+
+Both formats now share the **existing** four-scope `SbkLayer`
+metadata reader and `resolveCreative1MgmRomAddress`. Format2
+instruments stop processing a given zone at its FIRST operator53
+sampleId, so a late keyRange must not be applied (this exact issue
+was exposed by original Bird Tweet program123 research). Format
+identity is carried through each selected layer to prevent format1
+generator8/48 conversion from incorrectly processing SF2 raw values.
+Format2 scope merge uses only explicitly verified descriptor defaults,
+never guessed zero. No second bank reader or EMU8000 engine exists.
+
+A synthetic 46-byte-shdr SF2 bank fixture verifies ifil2 routing,
+late keyRange ignored, four-scope gen48 values (5/7/9/11 -> signed
+merged 18), SF2 generator8 9617->179, native correct ROM pointers
+100/1000/200/900 and fail-closed EOS/out-of-ROM. The legacy
+48-byte-shdr SBK fixture and owner-bank prior tests remain untouched.
+
+**Still open:** Native full original SF2 template defaults/ordering,
+all 59 generator fields, actual source SF2 49,536-case independent
+differential, all original VXD MIDI register writes and actual ROM
+PCM equality. Structural import support is not that final proof.

@@ -14,7 +14,12 @@ struct SbkGeneratorScope {
         return id<raw.size()?raw[id]:std::nullopt;
     }
 };
+enum class OriginalCreativeBankFormat : std::uint8_t {
+    Format1Sbk=1,
+    Format2Sf2=2
+};
 struct SbkLayer {
+    OriginalCreativeBankFormat source_format=OriginalCreativeBankFormat::Format1Sbk;
     std::uint16_t bank=0, preset_bag=0, instrument=0, instrument_bag=0;
     std::uint8_t program=0, key=0, velocity=0;
     std::uint16_t rom_sample_selector=0; // NOT an index into Creative shdr
@@ -33,7 +38,8 @@ struct SbkLayer {
     // drum bank128, or missing input. In those cases fail closed.
     [[nodiscard]] std::optional<std::uint8_t>
     candidateOriginal1MgmInstrumentCutoff() const noexcept {
-        if(bank>=128 || program>127 || key>127 || velocity==0 ||
+        if(source_format!=OriginalCreativeBankFormat::Format1Sbk ||
+           bank>=128 || program>127 || key>127 || velocity==0 ||
            velocity>127 || preset_global.get(8) || preset_local.get(8))
             return std::nullopt;
         const auto raw=instrumentRawCutoff();
@@ -53,6 +59,8 @@ struct SbkLayer {
     // No missing-generator default is synthesized from an unknown template.
     [[nodiscard]] std::optional<std::int16_t>
     candidateOriginalSf1InstVolFromGenerator48() const noexcept {
+        if(source_format!=OriginalCreativeBankFormat::Format1Sbk)
+            return std::nullopt;
         const auto raw=instrument_local.get(48).has_value()
             ? instrument_local.get(48)
             : instrument_global.get(48).has_value()
