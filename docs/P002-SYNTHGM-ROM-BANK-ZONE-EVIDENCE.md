@@ -645,3 +645,37 @@ The native tests now explicitly reject wrong data-width assumptions
 and verify index and pitch/IFATN composition. The remaining
 original hardware registers, their ordering and timing, and a
 full MIDI-generated PCM comparison are still NOT proven.
+
+## Original SBAWE.VXD group-dependent forced voice termination
+
+Further private disassembly of the installed original Win95 Creative
+`SBAWE.VXD` LCOD routine +0x4AB5, invoked by its original voice/note
+setup paths near +0x4BEE and +0x5430, identifies a separate
+**forced group-termination** sequence for a verified original
+channel/group/voice match:
+
+1. Select physical voice's DATA3 index1, write `IFATN=0x00FF`
+   (full attenuation) through 8-bit `E22` selector and 16-bit
+   `E20` DATA3.
+2. Select physical voice's DATA1 index5, write `DCYSUSV=0x807F`
+   (release-phase bit plus release value) through 8-bit `E22`
+   selector and 16-bit `A20` DATA1.
+3. Only if BOTH original per-voice stereo flags are set, repeat
+   these exact four hardware accesses for physical voice + 1.
+4. Clear the original VXD's per-voice group bookkeeping (not yet
+   reconstructed in the native code).
+
+The independent native `CreativeVxdVoiceTermination` implementation
+emits typed E22/E20/E22/A20 hardware port writes in correct order
+and with exact 8/16-bit widths; it fail-closes unless a caller
+**explicitly proves** the original group match and both stereo
+conditions. It rejects physical voice 30/31 and a stereo pair
+straddling the reserved refresh voices.
+
+This verified VXD routine is **NOT** evidence that general MIDI
+NoteOff, sustain-off or CC120 always executes that same sequence.
+No live controller behavior is rewired to this routine without
+that original-driver path match. The real P002 full NoteOff,
+sustain, voice steal side effects, timing and PCM parity gates
+remain open. Private original VXD, ROM and SBK bytes stay outside
+the repository and public Windows CI.
