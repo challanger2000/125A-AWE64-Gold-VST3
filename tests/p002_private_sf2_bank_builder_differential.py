@@ -12,6 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# CTest executes from build-p002; ensure the repository's existing tools/
+# package is found without relying on a user-specific PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.p002_extract_original_vxd_sf2_resources import (
     EXPECTED_VXD_SHA256, extract,
 )
