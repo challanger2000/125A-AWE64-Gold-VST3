@@ -96,10 +96,24 @@ int main(){
     const auto sf2Cutoff=candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
         plannedSf2->layers[0].metadata,8u,0);
     CHECK(sf2Cutoff && *sf2Cutoff==179);
-    CreativeSf2VoiceDescriptorBytes verifiedGeneratorWords{};
-    verifiedGeneratorWords[2u*8u]=static_cast<std::uint8_t>(*sf2Cutoff);
+    // Synthetic EXPLICIT template words exercise the original 59-WORD
+    // generator builder; no unknown Windows original template is inferred.
+    std::array<std::int16_t,59> originalPresetTemplate{};
+    std::array<std::int16_t,59> originalInstrumentTemplate{};
+    const auto verifiedGeneratorWords=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        plannedSf2->layers[0].metadata,
+        originalPresetTemplate,originalInstrumentTemplate);
+    CHECK(verifiedGeneratorWords);
+    const auto genWord=[&](const unsigned op)->std::uint16_t {
+        return static_cast<std::uint16_t>(
+            (*verifiedGeneratorWords)[op*2u] |
+            (static_cast<unsigned>((*verifiedGeneratorWords)[op*2u+1u])<<8));
+    };
+    CHECK(genWord(8u)==static_cast<std::uint16_t>(*sf2Cutoff));
+    CHECK(genWord(46u)==60u && genWord(47u)==100u);
+    CHECK(genWord(53u)==plannedSf2->layers[0].metadata.rom_sample_selector);
     const auto beforeStart=candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
-        verifiedGeneratorWords,plannedSf2->layers[0].address,
+        *verifiedGeneratorWords,plannedSf2->layers[0].address,
         0x00e00000u,7u); // original PCOD pitch value @44100, explicit group
     CHECK(beforeStart && (*beforeStart)[0x8cu]==1u &&
           (*beforeStart)[0x8du]==128u);
