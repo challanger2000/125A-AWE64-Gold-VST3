@@ -131,6 +131,15 @@ int main(){
     }};
     manual[0].target={true,0x260cu,0x1254u};
     manual[1].target={true,0x260cu,0x0ae7u};
+    // Reference is the separately source-verified original VXD plan;
+    // unlike the NEW state adapter, that old composer cannot accept
+    // intentionally bogus pitch/LFO operands supplied by the test.
+    manual[0].lfo={true,0,0};
+    manual[1].lfo={true,0,0};
+    manual[0].verified_channel_tune_1_cents=0;
+    manual[0].verified_channel_tune_2_cents=0;
+    manual[1].verified_channel_tune_1_cents=0;
+    manual[1].verified_channel_tune_2_cents=0;
     const auto expected=candidateOriginalSf2FullNoteOnPorts(manual);
     CHECK(expected && expected->count==got->count);
     for(std::size_t i=0;i<got->count;++i) {

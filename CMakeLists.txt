@@ -447,6 +447,8 @@ target_link_libraries(awe64_p002_sf2_vxd_state_snapshot_test
     PRIVATE awe64_p002_sf2_vxd_state_snapshot)
 add_test(NAME p002_original_sf2_native_vxd_state_snapshot
     COMMAND awe64_p002_sf2_vxd_state_snapshot_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot)
 
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
