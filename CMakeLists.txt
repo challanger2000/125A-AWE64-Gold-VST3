@@ -317,6 +317,10 @@ add_executable(awe64_p002_sf2_voice_descriptor_test
     tests/p002_native_sf2_voice_descriptor.cpp)
 target_link_libraries(awe64_p002_sf2_voice_descriptor_test
     PRIVATE awe64_p002_sf2_voice_descriptor)
+# Reuse the descriptor stage in the pre-existing native WinMM→ROM plan
+# test, so the entire source-backed SF2 note-start path is executed.
+target_link_libraries(awe64_p002_rom_note_plan_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
 add_test(NAME p002_original_sf2_148byte_voice_descriptor
     COMMAND awe64_p002_sf2_voice_descriptor_test)
 
