@@ -8,15 +8,14 @@
 #include <span>
 
 namespace awe64::creative {
-// Bounded VXD-verified voice-reset/VTFT/forced-group-stop operations and
-// independently measured original MIDI-driven IP/IFATN word writes:
-// pointer E22 OUT AL 8 bits, data A20/E20 OUT AX 16 bits,
-// and data 620 OUT EAX 32 bits. Only the actual documented
-// DATA3 register 0 (IP), DATA3 register 1 (IFATN), DATA1 register 5
-// (DCYSUSV), DATA1 register7 (DCYSUS release), and DATA0
-// registers 3 (VTFT), 6 (PSST), 7 (CSL)
- // are accepted after original-driver verification.
- // All other writes FAIL CLOSED.
+// Bounded VXD-verified voice operations only. The original SBAWE.VXD
+// SF2 NOTE START registers now include all six DATA3 (E20) voice words
+// IP/IFATN/PEFE/FMMOD/TREMFRQ/FM2FRQ2, all four DATA1 (A20) envelope
+// words ENVVOL/DCYSUSV/ENVVAL/DCYSUS, all eight source-backed DATA0
+// (620) DWORDs CPF/PTRX/CVCF/VTFT/Z2/Z1/PSST/CSL, and DATA1 (A20)
+// CCCA. Pointer E22 is original OUT AL; 16-bit data uses OUT AX,
+// 32-bit data uses OUT EAX with low/high halfwords on the pinned host.
+// Unsupported port/selector combinations and widths FAIL CLOSED.
 // Reject the entire malformed sequence before issuing ANY chip I/O.
 // The fork's word-only Host adapter intentionally mirrors its emu8k_outb
 // low-byte behavior for E22; 32-bit VTFT is written as consecutive
