@@ -11,15 +11,14 @@ bool validPair(const OriginalWin95VxdPortWrite& ptr,
     if(data.access_width_bits==16u && data.value<=0xffffu) {
         // These are the specific voice-registers independently read out of
         // the original installed SBAWE.VXD; not a generic VXD driver emulator.
-        return ((reg==0u || reg==1u) && data.port==0xE20u) || // IP / IFATN
-               ((reg==5u || reg==7u) && data.port==0xA20u) || // DCYSUSV/DCYSUS
+        return (reg<=5u && data.port==0xE20u) || // DATA3 IP, IFATN, PEFE, FMMOD, TREMFRQ, FM2FRQ2
+               (reg>=4u && reg<=7u && data.port==0xA20u) || // DATA1 ENVVOL, DCYSUSV, ENVVAL, DCYSUS
                ((reg>=4u && reg<=7u) && data.port==0xA22u); // envelopes/LFO
                // DATA1: DCYSUSV; DATA1: DCYSUS (note release)
     }
     if(data.access_width_bits==32u)
         return (reg==0u && data.port==0xA20u) || // CCCA (real ROM cursor)
-               ((reg==2u || reg==3u || reg==6u || reg==7u) &&
-                data.port==0x620u); // CVCF / VTFT / PSST / CSL
+               (data.port==0x620u); // DATA0: CPF,PTRX,CVCF,VTFT,Z2,Z1,PSST,CSL
     return false;
 }
 }
