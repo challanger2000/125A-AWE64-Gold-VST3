@@ -11,16 +11,19 @@ void w16(Bytes&v,unsigned n){v.push_back(n&255);v.push_back((n>>8)&255);}
 void w32(Bytes&v,unsigned n){w16(v,n);w16(v,n>>16);}
 void name(Bytes&v,std::string_view s){v.insert(v.end(),s.begin(),s.end());v.insert(v.end(),20-s.size(),0);}
 void c(Bytes&v,std::string_view k,const Bytes&b){v.insert(v.end(),k.begin(),k.end());w32(v,b.size());v.insert(v.end(),b.begin(),b.end());if(b.size()&1)v.push_back(0);}
-Bytes fixture(const bool format2=false){
+Bytes fixture(const bool format2=false,const unsigned matchingZones=1u){
     Bytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,pdta,root;
     name(phdr,"SYNTHETIC");w16(phdr,7);w16(phdr,0);w16(phdr,0);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     name(phdr,"SYNTHETICDRUM");w16(phdr,0);w16(phdr,128);w16(phdr,1);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     name(phdr,"EOP");w16(phdr,0);w16(phdr,0);w16(phdr,2);w32(phdr,0);w32(phdr,0);w32(phdr,0);
     for(unsigned n:{0u,1u,2u}){w16(pbag,n);w16(pbag,0);}
     for(unsigned n=0;n<2;++n){w16(pgen,41);w16(pgen,0);}
-    name(inst,"PIANO");w16(inst,0);name(inst,"EOI");w16(inst,1);
-    w16(ibag,0);w16(ibag,0);w16(ibag,2);w16(ibag,0);
-    w16(igen,8);w16(igen,format2?9617u:89u);w16(igen,53);w16(igen,0);
+    name(inst,"PIANO");w16(inst,0);name(inst,"EOI");w16(inst,matchingZones);
+    for(unsigned n=0;n<=matchingZones;++n){w16(ibag,2u*n);w16(ibag,0);}
+    for(unsigned n=0;n<matchingZones;++n){
+        w16(igen,8);w16(igen,format2?9617u:89u);
+        w16(igen,53);w16(igen,0);
+    }
     if(format2){
         // Format2: two standard 46-byte headers, ROM mono and EOS.
         // Exercises actual MIDI->layer->ROM planning, not just reader tests.
@@ -133,6 +136,30 @@ int main(){
                      started->begin()+0x8eu)); // sample link/context intact
     CHECK((*started)[0x8au]==60u && (*started)[0x8bu]==0u);
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,sf2,0,24));
+    // Real original SF2 x86 builder returns exactly six 148-byte
+    // descriptors from a synthetic seven-matching-zone source bank.
+    // Our separate raw inventory still preserves all seven matches.
+    const auto sevenZones=fixture(true,7u);
+    const auto inventory7=resolveCreativeSbkLayers(sevenZones,0,7,60,100);
+    CHECK(inventory7 && inventory7->count==7u);
+    const auto planned7=prepareOriginalCreativeRomNote(
+        *on,midi,sevenZones,0,524288u);
+    CHECK(planned7 && planned7->count==kOriginalCreativeMaxNoteStartDescriptors);
+    for(std::size_t i=0;i<planned7->count;++i){
+        CHECK(planned7->layers[i].metadata.instrument_bag==i);
+        CHECK(planned7->layers[i].address.start_word==5u);
+    }
+    // Driver selection cap applies regardless of the inventory ceiling.
+    const auto sixteenZones=fixture(true,16u);
+    const auto inventory16=resolveCreativeSbkLayers(sixteenZones,0,7,60,100);
+    CHECK(inventory16 && inventory16->count==16u);
+    const auto planned16=prepareOriginalCreativeRomNote(
+        *on,midi,sixteenZones,0,524288u);
+    CHECK(planned16 && planned16->count==6u);
+    // Zero matched layers still means a valid bank, not a fake voice.
+    const auto noSeven=prepareOriginalCreativeRomNote(
+        *on,midi,sevenZones,128,524288u);
+    CHECK(noSeven && noSeven->count==0u);
     // Valid RAM-mono SF2 must never enter the ROM-only playback plan.
     auto ramSf2=sf2;
     const std::string_view sampleName="ROM-MONO";
