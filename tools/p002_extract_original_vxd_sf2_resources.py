@@ -100,9 +100,9 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
     #   ADD EAX, DWORD PTR [index*4 + PDAT+0x8e8] (128 unsigned DWORDs)
     #   MOVSX EAX, BYTE PTR [index + PDAT+0xae8] (128 signed BYTEs)
     # The remaining bytes beyond +0xae8+128 belong to other PDAT data.
-    table_a = pdat[0x08E8:0x08E8 + 128 * 4]
+    # Original LCOD+0x5E90 uses a 16-WORD table of volume-target\n    # attenuation factors. Source x86 indexed by abs(gen19)&15.\n    # Its values remain PRIVATE; no source table is committed.\n    volume_attack_table = lcod[0x2FA0:0x2FA0 + 16 * 2]\n    table_a = pdat[0x08E8:0x08E8 + 128 * 4]
     table_b = pdat[0x0AE8:0x0AE8 + 128]
-    if len(template) != 148 or len(table_a) != 512 or len(table_b) != 128:
+    if len(volume_attack_table) != 32:\n        raise InvalidCreativeVxd("Original LCOD volume lookup truncated")\n    if len(template) != 148 or len(table_a) != 512 or len(table_b) != 128:
         raise InvalidCreativeVxd("Original format-2 resource bounds invalid")
     values = list(struct.unpack("<59h", template[:118]))
     words_a = list(struct.unpack("<128I", table_a))
@@ -117,7 +117,7 @@ def extract(raw: bytes, *, require_original_hash: bool = True) -> dict:
         "template_first_59_signed_words": values,
         "template_sha256": hashlib.sha256(template).hexdigest(),
         "template_group_id_is_mutable": True,
-        "pitch_pdat_table_a_offset": "0x08e8",
+        "volume_attack128_lcod_offset": "0x2fa0",\n        "volume_attack128_table_unsigned_16": list(\n            struct.unpack("<16H", volume_attack_table)\n        ),\n        "volume_attack128_table_sha256": hashlib.sha256(\n            volume_attack_table\n        ).hexdigest(),\n        "pitch_pdat_table_a_offset": "0x08e8",
         "pitch_pdat_table_b_offset": "0x0ae8",
         "pitch_table_a_unsigned_32": words_a,
         "pitch_table_b_signed_8": words_b,

@@ -413,6 +413,22 @@ target_link_libraries(awe64_p002_sf2_full_noteon_chip
     PUBLIC awe64_p002_sf2_full_noteon awe64_p002_real_chip_port_bridge)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_full_noteon_chip)
+# Reconstruct the two remaining source x86 SF2 NoteOn target operands:
+# original [channel+0x0e] / [voice+0x0e] / [channel+0x14] arithmetic,
+# and LCOD+0x2FA0 private original 16-WORD attack-128 lookup.
+add_library(awe64_p002_sf2_original_targets STATIC
+    src/creative_compat/CreativeSf2OriginalTargets.cpp)
+target_include_directories(awe64_p002_sf2_original_targets
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_original_targets PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_original_targets
+    PUBLIC awe64_p002_sf2_final_note_ports)
+add_executable(awe64_p002_sf2_original_targets_test
+    tests/p002_native_sf2_original_targets.cpp)
+target_link_libraries(awe64_p002_sf2_original_targets_test
+    PRIVATE awe64_p002_sf2_original_targets)
+add_test(NAME p002_original_sf2_x86_final_targets
+    COMMAND awe64_p002_sf2_original_targets_test)
 
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
