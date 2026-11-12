@@ -302,6 +302,23 @@ target_link_libraries(awe64_p002_real_chip_port_bridge
 target_link_libraries(awe64_p002_bound_voices
     PUBLIC awe64_p002_vxd_voice_envelope_prelude)
 
+# Format-2 original Creative ROM-only 148-byte descriptor note-start stage.
+# Existing volume/attack maths are linked; no second bank parser or chip.
+add_library(awe64_p002_sf2_voice_descriptor STATIC
+    src/creative_compat/CreativeSf2VoiceDescriptor.cpp)
+target_include_directories(awe64_p002_sf2_voice_descriptor
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_voice_descriptor PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_voice_descriptor
+    PUBLIC awe64_p002_vxd_voice_envelope_prelude
+           awe64_p002_original_controller_volume)
+add_executable(awe64_p002_sf2_voice_descriptor_test
+    tests/p002_native_sf2_voice_descriptor.cpp)
+target_link_libraries(awe64_p002_sf2_voice_descriptor_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+add_test(NAME p002_original_sf2_148byte_voice_descriptor
+    COMMAND awe64_p002_sf2_voice_descriptor_test)
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
