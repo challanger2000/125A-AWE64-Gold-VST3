@@ -35,6 +35,11 @@ on:
       - 'CMakeLists.txt'
       - '.github/workflows/p002-windows.yml'
   workflow_dispatch:
+# Prevent each intermediate developer commit from consuming a full set
+# of Windows runner minutes. Only the newest P002 revision is validated.
+concurrency:
+  group: p002-windows-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
