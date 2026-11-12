@@ -93,8 +93,10 @@ candidateOriginalSf2InstrumentLoadGenerator(
 [[nodiscard]] std::optional<std::int16_t>
 candidateOriginalSf2PresetDeltaGenerator(
     std::uint16_t generator_id,std::int16_t original_raw) noexcept;
-// Bounded FORMAT-2 voice generator merge: original source-supported
-// cutoff (8), volume attack timecents (34), and instVol (48) only.
+// Bounded FORMAT-2 numerical voice merge (original PCOD converters):
+// modulation 5/6/7/10/11/13, cutoff 8, resonance 9, sustains 29/37,
+// attack 34, instVol 48, tuning 51/52. This is not a universal SF2
+// generator merge and does NOT resolve unsupported voice-template defaults.
 // Within each level, local overrides global. Preset deltas and instrument
 // values use their respective PCOD converters, then signed-saturating add.
 // Missing scope values require explicitly verified PRECONVERTED descriptor
