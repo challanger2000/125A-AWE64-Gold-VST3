@@ -117,11 +117,19 @@ int main(){
     CHECK(genWord(8u)==static_cast<std::uint16_t>(*sf2Cutoff));
     CHECK(genWord(46u)==60u && genWord(47u)==100u);
     CHECK(genWord(53u)==plannedSf2->layers[0].metadata.rom_sample_selector);
-    const auto beforeStart=candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
+    // Public data contains no original VXD tables. Synthetic all-zero
+    // tables reproduce the SOURCE-VERIFIED 44.1kHz index-zero anchor only.
+    // The actual private original tables are checked separately.
+    const OriginalCreativeSf2PitchTables syntheticPitchTables{};
+    const auto beforeStart=candidateOriginalSf2VoiceWithOriginalRomPitchTables(
         *verifiedGeneratorWords,plannedSf2->layers[0].address,
-        0x00e00000u,7u); // original PCOD pitch value @44100, explicit group
+        syntheticPitchTables,7u);
     CHECK(beforeStart && (*beforeStart)[0x8cu]==1u &&
           (*beforeStart)[0x8du]==128u);
+    CHECK((*beforeStart)[0x86u]==0u &&
+          (*beforeStart)[0x87u]==0u &&
+          (*beforeStart)[0x88u]==0xe0u &&
+          (*beforeStart)[0x89u]==0u); // source exact 44.1k dwPitch
     OriginalCreativeVolumeTerms externalVolume{};
     externalVolume.device_state_additive_attenuation=0u;
     const OriginalSf2VoiceStartConditions conditions{
