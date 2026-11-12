@@ -121,8 +121,11 @@ int main(){
     word(b,54u,0); // non-loop, end+4 / end+8
     const auto nonloop=candidateOriginalSf2FinalNoteStartPorts(
         b,0,{true,0x260c,0x1c48});
-    CHECK(nonloop && (*nonloop)[1].value==0x204u &&
-          (*nonloop)[3].value==0x208u);
+    CHECK(nonloop && (*nonloop)[1].value==0x7f000204u &&
+          (*nonloop)[3].value==0x00000208u);
+    // PSST always retains the source-encoded upper pan byte, even when
+    // the one-shot cursor is derived from sample_end+4 rather than loop.
+    CHECK((*nonloop)[1].access_width_bits==32u);
     std::cout<<"P002_ORIGINAL_SF2_FINAL_22_TYPED_NOTEON_OUTS_PASS "
              <<"original_GM0_GM40_GM100_4x22=88 "
              <<"source_stacks_pitch_volume_explicit=TRUE "
