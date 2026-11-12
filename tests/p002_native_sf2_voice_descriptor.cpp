@@ -119,6 +119,7 @@ int main() {
     SbkLayer fullLayer{};
     fullLayer.source_format=OriginalCreativeBankFormat::Format2Sf2;
     fullLayer.bank=0u;fullLayer.program=0u;
+    fullLayer.original_preset_row_index=40u; // explicit source PHDR index
     fullLayer.key=60u;fullLayer.velocity=90u;
     fullLayer.instrument=0u;fullLayer.rom_sample_selector=3u;
     fullLayer.preset_global.raw[48]=5;
@@ -388,6 +389,11 @@ int main() {
                      whole->before_note_start.begin()+118u,built->begin()));
     CHECK(readDword(whole->before_note_start,0x86u)==0x00e00000u);
     CHECK(readDword(whole->before_note_start,0x90u)==40u);
+    // Actual original driver uses PHDR row index, not program or PBAG.
+    CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,originalRom,testResources,0u,startContext));
+    CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
+        fullLayer,originalRom,testResources,41u,startContext));
     CHECK(get(whole->before_note_start,0x8cu/2u)==0x8001u);
     CHECK(get(whole->after_note_start,0x8cu/2u)==0x0001u);
     CHECK(whole->after_note_start[0x8bu]==249u);
