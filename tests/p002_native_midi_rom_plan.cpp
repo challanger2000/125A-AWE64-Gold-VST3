@@ -83,6 +83,10 @@ int main(){
     CHECK(plannedSf2->layers[0].address.start_word==5 &&
           plannedSf2->layers[0].address.end_word==25 &&
           plannedSf2->layers[0].address.loop_end_word==20);
+    CHECK(plannedSf2->layers[0].address.sample_rate_hz==44100u);
+    CHECK(plannedSf2->layers[0].address.original_pitch==60u);
+    CHECK(plannedSf2->layers[0].address.pitch_correction==0);
+    CHECK(plannedSf2->layers[0].address.sample_type==0x8001u);
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,sf2,0,24));
     // Valid RAM-mono SF2 must never enter the ROM-only playback plan.
     auto ramSf2=sf2;
