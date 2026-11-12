@@ -107,7 +107,10 @@ candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
         case 8u: case 9u:           // filter cutoff and resonance
         case 10u: case 11u:         // modulation filter destinations
         case 13u:                   // mod-LFO volume
-        case 29u: case 34u: case 37u: // envelope sustain / attack
+        case 21u: case 22u: case 23u: case 24u: // LFO delay / frequency
+        case 25u: case 26u: case 27u: case 28u: case 29u: case 30u:
+        case 31u: case 32u: case 33u: case 34u: case 35u: case 36u:
+        case 37u: case 38u: case 39u: case 40u: // envelope and key scaling
         case 48u:                   // attenuation/instVol
         case 51u: case 52u:         // coarse/fine tune
             break;
