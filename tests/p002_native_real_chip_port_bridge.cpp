@@ -8,6 +8,7 @@
 #include "CreativeSf2NoteStartPorts.h"
 #include "CreativeSf2NoteContinuationPorts.h"
 #include "CreativeSf2NoteFinalPorts.h"
+#include "CreativeSf2FullNoteOnChip.h"
 #include <86box/snd_emu8k.h>
 #include <array>
 #include <cstdint>
@@ -533,6 +534,64 @@ int main(){
     CHECK(real->voice[3].ptrx==0x0ae71b81u);
     CHECK(real->voice[3].cpf==0x0ae70000u);
     CHECK(real->voice[3].dcysusv==0x0009u);
+    // SOURCE x86 original GM100 has two physical voices 0 and 3.
+    // It performs 5+5 allocation OUTs BEFORE 56+56 note-start OUTs,
+    // not one fake 61-OUT-per-voice replay. Execute the complete
+    // source-order batch on unchanged real pinned EMU8000.
+    auto gm100First=gm100Descriptor;
+    fillSf2(gm100First,58u,85); // layer0 root, original IP=BE3B
+    fillSf2(gm100First,52u,-32);
+    fillSf2(gm100First,15u,118);
+    fillSf2(gm100First,22u,254);
+    fillSf2(gm100First,5u,7);
+    setSf2Dword(gm100First,0x76u,0x74a48u);
+    setSf2Dword(gm100First,0x7au,0x76dd5u);
+    setSf2Dword(gm100First,0x7eu,0x74a6bu);
+    setSf2Dword(gm100First,0x82u,0x76dd1u);
+    std::array<OriginalSf2FullNoteOnVoice,2> completeGM100{};
+    completeGM100[0].verified_after_start_record=gm100First;
+    completeGM100[0].played_midi_key=60u;
+    completeGM100[0].physical_voice=0u;
+    completeGM100[0].source_original_voice_verified=true;
+    completeGM100[0].lfo={true,0,0};
+    completeGM100[0].target={true,0x260cu,0x1254u};
+    completeGM100[1].verified_after_start_record=gm100Descriptor;
+    completeGM100[1].played_midi_key=60u;
+    completeGM100[1].physical_voice=3u;
+    completeGM100[1].source_original_voice_verified=true;
+    completeGM100[1].lfo={true,0,0};
+    completeGM100[1].target={true,0x260cu,0x0ae7u};
+    const auto fullOriginal=candidateOriginalSf2FullNoteOnPorts(
+        completeGM100);
+    CHECK(fullOriginal && fullOriginal->count==122u);
+    CHECK(fullOriginal->out[0].value==0x60u &&
+          fullOriginal->out[5].value==0x63u &&
+          fullOriginal->out[10].value==0x60u &&
+          fullOriginal->out[66].value==0x63u);
+    CHECK(applyOriginalCreativeSf2FullNoteOnPorts(chip,completeGM100));
+    CHECK(real->voice[0].ip==0xbe3bu &&
+          real->voice[0].ifatn==0xff2au);
+    CHECK(real->voice[3].ip==0xb2b5u &&
+          real->voice[3].ifatn==0xff2au);
+    CHECK(real->voice[0].psst==0x7f074a6au &&
+          real->voice[0].csl==0x76076dd0u);
+    CHECK(real->voice[3].psst==0x7f03460du &&
+          real->voice[3].csl==0x7a0367ffu);
+    CHECK(real->voice[0].ccca==0x00074a44u &&
+          real->voice[3].ccca==0x00034112u);
+    CHECK(real->voice[0].vtft==0x260cff00u &&
+          real->voice[3].vtft==0x260cff00u);
+    CHECK(real->voice[0].dcysusv==9u &&
+          real->voice[3].dcysusv==9u);
+    auto invalidFull=completeGM100;
+    invalidFull[1].physical_voice=0u; // physical collision
+    const auto originalIp=real->voice[0].ip;
+    CHECK(!applyOriginalCreativeSf2FullNoteOnPorts(chip,invalidFull));
+    CHECK(real->voice[0].ip==originalIp);
+    invalidFull=completeGM100;
+    invalidFull[1].verified_after_start_record[0x8du]=0x80u;
+    CHECK(!applyOriginalCreativeSf2FullNoteOnPorts(chip,invalidFull));
+    CHECK(real->voice[0].ip==originalIp);
     const auto oldIfatn=real->voice[3].ifatn;
     // Malformed sequences must be rejected transactionally before writes.
     auto invalid=start;
@@ -566,6 +625,7 @@ int main(){
              <<" original_SF2_18_OUT_GM0_GM100_REAL_CHIP=TRUE"
              <<" original_SF2_NEXT16_OUT_REAL_CHIP=TRUE"
              <<" original_SF2_FINAL22_OUT_REAL_CHIP=TRUE"
+             <<" original_SF2_COMPLETE_122_TWO_VOICE_REAL_CHIP=TRUE"
              <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
              <<" release_CSL=15302_PSST_preserved=TRUE"
              <<" stereo=TRUE zero_Creative_bytes=TRUE"
