@@ -430,6 +430,24 @@ target_link_libraries(awe64_p002_sf2_original_targets_test
 add_test(NAME p002_original_sf2_x86_final_targets
     COMMAND awe64_p002_sf2_original_targets_test)
 
+# Source-verified native VXD memory image: thirty 0x20-byte physical
+# voices from 0x42, sixteen 0x24-byte MIDI channel slots from 0x442,
+# genuine '1MGM' ROM identity at 0x158e. Resolve exact target operands
+# from this SAME immutable source state snapshot for every NoteOn layer.
+add_library(awe64_p002_sf2_vxd_state_snapshot STATIC
+    src/creative_compat/CreativeSf2VxdStateSnapshot.cpp)
+target_include_directories(awe64_p002_sf2_vxd_state_snapshot
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_vxd_state_snapshot PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_vxd_state_snapshot
+    PUBLIC awe64_p002_sf2_original_targets awe64_p002_sf2_full_noteon_chip)
+add_executable(awe64_p002_sf2_vxd_state_snapshot_test
+    tests/p002_native_sf2_vxd_state_snapshot.cpp)
+target_link_libraries(awe64_p002_sf2_vxd_state_snapshot_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot)
+add_test(NAME p002_original_sf2_native_vxd_state_snapshot
+    COMMAND awe64_p002_sf2_vxd_state_snapshot_test)
+
 # Optional *actual* original 1996 x86 PORT TRACE differential. No
 # copyrighted original descriptor/trace is ever embedded in public builds.
 add_executable(awe64_p002_sf2_note_start_prefix_oracle
