@@ -149,6 +149,9 @@ target_link_libraries(awe64_p002_private_ram_capture_cli
     PRIVATE awe64_p002_original_ram_port_replay)
 target_compile_features(awe64_p002_private_ram_capture_cli
     PRIVATE cxx_std_23)
+if(WIN32)
+    target_link_libraries(awe64_p002_private_ram_capture_cli PRIVATE bcrypt)
+endif()
 
 
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
