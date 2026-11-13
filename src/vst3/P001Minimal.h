@@ -45,9 +45,11 @@ private:
     awe64::Chip chip_;
     P002PrivateNoteFixture p002Fixture_{};
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
-    bool p002DiagnosticNoteConsumed_=false; // no fake retrigger allocator
-    bool p002DiagnosticSecondNoteConsumed_=false; // v4, source-bound voice
-    int p002SecondPlayingKey_=-1;
+    // Eight independently source-verified note groups. No runtime
+    // physical voice stealing/retrigger; each pre-authenticated group
+    // can start exactly once in this private diagnostic.
+    std::array<bool,kP002MaxSourceNoteGroups> p002Started_{};
+    std::array<bool,kP002MaxSourceNoteGroups> p002KeyDown_{};
     std::array<int32_t, 980u*2u> scratch_{};
     int playingKey_ = -1;
     bool active_ = false;
