@@ -44,6 +44,7 @@ SUCCESS = "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK"
 NO_EVIDENCE = "GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API"
 REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
+    "PRIVATE_WIN95_SF2_FNV1A32",
     "WIN95_ORIGINAL_MIDI_ENDPOINTS",
     "CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT",
     "PRE_LOAD_TOTAL_16BIT_WORDS",
@@ -54,6 +55,15 @@ REQUIRED = MUST_ZERO + (
     "ORIGINAL_API_LOAD_BEGIN_TICK_MS",
     "ORIGINAL_API_LOAD_END_TICK_MS",
 )
+
+
+def fnv1a32(original: bytes) -> int:
+    """Full original guest-readable bank bytes; source identity only,
+    not collision-resistant SHA256 or original Creative provenance."""
+    value=2166136261
+    for byte in original:
+        value=((value ^ byte)*16777619) & 0xffffffff
+    return value
 
 
 def audit(raw: bytes, source_sf2: bytes) -> dict:
@@ -120,6 +130,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         raise ValueError("Ambiguous/non-original AWE MIDI device selection")
     if seen["PRIVATE_WIN95_SF2_SIZE"] != len(source_sf2):
         raise ValueError("Private guest SoundFont bytes differ from audited original bank")
+    if seen["PRIVATE_WIN95_SF2_FNV1A32"] != fnv1a32(source_sf2):
+        raise ValueError("Private guest source SF2 whole-file identity differs")
     if not (0 < seen["PRE_LOAD_TOTAL_16BIT_WORDS"] <= MAX_RAM_WORDS and
             seen["POST_LOAD_TOTAL_16BIT_WORDS"] ==
             seen["PRE_LOAD_TOTAL_16BIT_WORDS"]):
@@ -146,6 +158,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "status": "ORIGINAL_CREATIVE_WIN95_API_GUEST_LOG_CONTRACT_PASS",
         "source_guest_log_sha256": hashlib.sha256(raw).hexdigest(),
         "source_sf2_sha256": hashlib.sha256(source_sf2).hexdigest(),
+        "source_sf2_original_guest_fnv1a32": f"0x{fnv1a32(source_sf2):08X}",
+        "source_guest_fnv_not_cryptographic_provenance": True,
         "source_sf2_bytes": len(source_sf2),
         "creative_aweman32_module_path": dll_path,
         "original_driver_total_ram_words": seen["PRE_LOAD_TOTAL_16BIT_WORDS"],
