@@ -124,6 +124,8 @@ def scan_capture(lines, expected_pcm: bytes):
     writes other samples before/after it, or repoints SMALW to the next
     contiguous physical address. Never infer missing writes.
     """
+    if not expected_pcm or len(expected_pcm) % 2 or len(expected_pcm) // 2 > MAX_RAM_WORDS:
+        raise ValueError("original candidate PCM sample must contain full 16-bit words")
     selector = None
     lo = hi = None
     pointer = None
@@ -132,25 +134,29 @@ def scan_capture(lines, expected_pcm: bytes):
     first_match_address = None
     run_address = None
     run = bytearray()
+    # One compact byte per physical RAM word (28 MiB installed window).
+    # Saturation at 2 records repeated writes EVEN IF the later value
+    # equals the earlier one. Original native preflight also disallows
+    # any overlap in the selected source sample interval.
+    write_count = bytearray(MAX_RAM_WORDS)
+    ram_word_overwrite_events = 0
 
     def evaluate():
         nonlocal matches, first_match_address
         if run_address is None:
             return
-        # A sample may appear more than once in the SAME original
-        # contiguous RAM upload. Do not silently accept the first
-        # occurrence and call an ambiguous address Creative-verified.
+        # Search every word-aligned candidate, never jump over offset
+        # 2 after an INVALID odd-byte hit at offset 1. Counting a
+        # second valid aligned hit retains the ambiguity NO-GO gate.
         at = run.find(expected_pcm)
         while at >= 0:
             if at % 2 == 0:
                 matches += 1
                 if first_match_address is None:
                     first_match_address = run_address + at // 2
-                # A second physical hit is an ambiguous original
-                # placement. Only one unique hit is admissible.
                 if matches > 1:
                     return
-            at = run.find(expected_pcm,at+2)
+            at = run.find(expected_pcm, at + 1)
 
     for lineno, raw in enumerate(lines, 1):
         if lineno > MAX_TRACE_LINES:
@@ -171,10 +177,16 @@ def scan_capture(lines, expected_pcm: bytes):
             read_events += 1
             continue
         if port == 0xE22:
+            if selector == 0x36 and (lo is None or hi is None):
+                raise ValueError(
+                    "incomplete original SMALW pointer before selector change")
             selector = value
             if selector == 0x36:  # exactly original EMU8000 SMALW
                 pointer = None
                 lo = hi = None
+            elif selector == 0x3A and pointer is None:
+                raise ValueError(
+                    "original SMLD selector missing complete SMALW pointer")
             continue
         if selector == 0x36:
             if port == 0xA20:
@@ -198,18 +210,46 @@ def scan_capture(lines, expected_pcm: bytes):
                 evaluate()
                 run.clear()
                 run_address = pointer
+            offset = pointer - RAM_FIRST
+            if write_count[offset]:
+                ram_word_overwrite_events += 1
+                write_count[offset] = 2
+            else:
+                write_count[offset] = 1
             run.extend(struct.pack("<H", value))
             pointer += 1
             write_words += 1
             if len(run) > MAX_RAM_WORDS * 2:
                 raise ValueError("original contiguous RAM upload exceeds installed capacity")
+    if selector == 0x36 and (lo is None or hi is None):
+        raise ValueError("incomplete original SMALW pointer at trace EOF")
     evaluate()
     if write_words == 0:
         raise ValueError("original trace has no EMU8000 SMALW/SMLD RAM writes")
+    # A historical exact waveform match is NOT automatically the final
+    # RAM content. Require exactly one historical sample hit and exactly
+    # one hardware write to every corresponding physical 16-bit word.
+    # Even a later identical-value rewrite is disallowed, consistent
+    # with native candidateReplaySourceMatchedOriginalRamSf2Sample().
+    sample_overlapped_words = 0
+    final_match = 0
+    if matches == 1 and first_match_address is not None:
+        start = first_match_address - RAM_FIRST
+        words = len(expected_pcm) // 2
+        source_counts = memoryview(write_count)[start:start + words]
+        sample_overlapped_words = sum(n > 1 for n in source_counts)
+        if len(source_counts) == words and all(n == 1 for n in source_counts):
+            final_match = 1
     return dict(register_events=line_count, original_register_reads=read_events,
                 ram_word_writes=write_words,
                 direct_pcm16_upload_matches=matches,
-                first_match_emu8000_word_address=first_match_address)
+                historical_pcm16_upload_matches=matches,
+                first_match_emu8000_word_address=first_match_address,
+                final_state_unoverwritten_pcm16_matches=final_match,
+                first_final_state_emu8000_word_address=(
+                    first_match_address if final_match else None),
+                selected_sample_overlapped_ram_words=sample_overlapped_words,
+                physical_ram_word_rewrite_events=ram_word_overwrite_events)
 
 
 def filter_original_ram_upload_port_writes(lines):
@@ -343,8 +383,13 @@ def analyze(trace: Path, sf2: Path, sample_id: int):
     if ports["direct_pcm16_upload_matches"] != 1:
         raise ValueError(
             "original trace must contain this SF2 sample at EXACTLY ONE "
-            "physical RAM word address (zero/ambiguous direct matches); "
+            "physical RAM word address (zero/ambiguous historical matches); "
             "Creative transform/placement NOT PROVEN")
+    if ports["final_state_unoverwritten_pcm16_matches"] != 1:
+        raise ValueError(
+            "original trace historical SF2 PCM match was overwritten or "
+            "overlapped at its physical RAM words: final RAM state "
+            "NOT PROVEN, source/native overlap gate remains strict")
     return {
         "status": "ORIGINAL_CAPTURE_DIRECT_RAM_PCM16_MATCH_CANDIDATE",
         "source_emu8k_trace_sha256": sha256_file(trace),
@@ -356,7 +401,9 @@ def analyze(trace: Path, sf2: Path, sample_id: int):
         "sample_source_loop_start": sample["source_loop_start"],
         "sample_source_loop_end": sample["source_loop_end"],
         "first_matched_captured_emu8000_word_address":
-            ports["first_match_emu8000_word_address"],
+            ports["first_final_state_emu8000_word_address"],
+        "candidate_RAM_source_sample_final_state_unoverwritten": True,
+        "source_original_guest_capture_provenance_independently_verified": False,
         "original_chip_trace_evidence": ports,
         "source_guest_win95_SBAWE_VXD_provenance":
             "MUST_BE_VERIFIED_SEPARATELY",
