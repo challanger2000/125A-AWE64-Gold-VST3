@@ -144,9 +144,10 @@ candidateOriginalSf2InstVolFromExplicitScopes(
     return candidateOriginalSf2MergedVoiceGeneratorFromExplicitScopes(
         layer,48u,preset_default,instrument_default);
 }
-std::optional<SbkLayerSet> resolveCreativeSbkLayers(
+static std::optional<SbkLayerSet> resolveBankLayersForSourcePolicy(
     Bytes b,std::uint16_t bank,std::uint8_t program,
-    std::uint8_t key,std::uint8_t velocity) noexcept {
+    std::uint8_t key,std::uint8_t velocity,
+    const bool standard_ram_sf2_metadata) noexcept {
     if(program>127 || key>127 || velocity==0 || velocity>127 || b.size()<12 ||
        !equals(b,0,"RIFF") || !equals(b,8,"sfbk") || u32(b,4)!=b.size()-8)
         return std::nullopt;
@@ -165,8 +166,19 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
         if(equals(b,p,"irom")){if(irom.present)return false;irom=c;}
         if(equals(b,p,"ifil")){if(ifil.present)return false;ifil=c;}
         return true;
-    }) || !contains(b,isng,"EMU8000") || !contains(b,iprd,"SBAWE32") ||
-       !contains(b,irom,"1MGM"))return std::nullopt;
+    }))return std::nullopt;
+    // Source-verified ROM 1MGM retains its strict Creative proprietary
+    // metadata gate. Generic RAM SoundFonts legitimately lack those
+    // Creative-ROM-only labels: require standard format-2 ifil instead.
+    // This relaxes only file metadata; it does NOT assert native VXD
+    // sample-RAM allocation, synthesis or original-driver parity.
+    if(standard_ram_sf2_metadata) {
+        if(!ifil.present || ifil.len!=4u ||
+           u16(b,ifil.begin)!=2u)return std::nullopt;
+    }else if(!contains(b,isng,"EMU8000") ||
+             !contains(b,iprd,"SBAWE32") ||
+             !contains(b,irom,"1MGM"))
+        return std::nullopt;
     constexpr std::array<std::string_view,7> tags{"phdr","pbag","pgen","inst","ibag","igen","shdr"};
     std::array<std::size_t,7> strides{38,4,4,22,4,4,48};
     enum :std::size_t {PHDR,PBAG,PGEN,INST,IBAG,IGEN,SHDR};
@@ -272,6 +284,21 @@ std::optional<SbkLayerSet> resolveCreativeSbkLayers(
         }
     }
     return found;
+}
+// The public original ROM function and separately named generic RAM
+// function share the SAME bounded structural scanner, with independent
+// mandatory metadata policy. No silently broadened original bank path.
+std::optional<SbkLayerSet> resolveCreativeSbkLayers(
+    Bytes b,std::uint16_t bank,std::uint8_t program,
+    std::uint8_t key,std::uint8_t velocity) noexcept {
+    return resolveBankLayersForSourcePolicy(
+        b,bank,program,key,velocity,false);
+}
+std::optional<SbkLayerSet> candidateStandardSf2RamLayers(
+    Bytes b,std::uint16_t bank,std::uint8_t program,
+    std::uint8_t key,std::uint8_t velocity) noexcept {
+    return resolveBankLayersForSourcePolicy(
+        b,bank,program,key,velocity,true);
 }
 
 std::optional<SbkRomAddress> resolveCreative1MgmRomAddress(
