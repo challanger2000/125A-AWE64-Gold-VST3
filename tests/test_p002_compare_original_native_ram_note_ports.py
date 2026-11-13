@@ -15,19 +15,23 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
         self.root=Path(self.tmp.name)
         self.original=self.root/"original.trace"
         self.native=self.root/"native.trace"
-        self.original.write_text(
+        self.original.write_bytes((
             "99 E22 0\n"
             "100 E22 0\n100 A20 23F8\n"
             "R 100 E20 1234\n"
             "101 E22 C0\n101 620 F8D7\n101 622 23\n"
-            "101 E22 E0\n101 620 FA68\n",encoding="ascii")
+            "101 E22 E0\n101 620 FA68\n").encode("ascii"))
         self.lines=["3 E22 0","3 A20 23F8","4 E22 C0",
                     "4 620 F8D7","4 622 23","4 E22 E0","4 620 FA68"]
         self.write_native(self.lines)
 
     def write_native(self,lines,header=True):
         p=((cmp.HEADER+cmp.CLOCK_HEADER).decode("ascii") if header else "")
-        self.native.write_text(p+"\n".join(lines)+"\n",encoding="ascii")
+        # The REAL VST3 writes exact LF using Win32 WriteFile. Python
+        # write_text() re-translates LF to CRLF on Windows, so tests
+        # must preserve those actual bytes rather than fabricating a
+        # stale header rejected by the strict evidence parser.
+        self.native.write_bytes((p+"\n".join(lines)+"\n").encode("ascii"))
 
     def compare(self,**kwargs):
         return cmp.compare_windows(
