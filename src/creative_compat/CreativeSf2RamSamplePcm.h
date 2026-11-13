@@ -10,6 +10,7 @@
 // sm24 and linked/stereo sample types are NOT approved by this gate.
 // All length, sample-header and memory bounds are checked before any
 // sample data could be passed to an original-source RAM loader.
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -35,5 +36,26 @@ struct OriginalSf2RamSamplePcmView {
 candidateOriginalSf2ReadRamMonoSamplePcm(
     std::span<const std::uint8_t> raw_soundfont,
     std::uint16_t sample_id,
+    std::size_t original_emu8000_ram_capacity_words) noexcept;
+// Original Creative format-2 SF2 preset/instrument zone selection
+// connected to ACTUAL RAM sample PCM bytes. The existing source-verified
+// layer scanner identifies at most six descriptor groups per MIDI NoteOn;
+// this function DOES NOT approve a hardware RAM upload address or start
+// a voice, nor infer a missing original Creative memory allocation.
+inline constexpr std::size_t kOriginalCreativeRamNoteMaxLayers=6u;
+struct OriginalSf2RamNotePcmPlan {
+    std::array<OriginalSf2RamSamplePcmView,
+               kOriginalCreativeRamNoteMaxLayers> layers{};
+    std::uint8_t count=0u;
+    std::uint16_t bank=0u;
+    std::uint8_t program=0u,key=0u,velocity=0u;
+};
+[[nodiscard]] std::optional<OriginalSf2RamNotePcmPlan>
+candidateOriginalSf2RamMonoNotePcmPlan(
+    std::span<const std::uint8_t> raw_soundfont,
+    std::uint16_t bank,
+    std::uint8_t program,
+    std::uint8_t midi_key,
+    std::uint8_t midi_velocity,
     std::size_t original_emu8000_ram_capacity_words) noexcept;
 } // namespace awe64::creative
