@@ -150,7 +150,7 @@ candidateOriginalSf2RamMonoNotePcmPlan(
     // This reuses the separately verified Creative SF2 preset/zone
     // decoder and its source six-descriptor limit; no new or guessed
     // per-key sample selection rule is introduced.
-    const auto matched=resolveCreativeSbkLayers(
+    const auto matched=candidateStandardSf2RamLayers(
         bank_bytes,bank,program,key,velocity);
     if(!matched || ram_words==0u)return std::nullopt;
     OriginalSf2RamNotePcmPlan result{};
