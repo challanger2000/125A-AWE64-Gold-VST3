@@ -113,7 +113,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
             self.assertEqual(written,len(filtered))
             output=result.read_text(encoding="ascii")
             self.assertIn("PROVENANCE REQUIRES INDEPENDENT",output)
-            self.assertIn("4 A20 0400",output)
+            self.assertIn("4 0A20 0400",output)
             self.assertNotIn("0 E22 0001",output)
             self.assertNotIn("R 1 E20 0000",output)
             with self.assertRaisesRegex(ValueError,"overwrite"):
