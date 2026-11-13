@@ -135,6 +135,45 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
             list(probe.filter_original_ram_upload_port_writes(
                 ["0 E22 0001","0 A20 00FE"]))
 
+    def test_native_python_port_parity_after_valid_source_sample(self):
+        # A previously complete sample is NOT an excuse to silently
+        # discard bad physical writes in a later original capture segment.
+        # Prior scanner/exporter silently ignored unexpected A24/A22.
+        tails=[
+            # SMALW low-half interrupted by a fresh pointer selector.
+            ["60 E22 0036","60 A20 0800","60 E22 0036",
+             "60 A20 0900","60 A22 0020",
+             "60 E22 003A","60 A20 1234"],
+            # Malformed data port while the original pointer is selected.
+            ["60 E22 0036","60 A24 1234",
+             "60 A20 0800","60 A22 0020",
+             "60 E22 003A","60 A20 1234"],
+            # SMLD has ONLY the original A20 16-bit sample-data port.
+            ["60 E22 003A","60 A22 1234"],
+        ]
+        for tail in tails:
+            trace=self.trace+tail
+            with self.subTest(tail=tail):
+                with self.assertRaisesRegex(
+                        ValueError,"SMALW|SMLD"):
+                    probe.scan_capture(trace,self.expected)
+                with self.assertRaisesRegex(
+                        ValueError,"SMALW|SMLD"):
+                    list(probe.filter_original_ram_upload_port_writes(trace))
+                with tempfile.TemporaryDirectory() as td:
+                    root=Path(td)
+                    source=root/"source.sf2"
+                    capture=root/"bad.original.trace"
+                    private_export=root/"must-not-exist.trace"
+                    source.write_bytes(self.sf2)
+                    capture.write_text("\\n".join(trace)+"\\n",encoding="ascii")
+                    with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                        probe.analyze(capture,source,0)
+                    with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                        probe.write_private_upload_replay(
+                            capture,private_export)
+                    self.assertFalse(private_export.exists())
+
     def test_pcm_bitflip_and_wrong_endianness_rejected(self):
         mutant=list(self.trace)
         mutant[16]=(mutant[16][:-4]+
