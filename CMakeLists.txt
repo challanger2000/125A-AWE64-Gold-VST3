@@ -717,6 +717,8 @@ if(AWE64_BUILD_P001_VST3)
         src/vst3/P002PrivateRomBank.cpp
         src/vst3/P002PrivateOriginalRamCapture.h
         src/vst3/P002PrivateOriginalRamCapture.cpp
+        src/vst3/P002PrivateOriginalRamNotes.h
+        src/vst3/P002PrivateOriginalRamNotes.cpp
         src/vst3/P001Factory.cpp
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
