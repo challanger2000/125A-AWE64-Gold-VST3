@@ -17,14 +17,17 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import struct
 import sys
 
 try:
     from .p002_verify_original_win95_ram_guest_log import audit
     from .p002_original_ram_trace_probe import RAM_FIRST, RAM_END_EXCLUSIVE
+    from .p002_original_bank_transform_evidence import original_bank_pcm16, chunks
 except ImportError:
     from p002_verify_original_win95_ram_guest_log import audit
     from p002_original_ram_trace_probe import RAM_FIRST, RAM_END_EXCLUSIVE
+    from p002_original_bank_transform_evidence import original_bank_pcm16, chunks
 
 LINE = re.compile(r"^(R )?([0-9]+) ([0-9a-fA-F]{1,4}) ([0-9a-fA-F]{1,4})$")
 SAMPLES_IN_OWNER_BANK = 260921
@@ -162,6 +165,78 @@ def inspect_note_geometry(lines, c4_frame: int, d4_frame: int,
     }
 
 
+
+def verify_original_ram_sample_binding(sf2: bytes, proof: dict,
+                                      physical_base: int) -> dict:
+    """Bind every captured RAM voice to one ORIGINAL SF2 shdr sample.
+
+    The real Win95 Creative VXD NoteOn source shows initial CCCA=start-4
+    and looping PSST/CSL=loopStart-1/loopEnd-1; those source rules were
+    independently recovered at LCOD+0x5B81/+0x5F28. This check only
+    establishes sample geometry for the single captured source bank,
+    NOT a universal RAM sample loader, piano timbre, or dry PCM parity.
+    """
+    words, count = original_bank_pcm16(sf2)
+    if len(words) != SAMPLES_IN_OWNER_BANK or count != 83:
+        raise ValueError("Source bank sample count/PCM geometry not original")
+    roots = list(chunks(sf2, 12, len(sf2)))
+    pdta = [(at, size) for tag, at, size in roots
+            if tag == b"LIST" and size >= 4 and sf2[at:at+4] == b"pdta"]
+    if len(pdta) != 1:
+        raise ValueError("Original source pdta not unique")
+    at, size = pdta[0]
+    tables = [(pos, n) for tag, pos, n in
+              chunks(sf2, at+4, at+size) if tag == b"shdr"]
+    if len(tables) != 1 or tables[0][1] != (count+1)*46:
+        raise ValueError("Original source shdr sample count invalid")
+    shdr, _ = tables[0]
+    headers = []
+    for sample_id in range(count):
+        header = shdr + sample_id*46
+        start, end, loop_start, loop_end = struct.unpack_from(
+            "<IIII", sf2, header+20)
+        if start < 4 or loop_start < 1 or loop_end < 1 or end > len(words):
+            raise ValueError("Original source sample address bounds invalid")
+        headers.append((start,end,loop_start,loop_end))
+    result = {}
+    all_identifiers = []
+    for label in ("winmm_C4", "creative_AWE_SEND_MIDI_D4"):
+        group = proof["original_ram_voice_groups"][label]
+        for voice in EXPECTED_VOICES[0 if label == "winmm_C4" else 1]:
+            observed = group[str(voice)]
+            ccca = int(observed["physical_CCCA_hex"],16)
+            psst = int(observed["physical_PSST_hex"],16)
+            csl = int(observed["physical_CSL_hex"],16)
+            matches = [sample_id for sample_id,(start,end,loop_start,loop_end)
+                       in enumerate(headers)
+                       if physical_base+start-4 == ccca and
+                          physical_base+loop_start-1 == psst and
+                          physical_base+loop_end-1 == csl]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"{label} physical voice {voice} lacks UNIQUE original "
+                    "SF2 shdr start/loop sample binding")
+            sample_id = matches[0]
+            result[f"{label}_voice_{voice}"] = sample_id
+            all_identifiers.append(sample_id)
+    # The genuine source was played twice through two independent MIDI
+    # APIs, retaining two layers of the same instrument sample on each.
+    # Changing any one sample address or header cannot mint this fact.
+    if len(set(all_identifiers)) != 1:
+        raise ValueError("Original C4/D4 source routes disagree on sample ID")
+    return {
+        "source_sample_header_count":count,
+        "original_ram_midi_voice_sample_ids":result,
+        "shared_original_sf2_shdr_sample_id":all_identifiers[0],
+        "initial_CCCA_start_word_offset":-4,
+        "initial_PSST_loop_start_word_offset":-1,
+        "initial_CSL_loop_end_word_offset":-1,
+        "all_four_original_voice_sample_bindings_exact":True,
+        "inferred_other_bank_address_rules":False,
+        "original_ram_dry_pcm_parity_verified":False,
+    }
+
+
 def analyze(original_trace: Path, guest_log: Path, original_sf2: Path,
             c4_frame: int, d4_frame: int, source_bank_first_word: int):
     for p,minimum,maximum in (
@@ -170,7 +245,8 @@ def analyze(original_trace: Path, guest_log: Path, original_sf2: Path,
         (original_sf2,96,32*1024*1024)):
         if not p.is_file() or not minimum<=p.stat().st_size<=maximum:
             raise ValueError("Private original Creative 86Box/Win95/SF2 source absent")
-    guest=audit(guest_log.read_bytes(),original_sf2.read_bytes())
+    source_bytes=original_sf2.read_bytes()
+    guest=audit(guest_log.read_bytes(),source_bytes)
     if (guest["original_user_bank_midi_cc0_controller"]!=0 or
             guest["original_user_bank_midi_cc0_value"]!=1):
         raise ValueError("Actual Creative Win95 user bank CC0=1 not authorized")
@@ -180,6 +256,10 @@ def analyze(original_trace: Path, guest_log: Path, original_sf2: Path,
     with original_trace.open("rt",encoding="ascii",errors="strict") as src:
         proof=inspect_note_geometry(
             src,c4_frame,d4_frame,source_bank_first_word)
+    # Actual source sample ID is now independently tied to physical
+    # CCCA/PSST/CSL positions, not merely "some address inside RAM".
+    proof.update(verify_original_ram_sample_binding(
+        source_bytes,proof,source_bank_first_word))
     proof.update({
         "original_trace_sha256":sha_file(original_trace),
         "original_guest_log_sha256":sha_file(guest_log),
