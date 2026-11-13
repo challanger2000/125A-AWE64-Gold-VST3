@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 using awe64::creative::OriginalRamUploadPortWrite;
 using awe64::creative::candidateReplayOriginalCreativeCapturedRamUpload;
@@ -26,6 +27,65 @@ void addWords(Writes& trace,std::uint64_t frame,
     setPointer(trace,frame,at);
     for(const auto data:words)
         trace.push_back({frame++,0xa20u,data});
+}
+void put16(std::vector<std::uint8_t>& b,const std::uint16_t v) {
+    b.push_back(static_cast<std::uint8_t>(v));
+    b.push_back(static_cast<std::uint8_t>(v>>8u));
+}
+void put32(std::vector<std::uint8_t>& b,const std::uint32_t v) {
+    put16(b,static_cast<std::uint16_t>(v));
+    put16(b,static_cast<std::uint16_t>(v>>16u));
+}
+void putChunk(std::vector<std::uint8_t>& out,
+              const std::string_view tag,
+              const std::vector<std::uint8_t>& bytes) {
+    out.insert(out.end(),tag.begin(),tag.end());
+    put32(out,static_cast<std::uint32_t>(bytes.size()));
+    out.insert(out.end(),bytes.begin(),bytes.end());
+    if(bytes.size()&1u)out.push_back(0u);
+}
+void putName(std::vector<std::uint8_t>& out,
+             const std::string_view name) {
+    out.insert(out.end(),name.begin(),name.end());
+    out.insert(out.end(),20u-name.size(),0u);
+}
+std::vector<std::uint8_t> originalRamSf2SampleFixture(
+    const std::array<std::uint16_t,4>& source,
+    const bool mutatedSample=false,
+    const std::uint16_t sampleType=1u) {
+    // Synthetic, format-2 46-byte shdr, signed-16 SDTA PCM16.
+    // No real Creative sample source bytes are included.
+    std::vector<std::uint8_t> smpl{};
+    for(std::uint16_t i=0u;i<16u;++i) {
+        auto word=(i>=4u && i<8u)?source[i-4u]:i*31u;
+        if(mutatedSample && i==7u)word^=1u;
+        put16(smpl,word);
+    }
+    std::vector<std::uint8_t> shdr{};
+    putName(shdr,"RAM SOURCE");
+    put32(shdr,4u);put32(shdr,8u);
+    put32(shdr,5u);put32(shdr,7u);
+    put32(shdr,44100u);
+    shdr.push_back(60u);shdr.push_back(0u);
+    put16(shdr,0u);put16(shdr,sampleType);
+    putName(shdr,"EOS");
+    for(unsigned i=0;i<5u;++i)put32(shdr,0u);
+    shdr.push_back(0u);shdr.push_back(0u);
+    put16(shdr,0u);put16(shdr,0u);
+    std::vector<std::uint8_t> info{'I','N','F','O'};
+    putChunk(info,"ifil",{2u,0u,0u,0u});
+    std::vector<std::uint8_t> sdta{'s','d','t','a'};
+    putChunk(sdta,"smpl",smpl);
+    std::vector<std::uint8_t> pdta{'p','d','t','a'};
+    putChunk(pdta,"shdr",shdr);
+    std::vector<std::uint8_t> body{'s','f','b','k'};
+    putChunk(body,"LIST",info);
+    putChunk(body,"LIST",sdta);
+    putChunk(body,"LIST",pdta);
+    std::vector<std::uint8_t> sf2{'R','I','F','F'};
+    put32(sf2,static_cast<std::uint32_t>(body.size()));
+    sf2.insert(sf2.end(),body.begin(),body.end());
+    return sf2;
 }
 }
 int main() {
@@ -133,6 +193,47 @@ int main() {
         CHECK(static_cast<std::uint16_t>(core->ram[0x10u+i])==data[i]);
     CHECK(static_cast<std::uint16_t>(
         core->ram[0xffffdfu-awe64::kSampleRamBase])==0x55aau);
+    // Full source SAMPLE ↔ original captured port replay bridge.
+    // This is a synthetic Win95-shaped input, NOT real Creative VXD
+    // provenance. It proves byte-for-byte sample match at exactly the
+    // captured physical address and fail-closed before original chip
+    // mutation on the very LAST original sample word.
+    const auto bank=originalRamSf2SampleFixture(data);
+    const auto mutatedBank=originalRamSf2SampleFixture(data,true);
+    const auto romBank=originalRamSf2SampleFixture(data,false,0x8001u);
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,0u,0x200010u,traced,false));
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,mutatedBank,0u,0x200010u,traced,true));
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,romBank,0u,0x200010u,traced,true));
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,1u,0x200010u,traced,true)); // EOS cannot be RAM
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,0u,0x20000fu,traced,true)); // guessed wrong base
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,0u,0xffffdeu,traced,true)); // FM reserved overlap
+    auto shortSampleTrace=traced;
+    shortSampleTrace.erase(shortSampleTrace.begin()+7u);
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,0u,0x200010u,shortSampleTrace,true));
+    auto wrongSampleTrace=traced;
+    wrongSampleTrace[7].value^=1u;
+    CHECK(!awe64::creative::candidateReplaySourceMatchedOriginalRamSf2Sample(
+        chip,bank,0u,0x200010u,wrongSampleTrace,true));
+    // Changed samples cannot alter previous true chip RAM contents.
+    for(unsigned i=0;i<4u;++i)
+        CHECK(static_cast<std::uint16_t>(
+            core->ram[0x10u+i])==data[i]);
+    const auto matched=awe64::creative::
+        candidateReplaySourceMatchedOriginalRamSf2Sample(
+            chip,bank,0u,0x200010u,traced,true);
+    CHECK(matched && matched->original_sample_words==5u &&
+          matched->last_word_address==0xffffdfu);
+    for(unsigned i=0;i<4u;++i)
+        CHECK(static_cast<std::uint16_t>(
+            core->ram[0x10u+i])==data[i]);
+
     std::cout<<"P002_SOURCE_ORIGINAL_EMU8000_RAM_PORT_REPLAY_PASS"
              <<" source_32bit_word_addresses=TRUE"
              <<" original_SMALW_SMLD_port_order=TRUE"
@@ -140,6 +241,8 @@ int main() {
              <<" full_preflight_before_hardware_write=TRUE"
              <<" provenance_gate_and_original_28MiB_bounds=TRUE"
              <<" source_guest_trace_in_test=SYNTHETIC_ONLY"
-             <<" original_Creative_driver_RAM_upload_verified=NOT_YET\n";
+             <<" original_Creative_driver_RAM_upload_verified=NOT_YET"
+             <<" exact_source_SF2_pcm_vs_captured_RAM_ports=TRUE"
+             <<" last_word_corruption_and_wrong_base_no_chip_mutation=TRUE\n";
     return 0;
 }
