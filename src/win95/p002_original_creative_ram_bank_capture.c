@@ -302,6 +302,13 @@ void WINAPI p002_ram_entry(void) {
        DRY PCM traces; C4 was WinMM above. Original driver alone
        performs all register translations and voice ownership. */
     emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN\r\n");
+    /* Use the SAME controlled bank-select probe on both source MIDI
+       routes. Without this, WinMM C4 and AWE_SEND_MIDI D4 may use
+       DIFFERENT bank state and cannot isolate the routing difference.
+       Bank MSB=1 remains a PROBE, not proof of a RAM-bank mapping. */
+    if(!original_send_midi(manager,handle,0x000001B0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC"))
+        goto done;
     if(!original_send_midi(manager,handle,0x000000C0u,
                            "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC"))goto done;
     if(!original_send_midi(manager,handle,0x00005BB0u,
