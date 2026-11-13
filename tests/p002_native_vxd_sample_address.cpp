@@ -97,10 +97,62 @@ int main(){
     CHECK(!candidateOriginalVxdInitialRomNoteGeometry(piano,3,loopMode));
     loopMode.original_driver_mode_verified=true;
     CHECK(!candidateOriginalVxdInitialRomNoteGeometry(piano,30,loopMode));
+
+    // ACTUAL original owner RAM-SF2 sample 82 (Saw_a1):
+    // shdr start 260287, loopStart 260296, loopEnd 260697;
+    // measured Win95 source RAM pool base 0x200010.
+    // The genuine driver selected voices 0/3 for C4, 6/9 for D4
+    // and wrote the SAME verified RAM geometry, not the old ROM note.
+    for(const auto physical : {0u,3u,6u,9u}) {
+        const auto verified=candidateOriginalVxdInitialVerifiedRamNoteGeometry(
+            0x23F8CFu,0x23FB29u,0x23F8D8u,0x23FA69u,
+            static_cast<std::uint8_t>(physical),8u,0x7Fu,0x7Fu,true,true);
+        CHECK(verified);
+        CHECK(verified->plain_ccca[0].port==0xE22u &&
+              verified->plain_ccca[0].value==physical &&
+              verified->plain_ccca[0].access_width_bits==8u);
+        CHECK(verified->plain_ccca[1].port==0xA20u &&
+              verified->plain_ccca[1].value==0x23F8CBu &&
+              verified->plain_ccca[1].access_width_bits==32u);
+        CHECK(verified->filtered_ccca[1].value==0x8023F8CBu);
+        CHECK(verified->loop_address_ports[0].port==0xE22u &&
+              verified->loop_address_ports[0].value==(0xC0u|physical));
+        CHECK(verified->loop_address_ports[1].port==0x620u &&
+              verified->loop_address_ports[1].value==0x7F23F8D7u &&
+              verified->loop_address_ports[1].access_width_bits==32u);
+        CHECK(verified->loop_address_ports[2].value==(0xE0u|physical));
+        CHECK(verified->loop_address_ports[3].value==0x7F23FA68u);
+    }
+    const auto ramSource=[](std::uint32_t start,std::uint32_t end,
+                            std::uint32_t loopStart,std::uint32_t loopEnd,
+                            std::uint8_t voice,std::uint8_t q,
+                            bool placement,bool driver) {
+        return candidateOriginalVxdInitialVerifiedRamNoteGeometry(
+            start,end,loopStart,loopEnd,voice,q,0x7Fu,0x7Fu,
+            placement,driver).has_value();
+    };
+    CHECK(!ramSource(0x23F8CFu,0x23FB29u,0x23F8D8u,0x23FA69u,
+                     0u,8u,false,true));
+    CHECK(!ramSource(0x23F8CFu,0x23FB29u,0x23F8D8u,0x23FA69u,
+                     0u,8u,true,false));
+    CHECK(!ramSource(0x23F8CFu,0x23FB29u,0x23F8D8u,0x23FA69u,
+                     30u,8u,true,true));
+    CHECK(!ramSource(0x23F8CFu,0x23FB29u,0x23F8D8u,0x23FA69u,
+                     0u,16u,true,true));
+    CHECK(!ramSource(0x001000u,0x002000u,0x001100u,0x001200u,
+                     0u,8u,true,true)); // ROM is not sample RAM
+    CHECK(!ramSource(0x23F8CFu,0x23FB29u,0x23FA69u,0x23F8D8u,
+                     0u,8u,true,true)); // reversed loop
+    CHECK(!ramSource(0x23F8CFu,0x1000001u,0x23F8D8u,0x23FA69u,
+                     0u,8u,true,true)); // outside 28 MiB chip RAM
+    CHECK(!ramSource(0x200003u,0x200100u,0x200010u,0x2000A0u,
+                     0u,8u,true,true)); // -4 outside RAM
     std::cout<<"P002_ORIGINAL_VXD_1MGM_SAMPLE_ADDRESS_CASE5_CASE6_PASS"
              <<" CSL_offset_plus1_or_plus8=TRUE"
              <<" PSST_preserves_upper_byte=TRUE"
              <<" CCCA_start_minus4_and_Q_highbits=TRUE"
              <<" initial_NoteOn_PSST_CSL_real_geometry=TRUE"
+             <<" source_RAM_sample82_all_four_real_voice_geometry=PASS"
+             <<" RAM_full_noteon_PCM=NOT_PROVEN"
              <<" port_widths_8_32=TRUE original_full_noteon_pcm=NOT_PROVEN\n";
 }
