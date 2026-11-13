@@ -90,7 +90,7 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 self.bank)
 
     def test_failed_load_and_missing_dry_midi_are_no_go(self):
-        with self.assertRaisesRegex(ValueError,"AWE_LOAD_USER_BANK"):
+        with self.assertRaisesRegex(ValueError,"LOAD_USER_BANK_RC"):
             auditor.audit(self.mutate(
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=0x00000000",
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=0x00000108"),
