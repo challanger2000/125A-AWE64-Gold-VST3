@@ -13,8 +13,8 @@ import unittest
 
 from tools import p002_extract_original_win95_ram_log_fat16 as tool
 from tools import p002_stage_original_win95_ram_probe as stage
-from tests.test_p002_win95_ram_stage import write_inputs
-from tests.test_p002_win95_ram_guest_log import synth_guest_log, sf2_bank
+from test_p002_win95_ram_stage import write_inputs
+from test_p002_win95_ram_guest_log import synth_guest_log, sf2_bank
 
 PART_LBA=63
 FAT_START=(PART_LBA+1)*512
@@ -162,11 +162,6 @@ class OriginalWin95RamLogReadbackTests(unittest.TestCase):
             wrong.write_bytes(changed)
             with self.assertRaisesRegex(ValueError,"differs"):
                 tool.extract_guest_ram_evidence(clone,wrong)
-            with clone.open("r+b") as disk:
-                disk.seek(DATA_START+2*CLUSTER_BYTES)
-                # Not the actual log cluster: used as an intentional
-                # no-op to confirm negative was about bank identity.
-                disk.write(b"")
             correct,report=tool.extract_guest_ram_evidence(clone,sf2)
             self.assertIn(b"CREATIVE_DRIVER_ALLOCATED_WORD_DELTA",correct)
             self.assertFalse(report["release_approved"])
