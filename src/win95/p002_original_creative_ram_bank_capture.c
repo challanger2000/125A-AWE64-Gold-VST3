@@ -27,8 +27,6 @@
 
 #define ORIGINAL_AWE_OPEN 101u
 #define ORIGINAL_AWE_CLOSE 102u
-#define ORIGINAL_AWE_SELECT_SYN_BANK 203u /* Original AWE_API.H BASE_CONFIG+3 */
-#define ORIGINAL_AWE_USER_CUSTOM_MODE 3u /* INDICES.H enum SBANK */
 #define ORIGINAL_AWE_LOAD_USER_BANK 204u
 #define ORIGINAL_AWE_CLEAR_USER_BANK 205u
 #define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
@@ -368,26 +366,18 @@ void WINAPI p002_ram_entry(void) {
         emit("CREATIVE_DRIVER_DRAM_DELTA_UNKNOWN_NOT_PROVEN\r\n");
     }
     emit("GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF\r\n");
-    /* The old Win95 test only sent MIDI CC0=1. The ACTUAL captured
-       C4/D4 hardware CCCA/PSST/CSL words were <0x200000 (ROM),
-       despite a successful user bank upload. That was OUR TEST SETUP
-       error: it never selected original Creative USER_CUSTOM_BANK.
-       ORIGINAL 1996 WINAWE32.C documents:
-         AWEManager(h,AWE_SELECT_SYN_BANK, enum SBANK,0)
-       and INDICES.H defines USER_CUSTOM_BANK=3. This is an original
-       API call, not a homemade bank mapping formula. The next REAL
-       86Box register capture MUST establish a sample >=0x200000;
-       API return code alone does not prove a RAM sample was played.
+    /* Creative AWE32 FAQ F.6: for a user bank loaded into index 1,
+       MIDI CC0 controller number ZERO, value ONE, then PROGRAM 0.
+       Prior guest test had wrong byte ordering:
+         0x000001B0 = CC1, value 0 (mod wheel) -- WRONG
+         0x000100B0 = CC0, value 1 (bank select) -- CORRECT.
+       The extra AWE_SELECT_SYN_BANK=203 selection was also wrong:
+       that selects a *synth emulation* (not User Bank 1) and the
+       actual original Win95 driver rejected value 3 with 0x6B.
+       Fix BOTH WinMM and AWE_SEND_MIDI. Only a register capture
+       with CCCA/PSST/CSL in RAM >=0x200000 proves RAM playback.
     */
-    report("ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS=",
-           GetTickCount()-t0);
-    rc=manager(handle,ORIGINAL_AWE_SELECT_SYN_BANK,
-               (LPARAM)ORIGINAL_AWE_USER_CUSTOM_MODE,0);
-    report("ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=",(DWORD)rc);
-    if(rc!=ORIGINAL_AWE_NO_ERR) {
-        emit("ORIGINAL_CREATIVE_USER_BANK_MODE_SELECT_FAILED\r\n");
-        goto done;
-    }
+    emit("ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6\\r\\n");
     /* The bank-load phase above is the authoritative DRAM-upload
        measurement. The following MIDI-only phase is separate and
        cannot prove selection of a specific bank without register/PCM
@@ -395,7 +385,7 @@ void WINAPI p002_ram_entry(void) {
        original driver program bank mapping formula. */
     Sleep(200);
     if(!send_midi(midi,0x000079B0u,"ORIGINAL_RESET_CONTROLLERS_RC"))goto done;
-    if(!send_midi(midi,0x000000B0u | (1u<<8),
+    if(!send_midi(midi,0x000100B0u,
                   "ORIGINAL_BANK_SELECT_MSB1_RC"))goto done;
     if(!send_midi(midi,0x000000C0u,"ORIGINAL_PROGRAM0_RC"))goto done;
     /* DRY comparison first. Original MIDI controllers 91/93 = 0:
@@ -423,7 +413,7 @@ void WINAPI p002_ram_entry(void) {
        routes. Without this, WinMM C4 and AWE_SEND_MIDI D4 may use
        DIFFERENT bank state and cannot isolate the routing difference.
        Bank MSB=1 remains a PROBE, not proof of a RAM-bank mapping. */
-    if(!original_send_midi(manager,handle,0x000001B0u,
+    if(!original_send_midi(manager,handle,0x000100B0u,
                            "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC"))
         goto done;
     if(!original_send_midi(manager,handle,0x000000C0u,
