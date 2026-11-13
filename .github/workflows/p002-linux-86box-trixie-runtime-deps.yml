@@ -15,8 +15,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The pinned fork links librtmidi.so.6, which Debian 13
+          # replaced with librtmidi7. Fetch older ABI *without installing*
+          # from Debian 12 bookworm; use Debian 13 for other two libs.
+          echo 'deb http://deb.debian.org/debian bookworm main' > /etc/apt/sources.list.d/p002-bookworm.list
           apt-get update -qq
-          apt-get install -y --no-install-recommends ca-certificates
           mkdir -p /tmp/p002-public-runtime
           cd /tmp/p002-public-runtime
           apt-get download libserialport0 libslirp0 librtmidi6
