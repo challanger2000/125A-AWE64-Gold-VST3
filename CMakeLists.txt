@@ -139,6 +139,16 @@ target_link_libraries(awe64_p002_original_ram_port_replay_test
     PRIVATE awe64_p002_original_ram_port_replay)
 add_test(NAME p002_original_Win95_RAM_port_trace_replay_contract
     COMMAND awe64_p002_original_ram_port_replay_test)
+# Private owner-side diagnostic only: exact original EMU8000 RAM
+# upload from an independently reviewed guest capture, matched
+# byte-for-byte against external SF2 and validated by original chip
+# RAM readback. No Creative source assets or test firmware embedded.
+add_executable(awe64_p002_private_ram_capture_cli
+    tools/p002_private_ram_capture_cli.cpp)
+target_link_libraries(awe64_p002_private_ram_capture_cli
+    PRIVATE awe64_p002_original_ram_port_replay)
+target_compile_features(awe64_p002_private_ram_capture_cli
+    PRIVATE cxx_std_23)
 
 
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
