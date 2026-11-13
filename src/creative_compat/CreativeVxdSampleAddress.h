@@ -62,4 +62,33 @@ struct OriginalVxdRomNoteStartGeometry {
 candidateOriginalVxdInitialRomNoteGeometry(
     const SbkRomAddress& sample,std::uint8_t physical_voice,
     OriginalVxdRomNoteStartMode encoded_record) noexcept;
+
+// Source-confirmed P002 original Windows-95 RAM SoundFont note geometry.
+// One independently captured owner bank (83 samples, sample 82) proved
+// CCCA=physical shdr.start-4, looping PSST=loopStart-1 and
+// CSL=loopEnd-1 in all four original C4/D4 physical voices.
+// This helper DOES NOT allocate RAM, decode SF2 generators, choose a key,
+// guess pan/resonance/send values, or produce complete original NoteOn.
+//
+// Caller must have independently authenticated (a) the actual Creative
+// chip RAM upload's physical address mapping and (b) the already encoded
+// original VXD filter/pan/chorus bytes. Values are deliberate inputs,
+// not new default DSP or unsupported global Creative-bank formula.
+struct OriginalVxdRamNoteStartGeometry {
+    std::array<OriginalWin95VxdPortWrite,2> plain_ccca{};
+    std::array<OriginalWin95VxdPortWrite,2> filtered_ccca{};
+    std::array<OriginalWin95VxdPortWrite,4> loop_address_ports{};
+};
+[[nodiscard]] std::optional<OriginalVxdRamNoteStartGeometry>
+candidateOriginalVxdInitialVerifiedRamNoteGeometry(
+    std::uint32_t physical_sample_start,
+    std::uint32_t physical_sample_end,
+    std::uint32_t physical_loop_start,
+    std::uint32_t physical_loop_end,
+    std::uint8_t physical_voice,
+    std::uint8_t original_filter_q_encoded,
+    std::uint8_t original_pan_byte,
+    std::uint8_t original_chorus_byte,
+    bool independently_verified_original_ram_placement,
+    bool independently_verified_original_vxd_mode) noexcept;
 } // namespace awe64::creative
