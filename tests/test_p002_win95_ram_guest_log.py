@@ -46,6 +46,7 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "ORIGINAL_MIDI_C4_VEL100_RC=0x00000000",
         "ORIGINAL_MIDI_C4_OFF_RC=0x00000000",
         "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN",
+        "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC=0x00000000",
@@ -173,6 +174,37 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n"
                 "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000"),
                 self.bank)
+
+    def test_both_original_routes_require_bank_select_before_program(self):
+        result=auditor.audit(self.log,self.bank)
+        self.assertEqual(result["winmm_and_direct_bank_msb1_probe_order"],
+                         "API_CALLS_CONFIRMED")
+        self.assertEqual(result["original_bank_msb1_selects_loaded_RAM_bank"],
+                         "NOT_PROVEN")
+        # A broken or absent direct source bank select is never waived
+        # because the WinMM route previously selected the bank.
+        with self.assertRaisesRegex(ValueError,"DIRECT_BANK_SELECT_MSB1"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC=0x00000000",
+                "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC=0x00000001"),
+                self.bank)
+        with self.assertRaisesRegex(ValueError,"DIRECT_BANK_SELECT_MSB1"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC=0x00000000",
+                "REMOVED_BANK_SELECT=0x00000000"),self.bank)
+        # Zero-returning source API calls in wrong order are not an
+        # authentic comparable bank→program→NoteOn test sequence.
+        for first,second in (
+            ("ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC",
+             "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC"),
+            ("ORIGINAL_BANK_SELECT_MSB1_RC","ORIGINAL_PROGRAM0_RC"),
+        ):
+            original=(first+"=0x00000000\\r\\n"+
+                      second+"=0x00000000")
+            reordered=(second+"=0x00000000\\r\\n"+
+                       first+"=0x00000000")
+            with self.assertRaisesRegex(ValueError,"phase/order"):
+                auditor.audit(self.mutate(original,reordered),self.bank)
 
     def test_missing_or_reordered_capture_marker(self):
         no_begin=self.mutate(
