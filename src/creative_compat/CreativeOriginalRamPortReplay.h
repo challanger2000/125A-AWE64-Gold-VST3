@@ -42,4 +42,21 @@ candidateReplayOriginalCreativeCapturedRamUpload(
     awe64::Chip& pinned_original_emu8000,
     std::span<const OriginalRamUploadPortWrite> source_original_trace,
     bool independently_verified_original_Win95_Creative_RAM_trace) noexcept;
+// End-to-end source-anchored RAM-SF2 upload candidate (off-RT only).
+// Reads the actual SF2 shdr/sdta PCM, proves EVERY original captured
+// SMLD word at the caller-provided independently observed physical RAM
+// base matches the entire sample IN ORDER, and only then replays the
+// full captured original port stream into the unmodified EMU8000.
+// A missing word, wrong sample, wrong address, malformed/unsupported
+// SF2, duplicate physical write or invalid trace rejects BEFORE the
+// first hardware write. The caller must separately establish actual
+// guest origin of the capture; 'true' cannot prove authenticity.
+[[nodiscard]] std::optional<OriginalRamUploadReplayResult>
+candidateReplaySourceMatchedOriginalRamSf2Sample(
+    awe64::Chip& pinned_original_emu8000,
+    std::span<const std::uint8_t> original_sf2_bank,
+    std::uint16_t sf2_sample_id,
+    std::uint32_t independently_observed_emu8000_sample_base_word,
+    std::span<const OriginalRamUploadPortWrite> original_guest_upload_ports,
+    bool independently_verified_original_Win95_Creative_RAM_trace) noexcept;
 } // namespace awe64::creative
