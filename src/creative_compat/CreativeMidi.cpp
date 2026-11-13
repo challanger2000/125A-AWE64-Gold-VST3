@@ -27,7 +27,15 @@ std::optional<MidiMessage> decodeWinMmShort(std::uint32_t packed) noexcept {
     return event;
 }
 void MidiState::apply(const MidiMessage& message) noexcept {
-    auto& c=channels_[message.channel & 15u];
+    // decodeWinMmShort() validates wire MIDI, but public callers also
+    // construct MidiMessage directly when compiling a Creative bank note.
+    // Never alias an out-of-range channel (e.g. 16) onto channel zero.
+    // The second byte is unused for Program/ChannelPressure commands.
+    if(message.channel >= channels_.size() || message.data1 >= 128u ||
+       ((message.kind != MidiKind::Program &&
+         message.kind != MidiKind::ChannelPressure) &&
+        message.data2 >= 128u))return;
+    auto& c=channels_[message.channel];
     switch (message.kind) {
     case MidiKind::Program: c.program=message.data1; break;
     case MidiKind::ChannelPressure: c.channel_pressure=message.data1; break;
