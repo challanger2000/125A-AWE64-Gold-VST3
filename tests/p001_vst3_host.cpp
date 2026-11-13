@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -106,7 +107,7 @@ int wmain(int argc,wchar_t** argv){
     // Preserve the independent pre-CT1745 AWE32_WAV PCM16 tap for
     // all historical original-chip reference and RT heap regressions.
     // Normal VST3 instances without this private flag use full CT1745.
-    if(!SetEnvironmentVariableW(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"1"))return 87;
+    if(_wputenv_s(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"1")!=0)return 87;
     if(argc!=3)return 2;
     HMODULE module=nullptr;
     IPluginFactory* factory=nullptr;
@@ -137,8 +138,8 @@ int wmain(int argc,wchar_t** argv){
         // Compare every unclipped pre-card sample to the ORIGINAL
         // pinned 86Box reset: fm/master 32767/32768 each, int32
         // truncation, float sink /32768 WITHOUT PCM16 saturation.
-        require(SetEnvironmentVariableW(
-            L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"")!=0,
+        require(_wputenv_s(
+            L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"")==0,
             "cannot switch exported VST3 to full original CT1745 output");
         auto full=play(factory,false);
         auto fullOff=play(factory,true);
@@ -147,7 +148,8 @@ int wmain(int argc,wchar_t** argv){
         std::size_t verified=0u,different=0u;
         constexpr double sourceAtt=32767.0/32768.0;
         for(std::size_t i=0;i<held.size();++i) {
-            if(std::fabs(held[i])>=0.999f)continue; // tap clipped pre-card
+            if(std::fabs(held[i])>=0.999f ||
+               std::fabs(off[i])>=0.999f)continue; // either PCM tap clipped
             const auto originalChip=static_cast<std::int32_t>(held[i]*32768.f);
             const auto post=static_cast<std::int32_t>(
                 (static_cast<double>(originalChip)*sourceAtt)*sourceAtt);
