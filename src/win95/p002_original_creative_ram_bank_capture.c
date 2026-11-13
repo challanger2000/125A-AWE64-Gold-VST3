@@ -30,6 +30,7 @@
 #define ORIGINAL_AWE_LOAD_USER_BANK 204u
 #define ORIGINAL_AWE_CLEAR_USER_BANK 205u
 #define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
+#define ORIGINAL_AWE_GET_SYN_BANK 305u /* Creative AWE_API.H BASE_QUERY+5 */
 #define ORIGINAL_AWE_SEND_MIDI 401u /* Creative 1996 API BASE_MIDI+1 */
 #define ORIGINAL_AWE_NO_ERR 0L
 #define ORIGINAL_OPER_FILE 0u
@@ -143,6 +144,31 @@ static int original_send_midi(CREATIVE_AWEMANAGER manager,
                           (LPARAM)packed_message,0);
     report(label,(DWORD)rc);
     return rc==ORIGINAL_AWE_NO_ERR;
+}
+/* Original WINAWE32.C ID_QUERY_SYNTH uses AWE_GET_SYN_BANK and
+ * CBufferObject.m_Flag to read current enum SBANK. This is only a
+ * READ-ONLY observation; it does not select or map any MIDI bank.
+ * enum SBANK (INDICES.H): GM=0, GS=1, MT32=2, USER_CUSTOM=3.
+ */
+static int original_query_synth_bank(CREATIVE_AWEMANAGER manager,
+                                     DWORD handle,const char*label) {
+    ORIGINAL_CREATIVE_BUFFER buffer;
+    char marker=0;
+    LONG result;
+    buffer.m_Size=sizeof(marker);
+    buffer.m_Buffer=&marker;
+    buffer.m_SizeUsed=0u;
+    buffer.m_Flag=0xFFFFu;
+    result=manager(handle,ORIGINAL_AWE_GET_SYN_BANK,
+                   (LPARAM)&buffer,0);
+    emit(label);emit("_RESULT=");hex32((DWORD)result);emit("\r\n");
+    if(result!=ORIGINAL_AWE_NO_ERR) return 0;
+    emit(label);emit("_MODE_ID=");hex32((DWORD)buffer.m_Flag);emit("\r\n");
+    if(buffer.m_Flag>3u) {
+        emit("ORIGINAL_CREATIVE_SYNTH_BANK_ENUM_INVALID\r\n");
+        return 0;
+    }
+    return 1;
 }
 static int original_query_dram(CREATIVE_AWEMANAGER manager,
                                DWORD handle,const char*label,
@@ -265,6 +291,10 @@ void WINAPI p002_ram_entry(void) {
     opened=1;
     if(!original_synth_device(&midi))goto done;
     haveMidi=1;
+    /* Read the ORIGINAL installed driver's synth-bank MODE before
+       loading. This does not assert that CC0=1 maps to user bank #1. */
+    if(!original_query_synth_bank(manager,handle,"PRE_LOAD_SYNTH_BANK"))
+        goto done;
     /* Original source API 308: inspect driver-reported DRAM before
        letting Creative allocate/upload the private SoundFont. */
     if(!original_query_dram(manager,handle,"PRE_LOAD",
@@ -292,6 +322,8 @@ void WINAPI p002_ram_entry(void) {
     emit("ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END\r\n");
     if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
     loaded=1;
+    if(!original_query_synth_bank(manager,handle,"POST_LOAD_SYNTH_BANK"))
+        goto done;
     if(!original_query_dram(manager,handle,"POST_LOAD",
                             &max_after,&free_after))
         goto done;
