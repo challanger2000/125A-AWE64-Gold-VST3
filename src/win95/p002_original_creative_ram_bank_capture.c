@@ -27,6 +27,8 @@
 
 #define ORIGINAL_AWE_OPEN 101u
 #define ORIGINAL_AWE_CLOSE 102u
+#define ORIGINAL_AWE_SELECT_SYN_BANK 203u /* Original AWE_API.H BASE_CONFIG+3 */
+#define ORIGINAL_AWE_USER_CUSTOM_MODE 3u /* INDICES.H enum SBANK */
 #define ORIGINAL_AWE_LOAD_USER_BANK 204u
 #define ORIGINAL_AWE_CLEAR_USER_BANK 205u
 #define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
@@ -366,6 +368,26 @@ void WINAPI p002_ram_entry(void) {
         emit("CREATIVE_DRIVER_DRAM_DELTA_UNKNOWN_NOT_PROVEN\r\n");
     }
     emit("GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF\r\n");
+    /* The old Win95 test only sent MIDI CC0=1. The ACTUAL captured
+       C4/D4 hardware CCCA/PSST/CSL words were <0x200000 (ROM),
+       despite a successful user bank upload. That was OUR TEST SETUP
+       error: it never selected original Creative USER_CUSTOM_BANK.
+       ORIGINAL 1996 WINAWE32.C documents:
+         AWEManager(h,AWE_SELECT_SYN_BANK, enum SBANK,0)
+       and INDICES.H defines USER_CUSTOM_BANK=3. This is an original
+       API call, not a homemade bank mapping formula. The next REAL
+       86Box register capture MUST establish a sample >=0x200000;
+       API return code alone does not prove a RAM sample was played.
+    */
+    report("ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS=",
+           GetTickCount()-t0);
+    rc=manager(handle,ORIGINAL_AWE_SELECT_SYN_BANK,
+               (LPARAM)ORIGINAL_AWE_USER_CUSTOM_MODE,0);
+    report("ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=",(DWORD)rc);
+    if(rc!=ORIGINAL_AWE_NO_ERR) {
+        emit("ORIGINAL_CREATIVE_USER_BANK_MODE_SELECT_FAILED\r\n");
+        goto done;
+    }
     /* The bank-load phase above is the authoritative DRAM-upload
        measurement. The following MIDI-only phase is separate and
        cannot prove selection of a specific bank without register/PCM
