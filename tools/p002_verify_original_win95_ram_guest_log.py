@@ -29,8 +29,6 @@ MUST_ZERO = (
     "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC",
     "PRE_LOAD_RESULT",
     "POST_LOAD_RESULT",
-    "PRE_LOAD_SYNTH_BANK_RESULT",
-    "POST_LOAD_SYNTH_BANK_RESULT",
     "ORIGINAL_CREATIVE_MIDIOUT_OPEN_RESULT",
     "ORIGINAL_RESET_CONTROLLERS_RC",
     "ORIGINAL_BANK_SELECT_MSB1_RC",
@@ -56,6 +54,8 @@ REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
     "PRIVATE_WIN95_SF2_FNV1A32",
     "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
+    "PRE_LOAD_SYNTH_BANK_RESULT",
+    "POST_LOAD_SYNTH_BANK_RESULT",
     "PRE_LOAD_SYNTH_BANK_MODE_ID",
     "POST_LOAD_SYNTH_BANK_MODE_ID",
     "WIN95_ORIGINAL_MIDI_ENDPOINTS",
@@ -158,10 +158,24 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     # AWE_GET_SYN_BANK (305), 14-byte packed CBufferObject.m_Flag:
     # 0=GM, 1=GS, 2=MT32, 3=USER_CUSTOM_BANK. A reported mode is
     # NOT proof that CC0=1 selects user bank #1.
-    for mode_label in ("PRE_LOAD_SYNTH_BANK_MODE_ID",
-                       "POST_LOAD_SYNTH_BANK_MODE_ID"):
-        if seen[mode_label] > 3:
-            raise ValueError("Original Creative synth bank enum invalid: "+mode_label)
+    for prefix in ("PRE_LOAD_SYNTH_BANK", "POST_LOAD_SYNTH_BANK"):
+        code, mode = seen[prefix+"_RESULT"], seen[prefix+"_MODE_ID"]
+        if code == 0:
+            if mode > 3:
+                raise ValueError("Original Creative synth bank enum invalid: "+prefix)
+        elif code == 0xCB:
+            # Actual original Win95 Creative AWEManager returned 203 for
+            # OPTIONAL AWE_GET_SYN_BANK, while original AWE_LOAD_USER_BANK
+            # subsequently succeeded. This was a failure of OUR test
+            # harness to distinguish observation from a mandatory gate.
+            # Unknown mode is explicit; never fake an enumerated bank.
+            if mode != 0xFFFFFFFF:
+                raise ValueError(
+                    "Original Creative unavailable synth mode sentinel invalid: "+prefix)
+        else:
+            raise ValueError("Unexpected original Creative synth bank query result: "+prefix)
+    mode_valid = (seen["PRE_LOAD_SYNTH_BANK_RESULT"] == 0 and
+                  seen["POST_LOAD_SYNTH_BANK_RESULT"] == 0)
     if seen["CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT"] != 1 or not (
             1 <= seen["WIN95_ORIGINAL_MIDI_ENDPOINTS"] <= 64):
         raise ValueError("Ambiguous/non-original AWE MIDI device selection")
@@ -283,11 +297,17 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_creative_cbuffer_pack2_size_bytes":
             seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"],
         "original_creative_synth_mode_before_load_id":
-            seen["PRE_LOAD_SYNTH_BANK_MODE_ID"],
+            (seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] if
+             seen["PRE_LOAD_SYNTH_BANK_RESULT"] == 0 else None),
         "original_creative_synth_mode_after_load_id":
-            seen["POST_LOAD_SYNTH_BANK_MODE_ID"],
+            (seen["POST_LOAD_SYNTH_BANK_MODE_ID"] if
+             seen["POST_LOAD_SYNTH_BANK_RESULT"] == 0 else None),
+        "original_creative_synth_mode_query_results": {
+            "before": seen["PRE_LOAD_SYNTH_BANK_RESULT"],
+            "after": seen["POST_LOAD_SYNTH_BANK_RESULT"]},
         "original_synth_mode_change_observed":
-            seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] != seen["POST_LOAD_SYNTH_BANK_MODE_ID"],
+            ((seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] !=
+              seen["POST_LOAD_SYNTH_BANK_MODE_ID"]) if mode_valid else None),
         "original_midi_CC0_user_bank_mapping":
             "NOT_PROVEN_BY_SYNTH_MODE_QUERY",
         "original_driver_total_ram_words": seen["PRE_LOAD_TOTAL_16BIT_WORDS"],
