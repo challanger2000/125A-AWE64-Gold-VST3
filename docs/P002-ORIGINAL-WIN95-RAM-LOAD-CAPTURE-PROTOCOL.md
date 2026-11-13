@@ -9,7 +9,7 @@ Public primary Creative Technology Ltd 1994–96 source:
 - Original AWE_API.H: https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/INCLUDE/AWE_API.H
 - Original INDICES.H: https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/INCLUDE/INDICES.H
 
-Those Creative developer examples verify AWEMAN32.DLL / AWEManager, AWE_OPEN message 101, AWE_LOAD_USER_BANK message 204, AWE_CLEAR_USER_BANK 205, AWE_QUERY_DRAM_SIZE 308, original user bank 1, and original CBufferObject with OPER_FILE 0. This guest program sends calls to the ORIGINAL installed Creative driver rather than implementing speculative EMU8000 DRAM placement.
+Those Creative developer examples verify AWEMAN32.DLL / AWEManager, AWE_OPEN message 101, AWE_LOAD_USER_BANK message 204, AWE_CLEAR_USER_BANK 205, AWE_QUERY_DRAM_SIZE 308, original user bank 1, and original CBufferObject with OPER_FILE 0. The updated guest also invokes the original documented **AWE_SEND_MIDI=401** as a second independent Creative driver MIDI pathway: WinMM plays C4, then direct AWEManager sends D4. Both phases send dry CC91=0 and CC93=0 and are individually bracketed in the guest log. Their successful API results do NOT alone prove correct original RAM-bank selection or DRY PCM. This guest program sends calls to the ORIGINAL installed Creative driver rather than implementing speculative EMU8000 DRAM placement.
 
 ## Artifacts and where they run
 
