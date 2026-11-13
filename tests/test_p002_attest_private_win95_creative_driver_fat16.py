@@ -125,7 +125,7 @@ class PrivateCreativeDriverFAT16Tests(unittest.TestCase):
             self.assertEqual(disk.read_short_path_file(
                 (audit.WINDOWS,audit.AWEMAN32),audit.MAX_DLL),self.dll)
             with self.assertRaisesRegex(ValueError,"missing/ambiguous"):
-                disk.read_short_path_file((b"WRONG       ",audit.SBAWE),
+                disk.read_short_path_file((b"WRONG      ",audit.SBAWE),
                                           audit.MAX_VXD)
             with self.assertRaisesRegex(ValueError,"path component"):
                 disk.read_short_path_file((b"WINDOWS",audit.AWEMAN32),
