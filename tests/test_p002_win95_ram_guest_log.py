@@ -18,6 +18,7 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START",
         "PRIVATE_WIN95_SF2_SIZE=" + hex32(bank_size),
         "PRIVATE_WIN95_SF2_FNV1A32=" + hex32(auditor.fnv1a32(source)),
+        "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E",
         "LOADED_CREATIVE_MODULE_PATH=C:\\WINDOWS\\SYSTEM\\AWEMAN32.DLL",
         "ORIGINAL_AWEMAN32_AWE_OPEN_RC=0x00000000",
         "WIN95_ORIGINAL_MIDI_ENDPOINTS=0x00000002",
@@ -72,6 +73,27 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
         body = self.log.decode("ascii")
         assert body.count(old) == 1, old
         return body.replace(old, new).encode("ascii")
+
+    def test_original_creative_pack2_cbuffer_abi_required(self):
+        # Original Creative INDICES.H sets #pragma pack(2) for Win32.
+        # Our previous default-packed 16-byte guest struct was an
+        # error in OUR own test harness. No historical Creative ABI
+        # fact is inferred from the old guest program.
+        good=auditor.audit(self.log,self.bank)
+        self.assertEqual(
+            good["original_creative_cbuffer_pack2_size_bytes"],14)
+        for wrong in (0,12,16,20):
+            with self.subTest(wrong=wrong):
+                with self.assertRaisesRegex(ValueError,
+                                            "CBufferObject ABI"):
+                    auditor.audit(self.mutate(
+                        "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E",
+                        f"ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x{wrong:08X}"),
+                        self.bank)
+        with self.assertRaisesRegex(ValueError,"Missing original Creative result"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E",
+                "NO_ABI_EVIDENCE"),self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
         result = auditor.audit(self.log, self.bank)
