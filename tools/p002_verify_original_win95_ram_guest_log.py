@@ -37,6 +37,7 @@ MUST_ZERO = (
     "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC",
     "ORIGINAL_MIDI_C4_VEL100_RC",
     "ORIGINAL_MIDI_C4_OFF_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC",
     "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
     "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
     "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
@@ -165,16 +166,38 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=")) <
             lines.index(CAPTURE_END)):
         raise ValueError("Original Win95 load result escaped bank-upload capture markers")
-    for label in ("ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
-                  "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
-                  "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
-                  "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
-                  "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"):
-        if not (lines.index(DIRECT_BEGIN) <
-                next(i for i, x in enumerate(lines)
-                     if x.startswith(label + "=")) <
-                lines.index(DIRECT_END)):
-            raise ValueError("Original Creative direct MIDI result outside source phase")
+    # Both original-driver MIDI routes must select the SAME controlled
+    # user-bank candidate before program and notes. An accepted API call
+    # does NOT establish that Bank 1 was actually rendered from RAM;
+    # that still requires independent original registers + dry PCM.
+    winmm_order = (
+        "ORIGINAL_RESET_CONTROLLERS_RC",
+        "ORIGINAL_BANK_SELECT_MSB1_RC",
+        "ORIGINAL_PROGRAM0_RC",
+        "ORIGINAL_CC91_REVERB_SEND_ZERO_RC",
+        "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC",
+        "ORIGINAL_MIDI_C4_VEL100_RC",
+        "ORIGINAL_MIDI_C4_OFF_RC",
+    )
+    direct_order = (
+        "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC",
+    )
+    for labels, start, end in (
+            (winmm_order, CAPTURE_END, DIRECT_BEGIN),
+            (direct_order, DIRECT_BEGIN, DIRECT_END)):
+        offsets = [lines.index(label + "=" + "0x00000000") for label in labels]
+        if not (lines.index(start) < offsets[0] and
+                offsets[-1] < lines.index(end) and
+                all(left < right for left, right
+                    in zip(offsets, offsets[1:]))):
+            raise ValueError(
+                "Original Creative WinMM/direct bank-select and MIDI "
+                "source phase/order invalid")
     if "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF" not in lines:
         raise ValueError("Guest no-hardware-proof caveat missing")
     return {
@@ -194,6 +217,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_MIDI_C4_vel100_91_93_zero_send_status": "WINMM_CALL_ACCEPTED",
         "original_Creative_AWE_SEND_MIDI_401_D4_vel100_zero_send_status":
             "ORIGINAL_AWEMAN32_API_ACCEPTED",
+        "winmm_and_direct_bank_msb1_probe_order": "API_CALLS_CONFIRMED",
+        "original_bank_msb1_selects_loaded_RAM_bank": "NOT_PROVEN",
         "independent_WinMM_C4_vs_Creative_API_D4_register_parity":
             "REQUIRES_SOURCE_GUEST_TRACE",
         "original_86box_emu8000_register_trace": "REQUIRES_INDEPENDENT_CAPTURE",
