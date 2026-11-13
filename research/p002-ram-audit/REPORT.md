@@ -4,6 +4,14 @@ Scope: independent research for PR #4, based on full commit
 `9cc1322d8d9813e0bed05dec2f2d9c6651209236`. Development branch unchanged.
 No vendor binaries, ROM, bank or VM contents are included.
 
+Final concurrent-development check: remote developer HEAD advanced to
+`ed588cbe4b99876a0d1822d9634673c28fdffab1`. Its five additional commits add
+read-only FAT16 guest log/SF2 extraction, streaming clone hashing, regression
+coverage and CI registration. A direct diff confirms that neither
+`p002_original_ram_trace_probe.py` nor `CreativeOriginalRamPortReplay.cpp`
+changed, so the findings below remain applicable. Those new extraction tests
+were not run on this older, deliberately isolated research base.
+
 ## Reconstructed state and evidence boundary
 
 Read PR #4's public conversation, the existing P001/P002 evidence reports,
