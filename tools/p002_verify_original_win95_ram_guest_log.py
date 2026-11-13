@@ -53,6 +53,7 @@ DIRECT_END = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END"
 REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
     "PRIVATE_WIN95_SF2_FNV1A32",
+    "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
     "WIN95_ORIGINAL_MIDI_ENDPOINTS",
     "CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT",
     "PRE_LOAD_TOTAL_16BIT_WORDS",
@@ -139,6 +140,12 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     for key in MUST_ZERO:
         if seen[key] != 0:
             raise ValueError("Original Creative/WinMM failure: " + key)
+    # Original Creative INDICES.H explicitly uses Win32 #pragma pack(2):
+    # CBufferObject is 14 bytes, not default-packed 16. This is an
+    # ABI correction of OUR OWN Win95 test executable, not proof of
+    # authentic SBAWE.VXD. Refuse stale/old incorrect guest logs.
+    if seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"] != 14:
+        raise ValueError("Original Creative CBufferObject ABI must be pack(2) and exactly 14 bytes")
     if seen["CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT"] != 1 or not (
             1 <= seen["WIN95_ORIGINAL_MIDI_ENDPOINTS"] <= 64):
         raise ValueError("Ambiguous/non-original AWE MIDI device selection")
@@ -208,6 +215,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "source_guest_fnv_not_cryptographic_provenance": True,
         "source_sf2_bytes": len(source_sf2),
         "creative_aweman32_module_path": dll_path,
+        "original_creative_cbuffer_pack2_size_bytes":
+            seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"],
         "original_driver_total_ram_words": seen["PRE_LOAD_TOTAL_16BIT_WORDS"],
         "original_driver_free_ram_before_words": before,
         "original_driver_free_ram_after_words": after,
