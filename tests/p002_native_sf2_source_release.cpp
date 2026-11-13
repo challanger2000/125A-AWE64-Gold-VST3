@@ -109,6 +109,86 @@ int main(){
         unopened,state,notes,0u,0u,true));
     CHECK(!applyOriginalSf2MidiCc64FromVxdState(
         unopened,state,notes,16u,0u,true));
+    // Source-verified original CC64 pedal release must scan the FULL
+    // thirty original physical slots, not just one recent NoteOn's
+    // six-descriptor selection, and never release an unknown voice.
+    // This preflight is independently testable WITHOUT opening a ROM;
+    // the actual hardware execution is tested by the real VST3 host.
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> poly{};
+    set32(poly,kOriginalVxdRomIdOffset,0x4d474d31u);
+    std::array<OriginalSf2VxdSnapshotVoice,kOriginalCreativeMusicVoices>
+        tracked{};
+    for(unsigned i=0;i<kOriginalCreativeMusicVoices;++i) {
+        tracked[i]=layer(static_cast<std::uint8_t>(i));
+        tracked[i].assigned_voice.played_midi_key=
+            static_cast<std::uint8_t>(48u+i);
+        tracked[i].original_midi_channel=(i==11u)?1u:0u;
+        auto& d=tracked[i].assigned_voice.verified_after_start_record;
+        d[0x8cu]=1u;
+        d[0x3cu]=static_cast<std::uint8_t>(20u+i);
+        d[0x4cu]=static_cast<std::uint8_t>(35u+i);
+        const auto row=kOriginalVxdVoiceRowStart+
+            i*kOriginalVxdVoiceRowStride;
+        set16(poly,row,static_cast<std::uint16_t>(
+            (static_cast<unsigned>(tracked[i].original_midi_channel)<<8u)|
+            tracked[i].assigned_voice.played_midi_key));
+        poly[row+0x15u]=d[0x3cu];
+        poly[row+0x16u]=d[0x4cu];
+    }
+    auto scan=candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,127u,true);
+    CHECK(scan && scan->count==0u); // pedal down, thirty assigned
+    auto empty=std::span<const OriginalSf2VxdSnapshotVoice>{};
+    CHECK(candidateOriginalSf2Cc64DeferredScan(
+        poly,empty,0u,0u,true)); // zero active voices is valid when no deferred
+    // Exercise 15 different source NoteOn lifetimes at once. Physical
+    // voice 11 belongs to MIDI channel 1 and must remain untouched.
+    for(unsigned i=0;i<kOriginalCreativeMusicVoices;++i) {
+        if(i%2u==0u && i!=11u) {
+            const auto row=kOriginalVxdVoiceRowStart+
+                i*kOriginalVxdVoiceRowStride;
+            poly[row]=0xffu; // original sustain-deferred key marker
+        }
+    }
+    const auto originalPoly=poly;
+    scan=candidateOriginalSf2Cc64DeferredScan(poly,tracked,0u,0u,true);
+    CHECK(scan && scan->count==15u);
+    CHECK(scan->voices[0].physical_voice==0u &&
+          scan->voices[14].physical_voice==28u);
+    CHECK(scan->voices[0].release.encoded_mod_release==20u &&
+          scan->voices[14].release.encoded_volume_release==63u);
+    CHECK(poly==originalPoly); // exhaustive scan never writes to VXD/chip
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,empty,0u,0u,true)); // unknown deferred rows => reject
+    const auto partial=std::span<const OriginalSf2VxdSnapshotVoice>(
+        tracked.data(),tracked.size()-1u);
+    // Voice 28 is deferred, but excluding the last (29) is safe.
+    CHECK(candidateOriginalSf2Cc64DeferredScan(
+        poly,partial,0u,0u,true));
+    const auto missing28=std::span<const OriginalSf2VxdSnapshotVoice>(
+        tracked.data(),tracked.size()-2u);
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,missing28,0u,0u,true));
+    auto damaged=poly;
+    damaged[kOriginalVxdVoiceRowStart+28u*kOriginalVxdVoiceRowStride+
+            0x16u]^=1u;
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        damaged,tracked,0u,0u,true));
+    auto dupTracked=tracked;
+    dupTracked[29]=dupTracked[0];
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,dupTracked,0u,0u,true));
+    auto wrongChannel=tracked;
+    wrongChannel[28].original_midi_channel=2u;
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,wrongChannel,0u,0u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,128u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,16u,0u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,0u,false));
+    CHECK(poly==originalPoly);
     // Existing (already source proven) port-plan helper handles exact
     // rate byte values, sustain deferral, and optional CSL/PSST updates.
     OriginalVxdNoteReleaseEvidence e{};
@@ -142,6 +222,8 @@ int main(){
              <<" noteoff_CC64_release_bytes_both_source_checked=TRUE"
              <<" sustain_at_MIDI_channel_plus4_NOT_voice_plus4=TRUE"
              <<" original_CC64_656D_pedal_off_release_helper_PRESENT=TRUE"
+             <<" original_CC64_30physical_slot_source_scan=TRUE"
+             <<" unknown_deferred_voice_fails_closed=TRUE"
              <<" original_sustain_defer=TRUE"
              <<" original_CSL_PSST_preserved_high_byte=TRUE"
              <<" actual_exported_VST3_PCM=TEST_SEPARATELY"
