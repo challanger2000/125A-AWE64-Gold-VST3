@@ -3,6 +3,7 @@
 // The unchanged EMU8000 chip runs at 44100 Hz. No heap/file/lock on process().
 #include "Chip.h"
 #include "P002PrivateNoteFixture.h"
+#include "P002PrivateRomBank.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
@@ -44,6 +45,8 @@ private:
 
     awe64::Chip chip_;
     P002PrivateNoteFixture p002Fixture_{};
+    P002PrivateRomBank p002RomBank_{};
+    bool p002BankEnabled_=false; // private, original-source ROM-SF2 bank
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     // Eight independently source-verified note groups. No runtime
     // physical voice stealing/retrigger; each pre-authenticated group
