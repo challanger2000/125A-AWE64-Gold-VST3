@@ -195,7 +195,14 @@ def verify_original_ram_sample_binding(sf2: bytes, proof: dict,
         header = shdr + sample_id*46
         start, end, loop_start, loop_end = struct.unpack_from(
             "<IIII", sf2, header+20)
-        if start < 4 or loop_start < 1 or loop_end < 1 or end > len(words):
+        # SoundFont shdr may legitimately start at sample word ZERO
+        # (the owner's genuine original sample 0 does). The historical
+        # -4/-1 offsets are applied AFTER the verified physical RAM
+        # allocation base, not to the relative shdr index itself.
+        if (not 0 <= start < end <= len(words) or
+                not start <= loop_start < loop_end <= min(len(words),end+2) or
+                physical_base+start < RAM_FIRST+4 or
+                physical_base+loop_start < RAM_FIRST+1):
             raise ValueError("Original source sample address bounds invalid")
         headers.append((start,end,loop_start,loop_end))
     result = {}
