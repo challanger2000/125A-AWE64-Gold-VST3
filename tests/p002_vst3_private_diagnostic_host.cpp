@@ -434,27 +434,50 @@ void bankChunk(PrivateBytes& out,std::string_view tag,
 }
 PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false,
                                              unsigned matchingZones=1u,
-                                             bool invalidLastZone=false) {
-    require(matchingZones>=1u && matchingZones<=7u,
-            "synthetic SF2 layer count invalid");
+                                             bool invalidLastZone=false,
+                                             bool secondProgram=false) {
+    require(matchingZones>=1u && matchingZones<=7u &&
+            (!secondProgram || matchingZones==1u),
+            "synthetic SF2 layer count/program test invalid");
     PrivateBytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,root;
     bankName(phdr,"SYNTHBANK");bankW16(phdr,7u);bankW16(phdr,0u);
     bankW16(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    if(secondProgram) {
+        bankName(phdr,"SECOND");bankW16(phdr,9u);bankW16(phdr,0u);
+        bankW16(phdr,1u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    }
     bankName(phdr,"DRUM");bankW16(phdr,0u);bankW16(phdr,128u);
-    bankW16(phdr,1u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    bankW16(phdr,secondProgram?2u:1u);
+    bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
     bankName(phdr,"EOP");bankW16(phdr,0u);bankW16(phdr,0u);
-    bankW16(phdr,2u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
-    for(unsigned i=0u;i<3u;++i){bankW16(pbag,i);bankW16(pbag,0u);}
-    for(unsigned i=0u;i<2u;++i){bankW16(pgen,41u);bankW16(pgen,0u);}
+    bankW16(phdr,secondProgram?3u:2u);
+    bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    for(unsigned i=0u;i<(secondProgram?4u:3u);++i) {
+        bankW16(pbag,i);bankW16(pbag,0u);
+    }
+    for(unsigned i=0u;i<(secondProgram?3u:2u);++i) {
+        bankW16(pgen,41u);bankW16(pgen,
+            secondProgram && i==1u ?1u:0u);
+    }
     bankName(inst,"PIANO");bankW16(inst,0u);
-    bankName(inst,"EOI");bankW16(inst,matchingZones);
-    for(unsigned i=0u;i<=matchingZones;++i){
+    if(secondProgram) {
+        bankName(inst,"SECOND");bankW16(inst,matchingZones);
+    }
+    bankName(inst,"EOI");bankW16(inst,
+        matchingZones+(secondProgram?1u:0u));
+    for(unsigned i=0u;i<=matchingZones+(secondProgram?1u:0u);++i) {
         bankW16(ibag,2u*i);bankW16(ibag,0u);
     }
     for(unsigned i=0u;i<matchingZones;++i) {
         bankW16(igen,8u);bankW16(igen,9617u);
         bankW16(igen,53u);
         bankW16(igen,(invalidLastZone && i+1u==matchingZones)?1u:0u);
+    }
+    if(secondProgram) {
+        // Second real SF2 instrument has a markedly different original
+        // filter-cutoff generator; no invented sample DSP parameters.
+        bankW16(igen,8u);bankW16(igen,5000u);
+        bankW16(igen,53u);bankW16(igen,0u);
     }
     // Addresses point to the unchanged original ROM's actual GM0
     // sample region; no copyright-protected PCM is embedded in the SF2.
@@ -643,6 +666,8 @@ int wmain(int argc,wchar_t** argv){
     sevenZoneSf2Path+=L".private-seven-zone-capped-sf2";
     auto invalidLayerSf2Path=fixture;
     invalidLayerSf2Path+=L".private-invalid-final-zone";
+    auto twoProgramSf2Path=fixture;
+    twoProgramSf2Path+=L".private-two-program-rom-sf2";
     auto vxdResourcePath=fixture;
     vxdResourcePath+=L".private-source-pack";
     auto badVxdResourcePath=fixture;
@@ -675,6 +700,9 @@ int wmain(int argc,wchar_t** argv){
                                  buildPrivateSyntheticRomSf2Bank(false,7u,true));
         writePrivateResearchFile(invalidLayerSf2Path,
                                  buildPrivateSyntheticRomSf2Bank(false,3u,true));
+        writePrivateResearchFile(twoProgramSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(
+                                     false,1u,false,true));
         const auto privatePack=buildPrivateSyntheticVxdResourcePack();
         writePrivateResearchFile(vxdResourcePath,privatePack);
         auto mutatedPack=privatePack;
@@ -935,6 +963,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(sixZoneSf2Path,ec);
         std::filesystem::remove(sevenZoneSf2Path,ec);
         std::filesystem::remove(invalidLayerSf2Path,ec);
+        std::filesystem::remove(twoProgramSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
@@ -992,6 +1021,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(sixZoneSf2Path,ec);
         std::filesystem::remove(sevenZoneSf2Path,ec);
         std::filesystem::remove(invalidLayerSf2Path,ec);
+        std::filesystem::remove(twoProgramSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
