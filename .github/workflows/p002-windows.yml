@@ -73,6 +73,8 @@ on:
       - 'tools/p002_make_synthetic_ram_capture_fixture.py'
       - 'tools/p002_original_ram_trace_probe.py'
       - 'tests/test_p002_original_ram_trace_probe.py'
+      - 'tools/p002_verify_original_ram_note_geometry.py'
+      - 'tests/test_p002_verify_original_ram_note_geometry.py'
       - 'tests/p002_native_midi_rom_plan.cpp'
       - 'tests/p002_native_pitch_candidate.cpp'
       - 'tests/p002_native_controller_volume.cpp'
