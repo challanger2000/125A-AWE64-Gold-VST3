@@ -618,6 +618,7 @@ if(AWE64_BUILD_P001_VST3)
     target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip
         awe64_p002_sf2_vxd_state_snapshot
         awe64_p002_sf2_source_note_release
+        awe64_p002_sf2_ram_pcm_inventory
         awe64_p002_sf2_rom_bank_note_compiler)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
