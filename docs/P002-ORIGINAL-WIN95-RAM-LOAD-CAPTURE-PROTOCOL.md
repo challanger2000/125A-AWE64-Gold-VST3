@@ -188,6 +188,39 @@ guest register trace and recorded DRY PCM can establish actual
 original chip event frames; never convert guest ticks to 44.1-kHz PCM
 positions by assuming a fixed conversion or offset.
 
+## 2026-11-13 private original Creative driver file provenance, read only
+
+`tools/p002_attest_private_win95_creative_driver_fat16.py` can read the
+owner's **already existing** original 512-MiB FAT16 Win95 disk WITHOUT
+booting or modifying it. It retrieves exact 8.3 file bytes from
+`C:\WINDOWS\AWEMAN32.DLL`, `C:\WINDOWS\SYSTEM\AWEMAN32.DLL`,
+`C:\WINDOWS\SYSTEM\SBAWE.VXD`, and `C:\AWE32\SBAWE.VXD`.
+It rejects missing/ambiguous FAT directory entries, malformed cluster
+chains, discordant FAT1/FAT2 copies, differing DLL shadow copies, differing
+installed/vendor VXD copies and hashes that do not match **separately
+authenticated private SHA256 reference values**. Both Creative references
+are supplied by the owner, never inferred from the guest itself.
+
+Optional `--private-synth512-sf2` checks the **entire byte content**
+of `C:\SF2\SYNTH512.SF2` against the owner's separately provided source bank.
+The resulting report contains SHA256 digests and NO driver/SF2/Windows
+file content. Store the report **outside Git** and never upload a
+private Windows-95 disk, Creative binary or personal SoundFont to public CI.
+
+Example (ALL source paths and SHA256 values are placeholders; use actual
+independent source hashes, never copy an unverified value from the VM):
+
+```powershell
+python tools/p002_attest_private_win95_creative_driver_fat16.py --private-win95-disk "PRIVATE\original-win95.img" --expected-original-sbawe-vxd-sha256 "64_HEX_DIGITS_FROM_EXTERNAL_ORIGINAL" --expected-original-aweman32-dll-sha256 "64_HEX_DIGITS_FROM_EXTERNAL_ORIGINAL" --private-synth512-sf2 "PRIVATE\Synth 512 Bank.sf2" --private-report "PRIVATE\win95-creative-file-attestation.json"
+```
+
+All five new offline regression tests run exclusively against generated
+sparse synthetic FAT16 media (no Creative, Microsoft or user bytes).
+This file attestation proves only **matching installed bytes** and, when
+given the bank, **matching staged SF2 bytes**. It does NOT prove that
+the installed driver was executed, that Creative loaded RAM SF2 into the
+chip, or that a MIDI NoteOn played its sample. Those remain the separate
+original-Win95 runtime register/DRY-PCM source evidence gates.
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
