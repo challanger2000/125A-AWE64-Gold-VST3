@@ -310,7 +310,7 @@ def filter_original_ram_upload_port_writes(lines):
             if (selector == 0x36 and
                     (low is not None or high is not None) and
                     (low is None or high is None)):
-                raise ValueError("Original RAM pointer truncated mid-capture")
+                raise ValueError("Original SMALW pointer truncated mid-capture")
             selector = value
             if value == 0x36:
                 low = high = pointer = None
