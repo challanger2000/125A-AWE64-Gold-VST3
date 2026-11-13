@@ -67,6 +67,10 @@ REQUIRED = MUST_ZERO + (
     "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA",
     "ORIGINAL_API_LOAD_BEGIN_TICK_MS",
     "ORIGINAL_API_LOAD_END_TICK_MS",
+    "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS",
+    "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS",
+    "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS",
+    "ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS",
 )
 
 
@@ -180,6 +184,21 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     end_ms = seen["ORIGINAL_API_LOAD_END_TICK_MS"]
     if end_ms < begin_ms:
         raise ValueError("Original guest RAM bank load time order invalid")
+    # Win95 GetTickCount is a host-guest OS timebase, NOT 86Box's
+    # independent EMU8000 sample/frame counter. These source submission
+    # anchors must not be mistaken for chip callback timestamps.
+    winmm_on = seen["ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS"]
+    winmm_off = seen["ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS"]
+    direct_on = seen["ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS"]
+    direct_off = seen["ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS"]
+    if not (end_ms <= winmm_on < winmm_off <
+            direct_on < direct_off and
+            winmm_off-winmm_on >= 300 and
+            direct_on-winmm_off >= 400 and
+            direct_off-direct_on >= 300):
+        raise ValueError(
+            "Original Win95 guest MIDI C4/D4 submission timestamps or "
+            "400ms note hold / cross-route separation invalid")
     if not (lines.index(CAPTURE_BEGIN) <
             next(i for i, x in enumerate(lines) if x.startswith(
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=")) <
@@ -201,6 +220,24 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             original_result_position("POST_LOAD_RESULT") <
             lines.index(DIRECT_BEGIN)):
         raise ValueError("Original Creative synth mode before/after load order invalid")
+    # Prove that each timestamp was emitted BEFORE its matching source
+    # NoteOn / NoteOff call, within the appropriate original MIDI phase.
+    # The captured guest OS ticks still do not establish sample-exact
+    # cross-clock correlation to the independently recorded 86Box trace.
+    if not (original_result_position("ORIGINAL_CC93_CHORUS_SEND_ZERO_RC") <
+            original_result_position("ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_MIDI_C4_VEL100_RC") <
+            original_result_position("ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_MIDI_C4_OFF_RC") <
+            lines.index(DIRECT_BEGIN) <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC") <
+            original_result_position("ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC") <
+            original_result_position("ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC") <
+            lines.index(DIRECT_END)):
+        raise ValueError("Original Win95 C4/D4 MIDI submission timestamp "
+                         "log position/order invalid")
     # Both original-driver MIDI routes must select the SAME controlled
     # user-bank candidate before program and notes. An accepted API call
     # does NOT establish that Bank 1 was actually rendered from RAM;
@@ -259,6 +296,12 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_driver_ram_allocated_words": delta,
         "original_guest_load_begin_ms": begin_ms,
         "original_guest_load_end_ms": end_ms,
+        "original_guest_winmm_C4_submission_ticks_ms":
+            {"note_on": winmm_on, "note_off": winmm_off},
+        "original_guest_direct_D4_submission_ticks_ms":
+            {"note_on": direct_on, "note_off": direct_off},
+        "guest_GetTickCount_to_86Box_EMU8000_frame_time":
+            "NOT_PROVEN_INDEPENDENT_CLOCK_DOMAINS",
         "original_MIDI_C4_vel100_91_93_zero_send_status": "WINMM_CALL_ACCEPTED",
         "original_Creative_AWE_SEND_MIDI_401_D4_vel100_zero_send_status":
             "ORIGINAL_AWEMAN32_API_ACCEPTED",
