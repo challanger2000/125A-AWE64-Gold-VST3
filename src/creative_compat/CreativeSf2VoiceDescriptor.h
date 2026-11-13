@@ -3,6 +3,7 @@
 // Input is an ALREADY MERGED genuine format-2 voice descriptor, not a bank.
 // This does not manufacture template defaults, sample data, or NoteOn timing.
 #include "CreativeControllerVolume.h"
+#include "CreativeSf2RamSamplePcm.h"
 #include "CreativeSbkLayers.h"
 #include <array>
 #include <cstddef>
@@ -149,6 +150,23 @@ candidateOriginalSf2NoteFromVerifiedVxdResources(
     const OriginalCreativeSf2DriverResources& source_verified_resources,
     std::uint32_t original_normalized_preset_group_id,
     const OriginalSf2VoiceStartConditions& explicit_channel_device_state) noexcept;
+// Source-mapped RAM-SF2 equivalent of the existing genuine ROM descriptor
+// builder. P002 RESEARCH: uses the already independently verified actual
+// physical EMU8000 DRAM upload and original Creative VXD PCOD lookup
+// resources; generates 148-byte format-2 generator/metadata records
+// *from MIDI zone + shdr*, not from recorded note-port clips.
+// RAM sampleType remains 1, without ROM-specific +16 attenuation.
+// Full voice allocation, timed startup and original/native PCM parity
+// remain independent tests, NOT claimed here.
+[[nodiscard]] std::optional<OriginalCreativeSf2NoteDescriptors>
+candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+    const SbkLayer& selected_layer,
+    const OriginalSf2RamSamplePcmView& real_sf2_ram_sample,
+    const OriginalSf2RamPhysicalLayer& original_physical_ram_address,
+    const OriginalCreativeSf2DriverResources& source_verified_resources,
+    std::uint32_t original_normalized_preset_group_id,
+    const OriginalSf2VoiceStartConditions& explicit_channel_device_state,
+    bool independently_verified_original_win95_ram_upload) noexcept;
 // Populate the exact ORIGINAL SF2 sample metadata tail of an otherwise
 // already-merged 148-byte voice, from the SAME existing ROM shdr resolver.
 // The original PCOD+0x3735 sample-rate -> dwPitch has not yet been
@@ -165,4 +183,12 @@ candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
 candidateOriginalSf2EncodedVoiceDescriptor(
     const CreativeSf2VoiceDescriptorBytes& merged,
     const OriginalSf2VoiceStartConditions& context) noexcept;
+// RAM mono uses the same original Creative PCOD converter, but authentic
+// RAM samples have no ROM-only +16 level correction, and are prevalidated
+// as physical RAM sampleType=0x0001. Reject an unverified source.
+[[nodiscard]] std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2EncodedRamVoiceDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& merged,
+    const OriginalSf2VoiceStartConditions& context,
+    bool independently_verified_original_ram_source) noexcept;
 }
