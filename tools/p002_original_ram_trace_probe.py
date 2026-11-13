@@ -137,11 +137,20 @@ def scan_capture(lines, expected_pcm: bytes):
         nonlocal matches, first_match_address
         if run_address is None:
             return
+        # A sample may appear more than once in the SAME original
+        # contiguous RAM upload. Do not silently accept the first
+        # occurrence and call an ambiguous address Creative-verified.
         at = run.find(expected_pcm)
-        if at >= 0 and at % 2 == 0:
-            matches += 1
-            if first_match_address is None:
-                first_match_address = run_address + at // 2
+        while at >= 0:
+            if at % 2 == 0:
+                matches += 1
+                if first_match_address is None:
+                    first_match_address = run_address + at // 2
+                # A second physical hit is an ambiguous original
+                # placement. Only one unique hit is admissible.
+                if matches > 1:
+                    return
+            at = run.find(expected_pcm,at+2)
 
     for lineno, raw in enumerate(lines, 1):
         if lineno > MAX_TRACE_LINES:
@@ -331,10 +340,11 @@ def analyze(trace: Path, sf2: Path, sample_id: int):
     sample = extract_sf2_mono_sample(sf2.read_bytes(), sample_id)
     with trace.open("rt", encoding="ascii", errors="strict") as f:
         ports = scan_capture(f, sample["data"])
-    if ports["direct_pcm16_upload_matches"] == 0:
+    if ports["direct_pcm16_upload_matches"] != 1:
         raise ValueError(
-            "original trace does not contain this SF2 sample as direct "
-            "contiguous RAM PCM16: Creative transform/placement NOT PROVEN")
+            "original trace must contain this SF2 sample at EXACTLY ONE "
+            "physical RAM word address (zero/ambiguous direct matches); "
+            "Creative transform/placement NOT PROVEN")
     return {
         "status": "ORIGINAL_CAPTURE_DIRECT_RAM_PCM16_MATCH_CANDIDATE",
         "source_emu8k_trace_sha256": sha256_file(trace),
