@@ -233,6 +233,69 @@ The developer used the owner's **already-existing private** retro music-PC archi
 
 **Mandatory limitation:** The developer's Linux container does not have a working 86Box graphical/runtime environment to boot this Win95 image. A real guest boot, actual `AWE_LOAD_USER_BANK` execution with source AWEMAN32.DLL/SBAWE.VXD, EMU8K_TRACE RAM port writes, WAV, guest MIDI-bank mapping and original-vs-native PCM have **NOT** been observed. The fork WAV starts at emulator boot; it may contain a lengthy silence while Win95 starts. Do not report that silence as an audio defect or infer chip frame positions from Win95 GetTickCount. The target Windows 11 user's exact 86Box boot and ASIO/Studio One at end are still open. **P002 remains DRAFT**.
 
+## Measured original Creative bank transfer — complete 2026-11-13 evidence
+
+The previously captured **actual original Windows 95 Creative driver** event
+log, 86Box fork \`EMU8K_TRACE\` and the user's separately held
+\`Synth 512 Bank.sf2\` have now been evaluated as ONE coherent original
+source run. The private source bank SHA256 is
+\`d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b\`;
+private raw source trace SHA256
+\`4ec6e1764afade0ae965c2ec81cae27b107ff10701c9f727b7d20e06876422f9\`.
+Private source bytes remain outside the public repository/CI.
+
+**Original driver RAM accounting and actual chip port writes:**
+
+- Original Creative bank load API result \`0\`, original guest DRAM allocation
+  **260,937 16-bit words**; the physical source SF2 \`smpl\` contains
+  **260,921 16-bit words**, with a **16-word bank preface**.
+- **83** mono SF2 sample headers. **Seven** original source headers encode
+  \`loopEnd = sampleEnd + 2\` within the existing silent SF2 guard region.
+  The source bank must not be silently rejected or renumbered based on a
+  guessed stricter loop convention.
+- **261,264** observed genuine EMU8000 RAM data writes,
+  **261,007 distinct physical RAM-word addresses**, **257 physical
+  rewrite events** (of which **255** occur in the selected sample window).
+  **251** repeated writes changed the earlier physical word value.
+  The original driver often rewrites a word at a 1024-word transfer
+  boundary; evaluating the first write, or rejecting *every*
+  repeated physical word, gives incorrect source RAM evidence.
+
+**Empirical original-driver sample conversion observed for this bank:**
+
+For the signed input words from \`smpl\`, source index \`n\`, the interior
+hypothesis is \`(6*x[n] - x[n-1] - x[n+1]) >> 3\` with arithmetic signed
+right shift. Contiguous runs of **at least three source zero words**
+remain zero; isolated or two-word zero runs participate in the
+three-tap calculation. The first source word remains a zero guard.
+
+There are **114 zero-runs of length >=3** covering **3,262 source words**.
+Using these explicit conditions against the final RAM words reconstructed
+in recorded port order gives **260,921 / 260,921 exact PCM16 words**,
+**zero mismatches**, for the physically observed address window beginning
+at \`0x200010\`. Predicted and original final-window SHA256 agree:
+\`ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470\`.
+
+The independent research-only
+\`tools/p002_original_bank_transform_evidence.py\` reconstructs the
+final physical RAM from the actual port stream, keeps every original
+repeat in order, applies the **restricted, measured** source
+hypothesis, requires every selected sample word to have been written
+and refuses a falsely equal all-zero/unwritten source window.
+\`tests/test_p002_original_bank_transform_evidence.py\` runs eight
+**synthetic-only** controls in
+[CI #43495235058](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43495235058)
+(**SUCCESS**) against the *unchanged* Windows-95 guest probe and original
+ROM setup. None of the private original trace/ROM/SF2 bytes are in CI.
+
+**This is not a universal Creative algorithm** until additional independent
+banks and original driver traces are compared. It is not yet the native
+VST3 RAM-SF2 load/voice-start path or an original-vs-VST3 DRY
+audio/CT1745 parity test. Keep original EMU8000 DSP unchanged and
+P002 **DRAFT**; source original audio parity requires a separately
+controlled native VST3 RAM bank renderer and source-clock-aligned
+PCM evidence.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
