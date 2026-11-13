@@ -57,6 +57,9 @@ private:
     // Actual original Creative captured RAM source: loaded off-RT
     // into unchanged EMU8000 but no inferred RAM NoteOn voice plan.
     bool p002PrivateRamPreloaded_=false;
+    // Private source-authenticated four original Creative RAM NoteOn/
+    // NoteOff command batches (C4/D4 only), fixed stack/RT arrays.
+    P002PrivateOriginalRamVoices p002RamVoices_{};
     // Optional SHA-pinned ORIGINAL Win95 source NoteOn/Off port
     // capture, only alongside the separately authenticated RAM preload.
     // Captured at C4(60) and D4(62), velocity 100, User Bank 1.
