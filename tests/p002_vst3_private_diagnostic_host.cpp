@@ -787,6 +787,10 @@ Audio renderBankProgramChange(
 }
 } // namespace
 int wmain(int argc,wchar_t** argv){
+    // Preserve the independent pre-CT1745 AWE32_WAV PCM16 tap for
+    // all historical original-chip reference and RT heap regressions.
+    // Normal VST3 instances without this private flag use full CT1745.
+    if(!SetEnvironmentVariableW(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"1"))return 87;
     if(argc!=3)return 2;
     HMODULE module=nullptr;
     IPluginFactory* factory=nullptr;
