@@ -45,6 +45,43 @@ Linux cross-language differential test tests/p002_gold_ct1745_fork_differential.
 
 Windows native test tests/p002_gold_ct1745_adapter_contract.cpp checks exact original reset vectors, source tone/filter state transitions, source gate, float no-clamp and untouched PCM16 tap. The actual exported VST3 is independently tested in tests/p001_vst3_host.cpp in both output modes with per-sample original fork reference calculations; its P001 RT heap auditor runs 1200 original ROM MIDI callbacks for EACH path under positive-controlled RtlAllocateHeap interception. The source-derived P002 VST3 diagnostic host remains on the original pre-card PCM16 oracle.
 
+## Real exported VST3 stereo PCM16 WAV capture (P001 baseline)
+
+The independent Windows x64 `tests/p001_vst3_host.cpp` now accepts an
+optional **third argument**, a never-existing PRIVATE destination file.
+The original required two arguments (VST3 DLL, exact original SHA-verified
+external ROM) remain backward compatible. The opt-in host uses the real
+exported VST3, requests its original pre-card PCM diagnostic output,
+captures **both** left/right channels for 36 × 512 = **18,432 frames** at
+44.1 kHz, and after rendering the complete note, creates a standard
+44-byte RIFF stereo PCM16 WAV, only with Windows `CREATE_NEW`. It refuses
+non-PCM16-exact float values rather than silently rounding or clipping.
+The capture starts at sample 0; the actual test-host NoteOn event is at
+frame 137. All host file I/O happens **outside process()**.
+
+`tools/p002_verify_real_vst3_pcm_capture.py` independently checks the
+resulting WAV lengths, RIFF/fmt/data headers, sample rate/channel format,
+137 initial silent frames, audible source material and sample-identical
+SHA256 between **two separate exported-VST3 instances**. The Windows
+workflow keeps both temporary WAVs under RUNNER_TEMP and deletes them
+in a finally block; it does **not upload** any ROM-derived WAV or
+private source ROM. Synthetic-only negative tests reject a one-LSB
+difference, a one-frame timing shift, early NoteOn PCM, silence,
+truncated frames, a wrong sample rate, forged RIFF length, and using
+the same file twice. The actual positive exported-VST3 rendering is
+separately executed and tested in Windows CI.
+
+This **P001 fixed original ROM MIDI note** is the first genuine
+native-exported-VST3 WAV source for the comparison infrastructure;
+it is **not yet RAM-SF2** or historical Win95 Creative bank output.
+The source-original DRY comparison lives in
+`tools/p002_compare_original_dry_pcm.py`, and the private integrated
+Win95+SF2+SMALW/SMLD+PCM join lives in
+`tools/p002_join_original_win95_ram_evidence.py`. The new host capture
+**does not** prove that both full original Win95 RAM-SF2 and native
+VST3 captures exist or share identical clocks; those original private
+inputs and full VST3 RAM-bank integration remain open.
+
 ## Remaining release gates
 
 The original Win95 Creative driver may write non-neutral CT1745 registers; those cannot be inferred from EMU8000 register captures and must await actual original guest mixer-port recording. The test above demonstrates parity with the calibrated original 86Box digital code, not physical analog AWE64 Gold line-out equality. Arbitrary RAM SoundFont Win95-to-VST3 driver and PCM parity, full GUI, DAW/ASIO acceptance and commercial release approval remain OPEN. PR #4 stays DRAFT. No new DSP or waveform normalization is authorized.
