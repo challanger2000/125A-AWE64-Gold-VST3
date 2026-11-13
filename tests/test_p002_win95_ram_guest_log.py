@@ -16,6 +16,7 @@ def synth_guest_log(bank_size: int) -> bytes:
     lines = [
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START",
         "PRIVATE_WIN95_SF2_SIZE=" + hex32(bank_size),
+        "PRIVATE_WIN95_SF2_FNV1A32=" + hex32(auditor.fnv1a32(sf2_bank())),
         "LOADED_CREATIVE_MODULE_PATH=C:\\WINDOWS\\SYSTEM\\AWEMAN32.DLL",
         "ORIGINAL_AWEMAN32_AWE_OPEN_RC=0x00000000",
         "WIN95_ORIGINAL_MIDI_ENDPOINTS=0x00000002",
@@ -135,6 +136,18 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"Non-ASCII"):
             auditor.audit(self.log.replace(
                 b"ORIGINAL_PROGRAM0_RC", b"ORIGINAL_PROGRAM0_R\xff"),self.bank)
+
+    def test_same_size_different_soundfont_fails_whole_file_identity(self):
+        changed=bytearray(self.bank)
+        changed[-7]^=1
+        self.assertEqual(len(changed),len(self.bank))
+        with self.assertRaisesRegex(ValueError,"whole-file identity"):
+            auditor.audit(self.log,bytes(changed))
+        with self.assertRaisesRegex(ValueError,"whole-file identity"):
+            auditor.audit(self.mutate(
+                "PRIVATE_WIN95_SF2_FNV1A32=" +
+                    hex32(auditor.fnv1a32(self.bank)),
+                "PRIVATE_WIN95_SF2_FNV1A32=0x00000000"),self.bank)
 
     def test_missing_or_reordered_capture_marker(self):
         no_begin=self.mutate(
