@@ -92,7 +92,7 @@ class OriginalCreativeSourceRamTransferTests(unittest.TestCase):
 
     def test_source_guard_checks_and_zero_rule_not_universal(self):
         for source in (
-            (123,300,0), (0,100,999), (0,32767,-32768,0)
+            (123,300,0), (0,100,999), (0,)
         ):
             with self.subTest(source=source):
                 with self.assertRaises(ValueError):
