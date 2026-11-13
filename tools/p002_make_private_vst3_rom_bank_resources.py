@@ -30,10 +30,16 @@ import os
 from pathlib import Path
 import struct
 
-from p002_extract_original_vxd_sf2_resources import (
-    EXPECTED_VXD_SHA256,
-    extract,
-)
+# Support both python tools/script.py (local private use) and
+# unittest importing tools.script (Windows GitHub Actions discovery).
+if __package__:
+    from .p002_extract_original_vxd_sf2_resources import (
+        EXPECTED_VXD_SHA256, extract,
+    )
+else:
+    from p002_extract_original_vxd_sf2_resources import (
+        EXPECTED_VXD_SHA256, extract,
+    )
 ROM_WORDS = 524288
 STATE_BYTES = 0x1592
 MAGIC = b"125ABK01"
