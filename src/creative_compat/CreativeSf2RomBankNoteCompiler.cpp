@@ -191,4 +191,130 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
                 kOriginalVxdMinDeviceImage,mutable_state.begin());
     return played;
 }
+namespace {
+std::uint16_t readSourceMarker(
+    const std::span<const std::uint8_t> state,
+    const std::size_t physical) noexcept {
+    const auto offset=kOriginalVxdVoiceRowStart+
+        physical*kOriginalVxdVoiceRowStride;
+    return static_cast<std::uint16_t>(state[offset] |
+        (static_cast<unsigned>(state[offset+1u])<<8u));
+}
+}
+bool OriginalSf2RomBankVoiceOwnership::recordExecutedNoteOn(
+    const OriginalSf2ExecutedLiveIdleMonoNote& executed,
+    const std::span<const std::uint8_t> state) noexcept {
+    const auto voices=executed.original_compilation.selectedVoices();
+    if(state.size()<kOriginalVxdMinDeviceImage ||
+       voices.empty() || voices.size()>kOriginalCreativeMaxNoteStartDescriptors ||
+       executed.original_compilation.voice_count!=voices.size())
+        return false;
+    std::uint32_t physicals=0u;
+    for(const auto& src:voices) {
+        const auto physical=src.assigned_voice.physical_voice;
+        const auto channel=src.original_midi_channel;
+        const auto key=src.assigned_voice.played_midi_key;
+        if(physical>=kOriginalCreativeMusicVoices || occupied_[physical] ||
+           !src.assigned_voice.source_original_voice_verified ||
+           channel>=kOriginalCreativeMidiChannels || key>127u ||
+           (physicals&(1u<<physical))!=0u ||
+           readSourceMarker(state,physical)!=
+               static_cast<std::uint16_t>((channel<<8u)|key))
+            return false;
+        const auto offset=kOriginalVxdVoiceRowStart+
+            static_cast<std::size_t>(physical)*kOriginalVxdVoiceRowStride;
+        if(!candidateOriginalSf2VerifiedReleaseRates(
+               state.subspan(offset,kOriginalVxdVoiceRowStride),src))
+            return false;
+        physicals|=1u<<physical;
+    }
+    // All physical source bindings were verified first. A failed later
+    // layer never leaves a partly owned note in the bank ledger.
+    for(const auto& src:voices) {
+        const auto physical=src.assigned_voice.physical_voice;
+        source_voices_[physical]=src;
+        occupied_[physical]=true;
+    }
+    return true;
+}
+std::size_t OriginalSf2RomBankVoiceOwnership::trackedPhysicalVoices() const noexcept {
+    std::size_t n=0u;
+    for(const auto b:occupied_)if(b)++n;
+    return n;
+}
+std::optional<OriginalSf2SourceNoteReleaseResult>
+OriginalSf2RomBankVoiceOwnership::noteOff(
+    awe64::Chip& chip,const std::span<std::uint8_t> state,
+    const std::uint8_t channel,const std::uint8_t key) noexcept {
+    if(!chip.ready() || state.size()<kOriginalVxdMinDeviceImage ||
+       channel>=kOriginalCreativeMidiChannels || key>127u)
+        return std::nullopt;
+    std::array<OriginalSf2VxdSnapshotVoice,
+               kOriginalCreativeMaxNoteStartDescriptors> target{};
+    std::size_t count=0;
+    for(std::size_t i=0;i<occupied_.size();++i) {
+        if(!occupied_[i])continue;
+        const auto& src=source_voices_[i];
+        if(src.original_midi_channel!=channel ||
+           src.assigned_voice.played_midi_key!=key)continue;
+        if(count>=target.size() ||
+           readSourceMarker(state,i)!=
+               static_cast<std::uint16_t>((channel<<8u)|key))
+            return std::nullopt;
+        target[count++]=src;
+    }
+    if(count==0u)return std::nullopt;
+    const auto result=applyOriginalSf2MidiNoteOffFromVxdState(
+        chip,state,
+        std::span<const OriginalSf2VxdSnapshotVoice>(target.data(),count),
+        channel,key,true);
+    if(!result)return std::nullopt;
+    // Deferred NoteOff keeps source ownership until original CC64 up.
+    // An immediate NoteOff changes the original marker to 0x0FFE.
+    if(!result->deferred_by_sustain) {
+        for(std::size_t i=0;i<occupied_.size();++i) {
+            if(!occupied_[i])continue;
+            const auto& src=source_voices_[i];
+            if(src.original_midi_channel==channel &&
+               src.assigned_voice.played_midi_key==key) {
+                if(readSourceMarker(state,i)!=0x0ffeu)return std::nullopt;
+                occupied_[i]=false;
+            }
+        }
+    }
+    return result;
+}
+std::optional<OriginalSf2SourceCc64Result>
+OriginalSf2RomBankVoiceOwnership::controller64(
+    awe64::Chip& chip,const std::span<std::uint8_t> state,
+    const std::uint8_t channel,const std::uint8_t value) noexcept {
+    if(!chip.ready() || state.size()<kOriginalVxdMinDeviceImage ||
+       channel>=kOriginalCreativeMidiChannels || value>127u)
+        return std::nullopt;
+    std::array<OriginalSf2VxdSnapshotVoice,
+               kOriginalCreativeMusicVoices> active{};
+    std::size_t count=0u;
+    for(std::size_t i=0;i<occupied_.size();++i)
+        if(occupied_[i])active[count++]=source_voices_[i];
+    const auto selected=std::span<const OriginalSf2VxdSnapshotVoice>(
+        active.data(),count);
+    // Preflight the ORIGINAL 30-physical-slot channel:FF scan;
+    // do not discard any source provenance before actual chip release.
+    const auto scan=candidateOriginalSf2Cc64DeferredScan(
+        std::span<const std::uint8_t>(state.data(),state.size()),
+        selected,channel,value,true);
+    if(!scan)return std::nullopt;
+    const auto released=applyOriginalSf2MidiCc64FromVxdState(
+        chip,state,selected,channel,value,true);
+    if(!released || released->released_deferred_voices!=scan->count)
+        return std::nullopt;
+    if(value<64u)
+        for(std::size_t i=0;i<scan->count;++i) {
+            const auto physical=scan->voices[i].physical_voice;
+            if(readSourceMarker(state,physical)!=0x0ffeu)
+                return std::nullopt;
+            occupied_[physical]=false;
+        }
+    return released;
+}
 } // namespace awe64::creative
