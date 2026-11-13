@@ -240,7 +240,10 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1]/
                   "src/win95/p002_original_creative_ram_bank_capture.c")
         program = source.read_text(encoding="utf-8")
-        self.assertEqual(program.count("0x000100B0u"),2)
+        self.assertEqual(program.count("ORIGINAL_MIDI_CC(0u,0u,1u)"),2)
+        self.assertIn("#define ORIGINAL_MIDI_CC(",program)
+        self.assertIn("ORIGINAL_MIDI_CC(0u,0u,1u)==0x000100B0u",program)
+        self.assertIn("ORIGINAL_MIDI_CC(0u,1u,0u)==0x000001B0u",program)
         self.assertNotIn("0x000001B0u,",program)
         self.assertNotIn("ORIGINAL_AWE_SELECT_SYN_BANK 203u",program)
         marker="ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6"
