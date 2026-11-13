@@ -91,9 +91,8 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
 
     def test_pcm_bitflip_and_wrong_endianness_rejected(self):
         mutant=list(self.trace)
-        mutant[16]=mutant[16].replace("A20 ", "A20 ")[:-1]+"F"
-        if mutant[16]==self.trace[16]:
-            mutant[16]="9 A20 FFFF"
+        mutant[16]=(mutant[16][:-4]+
+                    f"{int(mutant[16][-4:],16)^1:04X}")
         result=probe.scan_capture(mutant,self.expected)
         self.assertEqual(result["direct_pcm16_upload_matches"],0)
         wrong_order=bytearray(self.expected)
@@ -108,7 +107,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
 
     def test_pointer_provenance_and_range_controls(self):
         bad=list(self.trace)
-        bad[10]="4 A22 00FF"  # RAM pointer >= 0xffffe0
+        bad[10]="4 A22 0001"  # below installed RAM base
         with self.assertRaisesRegex(ValueError,"outside installed"):
             probe.scan_capture(bad,self.expected)
         bad=list(self.trace);bad[9]="4 A20 FFE0"
@@ -118,7 +117,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         bad=[e for e in self.trace if e!="4 A22 0020"]
         with self.assertRaisesRegex(ValueError,"missing safe"):
             probe.scan_capture(bad,self.expected)
-        bad=list(self.trace);bad[8]="4 E22 0037"
+        bad=list(self.trace);bad[11]="5 E22 003B"
         self.assertEqual(probe.scan_capture(bad,self.expected)
                          ["direct_pcm16_upload_matches"],0)
 
