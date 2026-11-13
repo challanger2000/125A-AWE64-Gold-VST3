@@ -144,8 +144,42 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p=Path(td);(p/"sample.sf2").write_bytes(self.sf2)
             (p/"wrong.trace").write_text("\n".join(mutant)+"\n")
-            with self.assertRaisesRegex(ValueError,"does not contain"):
+            with self.assertRaisesRegex(ValueError,"EXACTLY ONE"):
                 probe.analyze(p/"wrong.trace",p/"sample.sf2",0)
+
+    def test_duplicate_captured_physical_sample_address_fails_closed(self):
+        # Repeating an identical sample at another RAM location is an
+        # AMBIGUOUS original allocation, not a source-approved
+        # address. Also exercise two copies in a single contiguous
+        # SMALW/SMLD run: both occurrences must be counted.
+        second=[
+            "45 E22 0036","45 A20 0800","45 A22 0020",
+            "46 E22 003A",
+        ]
+        second.extend(
+            f"{46+i} A20 {word:04X}"
+            for i,word in enumerate(self.sample_words))
+        twice=self.trace+second
+        result=probe.scan_capture(twice,self.expected)
+        self.assertEqual(result["direct_pcm16_upload_matches"],2)
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)
+            (p/"bank.sf2").write_bytes(self.sf2)
+            (p/"double.trace").write_text("\n".join(twice)+"\n",
+                                          encoding="ascii")
+            with self.assertRaisesRegex(ValueError,"EXACTLY ONE"):
+                probe.analyze(p/"double.trace",p/"bank.sf2",0)
+
+        contiguous=[
+            "0 E22 0036","0 A20 0010","0 A22 0020",
+            "0 E22 003A"
+        ]
+        data=self.sample_words+self.sample_words
+        contiguous.extend(
+            f"{1+i} A20 {word:04X}"
+            for i,word in enumerate(data))
+        result=probe.scan_capture(contiguous,self.expected)
+        self.assertEqual(result["direct_pcm16_upload_matches"],2)
 
     def test_pointer_provenance_and_range_controls(self):
         bad=list(self.trace)
