@@ -27,8 +27,10 @@ jobs:
             --exclude='*.exe' --exclude='*.dll' --exclude='*.sf2' \
             --exclude='*.sbk' --exclude='*.rom' --exclude='*.raw' \
             -C "$GITHUB_WORKSPACE" .
-          tar -tzf "$RUNNER_TEMP/p002-source/P002-public-source.tar.gz" | grep -q '^./CMakeLists.txt$'
-          tar -tzf "$RUNNER_TEMP/p002-source/P002-public-source.tar.gz" | grep -q '^./src/vst3/P001Minimal.cpp$'
+          # grep -q closes a live tar pipe early under pipefail (SIGPIPE).
+          tar -tzf "$RUNNER_TEMP/p002-source/P002-public-source.tar.gz" > "$RUNNER_TEMP/p002-source/files.txt"
+          grep -qx './CMakeLists.txt' "$RUNNER_TEMP/p002-source/files.txt"
+          grep -qx './src/vst3/P001Minimal.cpp' "$RUNNER_TEMP/p002-source/files.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: P002-public-source-no-private-assets
