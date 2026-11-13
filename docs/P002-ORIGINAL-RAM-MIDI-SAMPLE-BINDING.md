@@ -85,3 +85,51 @@ Win95 **DRY PCM** comparison remain outstanding. The dynamic RAM
 address builder is an input to these tests, not an acoustic result.
 Original `snd_emu8k.c` remains unmodified; no final GUI or Studio
 One/ASIO tests were undertaken. **P002 remains DRAFT.**
+
+## New native RAM-SF2 VST3 path (P002 research, 13 November 2026)
+
+The source-constrained native RAM NoteOn compiler is now wired to the
+**exported Windows-x64 VST3**, instead of only the offline proof tools:
+
+- `CreativeSf2RamSamplePcm` derives the physical RAM sample word addresses
+  for selected MIDI bank/program/key/velocity zones.
+- `CreativeSf2VoiceDescriptor` builds real 148-byte original VXD
+  format-2 generators and physical RAM sample metadata from source
+  tables. Real sampleType 1 is not misclassified as ROM sampleType 0x8001;
+  the original ROM-only +16 attenuation is not silently applied to RAM.
+- `CreativeSf2RomBankNoteCompiler` independently generates the authentic
+  61-original-VXD-typed-OUT sequence **per physical voice** (122 for
+  the owner's captured two-layer note), with original live 30-voice idle
+  choice, VXD marker/envelope/IP state, source NoteOff and CC64.
+- `P002PrivateRomBank` is linked to the exported `P001Minimal` VST3.
+  Real RAM samples must already be uploaded and read back from the actual
+  SHA-pinned Win95 source RAM port stream, never guessed from raw SF2.
+- `P002PrivateOriginalRamCapture` re-verifies the **full, exact owner
+  SoundFont SHA256** on native RAM mode activation. The source VXD
+  resource pack remains private and its 0x1592-byte initial idle state
+  must come from the original guest; do not manufacture that state.
+
+This mode is **disabled by default** and enabled only with:
+`AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES=1`, the original
+`AWE64_P001_ROM_PATH`, the original private VXD source pack in
+`AWE64_P002_PRIVATE_VXD_RESOURCES_PATH`, and the independently
+authenticated three private 2026-11-13 owner RAM evidence files in
+`AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2`,
+`AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS`, and
+`AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16`.
+
+No `AWE64_P002_PRIVATE_ROM_BANK_PATH`, raw synthetic ROM,
+`AWE64_P002_PRIVATE_NOTE_FIXTURE` or original captured 324-port note
+replay is permitted concurrently with this native mode. Invalid or
+incomplete sources reject VST3 activation. P001 and existing original
+ROM-SF2 modes retain their old behavior.
+
+**Important unproven gates:** Native chip register **time offsets**
+across original Win95 CPU VXD execution (original two-sample NoteOn
+window), full matching original guest chip state and actual
+source-vs-VST3 equal-clock **DRY PCM16** have NOT been demonstrated
+by these synthetic regression tests. The physical source bank address
+mapping is exact for the source-attested one owner's SoundFont; no
+unverified generalized Creative RAM allocator was introduced. No
+Studio One / ASIO / GUI action until the final overall release phase.
+P002 remains DRAFT.

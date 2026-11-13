@@ -67,6 +67,21 @@ Die Zielkonfiguration ist eine **Creative Sound Blaster AWE64 Gold mit 28 MiB EM
 - Tests im bestehenden 125A Plugin Test Lab; akustische Prüfung gegen Fork und physische Hardwaredaten, danach bestehendes GUI einbauen.
 - Studio-One-Praxistest erst nach bestandenen technischen und akustischen Gates, keine Verlagerung der Fehlersuche auf den Anwender.
 
+## Aktueller P002-Entwicklerstand (13.11.2026)
+
+Die native Original-Creative-RAM-SF2-NoteOn-Pipeline existiert jetzt
+direkt in der exportierten VST3 als opt-in privater Forschungsmodus.
+Authentifizierte Win95-Creative-RAM-Samples und originalverifizierte
+VXD-Ressourcen werden für selbstständig aus MIDI generierte 61 Register-
+OUTs pro Stimme (122 bei den zweilagigen Testnoten) genutzt.
+Details, Aufrufbedingungen und offene DRY-PCM-Gates:
+[docs/P002-ORIGINAL-RAM-MIDI-SAMPLE-BINDING.md](docs/P002-ORIGINAL-RAM-MIDI-SAMPLE-BINDING.md).
+Der ursprüngliche EMU8000-Kern ist unverändert. Eine bestandene
+Quellcode-/Registerprüfung ist **keine** Freigabe für bitgenaue
+Original-Win95-Audioidentität. Diese muss unabhängig im privaten
+Test Lab nachgewiesen werden. Keine Studio-One-/ASIO-Prüfung vor
+fertiger GUI.
+
 ## Test-/Freigaberegel
 
 Jeder relevante Commit erhält einen reproduzierbaren Positiv- und Negativtest plus Angabe, **welche** Akustik- oder Registerfrage geprüft wurde. `CI PASS` bedeutet nur, dass **diese** Tests erfolgreich waren, niemals automatisch Klangtreue. Keine „grünen“ Tests durch ausgelassene, ungültige oder nur auf den Referenzwert reduzierte Messungen. **Original-Digital-PCM unter identischen Chipbedingungen ist zunächst das entscheidende Orakel.** Physischer AWE64-Gold-Line-Out enthält zusätzliche Analog-/Aufnahme-Effekte und wird getrennt bewertet.
