@@ -89,6 +89,28 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
     target_link_libraries(awe64_p002_fork_wavetable_mixer_path PRIVATE m)
     add_test(NAME p002_pinned_fork_awe64_gold_wavetable_mixer_path
              COMMAND awe64_p002_fork_wavetable_mixer_path)
+
+    # DIRECT differential: the same original pinned snd_sb.c runs as
+    # its own C translation unit, sharing no DSP with the C++ VST3
+    # mixer adapter; compare per-sample after multiple real CT1745
+    # register mutations and original filter-state histories.
+    add_library(awe64_p002_original_fork_mixer_oracle STATIC
+        tests/p002_fork_awe64_wavetable_mixer_path.c)
+    target_compile_definitions(awe64_p002_original_fork_mixer_oracle
+        PRIVATE P002_ORIGINAL_CT1745_DIFFERENTIAL_ORACLE=1)
+    target_include_directories(awe64_p002_original_fork_mixer_oracle PRIVATE
+        "${FORK_ROOT}/src/include" "${FORK_ROOT}/src" "${FORK_ROOT}/src/cpu")
+    target_compile_options(awe64_p002_original_fork_mixer_oracle
+        PRIVATE -ffunction-sections -fdata-sections)
+    add_executable(awe64_p002_gold_ct1745_fork_differential
+        tests/p002_gold_ct1745_fork_differential.cpp)
+    target_link_libraries(awe64_p002_gold_ct1745_fork_differential
+        PRIVATE awe64_p002_ct1745_wavetable
+                awe64_p002_original_fork_mixer_oracle m)
+    target_link_options(awe64_p002_gold_ct1745_fork_differential
+        PRIVATE -Wl,--gc-sections)
+    add_test(NAME p002_original_fork_ct1745_full_filter_differential
+             COMMAND awe64_p002_gold_ct1745_fork_differential)
 endif()
 
 add_executable(awe64_replay tests/replay.cpp)
