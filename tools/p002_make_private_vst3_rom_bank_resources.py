@@ -43,6 +43,24 @@ else:
 ROM_WORDS = 524288
 STATE_BYTES = 0x1592
 MAGIC = b"125ABK01"
+# SHA256 of the exact 820 authentic source table bytes, independently
+# recovered from the owner's verified original SBAWE.VXD LE image:
+# LCOD+0x2D88, PDAT+0x08E8, PDAT+0x0AE8, LCOD+0x2F82, LCOD+0x2FA0.
+# Only the digest is committed, never proprietary Creative table bytes.
+# Mirrors the immutable Windows VST3 activation-time source check.
+EXPECTED_ORIGINAL_NATIVE_TABLE_SHA256 = (
+    "0703643c6df3a8af8aa3ee94a272b40ff349462245f6e2491c27dc3344a1761a"
+)
+
+def vxd_original_table_bytes(resources: dict) -> bytes:
+    return (struct.pack("<59h", *resources["template_first_59_signed_words"])
+            + struct.pack("<128I", *resources["pitch_table_a_unsigned_32"])
+            + struct.pack("<128b", *resources["pitch_table_b_signed_8"])
+            + struct.pack("<15H",
+                          *resources["volume_attack128_negative_table_unsigned_16"])
+            + struct.pack("<16H",
+                          *resources["volume_attack128_table_unsigned_16"]))
+
 
 def build(private_vxd: bytes, state: bytes, *, program: int,
           channel: int, bank: int) -> bytes:
@@ -71,6 +89,13 @@ def build(private_vxd: bytes, state: bytes, *, program: int,
     if (len(instr) != 59 or len(pitch_a) != 128 or len(pitch_b) != 128
             or len(negative) != 15 or len(positive) != 16):
         raise ValueError("Wrong original VXD source resource geometry")
+    # A SHA-valid LE container is not enough if extraction offsets
+    # accidentally regress. Compare original source TABLE CONTENTS,
+    # not an untrusted self-declared VXD identity in the 125ABK01 header.
+    if (hashlib.sha256(vxd_original_table_bytes(resources)).hexdigest()
+            != EXPECTED_ORIGINAL_NATIVE_TABLE_SHA256):
+        raise ValueError("Original Creative VXD LCOD/PDAT source tables "
+                         "do not match independently pinned data")
     result = bytearray(MAGIC)
     result += bytes.fromhex(EXPECTED_VXD_SHA256)
     result += struct.pack("<BBHI", program, channel, bank, ROM_WORDS)
