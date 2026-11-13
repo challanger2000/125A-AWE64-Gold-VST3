@@ -443,6 +443,91 @@ RAM samples and port traces only. The real Windows VST3 preload of
 these private files requires a separate actual Windows host experiment
 before it can be declared tested.
 
+## 2026-11-13: REAL original Creative Win95 C4/D4 voice register proof from RAM
+
+**A developer error in the previous Win95 test was diagnosed against
+the actual original Creative AWE32 FAQ Section F.6.** Original
+`AWE_LOAD_USER_BANK(user=1)` correctly loaded the SF2 DRAM, but the
+guest MIDI short message incorrectly sent `0x000001B0` = Controller
+**1** (modulation) value **0**, NOT Controller **0** bank-select
+value **1**. Both WinMM and `AWE_SEND_MIDI` routes had this bug; the
+earlier C4/D4 sound therefore started in **ROM**, CCCA `0x00FEB5`,
+PSST `0x0152BA`, CSL `0x0152F9`. No original RAM note had been
+played in those older tests. The unrelated `AWE_SELECT_SYN_BANK=203`
+experiment was also our error: `USER_CUSTOM_BANK=3` is a *synth
+emulation mode*, not User Bank 1, and the original Win95 driver rejected
+it with `0x6B`. That call has been removed, NOT bypassed.
+
+**Correction**: Send Creative's documented MIDI **Controller 0
+value 1**, short message `0x000100B0`, followed by Program 0
+and C4/D4 notes to the two separate source paths. This is committed
+to `src/win95/p002_original_creative_ram_bank_capture.c` in
+[`67ca2c4`](https://github.com/challanger2000/125A-AWE64-Gold-VST3/commit/67ca2c40970107580e8b92b728cfc4591d6be737),
+with corrected byte formatting in
+[`282cbb5`](https://github.com/challanger2000/125A-AWE64-Gold-VST3/commit/282cbb5bc5dcdeab12489b1a2e019923191014ad).
+The original guest log auditor requires the specific original
+CC0=1 rule, and the regression explicitly reads the original Win95
+guest C source to reject reintroduction of the old 0x000001B0 mistake:
+[`36e7808`](https://github.com/challanger2000/125A-AWE64-Gold-VST3/commit/36e78089c6214f80dc281c86b480219ec44bdc24).
+[Original Win95 guest CI #43502477947](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43502477947)
+**SUCCESS**.
+
+**IMPORTANT: A NEW FULL ACTUAL PRIVATE Win95/86Box RUN HAS NOW SUCCEEDED.**
+The 512-MiB owner VM was cloned again and executed on the original
+calibrated turican0/86Box-AWE32 **v6.0-AWE32-0.93** with a freshly
+compiled guest. Its actual full guest log records:
+`AWE_LOAD_USER_BANK=0`, **260,937** allocated RAM words, correct
+CC0 user-bank selection on BOTH WinMM/AWEManager routes, successful
+NoteOn/NoteOff and `AWE_CLEAR_USER_BANK=0). The real preserved
+original trace hash is
+`50fe55de650e7e23381e48a9913158f71d03abf7747b97d8a76bc433cac05f9c`;
+guest log hash
+`1b6dd612adb4d263e6eb4dbd13568f641984bee94dcceaa7a8f53f0816a9f57a`.
+The full original digital stereo/44.1-kHz/PCM16 WAV hash is
+`968e0669ac36321aa67955805aef67d86f3b394c5a1d2cac09e9156204037850`.
+PRIVATE source capture stays outside GitHub.
+
+**Actual source hardware register evidence, 759,459 chip register events:**
+
+| Original MIDI / note | Original physical EMU8000 voices | Source clock frame(s) | CCCA sample start | PSST physical loop start | CSL physical loop end |
+|---|---|---|---|---|---|
+| WinMM C4 | 0, 3 | 3,154,567–3,154,568 | `0x23F8CB` | `0x23F8D7` | `0x23FA68` |
+| Creative AWE_SEND_MIDI D4 | 6, 9 | 3,201,363 | `0x23F8CB` | `0x23F8D7` | `0x23FA68` |
+
+Every physical 24-bit CCCA, PSST and CSL address for all **four**
+voice starts is **inside** the correctly loaded source SF2 RAM window
+`0x200010 .. 0x23FBF9`. The original high CCCA control flag
+`0x80000000` is **NOT** part of the physical sample address. C4
+original NoteOff at chip frame **3,172,293** writes original registers
+`0xA0`/`0xE0` for voice 0 and `0xA3`/`0xE3` for voice 3.
+D4 original NoteOff at frame **3,219,527** similarly writes
+`0xA6`/`0xE6`, `0xA9`/`0xE9`. These are actual
+original-driver register events, not synthesized notes.
+
+**Independent gate, actual private source successfully executed**:
+`tools/p002_verify_original_ram_note_geometry.py` requires original
+Creative Win95 guest log, private source bank and original EMU8K trace,
+verifies the CC0 bank-selection evidence and the allocated original
+DRAM size, checks **all four complete CCCA/PSST/CSL sets** at the
+measured note frames and refuses ROM addresses, impossible bank
+ranges, missing voice/register data and timing anomalies. Actual
+private source returned
+`ORIGINAL_CREATIVE_C4_D4_VERIFIED_REAL_RAM_NOT_ROM`;
+759,459 original register events scanned and **4/4 RAM voices** verified.
+No public private-bank/trace bytes uploaded. Synthetic negative/positive
+tests run in
+[CI #43503895884](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43503895884)
+and the public analysis export [CI #43503958633](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43503958633),
+both **SUCCESS**.
+
+This finally establishes actual original source **RAM Sample NOTE-ON**
+and NoteOff reference, not merely a successful RAM upload.
+Next P002 gate is a real Windows VST3 **RAM-voice register/
+NoteOn/NoteOff implementation sourced from these original register
+events**, and then digital DRY PCM alignment/comparison. The
+original EMU8000 core/DSP/ROM remains untouched. P002 **DRAFT**.
+No Studio One/ASIO until final GUI.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
