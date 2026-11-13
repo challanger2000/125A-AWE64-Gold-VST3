@@ -33,16 +33,44 @@ Bytes make(
     std::uint32_t loopStart=12u,std::uint32_t loopEnd=36u,
     bool withSmpl=true,bool withSm24=false,bool duplicateSmpl=false,
     bool duplicateShdr=false,std::uint32_t rate=44100u,
-    std::uint16_t sampleLink=0u) {
+    std::uint16_t sampleLink=0u,bool withMidiPreset=false) {
     Bytes info,sdta,pdta,shdr,smpl;
     Bytes version{};w16(version,2u);w16(version,1u);
     chunk(info,"ifil",version);
+    if(withMidiPreset) {
+        chunk(info,"isng",Bytes{'E','M','U','8','0','0','0',0});
+        chunk(info,"IPRD",Bytes{'S','B','A','W','E','3','2',0});
+        chunk(info,"irom",Bytes{'1','M','G','M',0});
+    }
     for(unsigned i=0;i<64u;++i)
         w16(smpl,static_cast<std::uint16_t>(
             i==8u?0x8001u:i==9u?0x7fffu:i*109u));
     if(withSmpl)chunk(sdta,"smpl",smpl);
     if(duplicateSmpl)chunk(sdta,"smpl",smpl);
     if(withSm24)chunk(sdta,"sm24",Bytes(64u,0u));
+    if(withMidiPreset) {
+        Bytes phdr,pbag,pgen,inst,ibag,igen;
+        name(phdr,"RAM-PRESET");
+        w16(phdr,7u);w16(phdr,0u);w16(phdr,0u);
+        w32(phdr,0u);w32(phdr,0u);w32(phdr,0u);
+        name(phdr,"EOP");
+        w16(phdr,0u);w16(phdr,0u);w16(phdr,1u);
+        w32(phdr,0u);w32(phdr,0u);w32(phdr,0u);
+        w16(pbag,0u);w16(pbag,0u);
+        w16(pbag,1u);w16(pbag,0u);
+        w16(pgen,41u);w16(pgen,0u);
+        name(inst,"RAM-INST");w16(inst,0u);
+        name(inst,"EOI");w16(inst,1u);
+        w16(ibag,0u);w16(ibag,0u);
+        w16(ibag,1u);w16(ibag,0u);
+        w16(igen,53u);w16(igen,0u);
+        chunk(pdta,"phdr",phdr);
+        chunk(pdta,"pbag",pbag);
+        chunk(pdta,"pgen",pgen);
+        chunk(pdta,"inst",inst);
+        chunk(pdta,"ibag",ibag);
+        chunk(pdta,"igen",igen);
+    }
     name(shdr,"RAM-MONO");
     w32(shdr,start);w32(shdr,end);
     w32(shdr,loopStart);w32(shdr,loopEnd);
@@ -92,6 +120,27 @@ int main() {
           valid->sample_pcm_le16[3]==0x7fu);
     CHECK(valid->sample_pcm_le16.data()>=sf2.data() &&
           valid->sample_pcm_le16.data()<sf2.data()+sf2.size());
+    const auto midiBank=make(1u,8u,40u,12u,36u,true,false,
+                             false,false,44100u,0u,true);
+    const auto sourceNote=candidateOriginalSf2RamMonoNotePcmPlan(
+        midiBank,0u,7u,60u,100u,capacityWords);
+    CHECK(sourceNote && sourceNote->count==1u &&
+          sourceNote->bank==0u && sourceNote->program==7u &&
+          sourceNote->key==60u && sourceNote->velocity==100u &&
+          sourceNote->layers[0].sample_id==0u &&
+          sourceNote->layers[0].sample_pcm_le16.size()==64u &&
+          sourceNote->layers[0].sample_pcm_le16[0]==1u);
+    const auto unselected=candidateOriginalSf2RamMonoNotePcmPlan(
+        midiBank,0u,6u,60u,100u,capacityWords);
+    CHECK(unselected && unselected->count==0u);
+    CHECK(!candidateOriginalSf2RamMonoNotePcmPlan(
+        midiBank,0u,7u,60u,100u,31u));
+    const auto invalidRamZone=make(0x8001u,8u,40u,12u,36u,
+        true,false,false,false,44100u,0u,true);
+    CHECK(!candidateOriginalSf2RamMonoNotePcmPlan(
+        invalidRamZone,0u,7u,60u,100u,capacityWords));
+    CHECK(!candidateOriginalSf2RamMonoNotePcmPlan(
+        sf2,0u,7u,60u,100u,capacityWords));
     CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(sf2,1u,capacityWords));
     CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(sf2,0u,0u));
     CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(sf2,0u,31u));
@@ -142,6 +191,7 @@ int main() {
         wrongMajor,0u,capacityWords));
     std::cout<<"P002_RAM_SF2_PCM_INVENTORY_SOURCE_DATA_PASS"
              <<" real_SF2_sdta_smpl_16bit_PCM_extract=TRUE"
+             <<" source_original_MIDI_program_zone_to_real_RAM_PCM=TRUE"
              <<" standard_46byte_RAM_shdr_boundaries=TRUE"
              <<" original_28MiB_EMU8000_capacity_enforced=TRUE"
              <<" ROM_stereo_sm24_EOS_and_truncation_rejected=TRUE"
