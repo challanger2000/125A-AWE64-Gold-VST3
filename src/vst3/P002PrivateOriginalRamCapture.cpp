@@ -71,7 +71,7 @@ bool exactPrivateBytes(const std::filesystem::path& filename,
                        const std::size_t expectedLength,
                        const std::string_view expectedSha,
                        std::vector<std::uint8_t>& result) {
-    const std::ifstream probe(filename,std::ios::binary|std::ios::ate);
+    std::ifstream probe(filename,std::ios::binary|std::ios::ate);
     if(!probe ||
        probe.tellg()!=static_cast<std::streamoff>(expectedLength))
         return false;
