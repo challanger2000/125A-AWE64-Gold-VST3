@@ -167,58 +167,60 @@ applyOriginalSf2MidiNoteOffFromVxdState(
     }
     return result;
 }
-std::optional<OriginalSf2SourceCc64Result>
-applyOriginalSf2MidiCc64FromVxdState(
-    awe64::Chip& chip,const std::span<std::uint8_t> state,
+std::optional<OriginalSf2Cc64DeferredScan>
+candidateOriginalSf2Cc64DeferredScan(
+    const std::span<const std::uint8_t> state,
     const std::span<const OriginalSf2VxdSnapshotVoice> assigned,
     const std::uint8_t channel,const std::uint8_t cc_value,
     const bool verified) noexcept {
-    if(!verified || !chip.ready() ||
-       state.size()<kOriginalVxdMinDeviceImage ||
+    if(!verified || state.size()<kOriginalVxdMinDeviceImage ||
        channel>=kOriginalCreativeMidiChannels || cc_value>127u ||
-       assigned.empty() ||
-       assigned.size()>kOriginalCreativeMaxNoteStartDescriptors)
+       assigned.size()>kOriginalCreativeMusicVoices ||
+       le32(state,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
+       le16(state,0x12u)!=0u)
         return std::nullopt;
-    const std::span<const std::uint8_t> read(state.data(),state.size());
-    if(le32(read,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
-       le16(read,0x12u)!=0u)return std::nullopt;
     const auto chan=kOriginalVxdChannelRowStart+
         static_cast<std::size_t>(channel)*kOriginalVxdChannelRowStride;
-    if(chan+0x24u>read.size())return std::nullopt;
-
-    struct Pending {
-        std::size_t base=0;
-        std::uint8_t physical=0;
-        OriginalVxdNoteReleaseEvidence original{};
-    };
-    std::array<Pending,kOriginalCreativeMaxNoteStartDescriptors> pending{};
-    std::size_t count=0;
-    std::uint32_t seen=0u;
-    // Complete preflight of this source-authorized set BEFORE mutation.
-    // Unlike the entire original driver, this bounded diagnostic cannot
-    // touch other voices whose allocation provenance we do not possess.
+    if(chan+kOriginalVxdChannelRowStride>state.size())return std::nullopt;
+    std::array<const OriginalSf2VxdSnapshotVoice*,
+               kOriginalCreativeMusicVoices> by_voice{};
+    // Authenticate physical mapping FIRST. The array belongs to the
+    // caller's existing source-backed NoteOn lifetime, not a new
+    // synthetic allocator; a six-layer NoteOn is not a 30-voice limit.
     for(const auto& layer:assigned) {
-        const auto v=layer.assigned_voice.physical_voice;
-        if(layer.original_midi_channel!=channel ||
+        const auto physical=layer.assigned_voice.physical_voice;
+        if(physical>=kOriginalCreativeMusicVoices ||
+           layer.original_midi_channel>=kOriginalCreativeMidiChannels ||
            layer.assigned_voice.played_midi_key>127u ||
            !layer.assigned_voice.source_original_voice_verified ||
-           v>=kOriginalCreativeMusicVoices || (seen&(1u<<v))!=0u)
-            return std::nullopt;
-        seen|=1u<<v;
+           by_voice[physical]!=nullptr)return std::nullopt;
+        by_voice[physical]=&layer;
+    }
+    OriginalSf2Cc64DeferredScan out{};
+    // Pedal-down writes only the original per-CHANNEL sustain byte.
+    // Both up and down legitimately occur with zero active voices.
+    if(cc_value>=64u)return out;
+    // Original LCOD+0x656D pedal-up scans physical voices; do NOT
+    // inspect only the most recently played key or the latest six
+    // note-start descriptors. Each deferred channel:FF marker must
+    // correspond to a verified voice from this current lifetime.
+    const auto deferred=static_cast<std::uint16_t>(
+        (static_cast<unsigned>(channel)<<8u)|0xffu);
+    for(std::size_t physical=0;physical<kOriginalCreativeMusicVoices;
+        ++physical) {
         const auto base=kOriginalVxdVoiceRowStart+
-            static_cast<std::size_t>(v)*kOriginalVxdVoiceRowStride;
-        if(base+0x20u>read.size())return std::nullopt;
-        const auto marker=le16(read,base);
-        if((marker&0xffu)!=0xffu ||
-           (marker>>8u)!=channel || cc_value>=64u)
-            continue;
+            physical*kOriginalVxdVoiceRowStride;
+        if(base+kOriginalVxdVoiceRowStride>state.size())
+            return std::nullopt;
+        if(le16(state,base)!=deferred)continue;
+        const auto* source=by_voice[physical];
+        if(!source || source->original_midi_channel!=channel)
+            return std::nullopt;
         const auto rates=candidateOriginalSf2VerifiedReleaseRates(
-            read.subspan(base,kOriginalVxdVoiceRowStride),layer);
-        const auto end=le32(read,base+6u);
+            state.subspan(base,kOriginalVxdVoiceRowStride),*source);
+        const auto end=le32(state,base+6u);
         if(!rates || end>0xfffffbu)return std::nullopt;
-        auto& p=pending[count++];
-        p.base=base;p.physical=v;
-        auto& e=p.original;
+        OriginalVxdNoteReleaseEvidence e{};
         e.original_key_channel_match=true;
         e.original_voice_record_verified=true;
         e.current_chip_registers_verified=true;
@@ -226,18 +228,37 @@ applyOriginalSf2MidiCc64FromVxdState(
         e.encoded_mod_release=rates->modulation;
         e.encoded_volume_release=rates->volume;
         e.stored_end_word=end;
-        const auto proof=candidateOriginalVxdMidiNoteRelease(v,e);
+        const auto proof=candidateOriginalVxdMidiNoteRelease(
+            static_cast<std::uint8_t>(physical),e);
         if(!proof || proof->count<4u)return std::nullopt;
+        out.voices[out.count++]={base,
+            static_cast<std::uint8_t>(physical),e};
     }
+    return out;
+}
+std::optional<OriginalSf2SourceCc64Result>
+applyOriginalSf2MidiCc64FromVxdState(
+    awe64::Chip& chip,const std::span<std::uint8_t> state,
+    const std::span<const OriginalSf2VxdSnapshotVoice> assigned,
+    const std::uint8_t channel,const std::uint8_t cc_value,
+    const bool verified) noexcept {
+    if(!chip.ready())return std::nullopt;
+    const auto scan=candidateOriginalSf2Cc64DeferredScan(
+        std::span<const std::uint8_t>(state.data(),state.size()),
+        assigned,channel,cc_value,verified);
+    if(!scan)return std::nullopt;
+    const auto chan=kOriginalVxdChannelRowStart+
+        static_cast<std::size_t>(channel)*kOriginalVxdChannelRowStride;
     OriginalSf2SourceCc64Result result{};
     result.sustain_enabled=cc_value>=64u;
-    // Original LCOD+0x657D/0x65C6 controls CHANNEL+4, not voice+4.
+    // All thirty physical marker rows, including any supplied older
+    // NoteOn voices, were validated before this first state mutation.
     state[chan+4u]=result.sustain_enabled?1u:0u;
-    if(result.sustain_enabled)return result;
-    for(std::size_t i=0;i<count;++i) {
-        const auto& p=pending[i];
+    for(std::size_t i=0;i<scan->count;++i) {
+        const auto& pending=scan->voices[i];
         const auto writes=releaseOriginalVoice(
-            chip,state,p.base,p.physical,p.original);
+            chip,state,pending.state_row_offset,pending.physical_voice,
+            pending.release);
         if(!writes)return std::nullopt;
         result.typed_port_writes+=*writes;
         ++result.released_deferred_voices;
