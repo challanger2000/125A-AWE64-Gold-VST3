@@ -54,6 +54,28 @@ struct OriginalSf2ExecutedLiveIdleMonoNote {
     OriginalWin95MonoSelection original_selection{};
     OriginalSf2CompiledRomBankNote original_compilation{};
 };
+// Source-constrained RAM-SF2 counterpart to the original ROM bank compiler.
+// This preflights a complete 61-OUT per-voice register plan, GENERATED
+// from MIDI + real SF2 zones + source-authenticated physical RAM addresses.
+// Requires exact original 1996 Creative VXD resources, device state,
+// independently verified physical voice allocation, and original RAM
+// upload. No recorded note-port clips are replayed and no DSP is added.
+// Return container is shared with the ROM compiler; sample addresses
+// remain explicitly RAM. Actual Win95 PCM/timing parity is separate.
+[[nodiscard]] std::optional<OriginalSf2CompiledRomBankNote>
+candidateOriginalSf2CompileRamBankNote(
+    std::span<const std::uint8_t> original_ram_sf2,
+    const MidiMessage& original_note_on,
+    const MidiState& original_midi_channel_state,
+    std::uint16_t original_resolved_bank,
+    std::uint32_t original_driver_sample_pool_base,
+    std::size_t original_driver_verified_pcm_pool_words,
+    const OriginalCreativeSf2DriverResources& source_vxd_sf2_resources,
+    const OriginalSf2VoiceStartConditions& source_device_channel_conditions,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& original_device_state,
+    std::span<const std::uint8_t> independently_verified_physical_voices,
+    bool original_win95_driver_ram_upload_and_vxd_state_verified) noexcept;
+
 // First complete SF2 bank MIDI NoteOn through ORIGINAL hardware-read
 // physical voice choice and unchanged pinned EMU8000 execution. The
 // original source mono allocator is permitted to select a voice only

@@ -50,7 +50,8 @@ candidateOriginalSf2FullNoteOnPorts(
         const auto middle=candidateOriginalSf2AfterPitchRegisters(
             v.verified_after_start_record,v.physical_voice,v.lfo);
         const auto last=candidateOriginalSf2FinalNoteStartPorts(
-            v.verified_after_start_record,v.physical_voice,v.target);
+            v.verified_after_start_record,v.physical_voice,v.target,
+            v.original_ram_sample_verified);
         if(!first || !middle || !last)return std::nullopt;
         std::copy(first->begin(),first->end(),
                   plan.out.begin()+static_cast<std::ptrdiff_t>(plan.count));

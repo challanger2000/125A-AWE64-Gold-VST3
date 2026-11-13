@@ -31,6 +31,9 @@ struct OriginalSf2FullNoteOnVoice {
     std::int16_t verified_channel_tune_2_cents=0;
     OriginalSf2VerifiedLfoChannelAmounts lfo{};
     OriginalSf2VerifiedFinalTargetState target{};
+    // Distinguish authenticated physical Creative RAM sample geometry
+    // from the unchanged ROM-only VXD note-start address mode.
+    bool original_ram_sample_verified=false;
 };
 struct OriginalSf2FullNoteOnPlan {
     std::array<OriginalWin95VxdPortWrite,kOriginalSf2MaxStartWrites> out{};

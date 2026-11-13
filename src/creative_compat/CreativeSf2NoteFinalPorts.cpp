@@ -25,12 +25,16 @@ std::optional<
 candidateOriginalSf2FinalNoteStartPorts(
     const CreativeSf2VoiceDescriptorBytes& after,
     const std::uint8_t voice,
-    const OriginalSf2VerifiedFinalTargetState& verified) noexcept {
+    const OriginalSf2VerifiedFinalTargetState& verified,
+    const bool independently_verified_original_ram_sample) noexcept {
     if(!verified.original_driver_state_verified ||
        voice>=kOriginalCreativeMusicVoices ||
        word(after,0x8cu/2u)!=0x0001u)
         return std::nullopt;
-    // Source LCOD+0x5B81 prepares addresses FROM the true SF2 shdr.
+    // The after-start mono sample type is 1 for BOTH ROM and RAM.
+    // Original RAM physical address programming requires a separate,
+    // independently verified source-upload flag, never a guessed ROM
+    // address inferred from the high sample address bits.
     SbkRomAddress sample{};
     sample.source_format=OriginalCreativeBankFormat::Format2Sf2;
     sample.sample_id=word(after,53u);
@@ -63,20 +67,43 @@ candidateOriginalSf2FinalNoteStartPorts(
        verified.original_voice_volume_target!=0u)
         return std::nullopt;
 
-    OriginalVxdRomNoteStartMode m{};
-    m.original_driver_mode_verified=true;
-    m.encoded_mode_flags=static_cast<std::uint8_t>(mode);
-    m.original_pan_byte=static_cast<std::uint8_t>(pan);
-    m.original_chorus_send_byte=static_cast<std::uint8_t>(chorus);
-    const auto geometry=candidateOriginalVxdInitialRomNoteGeometry(
-        sample,voice,m);
-    const auto unfiltered=candidateOriginalVxdRomCccaStart(
-        sample,voice,static_cast<std::uint8_t>(filterQ),true,
-        OriginalVxdCccaStartPhase::StartWithoutFilterQ);
-    const auto withQ=candidateOriginalVxdRomCccaStart(
-        sample,voice,static_cast<std::uint8_t>(filterQ),true,
-        OriginalVxdCccaStartPhase::StartWithEncodedFilterQ);
-    if(!geometry || !unfiltered || !withQ)return std::nullopt;
+    std::array<OriginalWin95VxdPortWrite,4> loopPorts{};
+    std::array<OriginalWin95VxdPortWrite,2> plainCcca{},filteredCcca{};
+    if(independently_verified_original_ram_sample) {
+        // Source Win95 captured the looping RAM path. A non-looping
+        // RAM note still lacks original-driver evidence; never fake
+        // it with ROM case6 or turn the existing 1MiB ROM pointer.
+        if((mode&1u)==0u)return std::nullopt;
+        const auto ram=candidateOriginalVxdInitialVerifiedRamNoteGeometry(
+            sample.start_word,sample.end_word,
+            sample.loop_start_word,sample.loop_end_word,
+            voice,static_cast<std::uint8_t>(filterQ),
+            static_cast<std::uint8_t>(pan),
+            static_cast<std::uint8_t>(chorus),true,true);
+        if(!ram)return std::nullopt;
+        loopPorts=ram->loop_address_ports;
+        plainCcca=ram->plain_ccca;
+        filteredCcca=ram->filtered_ccca;
+    }else {
+        // The entire original ROM mode/loop address path remains intact.
+        OriginalVxdRomNoteStartMode m{};
+        m.original_driver_mode_verified=true;
+        m.encoded_mode_flags=static_cast<std::uint8_t>(mode);
+        m.original_pan_byte=static_cast<std::uint8_t>(pan);
+        m.original_chorus_send_byte=static_cast<std::uint8_t>(chorus);
+        const auto geometry=candidateOriginalVxdInitialRomNoteGeometry(
+            sample,voice,m);
+        const auto unfiltered=candidateOriginalVxdRomCccaStart(
+            sample,voice,static_cast<std::uint8_t>(filterQ),true,
+            OriginalVxdCccaStartPhase::StartWithoutFilterQ);
+        const auto withQ=candidateOriginalVxdRomCccaStart(
+            sample,voice,static_cast<std::uint8_t>(filterQ),true,
+            OriginalVxdCccaStartPhase::StartWithEncodedFilterQ);
+        if(!geometry || !unfiltered || !withQ)return std::nullopt;
+        loopPorts=geometry->loop_address_ports;
+        plainCcca=*unfiltered;
+        filteredCcca=*withQ;
+    }
     const auto ptr=[voice](const std::uint8_t reg) noexcept {
         return OriginalWin95VxdPortWrite{
             0xe22u,static_cast<std::uint32_t>((reg<<5u)|voice),8u};
@@ -97,12 +124,11 @@ candidateOriginalSf2FinalNoteStartPorts(
     // following writes are independent source-derived register operations.
     return std::array<OriginalWin95VxdPortWrite,
                       kOriginalSf2FinalNoteStartPortCount>{{
-        geometry->loop_address_ports[0], geometry->loop_address_ports[1],
-        geometry->loop_address_ports[2], geometry->loop_address_ports[3],
-        (*unfiltered)[0],(*unfiltered)[1],
+        loopPorts[0],loopPorts[1],loopPorts[2],loopPorts[3],
+        plainCcca[0],plainCcca[1],
         ptr(5u),d32(0x620u,0u),      // Z1 = 0
         ptr(4u),d32(0x620u,0u),      // Z2 = 0
-        (*withQ)[0],(*withQ)[1],     // CCCA with encoded filterQ
+        filteredCcca[0],filteredCcca[1], // CCCA with original filterQ
         ptr(3u),d32(0x620u,finalFilterVol), // VTFT
         ptr(2u),d32(0x620u,finalFilterVol), // CVCF
         ptr(1u),d32(0x620u,ptrx),  // PTRX pitch target/reverb/aux

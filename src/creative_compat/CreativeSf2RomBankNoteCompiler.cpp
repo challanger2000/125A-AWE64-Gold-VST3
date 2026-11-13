@@ -109,6 +109,115 @@ candidateOriginalSf2CompileRomBankNote(
     result.typed_original_outs=*ports;
     return result;
 }
+std::optional<OriginalSf2CompiledRomBankNote>
+candidateOriginalSf2CompileRamBankNote(
+    const std::span<const std::uint8_t> bank,
+    const MidiMessage& midi,
+    const MidiState& midi_state,
+    const std::uint16_t bank_number,
+    const std::uint32_t observed_physical_ram_pool_base,
+    const std::size_t original_pcm_pool_words,
+    const OriginalCreativeSf2DriverResources& source,
+    const OriginalSf2VoiceStartConditions& start,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& original_snapshot,
+    const std::span<const std::uint8_t> assigned_voices,
+    const bool source_verified) noexcept {
+    const auto state=original_snapshot.original_state_bytes;
+    if(!source_verified ||
+       !original_snapshot.independently_verified_original_vxd_snapshot ||
+       !original_snapshot.original_lcod_31word_table_verified ||
+       state.size()<kOriginalVxdMinDeviceImage ||
+       midi.kind!=MidiKind::NoteOn || midi.channel>=16u ||
+       midi.data1>127u || midi.data2==0u || midi.data2>127u ||
+       start.creative_bank!=bank_number ||
+       start.midi_key!=midi.data1 ||
+       start.midi_velocity!=midi.data2 ||
+       start.device_effects_flag!=0u ||
+       start.channel_chorus!=0u ||
+       start.channel_reverb!=0u ||
+       assigned_voices.empty() ||
+       assigned_voices.size()>kOriginalCreativeMaxNoteStartDescriptors)
+        return std::nullopt;
+    const auto& channel=midi_state.channel(midi.channel);
+    if(start.volume.cc7!=channel.cc7_volume ||
+       start.volume.cc11!=channel.cc11_expression ||
+       start.channel_pan!=channel.cc10_pan ||
+       (static_cast<std::uint16_t>(state[0x10u])|
+        (static_cast<std::uint16_t>(state[0x11u])<<8u))!=
+            start.volume.device_state_additive_attenuation)
+        return std::nullopt;
+    const auto selected=candidateStandardSf2RamLayers(
+        bank,bank_number,channel.program,midi.data1,midi.data2);
+    const auto pcm=candidateOriginalSf2RamMonoNotePcmPlan(
+        bank,bank_number,channel.program,midi.data1,midi.data2,
+        0xe00000u);
+    const auto physical=candidateOriginalSf2RamPhysicalNotePlan(
+        bank,bank_number,channel.program,midi.data1,midi.data2,
+        observed_physical_ram_pool_base,original_pcm_pool_words,true);
+    if(!selected || !pcm || !physical ||
+       selected->count==0u || pcm->count==0u ||
+       pcm->count!=physical->count ||
+       static_cast<std::size_t>(pcm->count)!=assigned_voices.size() ||
+       pcm->count>selected->count)
+        return std::nullopt;
+    OriginalSf2CompiledRomBankNote result{};
+    result.voice_count=pcm->count;
+    std::copy_n(state.begin(),result.vxd_state_after_noteon.size(),
+                result.vxd_state_after_noteon.begin());
+    std::uint32_t used=0u;
+    for(std::size_t i=0u;i<pcm->count;++i) {
+        const auto voice=assigned_voices[i];
+        if(voice>=kOriginalCreativeMusicVoices ||
+           (used&(1u<<voice))!=0u)
+            return std::nullopt;
+        used|=1u<<voice;
+        const auto& layer=selected->layers[i];
+        const auto descriptor=candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+            layer,pcm->layers[i],physical->layers[i],source,
+            layer.original_preset_row_index,start,true);
+        if(!descriptor)return std::nullopt;
+        auto& dst=result.assignments[i];
+        dst.original_midi_channel=midi.channel;
+        dst.assigned_voice.physical_voice=voice;
+        dst.assigned_voice.played_midi_key=midi.data1;
+        dst.assigned_voice.source_original_voice_verified=true;
+        dst.assigned_voice.lfo={true,0u,0u};
+        // This provenance alone permits RAM address programming in
+        // the original shared 22-OUT final-note hardware stage.
+        dst.assigned_voice.original_ram_sample_verified=true;
+        dst.assigned_voice.verified_after_start_record=
+            descriptor->after_note_start;
+        result.before_note_start[i]=descriptor->before_note_start;
+        const auto rateEnd=static_cast<std::size_t>(
+            kOriginalVxdVoiceRowStart+voice*kOriginalVxdVoiceRowStride+9u);
+        const auto& snapshot=result.vxd_state_after_noteon;
+        const auto storedEnd=
+            static_cast<std::uint32_t>(snapshot[rateEnd-3u])|
+            (static_cast<std::uint32_t>(snapshot[rateEnd-2u])<<8u)|
+            (static_cast<std::uint32_t>(snapshot[rateEnd-1u])<<16u)|
+            (static_cast<std::uint32_t>(snapshot[rateEnd])<<24u);
+        if(storedEnd>0xfffffbu)return std::nullopt;
+    }
+    const auto voices=result.selectedVoices();
+    // The same original VXD state mutations and 61-per-voice
+    // source-ordered register plan that the ROM compiler uses.
+    // No changes to the calibrated EMU8000 DSP or any bank-specific patch.
+    if(!candidateOriginalSf2StoreNoteOnSourceReleaseState(
+            result.vxd_state_after_noteon,true,voices) ||
+       !candidateOriginalSf2WriteInitialIpToVxdState(
+            result.vxd_state_after_noteon,true,voices))
+        return std::nullopt;
+    auto localized=original_snapshot;
+    localized.original_state_bytes=result.vxd_state_after_noteon;
+    const auto ports=candidateOriginalSf2FullNoteOnFromVxdSnapshot(
+        voices,localized);
+    if(!ports || ports->voices!=result.voice_count ||
+       ports->count!=static_cast<std::size_t>(result.voice_count)*
+                      kOriginalSf2OneVoiceStartWrites)
+        return std::nullopt;
+    result.typed_original_outs=*ports;
+    return result;
+}
 std::optional<OriginalSf2ExecutedLiveIdleMonoNote>
 candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
     awe64::Chip& chip,

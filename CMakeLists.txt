@@ -614,7 +614,8 @@ target_link_libraries(awe64_p002_sf2_rom_bank_note_compiler
            awe64_p002_sf2_vxd_state_snapshot
            awe64_p002_sf2_live_vxd_allocator
            awe64_p002_sf2_source_note_release
-           awe64_p002_rom_note_plan)
+           awe64_p002_rom_note_plan
+           awe64_p002_sf2_ram_pcm_inventory)
 target_link_libraries(awe64_p002_rom_note_plan_test
     PRIVATE awe64_p002_sf2_rom_bank_note_compiler)
 # Actual digital PCM from original-source SF2 NoteOn and two physical

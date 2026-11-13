@@ -30,5 +30,6 @@ struct OriginalSf2VerifiedFinalTargetState {
 candidateOriginalSf2FinalNoteStartPorts(
     const CreativeSf2VoiceDescriptorBytes& post_start_record,
     std::uint8_t independently_assigned_physical_voice,
-    const OriginalSf2VerifiedFinalTargetState& original_driver_state) noexcept;
+    const OriginalSf2VerifiedFinalTargetState& original_driver_state,
+    bool independently_verified_original_ram_sample=false) noexcept;
 } // namespace awe64::creative

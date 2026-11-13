@@ -229,6 +229,128 @@ int main(){
     CHECK(!candidateOriginalSf2CompileRomBankNote(
         sbk,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
         verifiedSyntheticVxd,allocated,true)); // format1 ≠ format2
+    // P002: native SOURCE-PCOD RAM-SF2 compiler independently
+    // generates 61 physical-voice OUTs from MIDI and parsed SF2.
+    // Public test uses synthetic resources, never private Creative data.
+    Bytes sourceRam=fixture(true);
+    const Bytes romTag{'R','O','M','-','M','O','N','O'};
+    const auto sampleAt=std::search(sourceRam.begin(),sourceRam.end(),
+                                    romTag.begin(),romTag.end());
+    CHECK(sampleAt!=sourceRam.end());
+    const auto sampleTypeOffset=static_cast<std::size_t>(
+        sampleAt-sourceRam.begin())+44u;
+    CHECK(sampleTypeOffset+1u<sourceRam.size());
+    sourceRam[sampleTypeOffset]=0x01u;
+    sourceRam[sampleTypeOffset+1u]=0u;
+    Bytes pool(64u*2u,0u);
+    for(unsigned i=0;i<64u;++i) {
+        pool[2u*i]=static_cast<std::uint8_t>(i);
+        pool[2u*i+1u]=0u;
+    }
+    Bytes sdta{'s','d','t','a'};
+    c(sdta,"smpl",pool);
+    Bytes sdtaList;
+    c(sdtaList,"LIST",sdta);
+    sourceRam.insert(sourceRam.begin()+12u,sdtaList.begin(),sdtaList.end());
+    const auto riffLength=static_cast<std::uint32_t>(sourceRam.size()-8u);
+    for(unsigned i=0;i<4u;++i)
+        sourceRam[4u+i]=static_cast<std::uint8_t>(riffLength>>(8u*i));
+    const std::uint32_t sourceRamPhysicalBase=0x200010u;
+    auto verifiedRamResources=verifiedSyntheticResources;
+    verifiedRamResources.instrument_template[54u]=1; // synthetic LOOP mode
+    const auto ramCompiled=candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedRamResources,conditions,verifiedSyntheticVxd,
+        allocated,true);
+    CHECK(ramCompiled && ramCompiled->voice_count==1u &&
+          ramCompiled->typed_original_outs.count==61u);
+    const auto readDw=[](const CreativeSf2VoiceDescriptorBytes& d,
+                         const unsigned offset) noexcept {
+        return static_cast<std::uint32_t>(d[offset])|
+               (static_cast<std::uint32_t>(d[offset+1u])<<8u)|
+               (static_cast<std::uint32_t>(d[offset+2u])<<16u)|
+               (static_cast<std::uint32_t>(d[offset+3u])<<24u);
+    };
+    CHECK(readDw(ramCompiled->before_note_start[0],0x76u)==
+          sourceRamPhysicalBase+5u);
+    CHECK(readDw(ramCompiled->before_note_start[0],0x7eu)==
+          sourceRamPhysicalBase+10u);
+    CHECK(readDw(ramCompiled->before_note_start[0],0x82u)==
+          sourceRamPhysicalBase+20u);
+    CHECK(ramCompiled->before_note_start[0][0x8cu]==1u &&
+          ramCompiled->before_note_start[0][0x8du]==0u);
+    CHECK(ramCompiled->assignments[0].assigned_voice.physical_voice==3u);
+    CHECK(ramCompiled->assignments[0].assigned_voice.played_midi_key==60u);
+    CHECK(ramCompiled->assignments[0].assigned_voice.original_ram_sample_verified);
+    CHECK(ramCompiled->typed_original_outs.out[0].port==0xe22u);
+    // Hardware source order: 5 stop +18 prelude +16 middle +22 final.
+    // Low 24-bit RAM addresses are generated from actual shdr words.
+    const auto& op=ramCompiled->typed_original_outs.out;
+    CHECK(op[39].port==0xe22u && op[39].value==0xc3u);
+    CHECK(op[40].port==0x620u &&
+          (op[40].value&0xffffffu)==sourceRamPhysicalBase+9u);
+    CHECK(op[41].port==0xe22u && op[41].value==0xe3u);
+    CHECK(op[42].port==0x620u &&
+          (op[42].value&0xffffffu)==sourceRamPhysicalBase+19u);
+    CHECK(op[43].port==0xe22u && op[43].value==3u);
+    CHECK(op[44].port==0xa20u && op[44].value==sourceRamPhysicalBase+1u);
+    CHECK(op[49].port==0xe22u && op[49].value==3u);
+    CHECK(op[50].port==0xa20u &&
+          (op[50].value&0xffffffu)==sourceRamPhysicalBase+1u);
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedSyntheticResources,conditions,verifiedSyntheticVxd,
+        allocated,false));
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,sourceRamPhysicalBase,63u,
+        verifiedSyntheticResources,conditions,verifiedSyntheticVxd,
+        allocated,true));
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,0x1000u,64u,
+        verifiedSyntheticResources,conditions,verifiedSyntheticVxd,
+        allocated,true));
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sf2,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedSyntheticResources,conditions,verifiedSyntheticVxd,
+        allocated,true)); // ROM cannot be mistaken for RAM
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedSyntheticResources,conditions,verifiedSyntheticVxd,
+        invalidPhysical,true));
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceRam,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedSyntheticResources,wrongConditions,verifiedSyntheticVxd,
+        allocated,true)); // stale MIDI channel/device state
+    // The actual original Creative C4 used TWO physical voices.
+    // Both source-selected layers must be compiled in one 122-OUT
+    // transaction, without reusing or inventing a physical lane.
+    auto sourceTwo=fixture(true,2u);
+    const auto twoSampleAt=std::search(sourceTwo.begin(),sourceTwo.end(),
+                                      romTag.begin(),romTag.end());
+    CHECK(twoSampleAt!=sourceTwo.end());
+    const auto twoSampleTypeOffset=static_cast<std::size_t>(
+        twoSampleAt-sourceTwo.begin())+44u;
+    sourceTwo[twoSampleTypeOffset]=1u;
+    sourceTwo[twoSampleTypeOffset+1u]=0u;
+    sourceTwo.insert(sourceTwo.begin()+12u,sdtaList.begin(),sdtaList.end());
+    const auto twoRiff=static_cast<std::uint32_t>(sourceTwo.size()-8u);
+    for(unsigned i=0;i<4u;++i)
+        sourceTwo[4u+i]=static_cast<std::uint8_t>(twoRiff>>(8u*i));
+    const std::array<std::uint8_t,2> sourceAllocated{{0u,3u}};
+    const auto twoRam=candidateOriginalSf2CompileRamBankNote(
+        sourceTwo,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedRamResources,conditions,verifiedSyntheticVxd,
+        sourceAllocated,true);
+    CHECK(twoRam && twoRam->voice_count==2u &&
+          twoRam->typed_original_outs.count==122u);
+    CHECK(twoRam->assignments[0].assigned_voice.physical_voice==0u &&
+          twoRam->assignments[1].assigned_voice.physical_voice==3u);
+    CHECK(twoRam->assignments[0].assigned_voice.original_ram_sample_verified &&
+          twoRam->assignments[1].assigned_voice.original_ram_sample_verified);
+    CHECK(!candidateOriginalSf2CompileRamBankNote(
+        sourceTwo,*on,midi,0u,sourceRamPhysicalBase,64u,
+        verifiedRamResources,conditions,verifiedSyntheticVxd,
+        std::array<std::uint8_t,2>{{3u,3u}},true));
     // First COMPLETE native ROM SF2 bank → SF2 descriptor → live
     // original HW-based physical allocator → source-ordered 61 OUTs →
     // genuine unchanged EMU8000. The chip sample ROM is synthetic and
