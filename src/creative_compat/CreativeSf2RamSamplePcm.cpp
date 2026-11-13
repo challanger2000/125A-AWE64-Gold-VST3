@@ -271,4 +271,65 @@ candidateOriginalSf2RamMonoNotePcmPlan(
     result.count=static_cast<std::uint8_t>(n);
     return result;
 }
+
+std::optional<OriginalSf2RamPhysicalNotePlan>
+candidateOriginalSf2RamPhysicalNotePlan(
+    const std::span<const std::uint8_t> sf2,
+    const std::uint16_t bank,
+    const std::uint8_t program,
+    const std::uint8_t key,
+    const std::uint8_t velocity,
+    const std::uint32_t physicalBase,
+    const std::size_t sourceWords,
+    const bool originalPhysicalUploadVerified) noexcept {
+    constexpr std::uint32_t firstRam=0x200000u;
+    constexpr std::uint32_t ramEndExclusive=0x1000000u;
+    constexpr std::size_t original28MiBInWords=0xe00000u;
+    // No inferred RAM allocation, no ROM aliases and no unsigned wrap.
+    // A 0-relative SoundFont shdr start is legal: VXD's start-4 must be
+    // measured in PHYSICAL memory, after the separately verified base.
+    if(!originalPhysicalUploadVerified || sourceWords==0u ||
+       sourceWords>original28MiBInWords ||
+       physicalBase<firstRam+4u || physicalBase>=ramEndExclusive ||
+       static_cast<std::uint64_t>(physicalBase)+sourceWords>
+           ramEndExclusive)
+        return std::nullopt;
+    const auto selected=candidateOriginalSf2RamMonoNotePcmPlan(
+        sf2,bank,program,key,velocity,original28MiBInWords);
+    if(!selected || selected->count==0u ||
+       selected->count>kOriginalCreativeRamNoteMaxLayers)
+        return std::nullopt;
+    OriginalSf2RamPhysicalNotePlan result{};
+    result.count=selected->count;
+    for(std::size_t i=0;i<result.count;++i) {
+        const auto& sample=selected->layers[i];
+        if(sample.total_pool_words!=sourceWords ||
+           sample.start_word>=sample.end_word ||
+           sample.loop_start_word<sample.start_word ||
+           sample.loop_start_word>=sample.loop_end_word ||
+           // The validated original owner SoundFont has seven *real*
+           // 2-zero-word guards after end. Existing reader proves each
+           // guard word before this physical translation may be used.
+           sample.loop_end_word>sourceWords ||
+           sample.end_word>sourceWords)
+            return std::nullopt;
+        const auto start=physicalBase+sample.start_word;
+        const auto end=physicalBase+sample.end_word;
+        const auto loopStart=physicalBase+sample.loop_start_word;
+        const auto loopEnd=physicalBase+sample.loop_end_word;
+        if(start<firstRam+4u || end>ramEndExclusive ||
+           loopStart<firstRam+1u || loopEnd>ramEndExclusive)
+            return std::nullopt;
+        auto& layer=result.layers[i];
+        layer.sample_id=sample.sample_id;
+        layer.physical_sample_start=start;
+        layer.physical_sample_end=end;
+        layer.physical_loop_start=loopStart;
+        layer.physical_loop_end=loopEnd;
+        layer.candidate_initial_ccca=start-4u;
+        layer.candidate_initial_psst=loopStart-1u;
+        layer.candidate_initial_csl=loopEnd-1u;
+    }
+    return result;
+}
 } // namespace awe64::creative
