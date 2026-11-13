@@ -32,6 +32,21 @@ struct OriginalSf2RamSamplePcmView {
     // Exactly 2*(end_word-start_word) bytes, including the original
     // waveform before its first/last source sample index.
 };
+// Inspect ALL standard format-2 sample headers at activation.
+// A ROM-only experimental VST3 must reject an entire bank containing
+// even one RAM/linked/unsupported sample: checking shdr[0] alone
+// could otherwise silently render the wrong hardware waveform.
+// Classification is read-only, allocation-free and never approves
+// original Creative DRAM placement or the full bank's musical semantics.
+struct OriginalSf2SampleMemoryInventory {
+    std::size_t sample_headers=0u;
+    std::size_t rom_mono=0u;
+    std::size_t ram_mono=0u;
+    std::size_t unsupported=0u;
+};
+[[nodiscard]] std::optional<OriginalSf2SampleMemoryInventory>
+candidateOriginalSf2InventoryAllSampleTypes(
+    std::span<const std::uint8_t> raw_soundfont) noexcept;
 [[nodiscard]] std::optional<OriginalSf2RamSamplePcmView>
 candidateOriginalSf2ReadRamMonoSamplePcm(
     std::span<const std::uint8_t> raw_soundfont,
