@@ -1172,6 +1172,22 @@ int wmain(int argc,wchar_t** argv){
                             vxdResourcePath.c_str())==0,
                 "set mutually exclusive private source bank modes");
         {Instance rejectRomAndRamSourceConflict(factory,false);}
+        // The NEW actual original Win95 C4/D4 source capture must be
+        // SHA256 locked and rejected off-RT. Public CI MUST NEVER
+        // embed the owner's genuine 324 original source port writes.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",
+                            mutant.c_str())==0,
+                "set deliberately corrupted captured original RAM NoteOn ports");
+        {Instance rejectSourceNotePortSha(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16",L"")==0,
+                "clear original RAM bank while source notes remain requested");
+        {Instance rejectSourceNotesWithoutOriginalRam(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",L"")==0,
+                "clear invalid SHA source RAM note port fixture");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",L"")==0 &&
