@@ -18,6 +18,8 @@ Those Creative developer examples verify AWEMAN32.DLL / AWEManager, AWE_OPEN mes
 - Generated Win95 32-bit Pentium P54C-only executable: P002RAM.EXE in short-retention Actions artifact P002-Win95-Original-Creative-RAM-Bank-Capture-Guest-EXE. The PE imports only KERNEL32.DLL and WINMM.DLL. AWEMAN32.DLL is loaded dynamically *inside the private original Win95 machine*. No Creative ROM/DLL/VXD/SF2 or Microsoft Windows image is embedded or uploaded.
 - Private staging tool: tools/p002_stage_original_win95_ram_probe.py. Copies an EXISTING original owner-controlled 512-MiB Win95 FAT16 disk to a distinct, disposable private clone. Preflights MBR, FAT16 geometry, FAT mirroring, unoccupied FAT root entries and clusters; verifies full original source disk SHA256 and exact readback of both guest files. No original private disk overwritten.
 - Synthetic-only FAT16 negative regression: tests/test_p002_win95_ram_stage.py. Uses a newly created synthetic sparse 512-MiB disk, synthetic PE marker and synthetic SF2 bytes, never original Windows/Creative material.
+- Automatic *read-only* Win95 guest-log retrieval: `tools/p002_extract_original_win95_ram_log_fat16.py` directly reads `C:\\P002RAM.LOG`, `C:\\P002RAM.SF2` and `C:\\P002RAM.EXE` from the already **powered-off** private FAT16 VM clone. It checks both FATs, the complete cluster chain (including cycles/duplicates), guest SoundFont byte-for-byte identity and original Creative driver API results. This removes all manual guest logfile copying; the VM image is only opened **read-only**. The 512-MiB disk SHA is streamed, not read into RAM.
+- One-command private source join: `tools/p002_join_original_win95_ram_evidence.py` combines the recovered guest RAM-bank API log, exact staged SF2 bytes, a separately captured actual original 86Box `EMU8K_TRACE`, optional original 44.1-kHz stereo PCM16 DRY WAV, and source-matched **unique** RAM word address into ONE privately stored SHA256-linked audit. Optional `--private-filtered-ram-ports` writes only literal captured original SMALW/SMLD source port events. It refuses mismatched, altered, absent or duplicated source sample mappings. Neither log nor WAV proves source clock alignment, VXD provenance, or VST3 audio parity by itself.
 - Win95 log auditor: tools/p002_verify_original_win95_ram_guest_log.py. Reads the original private guest C:\\P002RAM.LOG and the SAME host-side SF2, verifies exact **whole-file FNV-1a32** generated inside the original Win95 guest (in addition to source size), successful AWEManager/WinMM results, **DRAM word counts before/after** the load, 0% MIDI CC91/CC93 sends, and properly bracketed original bank loading. Its JSON report SHA256-locks the owner-side bank and the original guest log; FNV is ONLY an accidental-change correlation check, not cryptographic Creative driver provenance.
 - Private original source trace matcher: tools/p002_original_ram_trace_probe.py. Requires a REAL original fork EMU8K_TRACE and the EXACT same private SF2. Finds all complete original RAM sample word matches; zero or multiple candidate addresses are rejected. Reports SHA256 of original trace/sample and a source-observed absolute EMU8000 RAM word address.
 - Offline original-chip readback CLI: tools/p002_private_ram_capture_cli.cpp. Validates pinned original 1-MiB Creative ROM SHA256, exact extracted SF2 PCM and original captured hardware SMALW/SMLD words BEFORE physical chip replay; compares actual unchanged chip 28MiB RAM readback to SF2 source words. Still only a source research tool, NOT RAM-SF2 VST3 playback.
@@ -44,6 +46,29 @@ All quoted paths below are placeholders for the owner-controlled existing VM, no
 
 7. Independently authenticate the original SBAWE.VXD, AWEMAN32.DLL, calibrated 86Box fork, AWE32 ROM SHA, selected SF2 and full captured guest event clocks. The private PC source matcher requires exactly ONE complete full-sample source PCM match; an unknown or duplicate DRAM address is NO GO. Run the private Windows original-chip capture CLI with actual original RAM address and port trace only after these independent prerequisites are met.
 8. Compare full Win95 original DRY PCM with pinned VST3/EMU8000 DRY PCM under exact same ROM, bank, MIDI, register, CC64, envelope, FX 0 and original sample rate conditions. Align timing, never amplitude-normalize to hide errors, fix root causes not individual presets.
+
+## One offline command after the private Win95 VM has shut down
+
+```powershell
+python tools/p002_join_original_win95_ram_evidence.py `
+  --private-booted-win95-clone "PRIVATE\p002-ram-guest-copy.img" `
+  --private-sf2 "PRIVATE\selected-bank.sf2" `
+  --original-emu8k-trace "PRIVATE\original-win95-ram.trace" `
+  --sample-id 0 `
+  --original-dry-wav "PRIVATE\original-guest-dry.wav" `
+  --private-log-output "PRIVATE\p002-extracted-guest.log" `
+  --private-report "PRIVATE\p002-unified-ram-evidence.json" `
+  --private-filtered-ram-ports "PRIVATE\p002-literal-upload.trace"
+```
+
+These are illustrative **private owner-side paths**, not evidence that
+a running original Windows 95 image, `SBAWE.VXD` or 86Box recording is
+available to GitHub Actions. The VM must be shut down before reading the
+disk image; a guest that has not actually executed `C:\P002RAM.EXE`
+does not have the required `P002RAM.LOG` and fails closed. The combined
+report documents `NOT_PROVEN` until original Creative driver origin,
+cross-clock correlation and actual original-vs-VST3 DRY PCM identity are
+independently demonstrated.
 
 ## Explicit non-claims
 
