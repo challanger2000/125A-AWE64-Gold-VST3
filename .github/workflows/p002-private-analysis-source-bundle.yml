@@ -2,7 +2,10 @@ name: P002 source tools for private real Win95 trace and audio analysis
 on:
   push:
     branches: [develop/p002-creative-register-oracle]
-    paths: ['.github/workflows/p002-private-analysis-source-bundle.yml']
+    paths:
+      - '.github/workflows/p002-private-analysis-source-bundle.yml'
+      - 'tools/p002_verify_original_ram_note_geometry.py'
+      - 'tests/test_p002_verify_original_ram_note_geometry.py'
   workflow_dispatch:
 permissions: {contents: read}
 jobs:
@@ -15,6 +18,8 @@ jobs:
         run: |
           python3 -m py_compile tools/p002_original_ram_trace_probe.py tools/p002_join_original_win95_ram_evidence.py tools/p002_verify_original_win95_ram_guest_log.py tools/p002_extract_original_win95_ram_log_fat16.py tools/p002_compare_original_dry_pcm.py
           python3 -m py_compile tools/p002_verify_original_creative_ram_transfer.py tools/p002_register_oracle.py
+          python3 -m py_compile tools/p002_verify_original_ram_note_geometry.py
+          python3 -m unittest discover -s tests -p 'test_p002_verify_original_ram_note_geometry.py' -v
           echo 'P002_PRIVATE_ANALYSIS_PUBLIC_SOURCE_COMPILE_PASS'
       - uses: actions/upload-artifact@v4
         with:
@@ -27,5 +32,6 @@ jobs:
             tools/p002_extract_original_win95_ram_log_fat16.py
             tools/p002_compare_original_dry_pcm.py
             tools/p002_verify_original_creative_ram_transfer.py
+            tools/p002_verify_original_ram_note_geometry.py
           retention-days: 2
           if-no-files-found: error
