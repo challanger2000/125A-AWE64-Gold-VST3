@@ -206,6 +206,49 @@ int main() {
           sourceNote->layers[0].sample_id==0u &&
           sourceNote->layers[0].sample_pcm_le16.size()==64u &&
           sourceNote->layers[0].sample_pcm_le16[0]==1u);
+    // Full original-source RAM note address preflight: output is only
+    // shdr/Win95 VXD geometry, NOT a generated independent NoteOn or PCM.
+    constexpr std::uint32_t originalObservedBase=0x200010u;
+    const auto physical=candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,originalObservedBase,64u,true);
+    CHECK(physical && physical->count==1u);
+    CHECK(physical->layers[0].sample_id==0u);
+    CHECK(physical->layers[0].physical_sample_start==0x200018u);
+    CHECK(physical->layers[0].physical_sample_end==0x200038u);
+    CHECK(physical->layers[0].candidate_initial_ccca==0x200014u);
+    CHECK(physical->layers[0].candidate_initial_psst==0x20001Bu);
+    CHECK(physical->layers[0].candidate_initial_csl==0x200033u);
+    // Real SF2 shdr[0] is allowed to begin at source word zero;
+    // initial -4 applies to ORIGINAL PHYSICAL base, never raw SF2 zero.
+    const auto zeroStart=make(1u,0u,40u,12u,36u,
+                              true,false,false,false,44100u,0u,true);
+    const auto zeroMapped=candidateOriginalSf2RamPhysicalNotePlan(
+        zeroStart,0u,7u,60u,100u,originalObservedBase,64u,true);
+    CHECK(zeroMapped && zeroMapped->layers[0].physical_sample_start==
+              originalObservedBase &&
+          zeroMapped->layers[0].candidate_initial_ccca==0x20000Cu);
+    const auto guardMapped=candidateOriginalSf2RamPhysicalNotePlan(
+        originalGuard,0u,7u,60u,100u,originalObservedBase,64u,true);
+    CHECK(guardMapped && guardMapped->layers[0].physical_loop_end==
+              0x20003Au &&
+          guardMapped->layers[0].candidate_initial_csl==0x200039u);
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,originalObservedBase,64u,false));
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,0x1000u,64u,true)); // ROM
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,0xFFFFF0u,64u,true)); // overflow
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,originalObservedBase,63u,true));
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,7u,60u,100u,originalObservedBase,0u,true));
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        midiBank,0u,6u,60u,100u,originalObservedBase,64u,true));
+    CHECK(!candidateOriginalSf2RamPhysicalNotePlan(
+        make(0x8001u,8u,40u,12u,36u,true,false,false,false,
+             44100u,0u,true),
+        0u,7u,60u,100u,originalObservedBase,64u,true));
+
     // A NORMAL format-2 RAM SoundFont should not need the proprietary
     // original Creative 1MGM/EMU8000/SBAWE32 INFO fields. Preserve
     // the strict original ROM parser gate separately from RAM SF2.
