@@ -37,11 +37,18 @@ MUST_ZERO = (
     "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC",
     "ORIGINAL_MIDI_C4_VEL100_RC",
     "ORIGINAL_MIDI_C4_OFF_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC",
 )
 CAPTURE_BEGIN = "ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_BEGIN"
 CAPTURE_END = "ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END"
 SUCCESS = "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK"
 NO_EVIDENCE = "GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API"
+DIRECT_BEGIN = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN"
+DIRECT_END = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END"
 REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
     "PRIVATE_WIN95_SF2_FNV1A32",
@@ -89,6 +96,11 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     if not (lines.index(CAPTURE_BEGIN) < lines.index(CAPTURE_END) <
             lines.index(SUCCESS)):
         raise ValueError("Original Creative bank-upload marker order invalid")
+    if content.count(DIRECT_BEGIN) != 1 or content.count(DIRECT_END) != 1:
+        raise ValueError("Original Creative direct AWE_SEND_MIDI capture markers absent")
+    if not (lines.index(CAPTURE_END) < lines.index(DIRECT_BEGIN) <
+            lines.index(DIRECT_END) < lines.index(SUCCESS)):
+        raise ValueError("Original Creative WinMM vs AWE_SEND_MIDI phase ordering invalid")
 
     seen: dict[str, int] = {}
     dll_path: str | None = None
@@ -112,7 +124,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             if key in seen:
                 raise ValueError("Duplicated original Creative guest result: " + key)
             seen[key] = int(word, 16)
-        elif line not in (CAPTURE_BEGIN, CAPTURE_END, SUCCESS, NO_EVIDENCE,
+        elif line not in (CAPTURE_BEGIN, CAPTURE_END, DIRECT_BEGIN, DIRECT_END,
+                          SUCCESS, NO_EVIDENCE,
                           "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF") and not (
                           line.startswith("LOADED_CREATIVE_MODULE_PATH=") or
                           line.startswith("WIN95_MIDI_DEVICE=")):
@@ -152,6 +165,16 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=")) <
             lines.index(CAPTURE_END)):
         raise ValueError("Original Win95 load result escaped bank-upload capture markers")
+    for label in ("ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
+                  "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
+                  "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
+                  "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
+                  "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"):
+        if not (lines.index(DIRECT_BEGIN) <
+                next(i for i, x in enumerate(lines)
+                     if x.startswith(label + "=")) <
+                lines.index(DIRECT_END)):
+            raise ValueError("Original Creative direct MIDI result outside source phase")
     if "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF" not in lines:
         raise ValueError("Guest no-hardware-proof caveat missing")
     return {
@@ -168,7 +191,11 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_driver_ram_allocated_words": delta,
         "original_guest_load_begin_ms": begin_ms,
         "original_guest_load_end_ms": end_ms,
-        "original_MIDI_ch4_vel100_91_93_zero_send_status": "WINMM_CALL_ACCEPTED",
+        "original_MIDI_C4_vel100_91_93_zero_send_status": "WINMM_CALL_ACCEPTED",
+        "original_Creative_AWE_SEND_MIDI_401_D4_vel100_zero_send_status":
+            "ORIGINAL_AWEMAN32_API_ACCEPTED",
+        "independent_WinMM_C4_vs_Creative_API_D4_register_parity":
+            "REQUIRES_SOURCE_GUEST_TRACE",
         "original_86box_emu8000_register_trace": "REQUIRES_INDEPENDENT_CAPTURE",
         "original_86box_guest_dry_pcm": "REQUIRES_INDEPENDENT_CAPTURE",
         "original_creative_dll_vxd_provenance": "REQUIRES_INDEPENDENT_VERIFICATION",
