@@ -135,6 +135,22 @@ bool parseExactOriginalSourcePorts(
 }
 } // namespace
 
+bool isExactOriginalCreativeVxdResources(
+    const std::span<const std::uint8_t> five_original_tables) noexcept {
+    // Independently extracted from the owner's exact original
+    // SBAWE.VXD SHA256 d343f242... (original LE page-mapped objects).
+    // Source bytes: LCOD+0x2D88 [59 signed WORDs], PDAT+0x08E8 [128
+    // DWORDs], PDAT+0x0AE8 [128 signed BYTEs], LCOD+0x2F82 [15
+    // WORDs], LCOD+0x2FA0 [16 WORDs]. The public code retains ONLY
+    // the SHA256 digest, not copyrighted Creative table contents.
+    constexpr std::size_t exactOriginalTableBytes=
+        59u*2u+128u*4u+128u+15u*2u+16u*2u; // 820
+    constexpr std::string_view exactOriginalVxdTableSha256=
+        "0703643c6df3a8af8aa3ee94a272b40ff349462245f6e2491c27dc3344a1761a";
+    return five_original_tables.size()==exactOriginalTableBytes &&
+           exactSha256(five_original_tables,exactOriginalVxdTableSha256);
+}
+
 bool isExactOriginalCreativeRamOwnerSf2(
     const std::span<const std::uint8_t> source) noexcept {
     return source.size()==kSourceBankBytes &&
