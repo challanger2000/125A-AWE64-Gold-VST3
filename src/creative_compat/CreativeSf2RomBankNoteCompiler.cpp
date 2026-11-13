@@ -379,6 +379,89 @@ candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
     result.original_compilation=*compiled;
     return result;
 }
+std::optional<OriginalSf2ExecutedLiveLayeredBankNote>
+candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+    awe64::Chip& chip,
+    const std::span<std::uint8_t> mutable_state,
+    const std::span<const std::uint8_t> bank,
+    const MidiMessage& midi,
+    const MidiState& midi_state,
+    const std::uint16_t bank_number,
+    const std::uint32_t observed_ram_sample_base,
+    const std::size_t measured_ram_sample_pool_words,
+    const OriginalCreativeSf2DriverResources& resources,
+    const OriginalSf2VoiceStartConditions& start,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_context,
+    const bool source_verified) noexcept {
+    if(!source_verified || !chip.ready() ||
+       !source_context.independently_verified_original_vxd_snapshot ||
+       !source_context.original_lcod_31word_table_verified ||
+       mutable_state.size()<kOriginalVxdMinDeviceImage ||
+       source_context.original_state_bytes.size()<kOriginalVxdMinDeviceImage ||
+       !std::equal(mutable_state.begin(),
+                   mutable_state.begin()+kOriginalVxdMinDeviceImage,
+                   source_context.original_state_bytes.begin()))
+        return std::nullopt;
+    const auto inventory=candidateOriginalSf2RamMonoNotePcmPlan(
+        bank,bank_number,midi_state.channel(midi.channel).program,
+        midi.data1,midi.data2,0xe00000u);
+    if(midi.kind!=MidiKind::NoteOn || midi.channel>=16u ||
+       midi.data1>127u || midi.data2==0u || midi.data2>127u ||
+       !inventory || inventory->count==0u ||
+       inventory->count>kOriginalCreativeMaxNoteStartDescriptors)
+        return std::nullopt;
+    const auto placement=candidateOriginalSf2RamPhysicalNotePlan(
+        bank,bank_number,midi_state.channel(midi.channel).program,
+        midi.data1,midi.data2,
+        observed_ram_sample_base,measured_ram_sample_pool_words,true);
+    if(!placement || placement->count!=inventory->count)
+        return std::nullopt;
+
+    // The unchanged source x86 idle selector uses original 30-voice
+    // VXD rows and live EMU8000 reads. Mark selected rows in a scratch
+    // copy so the second layer cannot claim an already assigned voice.
+    // Do not modify real chip or caller state before full preflight.
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> scratch{};
+    std::copy_n(mutable_state.begin(),scratch.size(),scratch.begin());
+    OriginalSf2ExecutedLiveLayeredBankNote result{};
+    std::array<std::uint8_t,kOriginalCreativeMaxNoteStartDescriptors> chosen{};
+    for(std::size_t i=0u;i<inventory->count;++i) {
+        const auto selected=candidateOriginalSf2LiveVxdMonoVoice(
+            chip,scratch,true);
+        if(!selected ||
+           selected->reason!=OriginalWin95MonoSelectionReason::CompletelyIdle ||
+           selected->physical_voice>=kOriginalCreativeMusicVoices)
+            return std::nullopt;
+        const auto voice=selected->physical_voice;
+        for(std::size_t j=0u;j<i;++j)
+            if(chosen[j]==voice)return std::nullopt;
+        chosen[i]=voice;
+        result.selections[i]=*selected;
+        const auto row=kOriginalVxdVoiceRowStart+
+            static_cast<std::size_t>(voice)*kOriginalVxdVoiceRowStride;
+        scratch[row]=midi.data1;
+        scratch[row+1u]=midi.channel;
+    }
+    const auto compiled=candidateOriginalSf2CompileRamBankNote(
+        bank,midi,midi_state,bank_number,observed_ram_sample_base,
+        measured_ram_sample_pool_words,
+        resources,start,source_context,
+        std::span<const std::uint8_t>(chosen.data(),inventory->count),true);
+    if(!compiled || compiled->voice_count!=inventory->count ||
+       compiled->typed_original_outs.count!=
+           static_cast<std::size_t>(inventory->count)*
+               kOriginalSf2OneVoiceStartWrites)
+        return std::nullopt;
+    auto original_after=source_context;
+    original_after.original_state_bytes=compiled->vxd_state_after_noteon;
+    if(!applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+           chip,compiled->selectedVoices(),original_after))
+        return std::nullopt;
+    std::copy_n(compiled->vxd_state_after_noteon.begin(),
+                kOriginalVxdMinDeviceImage,mutable_state.begin());
+    result.original_compilation=*compiled;
+    return result;
+}
 namespace {
 std::uint16_t readSourceMarker(
     const std::span<const std::uint8_t> state,

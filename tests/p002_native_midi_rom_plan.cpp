@@ -373,9 +373,11 @@ int main(){
     }
     awe64::Chip liveChip{};
     awe64::Chip layeredChip{};
+    awe64::Chip ramChip{};
     std::string chipError;
     CHECK(liveChip.open(syntheticRom,chipError));
     CHECK(layeredChip.open(syntheticRom,chipError));
+    CHECK(ramChip.open(syntheticRom,chipError));
     std::error_code cleanup;
     fs::remove(syntheticRom,cleanup);
     originalState[6]=30u; // original VXD 30 music voices
@@ -392,7 +394,48 @@ int main(){
             (3u<<5u)|i));
         layeredChip.writePort(0x620u,0u);
         layeredChip.writePort(0x622u,0u);
+        ramChip.writePort(0xe22u,static_cast<std::uint16_t>(
+            (3u<<5u)|i));
+        ramChip.writePort(0x620u,0u);
+        ramChip.writePort(0x622u,0u);
     }
+    // REAL original VXD 30-slot selector integrated with newly
+    // independent RAM SoundFont MIDI -> source PCOD -> full VXD chip
+    // NOTE ON. This public case uses synthetic PCM (no user SF2),
+    // never claims audible / identical original Creative Win95 PCM.
+    auto realRamState=originalState;
+    auto realRamContext=verifiedSyntheticVxd;
+    realRamContext.original_state_bytes=realRamState;
+    const auto ramStateBefore=realRamState;
+    CHECK(!candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+        ramChip,realRamState,sourceTwo,*on,midi,0u,
+        sourceRamPhysicalBase,64u,verifiedRamResources,
+        conditions,realRamContext,false));
+    CHECK(realRamState==ramStateBefore);
+    const auto realRamStarted=
+        candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+            ramChip,realRamState,sourceTwo,*on,midi,0u,
+            sourceRamPhysicalBase,64u,verifiedRamResources,
+            conditions,realRamContext,true);
+    CHECK(realRamStarted &&
+          realRamStarted->original_compilation.voice_count==2u &&
+          realRamStarted->original_compilation.typed_original_outs.count==122u &&
+          realRamStarted->selections[0].physical_voice==0u &&
+          realRamStarted->selections[1].physical_voice==3u);
+    const auto* originalRamChip=ramChip.rawForContractTesting();
+    CHECK(originalRamChip && originalRamChip->voice[0].ip==0xe000u &&
+          originalRamChip->voice[3].ip==0xe000u);
+    OriginalSf2RomBankVoiceOwnership ramVoiceLedger{};
+    CHECK(ramVoiceLedger.recordExecutedNoteOn(*realRamStarted,realRamState));
+    CHECK(ramVoiceLedger.trackedPhysicalVoices()==2u);
+    CHECK(ramVoiceLedger.controller64(ramChip,realRamState,2u,127u));
+    const auto ramOff=ramVoiceLedger.noteOff(
+        ramChip,realRamState,2u,60u);
+    CHECK(ramOff && ramOff->deferred_by_sustain);
+    const auto ramUp=ramVoiceLedger.controller64(
+        ramChip,realRamState,2u,0u);
+    CHECK(ramUp && ramUp->released_deferred_voices==2u &&
+          ramVoiceLedger.trackedPhysicalVoices()==0u);
     const auto live=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         liveChip,sf2,*on,midi,0u,524288u,verifiedSyntheticResources,
         conditions,verifiedSyntheticVxd,true);

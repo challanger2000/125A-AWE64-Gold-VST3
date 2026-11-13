@@ -145,6 +145,27 @@ candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
     const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
     const OriginalSf2VerifiedVxdDeviceSnapshot& source_verified_vxd_context,
     bool independently_verified_source_state_and_bank) noexcept;
+// Actual-SF2 RAM counterpart of the existing proven original source
+// live idle allocator. Requires RAM upload parity and 0x1592 VXD state
+// independently verified before calling; never invents chip DSP or
+// substitutes a ROM voice for RAM. For 1..6 selected real SF2 layers,
+// choose original live idle physical voices and emit one complete
+// ORIGINAL 61-OUT chip note-start per layer. No RT allocations.
+[[nodiscard]] std::optional<OriginalSf2ExecutedLiveLayeredBankNote>
+candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+    awe64::Chip& chip,
+    std::span<std::uint8_t> source_mutable_vxd_state,
+    std::span<const std::uint8_t> original_ram_sf2,
+    const MidiMessage& original_note_on,
+    const MidiState& original_midi_channel_state,
+    std::uint16_t original_resolved_bank,
+    std::uint32_t independently_observed_ram_sample_base,
+    std::size_t independently_verified_source_pcm_words,
+    const OriginalCreativeSf2DriverResources& source_vxd_resources,
+    const OriginalSf2VoiceStartConditions& source_device_and_channel,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_vxd_context,
+    bool independently_verified_original_driver_ram_upload_and_vxd_state) noexcept;
+
 // A source-verified 30-physical-voice bank session's MIDI release ledger.
 // Register only real bank-compiled NoteOns already executed by the
 // original hardware allocator; then use the exact Creative VXD NoteOff

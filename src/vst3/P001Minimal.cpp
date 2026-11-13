@@ -35,12 +35,15 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     // IParameterChanges. In normal P001 mode this parameter is absent.
     const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
     const char* bank=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
-    if((diag && *diag) || (bank && *bank))
+    const char* nativeRam=std::getenv("AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES");
+    const bool nativeRamRequested=(nativeRam && nativeRam[0]=='1' &&
+                                   nativeRam[1]=='\0');
+    if((diag && *diag) || (bank && *bank) || nativeRamRequested)
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
-    if(bank && *bank)
-        parameters.addParameter(STR16("P002 ROM SF2 program"),
+    if((bank && *bank) || nativeRamRequested)
+        parameters.addParameter(STR16("P002 source SF2 program"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateProgramParam));
     return kResultOk;
@@ -137,16 +140,31 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         (originalRamSf2 && *originalRamSf2) ||
         (originalRamPorts && *originalRamPorts) ||
         (originalRamFinal && *originalRamFinal);
+    // Default preserved: original ROM bank, source RAM port capture
+    // and P001 are mutually exclusive. Native RAM source implementation
+    // is an explicit, fail-closed opt-in which REQUIRES the three
+    // SHA-pinned original Win95 source RAM inputs + authentic x86 VXD
+    // resource/state pack. It does not enable captured note-clip replay.
+    const char* nativeRam=std::getenv("AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES");
+    const bool nativeRamRequested=(nativeRam && nativeRam[0]=='1' &&
+                                   nativeRam[1]=='\0');
+    const bool resourcePresent=sourcePath && *sourcePath;
+    const bool bankPresent=bankPath && *bankPath;
+    const bool diagnosticPresent=diagnosticPath && *diagnosticPath;
+    const bool completeRamOriginal=(originalRamSf2 && *originalRamSf2) &&
+        (originalRamPorts && *originalRamPorts) &&
+        (originalRamFinal && *originalRamFinal);
+    const bool modeConflict=nativeRamRequested
+        ? (!completeRamOriginal || !resourcePresent || bankPresent ||
+           diagnosticPresent || sourceRamNoteRequested)
+        : (bankPresent!=resourcePresent ||
+           (bankPresent && diagnosticPresent) ||
+           (sourceRamNoteRequested && !anyCapturedRam) ||
+           (anyCapturedRam &&
+            (!completeRamOriginal || bankPresent || diagnosticPresent)));
 
-    if((bankPath && *bankPath) != (sourcePath && *sourcePath) ||
-       ((bankPath && *bankPath) && (diagnosticPath && *diagnosticPath)) ||
-       (sourceRamNoteRequested && !anyCapturedRam) ||
-       (anyCapturedRam &&
-        (!(originalRamSf2 && *originalRamSf2) ||
-         !(originalRamPorts && *originalRamPorts) ||
-         !(originalRamFinal && *originalRamFinal) ||
-         (bankPath && *bankPath) ||
-         (diagnosticPath && *diagnosticPath)))) {
+    if((nativeRam && *nativeRam && !nativeRamRequested) ||
+       modeConflict) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
         chip_.close();return kResultFalse;
@@ -185,6 +203,26 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                    " source_final_260921_PCM16_WORDS_EXACT=TRUE"
                    " source_NOTEON_RECORDING_SHA_VERIFIED_OPTIONAL=TRUE"
                    " NATIVE_PCM_PARITY=NOT_PROVEN\n",stderr);
+    }
+    if(nativeRamRequested) {
+        // Actual original Creative 83-sample RAM state has ALREADY
+        // been independently authenticated and loaded above. Load
+        // the same owner SoundFont's source-original VXD resources
+        // for host-MIDI-driven NoteOn/Off. The original chip's RAM
+        // and DSP are never altered by this adapter's code.
+        std::string why;
+        if(!p002PrivateRamPreloaded_ ||
+           !p002RomBank_.load(std::filesystem::path(sourcePath),
+                              std::filesystem::path(originalRamSf2),
+                              why,true)) {
+            std::fprintf(stderr,
+                "125A P002 original Creative native RAM source rejected: %s\n",
+                why.c_str());
+            chip_.close();return kResultFalse;
+        }
+        chip_.writePort(0xe22u,(1u<<5u)|31u);
+        chip_.writePort(0xa20u,0x0004u);
+        p002BankEnabled_=true;
     }
     if(bankPath && *bankPath && sourcePath && *sourcePath) {
         std::string why;
@@ -229,7 +267,7 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
-    if(p002PrivateRamPreloaded_) {
+    if(p002PrivateRamPreloaded_ && !p002BankEnabled_) {
         // EXACT two original Win95 RAM NoteOn capture groups only;
         // no home-made patch data, filter, ADSR or fallback ROM voice.
         const auto v=static_cast<int>(velocity*127.f+0.5f);
@@ -301,7 +339,7 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
     if(!active_)return;
-    if(p002PrivateRamPreloaded_) {
+    if(p002PrivateRamPreloaded_ && !p002BankEnabled_) {
         if(p002OriginalRamNotes_.ready())
             (void)p002OriginalRamNotes_.noteOff(chip_,channel,pitch);
         return;

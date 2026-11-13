@@ -22,9 +22,11 @@ class P002PrivateRomBank {
 public:
     [[nodiscard]] bool load(const std::filesystem::path& source_pack,
                             const std::filesystem::path& soundfont,
-                            std::string& error);
+                            std::string& error,
+                            bool original_ram_source_already_sha_authenticated=false);
     void clear() noexcept;
     [[nodiscard]] bool ready() const noexcept {return ready_;}
+    [[nodiscard]] bool originalRamMode() const noexcept {return ram_mode_;}
     [[nodiscard]] std::uint8_t channel() const noexcept {return channel_;}
     [[nodiscard]] bool noteOn(awe64::Chip& chip,std::uint8_t channel,
                               std::uint8_t key,std::uint8_t velocity) noexcept;
@@ -52,5 +54,10 @@ private:
     std::uint16_t bank_number_=0;
     std::uint8_t channel_=0, program_=0;
     bool ready_=false;
+    bool ram_mode_=false;
+    // These two coordinates are authorized ONLY for the SHA-pinned
+    // owner SF2 original captured Win95 upload (83 samples).
+    std::uint32_t source_ram_base_=0u;
+    std::size_t source_ram_pool_words_=0u;
 };
 } // namespace awe64::vst3

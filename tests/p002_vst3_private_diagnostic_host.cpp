@@ -1153,6 +1153,14 @@ int wmain(int argc,wchar_t** argv){
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
+        // The independently generated native original RAM NoteOn
+        // path is opt-in and MUST reject activation without all
+        // authenticated Win95 source RAM and original VXD resources.
+        require(_wputenv_s(L"AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES",L"1")==0,
+                "select source-authenticated original RAM native MIDI");
+        {Instance refuseNativeRamWithoutSource(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES",L"")==0,
+                "clear native source RAM mode");
         // Original RAM preload must be fail-closed in the ACTUAL
         // exported Windows VST3. Public CI uses only synthetic/invalid
         // files; the real owner Creative/SF2 evidence stays PRIVATE.
@@ -1166,6 +1174,14 @@ int wmain(int argc,wchar_t** argv){
                             mutant.c_str())==0,
                 "set deliberately wrong complete original RAM sources");
         {Instance rejectInvalidOriginalCaptureSha(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",
+                            vxdResourcePath.c_str())==0 &&
+                _wputenv_s(L"AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES",L"1")==0,
+                "test original VXD resources cannot bypass SHA-pinned RAM");
+        {Instance refuseNativeRamUnverifiedOriginalCapture(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES",L"")==0,
+                "clear native source RAM mode");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                             sf2BankPath.c_str())==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",

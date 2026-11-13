@@ -55,11 +55,15 @@ void P002PrivateRomBank::clear() noexcept {
     midi_={};
     held_keys_.fill(false);
     bank_number_=0u;channel_=0u;program_=0u;
+    ram_mode_=false;
+    source_ram_base_=0u;
+    source_ram_pool_words_=0u;
 }
 bool P002PrivateRomBank::load(
     const std::filesystem::path& source_pack,
     const std::filesystem::path& soundfont,
-    std::string& error) {
+    std::string& error,
+    const bool original_ram_source_already_sha_authenticated) {
     clear();
     std::ifstream pack(source_pack,std::ios::binary|std::ios::ate);
     if(!pack || pack.tellg()!=static_cast<std::streamoff>(kPackLength)) {
@@ -148,23 +152,49 @@ bool P002PrivateRomBank::load(
         error="P002 RIFF length incorrect";
         clear();return false;
     }
-    // The old shdr[0]-only RAM guard could admit a mixed bank with
-    // ROM sample #0 and RAM sample #1, then misinterpret RAM addresses
-    // as original ROM. Reject every such bank BEFORE any MIDI/chip
-    // activation. Only original source-backed ROM-mono SF2 remains
-    // authorized; native Creative DRAM mapping is not yet proven.
+    // Separate two authentic sources: the existing original-ROM
+    // source bank and the owner Win95 original-driver-uploaded RAM bank.
+    // Without the SHA256-pinned RAM preload this path MUST reject all
+    // RAM samples. A mixed ROM/RAM bank is never silently accepted.
     const auto sampleInventory=
         candidateOriginalSf2InventoryAllSampleTypes(bank_bytes_);
     if(!sampleInventory || sampleInventory->sample_headers==0u) {
         error="P002 malformed or unsupported standard SF2 sample inventory";
         clear();return false;
     }
-    if(sampleInventory->ram_mono>0u ||
-       sampleInventory->unsupported>0u ||
-       sampleInventory->rom_mono!=sampleInventory->sample_headers) {
-        error="P002 ROM-only mode rejects RAM/linked SF2 samples: "
-              "original Creative VXD RAM upload remains unverified";
-        clear();return false;
+    if(original_ram_source_already_sha_authenticated) {
+        // This is the SAME bank already admitted by the separate
+        // original RAM trace+PCM SHA verifier on the activation thread.
+        // Generalized Creative RAM placement has NOT been established.
+        if(sampleInventory->sample_headers!=83u ||
+           sampleInventory->ram_mono!=83u ||
+           sampleInventory->rom_mono!=0u ||
+           sampleInventory->unsupported!=0u ||
+           bank_number_!=0u || program_>127u) {
+            error="P002 original Win95 RAM source bank/type not matched";
+            clear();return false;
+        }
+        constexpr std::uint32_t originalPhysicalBase=0x200010u;
+        constexpr std::size_t originalPoolWords=260921u;
+        // Require a standard RAM-mono sample descriptor within the
+        // exact original source pool; the preloader already verified
+        // the whole SF2 SHA and final chip RAM content.
+        const auto pool=candidateOriginalSf2ReadRamMonoSamplePcm(
+            bank_bytes_,0u,0xe00000u);
+        if(!pool || pool->total_pool_words!=originalPoolWords) {
+            error="P002 source SoundFont RAM pool not authentic";
+            clear();return false;
+        }
+        ram_mode_=true;
+        source_ram_base_=originalPhysicalBase;
+        source_ram_pool_words_=originalPoolWords;
+    }else {
+        if(sampleInventory->ram_mono>0u ||
+           sampleInventory->unsupported>0u ||
+           sampleInventory->rom_mono!=sampleInventory->sample_headers) {
+            error="P002 ROM-only mode rejects RAM/linked SF2 samples";
+            clear();return false;
+        }
     }
     MidiMessage program{};
     program.kind=MidiKind::Program;
@@ -200,6 +230,24 @@ bool P002PrivateRomBank::noteOn(
     context.original_lcod_31word_table_verified=true;
     context.source_negative_15word_table=negative_;
     context.source_positive_16word_table=positive_;
+    if(ram_mode_) {
+        // Authentic physical source RAM already exists in the
+        // unchanged EMU8000: execute the actual original VXD
+        // 1..6-voice idle allocator and freshly MIDI-compiled 61
+        // register OUTs per layer. Never replay a fixed C4/D4 clip.
+        const auto started=
+            candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+                chip,state_,bank_bytes_,midi,midi_,bank_number_,
+                source_ram_base_,source_ram_pool_words_,
+                resources_,start,context,true);
+        if(!started)return false;
+        if(!ownership_.recordExecutedNoteOn(*started,state_)) {
+            ready_=false;
+            return false;
+        }
+        held_keys_[key]=true;
+        return true;
+    }
     // Preserve original single-layer behavior. For 2..6 instrument
     // zones the NEW bounded source allocator selects one authentic
     // completely-idle physical voice per layer before issuing the full
