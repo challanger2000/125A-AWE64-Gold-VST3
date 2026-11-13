@@ -133,6 +133,28 @@ bool P002PrivateRomBank::load(
         error="P002 source resource pack layout invalid";
         clear();return false;
     }
+    if(original_ram_source_already_sha_authenticated) {
+        // The 125ABK01 header merely ASSERTS a VXD SHA; without this
+        // independent 820-byte hash any forged pitch/volume/template
+        // could masquerade as the real Windows-95 Creative algorithm.
+        // The real source is the independently hash-verified 77,370-
+        // byte owner's SBAWE.VXD; extract its original LE-page-mapped
+        // LCOD/PDAT resources on the owner side. Never embed the tables.
+        constexpr std::size_t startOfOriginalTables=
+            8u+32u+8u+kOriginalVxdMinDeviceImage+59u*2u;
+        constexpr std::size_t originalTableBytes=
+            59u*2u+128u*4u+128u+15u*2u+16u*2u;
+        static_assert(startOfOriginalTables+originalTableBytes==kPackLength);
+        if(!std::all_of(resources_.preset_template.begin(),
+                        resources_.preset_template.end(),
+                        [](std::int16_t v) noexcept {return v==0;}) ||
+           !isExactOriginalCreativeVxdResources(
+               bytes.subspan(startOfOriginalTables,originalTableBytes))) {
+            error="P002 native original RAM bank rejects forged "
+                  "Creative 1996 VXD pitch/volume/source templates";
+            clear();return false;
+        }
+    }
     std::ifstream source(soundfont,std::ios::binary|std::ios::ate);
     if(!source || source.tellg()<static_cast<std::streamoff>(12u) ||
        source.tellg()>static_cast<std::streamoff>(kMaxPrivateRomBankBytes)) {
