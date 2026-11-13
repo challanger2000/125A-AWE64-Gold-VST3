@@ -203,6 +203,118 @@ def scan_capture(lines, expected_pcm: bytes):
                 first_match_emu8000_word_address=first_match_address)
 
 
+def filter_original_ram_upload_port_writes(lines):
+    """Extract only ACTUAL captured SMALW/SMLD writes.
+
+    Each emitted 3-field event is a literal write from the original
+    EMU8K_TRACE (frame, port, value). No new pointer, sample, blank loop
+    padding, source byte order or address is ever synthesized. The
+    filtered output is directly compatible with the original chip
+    port-replay preflight, not a general register-trace equivalent.
+    """
+    selector = None
+    low = high = None
+    pointer = None
+    frame_prev = -1
+    yielded_words = 0
+    for number, raw in enumerate(lines, 1):
+        if number > MAX_TRACE_LINES:
+            raise ValueError("Original trace exceeds RAM capture event limit")
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = TRACE.fullmatch(line)
+        if not m:
+            raise ValueError(f"Invalid original captured register line {number}")
+        read, frame_raw, port_raw, value_raw = m.groups()
+        frame = int(frame_raw)
+        port = int(port_raw, 16)
+        value = int(value_raw, 16)
+        if frame < frame_prev or frame > MAX_CLOCK_FRAME:
+            raise ValueError(f"Original RAM capture clock order at line {number}")
+        frame_prev = frame
+        if read:
+            continue
+        if port == 0xE22:
+            if value == 0x36:
+                if selector == 0x36 and (low is None or high is None):
+                    raise ValueError("Original RAM pointer truncated mid-capture")
+                selector = 0x36
+                low = high = None
+                pointer = None
+                yield frame, port, value
+            elif value == 0x3A:
+                if pointer is None:
+                    # Captures started mid-stream without a valid
+                    # original SMALW pointer are NOT self-contained.
+                    raise ValueError("Original SMLD stream has no SMALW pointer")
+                selector = 0x3A
+                yield frame, port, value
+            else:
+                if selector == 0x36 and (low is None or high is None):
+                    raise ValueError("Incomplete original RAM address setter")
+                selector = None
+            continue
+        if selector == 0x36 and port in (0xA20, 0xA22):
+            if port == 0xA20:
+                if low is not None:
+                    raise ValueError("Duplicate original RAM low pointer")
+                low = value
+            else:
+                if high is not None:
+                    raise ValueError("Duplicate original RAM high pointer")
+                high = value
+            yield frame, port, value
+            if low is not None and high is not None:
+                pointer = low | (high << 16)
+                if not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
+                    raise ValueError("Original pointer outside installed EMU8000 RAM")
+        elif selector == 0x3A and port == 0xA20:
+            if pointer is None or not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
+                raise ValueError("Original source SMLD past installed RAM")
+            yielded_words += 1
+            yield frame, port, value
+            pointer += 1
+    if selector == 0x36 and (low is None or high is None):
+        raise ValueError("Original RAM trace has trailing partial address")
+    if not yielded_words:
+        raise ValueError("Original trace has no complete RAM SMLD words")
+
+
+def write_private_upload_replay(original_trace: Path, private_output: Path):
+    """Materialize only copied source port writes, never inside Git.
+
+    The owner must independently establish original Win95/SBAWE.VXD
+    provenance and separately verify SF2 PCM identity. This tool
+    intentionally cannot authorize the original VXD memory allocator.
+    """
+    original_trace = original_trace.resolve()
+    destination = private_output.resolve()
+    repo = Path(__file__).resolve().parents[1]
+    if destination == repo or repo in destination.parents:
+        raise ValueError("Original RAM upload replay may not enter Git")
+    if destination.exists() or destination == original_trace:
+        raise ValueError("Cannot overwrite source evidence or existing replay")
+    if not original_trace.is_file() or original_trace.stat().st_size > MAX_TRACE_BYTES:
+        raise ValueError("Private source capture missing or oversized")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    wrote = 0
+    try:
+        with original_trace.open("rt", encoding="ascii", errors="strict") as src:
+            with destination.open("x", encoding="ascii") as out:
+                out.write("# P002 original guest source RAM upload PORT WRITES only\n")
+                out.write("# SOURCE PROVENANCE REQUIRES INDEPENDENT VERIFICATION\n")
+                for frame, port, value in filter_original_ram_upload_port_writes(src):
+                    out.write(f"{frame} {port:04X} {value:04X}\n")
+                    wrote += 1
+        if wrote <= 4:
+            raise ValueError("No complete original source RAM upload replay")
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return wrote
+
+
 def sha256_file(path: Path):
     digest = hashlib.sha256()
     with path.open("rb") as f:
@@ -250,6 +362,8 @@ def main():
     parser.add_argument("--private-sf2", type=Path, required=True)
     parser.add_argument("--sample-id", type=int, required=True)
     parser.add_argument("--private-report", type=Path, required=True)
+    parser.add_argument("--private-filtered-ram-replay", type=Path,
+                        help="Optional PRIVATE literal original RAM-port writes; never inside Git")
     args = parser.parse_args()
     output = args.private_report.resolve()
     repo = Path(__file__).resolve().parents[1]
@@ -262,6 +376,12 @@ def main():
     with output.open("x",encoding="utf-8") as f:
         json.dump(report,f,indent=2)
         f.write("\n")
+    if args.private_filtered_ram_replay:
+        writes=write_private_upload_replay(
+            args.original_emu8k_trace,args.private_filtered_ram_replay)
+        print("P002_ORIGINAL_RAM_CAPTURE_LITERAL_PORTS_EXPORTED",
+              "exact_original_port_writes="+str(writes),
+              "Win95_source_provenance=REQUIRES_SEPARATE_GUEST_AUDIT")
     print("P002_ORIGINAL_RAM_UPLOAD_CAPTURE_SAMPLE_DIRECT_MATCH_CANDIDATE",
           "source_guest_provenance=NOT_INDEPENDENTLY_VERIFIED",
           "actual_RAM_original_driver_implementation=NOT_PROVEN",
