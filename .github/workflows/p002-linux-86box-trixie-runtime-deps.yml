@@ -1,0 +1,31 @@
+name: P002 verified Debian 13 deps for calibrated Linux 86Box runtime
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths: ['.github/workflows/p002-linux-86box-trixie-runtime-deps.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  obtain_missing_public_runtime_dependencies:
+    runs-on: ubuntu-22.04
+    container: debian:trixie
+    timeout-minutes: 15
+    steps:
+      - name: Obtain Debian 13 original shared-library packages for real VM boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ca-certificates
+          mkdir -p /tmp/p002-public-runtime
+          cd /tmp/p002-public-runtime
+          apt-get download libserialport0 libslirp0 librtmidi6
+          for file in *.deb; do dpkg-deb --contents "$file" | grep -E '\\.so\\.' | head -10; done
+          sha256sum *.deb > sha256sums.txt
+          echo 'P002_PUBLIC_DEBIAN13_MISSING_LIBRARIES_DOWNLOADED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-DEBIAN13-86BOX-RUNTIME-DEPS
+          path: /tmp/p002-public-runtime/
+          retention-days: 2
+          if-no-files-found: error
