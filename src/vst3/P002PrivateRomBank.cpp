@@ -1,5 +1,6 @@
 #include "P002PrivateRomBank.h"
 #include "CreativeMidiRomPlan.h"
+#include "CreativeSf2RamSamplePcm.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -145,6 +146,17 @@ bool P002PrivateRomBank::load(
     const std::uint32_t riffLength=u32(bank_bytes_,4u);
     if(riffLength!=length-8u) {
         error="P002 RIFF length incorrect";
+        clear();return false;
+    }
+    // First independently validated RAM SoundFont extraction stage:
+    // A valid genuine sdta/smpl + 46-byte RAM shdr is NOT a source-
+    // verified Creative upload or original VXD DRAM base allocation.
+    // Refuse this private ROM-only mode at ACTIVATION, rather than
+    // treating those RAM sample indices as 1MGM chip ROM addresses.
+    if(candidateOriginalSf2ReadRamMonoSamplePcm(
+           bank_bytes_,0u,awe64::kSampleRamBytes/2u)) {
+        error="P002 RAM-SF2 PCM identified: original Creative VXD "
+              "sample upload and address mapping not yet verified";
         clear();return false;
     }
     MidiMessage program{};
