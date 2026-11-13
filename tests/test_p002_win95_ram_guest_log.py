@@ -26,6 +26,8 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "WIN95_MIDI_DEVICE=0x00000001 NAME=SB AWE32 MIDI Synth",
         "CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT=0x00000001",
         "ORIGINAL_CREATIVE_MIDIOUT_OPEN_RESULT=0x00000000",
+        "PRE_LOAD_SYNTH_BANK_RESULT=0x00000000",
+        "PRE_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
         "PRE_LOAD_RESULT=0x00000000",
         "PRE_LOAD_TOTAL_16BIT_WORDS=0x00E00000",
         "PRE_LOAD_FREE_16BIT_WORDS=0x00D00000",
@@ -34,6 +36,8 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=0x00000000",
         "ORIGINAL_API_LOAD_END_TICK_MS=0x00000300",
         "ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END",
+        "POST_LOAD_SYNTH_BANK_RESULT=0x00000000",
+        "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
         "POST_LOAD_RESULT=0x00000000",
         "POST_LOAD_TOTAL_16BIT_WORDS=0x00E00000",
         "POST_LOAD_FREE_16BIT_WORDS=0x00CF0000",
@@ -94,6 +98,41 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
             auditor.audit(self.mutate(
                 "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E\r\n",
                 ""),self.bank)
+
+    def test_original_creative_synth_mode_queries_before_after_load(self):
+        report=auditor.audit(self.log,self.bank)
+        self.assertEqual(report["original_creative_synth_mode_before_load_id"],0)
+        self.assertEqual(report["original_creative_synth_mode_after_load_id"],0)
+        self.assertFalse(report["original_synth_mode_change_observed"])
+        self.assertEqual(report["original_midi_CC0_user_bank_mapping"],
+                         "NOT_PROVEN_BY_SYNTH_MODE_QUERY")
+        # Creative INDICES.H enumerates exactly GM, GS, MT32 and USER
+        # CUSTOM (=0..3). Observing a mode is NOT authentic MIDI CC0.
+        for mode in range(4):
+            changed=self.mutate(
+                "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
+                f"POST_LOAD_SYNTH_BANK_MODE_ID=0x{mode:08X}")
+            result=auditor.audit(changed,self.bank)
+            self.assertEqual(result["original_creative_synth_mode_after_load_id"],mode)
+            self.assertEqual(result["original_synth_mode_change_observed"],
+                             mode!=0)
+        for invalid in (4,128,65535):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError,"synth bank enum"):
+                    auditor.audit(self.mutate(
+                        "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
+                        f"POST_LOAD_SYNTH_BANK_MODE_ID=0x{invalid:08X}"),
+                        self.bank)
+        with self.assertRaisesRegex(ValueError,"POST_LOAD_SYNTH_BANK_RESULT"):
+            auditor.audit(self.mutate(
+                "POST_LOAD_SYNTH_BANK_RESULT=0x00000000",
+                "POST_LOAD_SYNTH_BANK_RESULT=0x00000001"),self.bank)
+        with self.assertRaisesRegex(ValueError,"before/after load order"):
+            auditor.audit(self.mutate(
+                "POST_LOAD_SYNTH_BANK_RESULT=0x00000000\\r\\n"
+                "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
+                "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000\\r\\n"
+                "POST_LOAD_SYNTH_BANK_RESULT=0x00000000"),self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
         result = auditor.audit(self.log, self.bank)
