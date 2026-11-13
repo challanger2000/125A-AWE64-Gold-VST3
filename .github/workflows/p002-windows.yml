@@ -52,6 +52,7 @@ on:
       - 'src/vst3/P001Minimal.cpp'
       - 'src/vst3/P001Minimal.h'
       - 'tests/p002_native_sbk_layers.cpp'
+      - 'tests/p002_native_sf2_ram_pcm_inventory.cpp'
       - 'tests/p002_native_midi_rom_plan.cpp'
       - 'tests/p002_native_pitch_candidate.cpp'
       - 'tests/p002_native_controller_volume.cpp'
