@@ -134,7 +134,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         bad[-1]="0 A20 1111"
         with self.assertRaisesRegex(ValueError,"nonmonotonic"):
             probe.scan_capture(bad,self.expected)
-        bad=list(self.trace);bad[-1]="123 BAD 1111"
+        bad=list(self.trace);bad[-1]="123 ZZZZ 1111"
         with self.assertRaisesRegex(ValueError,"invalid original"):
             probe.scan_capture(bad,self.expected)
         with self.assertRaisesRegex(ValueError,"no EMU8000"):
