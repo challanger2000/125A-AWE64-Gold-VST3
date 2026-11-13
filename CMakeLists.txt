@@ -118,6 +118,13 @@ target_link_libraries(awe64_replay PRIVATE awe64_fork_chip)
 add_executable(awe64_chip_contract tests/chip_contract.cpp)
 target_link_libraries(awe64_chip_contract PRIVATE awe64_fork_chip)
 add_test(NAME p001_chip_ram_rom_contract COMMAND awe64_chip_contract)
+// Passive read-only, sample-exact native physical port trace; no DSP edits.
+add_executable(awe64_p002_native_chip_port_trace_test
+    tests/p002_native_chip_port_trace.cpp)
+target_link_libraries(awe64_p002_native_chip_port_trace_test
+    PRIVATE awe64_fork_chip)
+add_test(NAME p002_native_original_chip_passive_port_trace
+    COMMAND awe64_p002_native_chip_port_trace_test)
 
 # A second process drives the *unmodified* original fork C interface directly
 # and records synthetic non-silent PCM; the adapter must replay its port writes

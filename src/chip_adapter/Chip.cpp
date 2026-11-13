@@ -21,7 +21,10 @@ void Chip::DeviceDeleter::operator()(emu8k_t* p) const noexcept {
     delete p;
 }
 Chip::~Chip() = default;
-void Chip::close() noexcept { device_.reset(); }
+void Chip::close() noexcept {
+    device_.reset();
+    trace_armed_=false;
+}
 
 bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     if (device_) { error = "Chip already initialized"; return false; }
@@ -62,6 +65,10 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
         return false;
     }
     device_ = std::move(candidate);
+    rendered_frames_=0;
+    trace_count_=0;
+    trace_overflow_=false;
+    trace_armed_=false;
     error.clear();
     return true;
 }
@@ -74,8 +81,28 @@ bool Chip::uploadRam(uint32_t address, std::span<const int16_t> samples) noexcep
                     samples.data(), samples.size_bytes());
     return true;
 }
+bool Chip::armPortWriteTrace(std::size_t maxWrites) noexcept {
+    if(!device_ || maxWrites==0u || maxWrites>262144u)
+        return false;
+    // Full reservation on activation thread. No allocation in process().
+    try {
+        trace_buffer_.resize(maxWrites);
+    }catch (...) {
+        return false;
+    }
+    trace_count_=0u;
+    trace_overflow_=false;
+    trace_armed_=true;
+    return true;
+}
 void Chip::writePort(uint16_t port, uint16_t value) noexcept {
     if (!device_) return;
+    if(trace_armed_) {
+        if(trace_count_<trace_buffer_.size())
+            trace_buffer_[trace_count_++]={rendered_frames_,port,value};
+        else
+            trace_overflow_=true;
+    }
     wavetable_pos_global = device_->pos;
     emu8k_outw(port, value, device_.get());
 }
@@ -91,6 +118,7 @@ void Chip::render(int32_t* dest, std::size_t frames) noexcept {
         emu8k_update(device_.get());
         std::memcpy(dest, device_->buffer, n * 2u * sizeof(int32_t));
         dest += n * 2u; frames -= n;
+        rendered_frames_+=n;
     }
 }
 }
