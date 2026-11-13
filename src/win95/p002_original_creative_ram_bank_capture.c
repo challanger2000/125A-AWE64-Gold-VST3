@@ -162,7 +162,16 @@ static int original_query_synth_bank(CREATIVE_AWEMANAGER manager,
     result=manager(handle,ORIGINAL_AWE_GET_SYN_BANK,
                    (LPARAM)&buffer,0);
     emit(label);emit("_RESULT=");hex32((DWORD)result);emit("\r\n");
-    if(result!=ORIGINAL_AWE_NO_ERR) return 0;
+    if(result!=ORIGINAL_AWE_NO_ERR) {
+        /* Original Creative read-only mode query failed in a genuine
+           86Box/Win95 test with result 0x000000CB. Our OWN prior
+           harness wrongly treated this extra diagnostic as mandatory,
+           and prevented the AWE_LOAD_USER_BANK call from happening.
+           Record an explicit unavailable sentinel, then continue the
+           ACTUAL source load/MIDI experiment without inventing mode. */
+        emit(label);emit("_MODE_ID=0xFFFFFFFF\r\n");
+        return 1;
+    }
     emit(label);emit("_MODE_ID=");hex32((DWORD)buffer.m_Flag);emit("\r\n");
     if(buffer.m_Flag>3u) {
         emit("ORIGINAL_CREATIVE_SYNTH_BANK_ENUM_INVALID\r\n");
@@ -181,7 +190,16 @@ static int original_query_dram(CREATIVE_AWEMANAGER manager,
     const LONG rc=manager(handle,ORIGINAL_AWE_QUERY_DRAM_SIZE,
                           (LPARAM)&total,(LPARAM)&available);
     emit(label);emit("_RESULT=");hex32((DWORD)rc);emit("\r\n");
-    if(rc!=ORIGINAL_AWE_NO_ERR)return 0;
+    if(rc!=ORIGINAL_AWE_NO_ERR) {
+        /* Diagnostic readout is NOT a prerequisite of the original
+           AWE_LOAD_USER_BANK API; keep exact error and explicit unknown
+           capacity. NEVER infer driver allocation from this sentinel. */
+        *total_words=0xFFFFFFFFu;
+        *available_words=0xFFFFFFFFu;
+        emit(label);emit("_TOTAL_16BIT_WORDS=0xFFFFFFFF\r\n");
+        emit(label);emit("_FREE_16BIT_WORDS=0xFFFFFFFF\r\n");
+        return 1;
+    }
     emit(label);emit("_TOTAL_16BIT_WORDS=");hex32(total);emit("\r\n");
     emit(label);emit("_FREE_16BIT_WORDS=");hex32(available);emit("\r\n");
     *total_words=total;
@@ -260,7 +278,7 @@ void WINAPI p002_ram_entry(void) {
         emit("ORIGINAL_AWEMAN32_CBUFFER_ABI_UNEXPECTED\r\n");
         goto done;
     }
-    report("ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
+    report("ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=",
            (DWORD)sizeof(ORIGINAL_CREATIVE_BUFFER));
     if(!sample_identity(&sample_bytes,&sample_fnv32)) {
         emit("PRIVATE_SAMPLE_MISSING_INVALID_RIFF_OR_UNREADABLE\r\n");
@@ -300,7 +318,8 @@ void WINAPI p002_ram_entry(void) {
     if(!original_query_dram(manager,handle,"PRE_LOAD",
                             &max_before,&free_before))
         goto done;
-    if(max_before==0u || free_before>max_before) {
+    if(max_before!=0xFFFFFFFFu &&
+       (max_before==0u || free_before>max_before)) {
         emit("ORIGINAL_DRIVER_PRELOAD_RAM_QUERY_UNUSABLE\r\n");goto done;
     }
     /* Exact original 1996 Creative example CBufferObject and
@@ -327,12 +346,17 @@ void WINAPI p002_ram_entry(void) {
     if(!original_query_dram(manager,handle,"POST_LOAD",
                             &max_after,&free_after))
         goto done;
-    if(max_after!=max_before || free_after>free_before) {
-        emit("ORIGINAL_DRIVER_DRAM_SIZE_INCONSISTENT\r\n");
-        goto done;
+    if(max_before!=0xFFFFFFFFu && max_after!=0xFFFFFFFFu) {
+        if(max_after!=max_before || free_after>free_before) {
+            emit("ORIGINAL_DRIVER_DRAM_SIZE_INCONSISTENT\r\n");
+            goto done;
+        }
+        report("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=",
+               free_before-free_after);
+    } else {
+        emit("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0xFFFFFFFF\r\n");
+        emit("CREATIVE_DRIVER_DRAM_DELTA_UNKNOWN_NOT_PROVEN\r\n");
     }
-    report("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=",
-           free_before-free_after);
     emit("GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF\r\n");
     /* The bank-load phase above is the authoritative DRAM-upload
        measurement. The following MIDI-only phase is separate and
