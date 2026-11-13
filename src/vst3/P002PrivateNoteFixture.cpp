@@ -41,7 +41,7 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     if(!bytes(file,magic) || !bytes(file,header) ||
        !bytes(file,vxd) || !bytes(file,bank) ||
        magic!=MAGIC || (header[0]!=1u && header[0]!=2u &&
-                         header[0]!=3u && header[0]!=4u) ||
+                         header[0]!=3u && header[0]!=4u && header[0]!=5u) ||
        vxd!=VXD_SHA ||
        bank!=BANK_SHA) {
         error="Private P002 diagnostic provenance/header invalid";return false;
@@ -56,7 +56,8 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
     candidate.key=header[3];candidate.velocity=header[4];
     candidate.voice_count=header[5];
     candidate.verified_source_note_release=header[0]>=2u;
-    candidate.two_note_diagnostic=header[0]==4u;
+    candidate.two_note_diagnostic=header[0]>=4u;
+    candidate.multi_note_diagnostic=header[0]==5u;
     const bool derive_release_from_original_note_start=header[0]>=3u;
     std::array<std::uint8_t,62> tables{};
     if(!bytes(file,candidate.original_device_state)||!bytes(file,tables)) {
@@ -131,6 +132,12 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
         candidate.second_key=second[0];
         candidate.second_velocity=second[1];
         candidate.second_voice_count=second[2];
+        if(static_cast<unsigned>(candidate.voice_count)+
+           static_cast<unsigned>(candidate.second_voice_count)>
+           awe64::creative::kOriginalCreativeMusicVoices) {
+            error="Private P002 physical note voice count exceeds chip";
+            return false;
+        }
         for(unsigned i=0;i<candidate.second_voice_count;++i) {
             char physical=0;
             if(!file.get(physical)) {
@@ -160,6 +167,67 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
                 return false;
             }
             seen|=1u<<voice.physical_voice;
+        }
+    }
+    if(candidate.multi_note_diagnostic) {
+        char n=0;
+        if(!file.get(n) || static_cast<std::uint8_t>(n)==0u ||
+           static_cast<std::uint8_t>(n)>
+               kP002MaxSourceNoteGroups-2u) {
+            error="Private P002 v5 number of source note groups invalid";
+            return false;
+        }
+        candidate.additional_note_count=static_cast<std::uint8_t>(n);
+        std::uint32_t total_voices=
+            static_cast<std::uint32_t>(candidate.voice_count)+
+            candidate.second_voice_count;
+        std::array<bool,128> used_keys{};
+        used_keys[candidate.key]=true;
+        used_keys[candidate.second_key]=true;
+        for(unsigned group=0;group<candidate.additional_note_count;++group) {
+            auto& note=candidate.additional_notes[group];
+            std::array<std::uint8_t,3> midi{};
+            if(!bytes(file,midi) || midi[0]>127u ||
+               used_keys[midi[0]] || midi[1]==0u || midi[1]>127u ||
+               midi[2]==0u ||
+               midi[2]>awe64::creative::kOriginalCreativeMaxNoteStartDescriptors ||
+               total_voices+midi[2]>awe64::creative::kOriginalCreativeMusicVoices) {
+                error="Private P002 v5 MIDI group or physical voice budget invalid";
+                return false;
+            }
+            note.key=midi[0];note.velocity=midi[1];
+            note.voice_count=midi[2];total_voices+=note.voice_count;
+            used_keys[note.key]=true;
+            for(unsigned i=0;i<note.voice_count;++i) {
+                char physical=0;
+                if(!file.get(physical)) {
+                    error="Private P002 v5 physical voice missing";
+                    return false;
+                }
+                auto& assigned=note.voices[i];
+                auto& voice=assigned.assigned_voice;
+                voice.physical_voice=static_cast<std::uint8_t>(physical);
+                voice.played_midi_key=note.key;
+                voice.source_original_voice_verified=true;
+                voice.lfo={true,0,0};
+                assigned.original_midi_channel=candidate.channel;
+                if(voice.physical_voice>=awe64::creative::kOriginalCreativeMusicVoices ||
+                   (seen&(1u<<voice.physical_voice))!=0u ||
+                   !bytes(file,voice.verified_after_start_record) ||
+                   voice.verified_after_start_record[0x8cu]!=1u ||
+                   voice.verified_after_start_record[0x8du]!=0u) {
+                    error="Private P002 v5 descriptor or voice ownership invalid";
+                    return false;
+                }
+                const auto& d=voice.verified_after_start_record;
+                const auto mode=static_cast<unsigned>(d[108u])|
+                    (static_cast<unsigned>(d[109u])<<8u);
+                if(mode!=1u) {
+                    error="Private P002 v5 source sample release mode invalid";
+                    return false;
+                }
+                seen|=1u<<voice.physical_voice;
+            }
         }
     }
     if(file.peek()!=std::char_traits<char>::eof()) {
@@ -197,25 +265,26 @@ bool loadP002PrivateNoteFixture(const std::filesystem::path& path,
         error="Private P002 original-source descriptor/state mismatch";
         return false;
     }
-    if(candidate.two_note_diagnostic) {
-        // Independently preflight the second complete original 61/122-
-        // OUT plan at activation, WITHOUT adding its note markers to
-        // the first note's mutable runtime VXD state. This avoids
-        // falsely marking an unplayed note as already active.
-        auto secondState=candidate.original_device_state;
-        const auto secondVoices=candidate.secondSelectedVoices();
+    // Independently preflight EVERY later original NoteOn's complete
+    // original register plan at activation, without marking its voices
+    // active in the runtime state before receiving the MIDI NoteOn.
+    // Entire v4/v5 fixture is rejected if ANY later source descriptor
+    // fails, even one destined for the last physical voice.
+    for(std::size_t group=1;group<candidate.noteGroupCount();++group) {
+        auto laterState=candidate.original_device_state;
+        const auto voices=candidate.groupVoices(group);
         if(!awe64::creative::candidateOriginalSf2StoreNoteOnSourceReleaseState(
-               secondState,true,secondVoices) ||
+               laterState,true,voices) ||
            !awe64::creative::candidateOriginalSf2WriteInitialIpToVxdState(
-               secondState,true,secondVoices)) {
-            error="Private P002 second-note original state invalid";
+               laterState,true,voices)) {
+            error="Private P002 additional source note-state invalid";
             return false;
         }
         auto check=candidate.sourceState();
-        check.original_state_bytes=secondState;
+        check.original_state_bytes=laterState;
         if(!awe64::creative::candidateOriginalSf2FullNoteOnFromVxdSnapshot(
-               secondVoices,check)) {
-            error="Private P002 second-note source registers invalid";
+               voices,check)) {
+            error="Private P002 additional source note registers invalid";
             return false;
         }
     }
