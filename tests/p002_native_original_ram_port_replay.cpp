@@ -97,7 +97,8 @@ int main() {
     invalid=traced;invalid[9].value=0xffe0u;
     CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
         chip,invalid,true));
-    invalid=traced;invalid.pop_back();invalid.pop_back();
+    invalid=traced;
+    invalid.pop_back();invalid.pop_back();invalid.pop_back();
     CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
         chip,invalid,true)); // dangling pointer before SMLD
     CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
