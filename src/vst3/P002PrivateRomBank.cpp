@@ -148,15 +148,22 @@ bool P002PrivateRomBank::load(
         error="P002 RIFF length incorrect";
         clear();return false;
     }
-    // First independently validated RAM SoundFont extraction stage:
-    // A valid genuine sdta/smpl + 46-byte RAM shdr is NOT a source-
-    // verified Creative upload or original VXD DRAM base allocation.
-    // Refuse this private ROM-only mode at ACTIVATION, rather than
-    // treating those RAM sample indices as 1MGM chip ROM addresses.
-    if(candidateOriginalSf2ReadRamMonoSamplePcm(
-           bank_bytes_,0u,awe64::kSampleRamBytes/2u)) {
-        error="P002 RAM-SF2 PCM identified: original Creative VXD "
-              "sample upload and address mapping not yet verified";
+    // The old shdr[0]-only RAM guard could admit a mixed bank with
+    // ROM sample #0 and RAM sample #1, then misinterpret RAM addresses
+    // as original ROM. Reject every such bank BEFORE any MIDI/chip
+    // activation. Only original source-backed ROM-mono SF2 remains
+    // authorized; native Creative DRAM mapping is not yet proven.
+    const auto sampleInventory=
+        candidateOriginalSf2InventoryAllSampleTypes(bank_bytes_);
+    if(!sampleInventory || sampleInventory->sample_headers==0u) {
+        error="P002 malformed or unsupported standard SF2 sample inventory";
+        clear();return false;
+    }
+    if(sampleInventory->ram_mono>0u ||
+       sampleInventory->unsupported>0u ||
+       sampleInventory->rom_mono!=sampleInventory->sample_headers) {
+        error="P002 ROM-only mode rejects RAM/linked SF2 samples: "
+              "original Creative VXD RAM upload remains unverified";
         clear();return false;
     }
     MidiMessage program{};
