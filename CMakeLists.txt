@@ -125,6 +125,20 @@ target_link_libraries(awe64_p002_native_chip_port_trace_test
     PRIVATE awe64_fork_chip)
 add_test(NAME p002_native_original_chip_passive_port_trace
     COMMAND awe64_p002_native_chip_port_trace_test)
+# Separate Win32 WAV-byte verifier. It produces a synthetic, locally
+# short-lived PCM fixture only; no original Creative/private data.
+# The same exact RIFF writer is used by the exported VST3 on deactivate.
+if(WIN32)
+    add_executable(awe64_p002_native_dry_pcm_writer_test
+        tests/p002_private_dry_pcm_capture.cpp
+        src/vst3/P002PrivateDryPcmCapture.cpp)
+    target_include_directories(awe64_p002_native_dry_pcm_writer_test
+        PRIVATE src/vst3)
+    target_compile_features(awe64_p002_native_dry_pcm_writer_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p002_real_win32_native_precard_pcm16_wav_writer
+        COMMAND awe64_p002_native_dry_pcm_writer_test)
+endif()
 
 # A second process drives the *unmodified* original fork C interface directly
 # and records synthetic non-silent PCM; the adapter must replay its port writes
@@ -719,6 +733,8 @@ if(AWE64_BUILD_P001_VST3)
     smtg_add_vst3plugin(AWE64_Gold_P001
         src/vst3/P001Minimal.h
         src/vst3/P001Minimal.cpp
+        src/vst3/P002PrivateDryPcmCapture.h
+        src/vst3/P002PrivateDryPcmCapture.cpp
         src/vst3/P002PrivateNoteFixture.h
         src/vst3/P002PrivateNoteFixture.cpp
         src/vst3/P002PrivateRomBank.h
