@@ -715,6 +715,8 @@ if(AWE64_BUILD_P001_VST3)
         src/vst3/P002PrivateNoteFixture.cpp
         src/vst3/P002PrivateRomBank.h
         src/vst3/P002PrivateRomBank.cpp
+        src/vst3/P002PrivateOriginalRamCapture.h
+        src/vst3/P002PrivateOriginalRamCapture.cpp
         src/vst3/P001Factory.cpp
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
@@ -725,7 +727,9 @@ if(AWE64_BUILD_P001_VST3)
         awe64_p002_sf2_vxd_state_snapshot
         awe64_p002_sf2_source_note_release
         awe64_p002_sf2_ram_pcm_inventory
-        awe64_p002_sf2_rom_bank_note_compiler)
+        awe64_p002_sf2_rom_bank_note_compiler
+        awe64_p002_original_ram_port_replay
+        bcrypt)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
     add_executable(awe64_p001_vst3_host tests/p001_vst3_host.cpp)
