@@ -43,6 +43,14 @@ struct Analysis {
             // whole-trace oracle, not get reinterpreted as SMLD.
             if(e.value!=kPointerSelect && e.value!=kDataSelect)
                 return std::nullopt;
+            // A later selector must not hide an unfinished original
+            // 32-bit SMALW address. Agree with the independent Python
+            // full-trace scanner/exporter and reject before chip writes.
+            if(a.selected==kPointerSelect &&
+               (!a.hasLow || !a.hasHigh))
+                return std::nullopt;
+            if(e.value==kDataSelect && !a.hasAddress)
+                return std::nullopt;
             a.selected=e.value;
             if(e.value==kPointerSelect) {
                 a.hasLow=false;
