@@ -44,6 +44,13 @@ def synth_guest_log(bank_size: int) -> bytes:
         "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC=0x00000000",
         "ORIGINAL_MIDI_C4_VEL100_RC=0x00000000",
         "ORIGINAL_MIDI_C4_OFF_RC=0x00000000",
+        "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN",
+        "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC=0x00000000",
+        "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC=0x00000000",
+        "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC=0x00000000",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC=0x00000000",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000",
+        "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END",
         "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC=0x00000000",
         "ORIGINAL_AWEMAN32_AWE_CLOSE_RC=0x00000000",
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK",
@@ -77,6 +84,9 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                          "REQUIRES_INDEPENDENT_CAPTURE")
         self.assertEqual(result["original_86box_guest_dry_pcm"],
                          "REQUIRES_INDEPENDENT_CAPTURE")
+        self.assertEqual(
+            result["original_Creative_AWE_SEND_MIDI_401_D4_vel100_zero_send_status"],
+            "ORIGINAL_AWEMAN32_API_ACCEPTED")
         self.assertFalse(result["release_approved"])
 
     def test_suspected_midi_mapper_or_unknown_dll_fails_closed(self):
@@ -148,6 +158,19 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 "PRIVATE_WIN95_SF2_FNV1A32=" +
                     hex32(auditor.fnv1a32(self.bank)),
                 "PRIVATE_WIN95_SF2_FNV1A32=0x00000000"),self.bank)
+
+    def test_direct_original_creative_midi_route_mandatory(self):
+        with self.assertRaisesRegex(ValueError,"DIRECT_D4_VEL100"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC=0x00000000",
+                "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC=0x00000001"),
+                self.bank)
+        with self.assertRaisesRegex(ValueError,"source phase|phase"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END",
+                "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n"
+                "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000"),
+                self.bank)
 
     def test_missing_or_reordered_capture_marker(self):
         no_begin=self.mutate(
