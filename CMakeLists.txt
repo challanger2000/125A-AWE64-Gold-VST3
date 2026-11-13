@@ -41,6 +41,56 @@ else()
     target_link_libraries(awe64_fork_chip PUBLIC m)
 endif()
 
+# Original AWE64 Gold POST-EMU8000 CT1745 wavetable/card output.
+# Reuse only pin-verified original 86Box audio behavior, no Sound Blaster
+# DSP, FM, CD, PnP or guessed Creative driver mixer state.
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" hash-object
+        "${FORK_ROOT}/src/sound/snd_sb.c"
+    OUTPUT_VARIABLE GOLD_SB_BLOB OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE GOLD_SB_RC)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" hash-object
+        "${FORK_ROOT}/src/include/86box/filters.h"
+    OUTPUT_VARIABLE GOLD_FILTER_BLOB OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE GOLD_FILTER_RC)
+if(NOT GOLD_SB_RC EQUAL 0 OR NOT GOLD_SB_BLOB STREQUAL
+    "6d9a2da64e696237e0f3e4f210d75bc6e8ea0a63")
+    message(FATAL_ERROR "Pinned CT1745 snd_sb.c original source changed")
+endif()
+if(NOT GOLD_FILTER_RC EQUAL 0 OR NOT GOLD_FILTER_BLOB STREQUAL
+    "572137ef02ef1c708e1b6def4487bb53f8230dcf")
+    message(FATAL_ERROR "Pinned CT1745 filters.h original coefficients changed")
+endif()
+add_library(awe64_p002_ct1745_wavetable STATIC
+    src/card_mixer/OriginalCt1745WavetableMixer.cpp)
+target_include_directories(awe64_p002_ct1745_wavetable
+    PUBLIC src/card_mixer)
+target_compile_features(awe64_p002_ct1745_wavetable PUBLIC cxx_std_23)
+add_executable(awe64_p002_ct1745_wavetable_contract
+    tests/p002_gold_ct1745_adapter_contract.cpp)
+target_link_libraries(awe64_p002_ct1745_wavetable_contract
+    PRIVATE awe64_p002_ct1745_wavetable)
+add_test(NAME p002_original_awe64_gold_ct1745_post_chip_vectors
+         COMMAND awe64_p002_ct1745_wavetable_contract)
+
+# Independent, unmodified original fork static function oracle.
+# Linux-only test isolation uses GNU section garbage collection.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(awe64_p002_fork_wavetable_mixer_path
+        tests/p002_fork_awe64_wavetable_mixer_path.c)
+    target_include_directories(awe64_p002_fork_wavetable_mixer_path PRIVATE
+        "${FORK_ROOT}/src/include" "${FORK_ROOT}/src" "${FORK_ROOT}/src/cpu")
+    target_compile_options(awe64_p002_fork_wavetable_mixer_path
+        PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(awe64_p002_fork_wavetable_mixer_path
+        PRIVATE -Wl,--gc-sections)
+    target_link_libraries(awe64_p002_fork_wavetable_mixer_path PRIVATE m)
+    add_test(NAME p002_pinned_fork_awe64_gold_wavetable_mixer_path
+             COMMAND awe64_p002_fork_wavetable_mixer_path)
+endif()
+
 add_executable(awe64_replay tests/replay.cpp)
 target_link_libraries(awe64_replay PRIVATE awe64_fork_chip)
 add_executable(awe64_chip_contract tests/chip_contract.cpp)
@@ -649,6 +699,7 @@ if(AWE64_BUILD_P001_VST3)
     target_include_directories(AWE64_Gold_P001 PRIVATE
         "${AWE64_VST3_SDK_ROOT}")
     target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip
+        awe64_p002_ct1745_wavetable
         awe64_p002_sf2_vxd_state_snapshot
         awe64_p002_sf2_source_note_release
         awe64_p002_sf2_ram_pcm_inventory
