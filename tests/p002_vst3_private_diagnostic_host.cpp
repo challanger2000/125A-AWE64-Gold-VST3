@@ -9,6 +9,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#ifdef AWE64_P002_RT_HEAP_AUDIT
+#include "MinHook.h"
+#endif
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -35,6 +38,67 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 namespace {
 void require(const bool p,const char* msg){if(!p)throw std::runtime_error(msg);}
+#ifdef AWE64_P002_RT_HEAP_AUDIT
+using RtlAllocateHeapFn=PVOID (NTAPI*)(PVOID,ULONG,SIZE_T);
+RtlAllocateHeapFn originalAllocateHeap=nullptr;
+thread_local bool inOriginalBankCallback=false;
+thread_local std::uint64_t originalBankAllocations=0u;
+thread_local std::uint64_t originalBankAllocatedBytes=0u;
+PVOID NTAPI monitoredAllocateHeap(PVOID heap,ULONG flags,SIZE_T bytes) {
+    if(inOriginalBankCallback) {
+        ++originalBankAllocations;
+        originalBankAllocatedBytes+=bytes;
+    }
+    return originalAllocateHeap(heap,flags,bytes);
+}
+class P002RuntimeHeapMonitor {
+public:
+    P002RuntimeHeapMonitor() {
+        require(MH_Initialize()==MH_OK,"P002 MinHook init failure");
+        const auto result=MH_CreateHookApi(
+            L"ntdll.dll","RtlAllocateHeap",
+            reinterpret_cast<LPVOID>(&monitoredAllocateHeap),
+            reinterpret_cast<LPVOID*>(&originalAllocateHeap));
+        require(result==MH_OK && originalAllocateHeap,
+                "P002 RtlAllocateHeap hook absent");
+        require(MH_EnableHook(MH_ALL_HOOKS)==MH_OK,
+                "P002 RT allocation instrumentation inactive");
+        const auto before=originalBankAllocations;
+        inOriginalBankCallback=true;
+        void* p=HeapAlloc(GetProcessHeap(),0,64u);
+        inOriginalBankCallback=false;
+        require(p!=nullptr,"P002 RT hook control allocation failed");
+        HeapFree(GetProcessHeap(),0,p);
+        require(originalBankAllocations>before &&
+                originalBankAllocatedBytes>=64u,
+                "P002 RT allocation instrumentation positive control failed");
+        originalBankAllocations=0u;
+        originalBankAllocatedBytes=0u;
+    }
+    ~P002RuntimeHeapMonitor() {
+        inOriginalBankCallback=false;
+        MH_DisableHook(MH_ALL_HOOKS);
+        MH_Uninitialize();
+    }
+    P002RuntimeHeapMonitor(const P002RuntimeHeapMonitor&)=delete;
+    P002RuntimeHeapMonitor& operator=(const P002RuntimeHeapMonitor&)=delete;
+};
+#endif
+tresult auditedOriginalBankProcess(
+    IAudioProcessor* processor,ProcessData& data) {
+#ifdef AWE64_P002_RT_HEAP_AUDIT
+    const auto before=originalBankAllocations;
+    inOriginalBankCallback=true;
+    const auto result=processor->process(data);
+    inOriginalBankCallback=false;
+    require(originalBankAllocations==before,
+            "P002 exported ROM-SF2 bank process() allocated realtime heap");
+    return result;
+#else
+    return processor->process(data);
+#endif
+}
+
 void word(std::array<std::uint8_t,148>& b,unsigned id,int v){
     const auto w=static_cast<std::uint16_t>(v);
     b[2u*id]=static_cast<std::uint8_t>(w);
@@ -237,7 +301,7 @@ Audio renderNote(IPluginFactory* factory,float velocity,
         data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
         data.inputEvents=&list;
         data.inputParameterChanges=&changes;
-        require(instance.audio->process(data)==kResultOk,
+        require(auditedOriginalBankProcess(instance.audio,data)==kResultOk,
                 "actual exported VST3 source-DSP process failed");
         for(int i=0;i<512;++i){
             require(std::isfinite(left[i])&&std::isfinite(right[i]),
@@ -314,7 +378,7 @@ Audio renderTwoSourceNotes(IPluginFactory* factory,bool sendSecond,
         data.outputs=&bus;data.numOutputs=1;
         data.inputEvents=&events;
         data.inputParameterChanges=&changes;
-        require(instance.audio->process(data)==kResultOk,
+        require(auditedOriginalBankProcess(instance.audio,data)==kResultOk,
                 "actual VST3 dual-key process failed");
         for(unsigned i=0;i<512u;++i)
             for(const auto value:{left[i],right[i]}) {
@@ -388,7 +452,7 @@ Audio renderManySourceNotes(IPluginFactory* factory,
         data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
         data.inputEvents=&events;
         data.inputParameterChanges=&changes;
-        require(instance.audio->process(data)==kResultOk,
+        require(auditedOriginalBankProcess(instance.audio,data)==kResultOk,
                 "exported VST3 source-v5 multi-note process failed");
         for(unsigned frame=0;frame<512u;++frame)
             for(const auto value:{left[frame],right[frame]}) {
@@ -623,7 +687,7 @@ Audio renderRealBankNotes(IPluginFactory* factory,unsigned noteCount,
         data.outputs=&out;data.numOutputs=1;
         data.inputEvents=&events;
         data.inputParameterChanges=&changes;
-        require(instance.audio->process(data)==kResultOk,
+        require(auditedOriginalBankProcess(instance.audio,data)==kResultOk,
                 "actual VST3 bank source processing failed");
         for(unsigned frame=0;frame<512u;++frame)
             for(const auto sample:{left[frame],right[frame]}) {
@@ -693,7 +757,7 @@ Audio renderBankProgramChange(
         data.outputs=&output;data.numOutputs=1;
         data.inputEvents=&events;
         data.inputParameterChanges=&changes;
-        require(instance.audio->process(data)==kResultOk,
+        require(auditedOriginalBankProcess(instance.audio,data)==kResultOk,
                 "real VST3 ROM SF2 per-program playback failed");
         for(unsigned i=0;i<512u;++i)
             for(const auto sample:{left[i],right[i]}) {
@@ -804,6 +868,9 @@ int wmain(int argc,wchar_t** argv){
         require(get!=nullptr,"exported plugin factory absent");
         factory=get();
         require(factory!=nullptr,"actual VST3 factory null");
+#ifdef AWE64_P002_RT_HEAP_AUDIT
+        P002RuntimeHeapMonitor rtAllocationGuard{};
+#endif
         const auto correct=renderNote(factory,90.f/127.f);
         require(correct.nonzero>300u,"actual P002 note-on PCM is silent");
         const auto repeat=renderNote(factory,90.f/127.f);
@@ -1130,6 +1197,13 @@ int wmain(int argc,wchar_t** argv){
                  <<" actual_source_ROM_SF2_program_7_to_9_changes_PCM=TRUE"
                  <<" program_change_existing_voices_unaffected=TRUE"
                  <<" program_change_same_sample_precedes_NoteOn=TRUE"
+
+#ifdef AWE64_P002_RT_HEAP_AUDIT
+                 <<" P002_original_bank_30voice_program_CC64_rt_heap_calls="
+                 <<originalBankAllocations
+                 <<" rt_heap_bytes="<<originalBankAllocatedBytes
+                 <<" positive_allocation_hook=TRUE"
+#endif
                  <<" unrestricted_RAM_SF2_and_Win95_PCM_PARITY=NOT_PROVEN\n";
         return 0;
     }catch(const std::exception& e){
