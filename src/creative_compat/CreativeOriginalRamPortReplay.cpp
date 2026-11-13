@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
+#include <algorithm>
 namespace awe64::creative {
 namespace {
 constexpr std::uint16_t kPointerSelect=0x36u; // (1u<<5) | 22u: SMALW
@@ -184,5 +186,94 @@ candidateReplaySourceMatchedOriginalRamSf2Sample(
     // port stream to the original 86Box chip; no guessed note DSP.
     return candidateReplayOriginalCreativeCapturedRamUpload(
         chip,captured,true);
+}
+// Independent original Win95 memory experiment: validate FINAL source
+// DRAM content, not first-write order. The original Creative loader
+// legitimately rewrites the same physical word at RAM block edges.
+// No source driver memory allocator, filter algorithm or address is
+// synthesized here. The complete ORIGINAL port sequence is preflighted
+// before touching the pinned original EMU8000.
+std::optional<OriginalObservedFinalRamBankReplay>
+candidateReplayObservedOriginalCreativeFinalRamBank(
+    awe64::Chip& chip,
+    const std::span<const OriginalRamUploadPortWrite> ports,
+    const std::uint32_t observedBase,
+    const std::span<const std::uint16_t> independentlyAuthenticatedFinal,
+    const bool independentlyVerifiedOriginalCreativeSource,
+    const bool independentlyVerifiedOriginalSourceBankFinalHash) {
+    if(!chip.ready() || !independentlyVerifiedOriginalCreativeSource ||
+       !independentlyVerifiedOriginalSourceBankFinalHash ||
+       independentlyAuthenticatedFinal.empty() ||
+       !validAddress(observedBase) ||
+       independentlyAuthenticatedFinal.size()>
+          kExclusiveFmReservedWord-observedBase)
+        return std::nullopt;
+    // This checks the ENTIRE ordered trace, not just chosen sample
+    // words. Malformed selectors/clock/partial addresses reject before
+    // allocating or writing any hardware-visible register.
+    const auto plan=preflight(ports);
+    if(!plan)return std::nullopt;
+
+    // Off-RT temporary arrays: a missing zero sample MUST NOT be
+    // accepted just because fresh EMU8000 RAM also happens to be zero.
+    std::vector<std::uint16_t> final(independentlyAuthenticatedFinal.size());
+    std::vector<std::uint8_t> seen(independentlyAuthenticatedFinal.size());
+    std::uint16_t selector=0xffffu,lo=0u,hi=0u;
+    std::uint32_t physical=0u;
+    bool haveLo=false,haveHi=false,havePointer=false;
+    std::size_t repeated=0u,uniqueRepeated=0u;
+    for(const auto& event:ports) {
+        if(event.port==kVoiceSelectorPort) {
+            selector=event.value;
+            if(selector==kPointerSelect) {
+                lo=hi=0u;haveLo=haveHi=havePointer=false;
+            }
+            continue;
+        }
+        if(selector==kPointerSelect) {
+            if(event.port==kDataLowPort) {
+                lo=event.value;haveLo=true;
+            }else if(event.port==kDataHighPort) {
+                hi=event.value;haveHi=true;
+            }
+            if(haveLo && haveHi) {
+                physical=static_cast<std::uint32_t>(lo)|
+                    (static_cast<std::uint32_t>(hi)<<16u);
+                havePointer=true;
+            }
+        }else if(selector==kDataSelect && event.port==kDataLowPort) {
+            if(!havePointer)return std::nullopt;
+            if(physical>=observedBase &&
+               physical-observedBase<final.size()) {
+                const auto index=static_cast<std::size_t>(
+                    physical-observedBase);
+                if(seen[index]) {
+                    ++repeated;
+                    if(seen[index]==1u)++uniqueRepeated;
+                    seen[index]=2u;
+                }else seen[index]=1u;
+                // Last original driver SMLD write WINS. Do not
+                // average, reconstruct from unsigned source PCM or
+                // discard changed-value physical overwrites.
+                final[index]=event.value;
+            }
+            ++physical;
+        }
+    }
+    if(std::any_of(seen.begin(),seen.end(),
+                   [](std::uint8_t count){return count==0u;}) ||
+       !std::equal(final.begin(),final.end(),
+                   independentlyAuthenticatedFinal.begin()))
+        return std::nullopt;
+
+    // The real original chip is modified ONLY AFTER successful
+    // full-source final-state verification. The existing port bridge
+    // drives source register writes in their EXACT recorded order.
+    const auto result=
+        candidateReplayOriginalCreativeCapturedRamUpload(
+            chip,ports,true);
+    if(!result)return std::nullopt;
+    return OriginalObservedFinalRamBankReplay{
+        *result, observedBase,final.size(),repeated,uniqueRepeated};
 }
 } // namespace awe64::creative
