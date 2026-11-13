@@ -71,6 +71,10 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                          0x200400)
         self.assertEqual(result["ram_word_writes"],41)
         self.assertEqual(result["original_register_reads"],1)
+        self.assertEqual(result["historical_pcm16_upload_matches"],1)
+        self.assertEqual(result["final_state_unoverwritten_pcm16_matches"],1)
+        self.assertEqual(result["first_final_state_emu8000_word_address"],0x200400)
+        self.assertEqual(result["selected_sample_overlapped_ram_words"],0)
 
     def test_independent_file_hash_provenance_is_not_asserted(self):
         with tempfile.TemporaryDirectory() as td:
@@ -181,6 +185,89 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         result=probe.scan_capture(contiguous,self.expected)
         self.assertEqual(result["direct_pcm16_upload_matches"],2)
 
+    def test_codex_repro_1_historical_pcm_overwritten_not_final_ram_state(self):
+        # First real-looking source sample matched in full. The
+        # original hardware then overwrites the FIRST physical word
+        # after a new SMALW address: historical == 1; final == 0.
+        # The same byte value must not excuse duplicate physical
+        # writes: the original native preflight is deliberately strict.
+        for last_value in (0xDEAD, self.sample_words[0]):
+            later=[
+                "48 E22 0036", "48 A20 0400", "48 A22 0020",
+                "48 E22 003A", f"48 A20 {last_value:04X}",
+            ]
+            trace=self.trace+later
+            scan=probe.scan_capture(trace,self.expected)
+            self.assertEqual(scan["direct_pcm16_upload_matches"],1)
+            self.assertEqual(scan["historical_pcm16_upload_matches"],1)
+            self.assertEqual(scan["first_match_emu8000_word_address"],
+                             0x200400)
+            self.assertEqual(scan["final_state_unoverwritten_pcm16_matches"],0)
+            self.assertEqual(scan["first_final_state_emu8000_word_address"],None)
+            self.assertEqual(scan["selected_sample_overlapped_ram_words"],1)
+            self.assertEqual(scan["physical_ram_word_rewrite_events"],1)
+            with tempfile.TemporaryDirectory() as td:
+                p=Path(td)
+                bank=p/"same-private-bank.sf2"
+                tracefile=p/"overwritten-original-shaped.trace"
+                bank.write_bytes(self.sf2)
+                tracefile.write_text("\n".join(trace)+"\n",encoding="ascii")
+                with self.assertRaisesRegex(ValueError,"overwritten|overlapped"):
+                    probe.analyze(tracefile,bank,0)
+
+    def test_codex_repro_2_dangling_smalw_eof_rejected_by_scan_and_export(self):
+        # A complete prior soundbank sample is NOT enough to accept a
+        # truncated new SMALW write at EOF. Both scanner and literal
+        # exporter must require a COMPLETE hardware trace.
+        for tail in (["49 E22 0036"],
+                     ["49 E22 0036","49 A20 1234"],
+                     ["49 E22 0036","49 A22 0020"],
+                     ["49 E22 0036","49 A20 1234",
+                      "49 E22 003A"]):
+            trace=self.trace+tail
+            with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                probe.scan_capture(trace,self.expected)
+            with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                list(probe.filter_original_ram_upload_port_writes(trace))
+            with tempfile.TemporaryDirectory() as td:
+                p=Path(td)
+                bank=p/"sample.sf2"
+                tracefile=p/"partial.trace"
+                bank.write_bytes(self.sf2)
+                tracefile.write_text("\n".join(trace)+"\n",encoding="ascii")
+                with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                    probe.analyze(tracefile,bank,0)
+
+    def test_codex_repro_3_odd_byte_match_must_not_skip_aligned_offset_two(self):
+        # Historical bug: b'\x11' * 32 has an initial match
+        # at ODD byte offset 1 and real valid WORD-aligned match at 2.
+        # find(expected, at+2) incorrectly advanced 1 -> 3 and
+        # missed physical word address 0x200401.
+        expected=b"\x11"*32
+        raw=b"\x00"+b"\x11"*34+b"\x00"
+        self.assertEqual(len(raw),36)
+        self.assertEqual([i for i in range(0,len(raw)-len(expected)+1,2)
+                          if raw[i:i+len(expected)]==expected],[2])
+        words=struct.unpack("<18H",raw)
+        trace=[
+            "0 E22 0036","0 A20 0400","0 A22 0020",
+            "0 E22 003A",
+        ]+[f"1 A20 {word:04X}" for word in words]
+        scan=probe.scan_capture(trace,expected)
+        self.assertEqual(scan["historical_pcm16_upload_matches"],1)
+        self.assertEqual(scan["final_state_unoverwritten_pcm16_matches"],1)
+        self.assertEqual(scan["first_final_state_emu8000_word_address"],
+                         0x200401)
+        # A SECOND valid word-aligned copy stays ambiguous (NO-GO).
+        additional=[
+            "2 E22 0036","2 A20 0600","2 A22 0020",
+            "2 E22 003A",
+        ]+[f"2 A20 {word:04X}" for word in struct.unpack(
+            "<16H",expected)]
+        duplicate=probe.scan_capture(trace+additional,expected)
+        self.assertEqual(duplicate["historical_pcm16_upload_matches"],2)
+        self.assertEqual(duplicate["final_state_unoverwritten_pcm16_matches"],0)
+
     def test_pointer_provenance_and_range_controls(self):
         bad=list(self.trace)
         bad[10]="4 A22 0001"  # below installed RAM base
@@ -191,7 +278,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"outside installed"):
             probe.scan_capture(bad,self.expected)
         bad=[e for e in self.trace if e!="4 A22 0020"]
-        with self.assertRaisesRegex(ValueError,"missing safe"):
+        with self.assertRaisesRegex(ValueError,"SMALW pointer"):
             probe.scan_capture(bad,self.expected)
         bad=list(self.trace);bad[11]="5 E22 003B"
         self.assertEqual(probe.scan_capture(bad,self.expected)
