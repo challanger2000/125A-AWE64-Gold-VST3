@@ -107,7 +107,10 @@ class OriginalRamNoteGeometryProofTests(unittest.TestCase):
                 "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x00010000",
                 "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x0003FB49")
             (root/"source.sf2").write_bytes(sf2)
-            (root/"guest.log").write_text(log,encoding="ascii")
+            # synth_guest_log supplies canonical CRLF bytes. write_text()
+            # translates LF again on Windows and creates CR-CR-LF, making
+            # the independent original-guest auditor reject our own test.
+            (root/"guest.log").write_bytes(log.encode("ascii"))
             (root/"trace.log").write_text(
                 "\n".join(self.trace)+"\n",encoding="ascii")
             proof=checker.analyze(
@@ -117,10 +120,10 @@ class OriginalRamNoteGeometryProofTests(unittest.TestCase):
                 proof["original_Win95_Creative_API_load_and_MIDI_CC0_1_audited"])
             self.assertEqual(
                 proof["status"],"ORIGINAL_CREATIVE_C4_D4_VERIFIED_REAL_RAM_NOT_ROM")
-            (root/"guest.log").write_text(
+            (root/"guest.log").write_bytes(
                 log.replace(
                     "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000000",
-                    "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000001"),encoding="ascii")
+                    "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000001").encode("ascii"))
             with self.assertRaisesRegex(ValueError,"BANK_SELECT_MSB1"):
                 checker.analyze(root/"trace.log",root/"guest.log",
                                 root/"source.sf2",C4,D4,BASE)
