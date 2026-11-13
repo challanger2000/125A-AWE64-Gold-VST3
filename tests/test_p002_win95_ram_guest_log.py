@@ -127,7 +127,7 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                         "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
                         f"POST_LOAD_SYNTH_BANK_MODE_ID=0x{invalid:08X}"),
                         self.bank)
-        with self.assertRaisesRegex(ValueError,"POST_LOAD_SYNTH_BANK_RESULT"):
+        with self.assertRaisesRegex(ValueError,"Unexpected original Creative synth bank query result"):
             auditor.audit(self.mutate(
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000000",
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000001"),self.bank)
@@ -175,7 +175,7 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
              "POST_LOAD_SYNTH_BANK_RESULT=0x00000001"),
         ):
             with self.subTest(old=old):
-                with self.assertRaisesRegex(ValueError,"synth bank"):
+                with self.assertRaisesRegex(ValueError,"synth bank|synth mode sentinel"):
                     auditor.audit(unknown.replace(old.encode(),new.encode()),self.bank)
         # Claimed successful query with unknown enum is also rejected.
         forged=unknown.replace(b"POST_LOAD_SYNTH_BANK_RESULT=0x000000CB",
