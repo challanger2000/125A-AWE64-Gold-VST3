@@ -8,6 +8,8 @@ on:
       - tests/test_p002_win95_ram_stage.py
       - tools/p002_verify_original_win95_ram_guest_log.py
       - tests/test_p002_win95_ram_guest_log.py
+      - tools/p002_extract_original_win95_ram_log_fat16.py
+      - tests/test_p002_extract_win95_ram_log_fat16.py
       - .github/workflows/p002-win95-ram-bank-capture.yml
   workflow_dispatch:
 permissions:
@@ -22,6 +24,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_p002_win95_ram_stage.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_win95_ram_guest_log.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_extract_win95_ram_log_fat16.py' -v
           echo 'P002_PRIVATE_WIN95_ORIGINAL_DRIVER_RAM_GUEST_FAT16_STAGING_SYNTHETIC_PASS'
       - name: Install original Win95-compatible i586 compiler
         run: |
