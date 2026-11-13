@@ -199,9 +199,9 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
              "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC"),
             ("ORIGINAL_BANK_SELECT_MSB1_RC","ORIGINAL_PROGRAM0_RC"),
         ):
-            original=(first+"=0x00000000\\r\\n"+
+            original=(first+"=0x00000000\r\n"+
                       second+"=0x00000000")
-            reordered=(second+"=0x00000000\\r\\n"+
+            reordered=(second+"=0x00000000\r\n"+
                        first+"=0x00000000")
             with self.assertRaisesRegex(ValueError,"phase/order"):
                 auditor.audit(self.mutate(original,reordered),self.bank)
