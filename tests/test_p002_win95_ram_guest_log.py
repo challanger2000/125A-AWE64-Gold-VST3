@@ -138,6 +138,51 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000\r\n"
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000000"),self.bank)
 
+    def test_real_original_win95_0xcb_optional_bank_query_with_successful_load(self):
+        # Derived from a REAL Win95 AWEMAN32 run: Creative returned
+        # 0xCB for optional GET_SYN_BANK=305 both before and after a
+        # successful LOAD_USER_BANK=204. Our auditor previously marked
+        # the source as failed despite the actual bank being loaded.
+        # Synthetic guest log only; no original user data in CI.
+        original=self.log
+        text=original.decode("ascii")
+        for prefix in ("PRE_LOAD_SYNTH_BANK","POST_LOAD_SYNTH_BANK"):
+            text=text.replace(
+                prefix+"_RESULT=0x00000000",
+                prefix+"_RESULT=0x000000CB")
+            text=text.replace(
+                prefix+"_MODE_ID=0x00000000",
+                prefix+"_MODE_ID=0xFFFFFFFF")
+        unknown=text.encode("ascii")
+        evidence=auditor.audit(unknown,self.bank)
+        self.assertEqual(evidence["status"],
+                         "ORIGINAL_CREATIVE_WIN95_API_GUEST_LOG_CONTRACT_PASS")
+        self.assertIsNone(evidence["original_creative_synth_mode_before_load_id"])
+        self.assertIsNone(evidence["original_creative_synth_mode_after_load_id"])
+        self.assertIsNone(evidence["original_synth_mode_change_observed"])
+        self.assertEqual(evidence["original_creative_synth_mode_query_results"],
+                         {"before":0xCB,"after":0xCB})
+        self.assertEqual(evidence["original_midi_CC0_user_bank_mapping"],
+                         "NOT_PROVEN_BY_SYNTH_MODE_QUERY")
+        self.assertFalse(evidence["release_approved"])
+        # Unsupported response codes and fake mode evidence remain NO-GO.
+        for old,new in (
+            ("PRE_LOAD_SYNTH_BANK_RESULT=0x000000CB",
+             "PRE_LOAD_SYNTH_BANK_RESULT=0x000000CA"),
+            ("PRE_LOAD_SYNTH_BANK_MODE_ID=0xFFFFFFFF",
+             "PRE_LOAD_SYNTH_BANK_MODE_ID=0x00000000"),
+            ("POST_LOAD_SYNTH_BANK_RESULT=0x000000CB",
+             "POST_LOAD_SYNTH_BANK_RESULT=0x00000001"),
+        ):
+            with self.subTest(old=old):
+                with self.assertRaisesRegex(ValueError,"synth bank"):
+                    auditor.audit(unknown.replace(old.encode(),new.encode()),self.bank)
+        # Claimed successful query with unknown enum is also rejected.
+        forged=unknown.replace(b"POST_LOAD_SYNTH_BANK_RESULT=0x000000CB",
+                               b"POST_LOAD_SYNTH_BANK_RESULT=0x00000000")
+        with self.assertRaisesRegex(ValueError,"synth bank enum"):
+            auditor.audit(forged,self.bank)
+
     def test_guest_c4_d4_submission_timestamps_and_negative_events(self):
         report=auditor.audit(self.log,self.bank)
         self.assertEqual(report["original_guest_winmm_C4_submission_ticks_ms"],
