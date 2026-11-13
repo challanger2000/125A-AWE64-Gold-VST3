@@ -103,6 +103,21 @@ DRY PCM are still mandatory before accepting bank selection or VST3
 SoundFont parity. The recompiled Win95 Pentium guest and synthetic
 tests must not be confused with running it in the private Win95 VM.
 
+## Strict original Win95 versus VST3 DRY PCM16 source comparator
+
+The next authentic P002 evidence gate is an **external, independently captured** original Win95/86Box driver DRY waveform compared to an identically configured real native VST3 PCM window. No such verified private original RAM-SF2 capture is present in public CI.
+
+To allow that comparison reproducibly without inventing the driver, `tools/p002_compare_original_dry_pcm.py` now compares two **44.1 kHz stereo signed PCM16 WAV files at the pre-card AWE32_WAV / EMU8000 digital tap**, with mandatory explicit original and native start-frame indices and window duration. On the VST3 the private `AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC=1` must be selected before activation. **Do not** compare its normal post-CT1745 float output to pre-card PCM16 and claim hardware parity.
+
+Example command (all PRIVATE paths and frame numbers are placeholders, NOT measured timings):
+
+```powershell
+python tools/p002_compare_original_dry_pcm.py --original-precard-wav "PRIVATE\original-awe32-wav.wav" --vst3-precard-wav "PRIVATE\native-precard-pcm16.wav" --original-start-frame 441000 --vst3-start-frame 0 --frames 44100 --private-report "PRIVATE\p002-dry-pcm-comparison.json"
+```
+
+The explicit window start positions must be justified by original MIDI/register timestamps, **not automatically guessed** from a matching waveform. The comparator reports first differing frame, count of differing channel samples and stereo frames, exact signed 16-bit LSB peak/error, RMS and SHA256 of the compared windows. It does **not** normalize amplitude, shift sample timing, resample, swap channels or accept silence as musical parity. Exit 0 = exact window equality; exit 1 = measured waveform mismatch; exit 2 = invalid/unusable evidence. Both equal and unequal results explicitly mark independent original Creative driver/ROM/SF2 provenance, register/FX consistency and release approval **NOT PROVEN**.
+
+Automated synthetic-only negative controls cover single-bit PCM differences, a one-frame shift, gain differences, channel swaps, silence, wrong format, insufficient frames, and output-report overwrite attempts. These tests validate the *comparator*, not the Windows 95 driver playback.
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
