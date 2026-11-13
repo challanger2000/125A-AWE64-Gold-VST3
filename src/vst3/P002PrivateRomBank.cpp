@@ -1,4 +1,5 @@
 #include "P002PrivateRomBank.h"
+#include "CreativeMidiRomPlan.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -180,16 +181,33 @@ bool P002PrivateRomBank::noteOn(
     context.original_lcod_31word_table_verified=true;
     context.source_negative_15word_table=negative_;
     context.source_positive_16word_table=positive_;
-    const auto started=candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
-        chip,state_,bank_bytes_,midi,midi_,bank_number_,524288u,
-        resources_,start,context,true);
-    if(!started)return false;
-    if(!ownership_.recordExecutedNoteOn(*started,state_)) {
-        // The complete bank note already reached physical hardware.
-        // A failure here must stop further MIDI until deactivation; do
-        // NOT forge ownership, guessed NoteOff or overwrite another voice.
-        ready_=false;
-        return false;
+    // Preserve original single-layer behavior. For 2..6 instrument
+    // zones the NEW bounded source allocator selects one authentic
+    // completely-idle physical voice per layer before issuing the full
+    // original source-ordered multi-voice register plan.
+    const auto plan=prepareOriginalCreativeRomNote(
+        midi,midi_,bank_bytes_,bank_number_,524288u);
+    if(!plan || plan->count==0u ||
+       plan->count>kOriginalCreativeMaxNoteStartDescriptors)return false;
+    bool ownershipRecorded=false;
+    if(plan->count==1u) {
+        const auto started=candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+            chip,state_,bank_bytes_,midi,midi_,bank_number_,524288u,
+            resources_,start,context,true);
+        if(!started)return false;
+        ownershipRecorded=ownership_.recordExecutedNoteOn(*started,state_);
+    }else {
+        const auto layered=
+            candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+                chip,state_,bank_bytes_,midi,midi_,bank_number_,524288u,
+                resources_,start,context,true);
+        if(!layered)return false;
+        ownershipRecorded=ownership_.recordExecutedNoteOn(*layered,state_);
+    }
+    if(!ownershipRecorded) {
+        // Original chip already changed; fail closed on ownership
+        // mismatch instead of inventing NoteOff/voice stealing.
+        ready_=false;return false;
     }
     held_keys_[key]=true;
     return true;
