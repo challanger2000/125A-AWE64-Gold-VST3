@@ -76,6 +76,33 @@ The original research control [PR #4 comment 6855958922](https://github.com/chal
 
 Any incomplete `SMALW` pointer address at trace EOF, or on premature register-selector change, is a **NO GO** for both scanner and existing original-port exporter. Historical waveform search checks the next byte following a rejected odd-offset match, preventing a valid sample starting at byte offset 2 from being skipped. A second even-offset waveform occurrence remains an **ambiguous source placement NO GO**. End-to-end guest/SF2/EMU8K trace join additionally rejects stale historical sample matches and dangling pointer transactions. Regression tests are explicitly synthetic-only; no original VM/Creative driver, EMU8000 time-aligned PCM or final released RAM-SF2 playback has been verified by these tests.
 
+## 2026-11-13 original RAM capture and guest MIDI-bank parity hardening
+
+The **native C++ preflight** and Python full original trace scanner/port exporter now
+reject an interrupted SMALW low/high address when the selector is changed, a
+SMLD selector without a completed pointer, and an unexpected write port
+while SMALW/SMLD is active. This preserves the strict no-partial-chip-write
+condition for native candidate source replay. Positive and adversarial
+regression tests use only synthetic traces and SF2 bytes.
+
+The original Creative guest `P002RAM.EXE` now sends the **same explicit
+MIDI Bank Select MSB 1 probe (CC0=1)** via both WinMM and the original
+`AWEManager(..., AWE_SEND_MIDI=401, packedMIDI, 0)` path, before program 0
+and dry CC91/93 NoteOn sequences. Previously only WinMM selected Bank 1;
+the two source routes therefore could not be meaningfully compared for
+RAM-bank selection. The log auditor requires both source calls to succeed
+and enforces bank-select → program → dry controllers → NoteOn → NoteOff
+order inside each independent phase. Missing, failed or reordered calls
+are NO GO. No original driver internals or undocumented MIDI mapping
+are invented.
+
+**Important:** CC0=1 is a controlled experiment, not proof that Creative
+maps the user bank loaded by API 204 to that MIDI address. Actual sample
+readback, a genuine original Win95/86Box driver register trace and source
+DRY PCM are still mandatory before accepting bank selection or VST3
+SoundFont parity. The recompiled Win95 Pentium guest and synthetic
+tests must not be confused with running it in the private Win95 VM.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
