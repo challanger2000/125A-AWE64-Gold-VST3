@@ -130,7 +130,7 @@ add_library(awe64_p002_original_ram_port_replay STATIC
 target_include_directories(awe64_p002_original_ram_port_replay
     PUBLIC src/creative_compat)
 target_link_libraries(awe64_p002_original_ram_port_replay
-    PUBLIC awe64_fork_chip)
+    PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory)
 target_compile_features(awe64_p002_original_ram_port_replay
     PUBLIC cxx_std_23)
 add_executable(awe64_p002_original_ram_port_replay_test
