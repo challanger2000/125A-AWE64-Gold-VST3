@@ -38,6 +38,10 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
+    if(bank && *bank)
+        parameters.addParameter(STR16("P002 ROM SF2 program"),
+            nullptr,127,0.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateProgramParam));
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::terminate() {
@@ -301,6 +305,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     // the previous no-parameter path, while P002 private diagnostic can
     // reproduce source LCOD+0x656D pedal down/up sample accurately.
     IParamValueQueue* sustainQueue=nullptr;
+    IParamValueQueue* programQueue=nullptr;
     if(((p002DiagnosticEnabled_ &&
          p002Fixture_.verified_source_note_release) ||
         p002BankEnabled_) && data.inputParameterChanges) {
@@ -311,17 +316,24 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                              kP002PrivateDiagnosticCc64Param) {
                 if(sustainQueue)return kInvalidArgument; // ambiguous MIDI state
                 sustainQueue=queue;
+            }else if(queue && p002BankEnabled_ &&
+                      queue->getParameterId()==kP002PrivateProgramParam) {
+                if(programQueue)return kInvalidArgument;
+                programQueue=queue;
             }
         }
     }
     const int32 ccCount=sustainQueue?sustainQueue->getPointCount():0;
-    if(ccCount<0)return kInvalidArgument;
+    const int32 programCount=programQueue?programQueue->getPointCount():0;
+    if(ccCount<0 || programCount<0)return kInvalidArgument;
     int32 ccIndex=0;
+    int32 programIndex=0;
     int32 midiIndex=0;
     const int32 events=data.inputEvents?data.inputEvents->getEventCount():0;
     if(events<0)return kInvalidArgument;
     int32 pos=0;
-    while(midiIndex<events || ccIndex<ccCount) {
+    while(midiIndex<events || ccIndex<ccCount ||
+          programIndex<programCount) {
         Event e{};
         bool haveMidi=midiIndex<events;
         if(haveMidi && data.inputEvents->getEvent(midiIndex,e)!=kResultOk) {
@@ -340,14 +352,39 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                ccNormalized<0. || ccNormalized>1.)
                 return kInvalidArgument;
         }
-        // At a shared sample offset, apply pedal state BEFORE NoteOff;
-        // original WinMM event order at equal timestamp is unverified,
-        // so ties remain an explicit deterministic diagnostic rule.
-        const bool chooseCc=haveCc && (!haveMidi || ccOffset<=midiOffset);
-        const int32 offset=chooseCc?ccOffset:midiOffset;
+        int32 programOffset=std::numeric_limits<int32>::max();
+        ParamValue programNormalized=0.;
+        const bool haveProgram=programIndex<programCount;
+        if(haveProgram) {
+            if(programQueue->getPoint(programIndex,programOffset,
+                                     programNormalized)!=kResultOk ||
+               programOffset<0 || programOffset>data.numSamples ||
+               !std::isfinite(programNormalized) ||
+               programNormalized<0. || programNormalized>1.)
+                return kInvalidArgument;
+        }
+        // A simultaneous program change must affect the NEXT NoteOn,
+        // but never rewrite active physical voices. Ties are a strict
+        // deterministic private diagnostic scheduling rule, not a
+        // claim about untraced original WinMM ordering. CC64 precedes
+        // NoteOff at the same timestamp, as verified in the prior path.
+        const bool chooseProgram=haveProgram &&
+            (!haveMidi || programOffset<=midiOffset) &&
+            (!haveCc || programOffset<=ccOffset);
+        const bool chooseCc=!chooseProgram && haveCc &&
+            (!haveMidi || ccOffset<=midiOffset);
+        const int32 offset=chooseProgram?programOffset:
+            (chooseCc?ccOffset:midiOffset);
         if(offset<pos)return kInvalidArgument;
         render(pos,offset,left,right);
         pos=offset;
+        if(chooseProgram) {
+            const auto value=static_cast<std::uint8_t>(
+                programNormalized*127. + 0.5);
+            if(!p002RomBank_.programChange(value))return kInvalidArgument;
+            ++programIndex;
+            continue;
+        }
         if(chooseCc) {
             const auto value=static_cast<std::uint8_t>(
                 ccNormalized*127. + 0.5);
