@@ -30,6 +30,7 @@ try:
         analyze as analyze_original_ram_trace,
         write_private_upload_replay,
         sha256_file)
+    from .p002_compare_original_dry_pcm import compare_pcm16_windows
 except ImportError:
     from p002_extract_original_win95_ram_log_fat16 import (
         extract_guest_ram_evidence)
@@ -37,6 +38,7 @@ except ImportError:
         analyze as analyze_original_ram_trace,
         write_private_upload_replay,
         sha256_file)
+    from p002_compare_original_dry_pcm import compare_pcm16_windows
 
 
 def require(condition: bool, message: str):
@@ -88,8 +90,22 @@ def original_dry_pcm_inventory(path: Path):
 
 def analyze_join(private_clone: Path, private_sf2: Path,
                  original_ram_trace: Path, sample_id: int,
-                 original_dry_wav: Path | None = None):
+                 original_dry_wav: Path | None = None,
+                 *, native_precard_wav: Path | None = None,
+                 original_start_frame: int | None = None,
+                 vst3_start_frame: int | None = None,
+                 frames: int | None = None):
     require(sample_id >= 0, "Negative SoundFont sample ID invalid")
+    # A PCM comparison is optional, but NEVER run it with missing explicit
+    # sample offsets, mismatched tap domains or a silent missing capture.
+    comparison_args = (native_precard_wav, original_start_frame,
+                       vst3_start_frame, frames)
+    compare_requested = any(value is not None for value in comparison_args)
+    if compare_requested:
+        require(original_dry_wav is not None and
+                all(value is not None for value in comparison_args),
+                "Original AND native pre-card PCM16 WAV plus both explicit "
+                "frame starts and frame count are mandatory together")
     log,guest=extract_guest_ram_evidence(private_clone,private_sf2)
     source=analyze_original_ram_trace(
         original_ram_trace,private_sf2,sample_id)
@@ -130,6 +146,21 @@ def analyze_join(private_clone: Path, private_sf2: Path,
     else:
         payload["independent_original_dry_PCM_inventory"] = (
             "NO_ORIGINAL_PCM_PROVIDED")
+    if compare_requested:
+        # Strict sample equality is a WINDOW measurement ONLY.
+        # No inferred registration of the independent Win95 and native
+        # emulation clocks. Even equality cannot certify provenance.
+        comparison=compare_pcm16_windows(
+            original_dry_wav,native_precard_wav,
+            original_start_frame,vst3_start_frame,frames)
+        payload["private_precisely_selected_precard_PCM16_comparison"]=comparison
+        payload["selected_source_window_pcm16_equal"]=comparison["sample_exact"]
+        if not comparison["sample_exact"]:
+            payload["status"]="P002_PRIVATE_SOURCE_RAM_AND_PCM_WINDOW_MISMATCH"
+    else:
+        payload["private_precisely_selected_precard_PCM16_comparison"]=(
+            "NO_NATIVE_COMPARISON_PROVIDED")
+        payload["selected_source_window_pcm16_equal"]=None
     return log,payload
 
 
@@ -140,6 +171,10 @@ def main():
     parser.add_argument("--original-emu8k-trace",type=Path,required=True)
     parser.add_argument("--sample-id",type=int,required=True)
     parser.add_argument("--original-dry-wav",type=Path)
+    parser.add_argument("--vst3-precard-wav",type=Path)
+    parser.add_argument("--original-start-frame",type=int)
+    parser.add_argument("--vst3-start-frame",type=int)
+    parser.add_argument("--frames",type=int)
     parser.add_argument("--private-log-output",type=Path,required=True)
     parser.add_argument("--private-report",type=Path,required=True)
     parser.add_argument("--private-filtered-ram-ports",type=Path)
@@ -150,6 +185,8 @@ def main():
         args.original_emu8k_trace)]
     if args.original_dry_wav:
         inputs.append(args.original_dry_wav.resolve())
+    if args.vst3_precard_wav:
+        inputs.append(args.vst3_precard_wav.resolve())
     outputs=[args.private_log_output.resolve(),
              args.private_report.resolve()]
     if args.private_filtered_ram_ports:
@@ -161,7 +198,11 @@ def main():
         parser.error("Private output files must be new, unique and outside Git")
     log,report=analyze_join(
         args.private_booted_win95_clone,args.private_sf2,
-        args.original_emu8k_trace,args.sample_id,args.original_dry_wav)
+        args.original_emu8k_trace,args.sample_id,args.original_dry_wav,
+        native_precard_wav=args.vst3_precard_wav,
+        original_start_frame=args.original_start_frame,
+        vst3_start_frame=args.vst3_start_frame,
+        frames=args.frames)
     if args.private_filtered_ram_ports:
         # Emit literal original physical upload events, never inferred
         # Creative RAM addresses, but ONLY after whole source/trace
@@ -175,12 +216,18 @@ def main():
     with outputs[1].open("x",encoding="utf-8") as out:
         json.dump(report,out,indent=2)
         out.write("\n")
-    print("P002_PRIVATE_ORIGINAL_WIN95_SF2_RAM_CAPTURE_JOIN_CANDIDATE_PASS",
+    is_equal=report["selected_source_window_pcm16_equal"]
+    print("P002_PRIVATE_ORIGINAL_WIN95_SF2_RAM_CAPTURE_JOIN_"
+          + ("PCM_WINDOW_MISMATCH" if is_equal is False else "CANDIDATE_PASS"),
           "guest_FAT16_log_AND_original_SF2_identity=TRUE",
           "exact_source_SAMPLE_RAM_word_address=UNIQUE",
+          "precard_PCM16_window_equal=" + (
+              "NOT_CHECKED" if is_equal is None else str(is_equal).upper()),
           "original_driver_clock_provenance=NOT_PROVEN",
           "original_VST3_PCM_parity=NOT_PROVEN",
           "release_approved=FALSE")
+    if is_equal is False:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
