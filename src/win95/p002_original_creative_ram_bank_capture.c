@@ -247,6 +247,11 @@ void WINAPI p002_ram_entry(void) {
     if(!send_midi(midi,0x000000B0u | (1u<<8),
                   "ORIGINAL_BANK_SELECT_MSB1_RC"))goto done;
     if(!send_midi(midi,0x000000C0u,"ORIGINAL_PROGRAM0_RC"))goto done;
+    /* DRY comparison first. Original MIDI controllers 91/93 = 0:
+       zero requested reverb/chorus send, not a claim that Creative's
+       master/mixer FX or unverified DRY PCM are automatically identical. */
+    if(!send_midi(midi,0x00005BB0u,"ORIGINAL_CC91_REVERB_SEND_ZERO_RC"))goto done;
+    if(!send_midi(midi,0x00005DB0u,"ORIGINAL_CC93_CHORUS_SEND_ZERO_RC"))goto done;
     Sleep(150);
     if(!send_midi(midi,0x00643C90u,"ORIGINAL_MIDI_C4_VEL100_RC"))goto done;
     Sleep(400);
