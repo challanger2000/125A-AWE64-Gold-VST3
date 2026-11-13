@@ -76,6 +76,14 @@ VXD-Ressourcen werden für selbstständig aus MIDI generierte 61 Register-
 OUTs pro Stimme (122 bei den zweilagigen Testnoten) genutzt.
 Details, Aufrufbedingungen und offene DRY-PCM-Gates:
 [docs/P002-ORIGINAL-RAM-MIDI-SAMPLE-BINDING.md](docs/P002-ORIGINAL-RAM-MIDI-SAMPLE-BINDING.md).
+Der native Chip-Adapter erzeugt jetzt zusätzlich bei ausdrücklich
+angeforderter privater RAM-Referenzmessung eine **44,1-kHz-framegenaue
+16-bit-Port-OUT-Aufzeichnung**, vollständig im Voraus dimensioniert.
+Der Audio-Callback führt dabei **keine Datei-/Heap-Operationen** aus.
+Schreibweise, SHA-Quellenprüfung, strikter Win95-vs-VST3-Portvergleich,
+Original-Dry-WAV-Prüfung und weiterhin offene Akustik-Gates:
+[docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md](docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md).
+
 Der ursprüngliche EMU8000-Kern ist unverändert. Eine bestandene
 Quellcode-/Registerprüfung ist **keine** Freigabe für bitgenaue
 Original-Win95-Audioidentität. Diese muss unabhängig im privaten
