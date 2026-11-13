@@ -53,6 +53,9 @@ private:
     P002PrivateNoteFixture p002Fixture_{};
     P002PrivateRomBank p002RomBank_{};
     bool p002BankEnabled_=false; // private, original-source ROM-SF2 bank
+    // Actual original Creative captured RAM source: loaded off-RT
+    // into unchanged EMU8000 but no inferred RAM NoteOn voice plan.
+    bool p002PrivateRamPreloaded_=false;
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     // Eight independently source-verified note groups. No runtime
     // physical voice stealing/retrigger; each pre-authenticated group
