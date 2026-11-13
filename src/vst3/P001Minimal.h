@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <vector>
 
 namespace awe64::vst3 {
 inline constexpr Steinberg::Vst::ParamID kP002PrivateDiagnosticCc64Param=0x125A0064u;
@@ -63,6 +64,13 @@ private:
     // setActive(false) runs outside the audio callback. No automatic
     // alignment or original Creative provenance is claimed.
     std::filesystem::path privateNativeRegisterTracePath_{};
+    // Real original-EMU8000 pre-card stereo PCM16. Entire storage is
+    // allocated off the audio thread; recording is bounded and fails
+    // closed on overflow. Written only from setActive(false).
+    std::filesystem::path privateNativeDryWavPath_{};
+    std::vector<std::int16_t> privateNativeDryPcm_{};
+    std::size_t privateNativeDryFrames_=0u;
+    bool privateNativeDryOverflow_=false;
     // Optional SHA-pinned ORIGINAL Win95 source NoteOn/Off port
     // capture, only alongside the separately authenticated RAM preload.
     // Captured at C4(60) and D4(62), velocity 100, User Bank 1.

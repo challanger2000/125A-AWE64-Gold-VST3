@@ -1171,6 +1171,14 @@ int wmain(int argc,wchar_t** argv){
         {Instance rejectNativeTraceWithoutAuthenticSource(factory,false);}
         require(_wputenv_s(L"AWE64_P002_NATIVE_REGISTER_OUT_PATH",L"")==0,
                 "clear unauthorized native port trace");
+        // A DRY WAV capture path does not grant access to private
+        // SoundFont bank mode or bypass the SHA-pinned original VXD.
+        require(_wputenv_s(L"AWE64_P002_NATIVE_DRY_PCM_WAV_PATH",
+                            L"C:\\private\\must-not-be-created.wav")==0,
+                "install unauthorized native DRY source path");
+        {Instance rejectNativeWavWithoutOriginalSource(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_NATIVE_DRY_PCM_WAV_PATH",L"")==0,
+                "clear unauthorized native WAV path");
         // Original RAM preload must be fail-closed in the ACTUAL
         // exported Windows VST3. Public CI uses only synthetic/invalid
         // files; the real owner Creative/SF2 evidence stays PRIVATE.

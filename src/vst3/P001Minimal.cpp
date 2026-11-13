@@ -63,6 +63,56 @@ bool savePrivateNativeRegisterOuts(
     if(!ok)DeleteFileW(output.c_str());
     return ok;
 }
+// PRIVATE native RAM SoundFont pre-CT1745 source proof. The actual
+// unchanged EMU8000 core renders 32-bit interleaved signed samples;
+// this emits the already-authorized P001 diagnostic 16-bit saturation.
+// Never run the file writer from process(); writes only at deactivation.
+bool savePrivateNativeDryWav(
+    const std::filesystem::path& destination,
+    const std::span<const std::int16_t> samples,
+    const bool overflow) noexcept {
+    if(destination.empty() || !destination.is_absolute() ||
+       overflow || samples.size()<512u || (samples.size()%2u)!=0u ||
+       samples.size()>44100u*2u*30u)
+        return false;
+    const auto bytes=static_cast<std::uint32_t>(
+        samples.size()*sizeof(std::int16_t));
+    // Standard 44-byte RIFF/WAVE PCM16 stereo 44100 Hz. Windows
+    // x64 is little-endian; write explicit byte order for the header.
+    std::array<std::uint8_t,44> header{};
+    const auto bytes4=[&](const unsigned at,const std::uint32_t v) noexcept {
+        for(unsigned n=0;n<4;++n)
+            header[at+n]=static_cast<std::uint8_t>(v>>(8u*n));
+    };
+    const auto bytes2=[&](const unsigned at,const std::uint16_t v) noexcept {
+        header[at]=static_cast<std::uint8_t>(v);
+        header[at+1u]=static_cast<std::uint8_t>(v>>8u);
+    };
+    header[0]='R';header[1]='I';header[2]='F';header[3]='F';
+    bytes4(4u,36u+bytes);
+    header[8]='W';header[9]='A';header[10]='V';header[11]='E';
+    header[12]='f';header[13]='m';header[14]='t';header[15]=' ';
+    bytes4(16u,16u);bytes2(20u,1u);bytes2(22u,2u);
+    bytes4(24u,44100u);bytes4(28u,44100u*4u);
+    bytes2(32u,4u);bytes2(34u,16u);
+    header[36]='d';header[37]='a';header[38]='t';header[39]='a';
+    bytes4(40u,bytes);
+    HANDLE h=CreateFileW(destination.c_str(),GENERIC_WRITE,0u,nullptr,
+                         CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(h==INVALID_HANDLE_VALUE)return false;
+    DWORD written=0u;
+    bool ok=WriteFile(h,header.data(),static_cast<DWORD>(header.size()),
+                      &written,nullptr)!=0 &&
+            written==header.size();
+    if(ok) {
+        written=0u;
+        ok=WriteFile(h,samples.data(),bytes,&written,nullptr)!=0 &&
+           written==bytes;
+    }
+    if(!CloseHandle(h))ok=false;
+    if(!ok)DeleteFileW(destination.c_str());
+    return ok;
+}
 inline float digitalPcm16(int32_t s) noexcept {
     return static_cast<float>(std::clamp(s, int32_t(-32768), int32_t(32767))) / 32768.0f;
 }
@@ -120,6 +170,16 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             savePrivateNativeRegisterOuts(
                 privateNativeRegisterTracePath_,chip_.portWriteTrace(),
                 chip_.portWriteTraceOverflow());
+        const bool pcmSaved=privateNativeDryWavPath_.empty() ||
+            savePrivateNativeDryWav(
+                privateNativeDryWavPath_,
+                std::span<const std::int16_t>(
+                    privateNativeDryPcm_.data(),privateNativeDryFrames_*2u),
+                privateNativeDryOverflow_);
+        privateNativeDryWavPath_.clear();
+        privateNativeDryPcm_.clear(); // non-RT deactivation only
+        privateNativeDryFrames_=0u;
+        privateNativeDryOverflow_=false;
         privateNativeRegisterTracePath_.clear();
         chip_.disarmPortWriteTrace();
         processing_=false; active_=false; playingKey_=-1;
@@ -133,7 +193,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         preCardPcm16DiagnosticTap_=false;
         originalGoldCard_.reset(); // exact original CT1745 reset on the non-RT thread
         chip_.close(); // non-RT activation thread only
-        return traceSaved ? kResultOk : kResultFalse;
+        return traceSaved && pcmSaved ? kResultOk : kResultFalse;
     }
     if (active_) return kResultOk;
     // The original 86Box AWE64 Gold CT1745 mixer starts at the source
@@ -199,6 +259,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                                    nativeRam[1]=='\0');
     const char* tracePath=std::getenv("AWE64_P002_NATIVE_REGISTER_OUT_PATH");
     const bool traceRequested=tracePath && *tracePath;
+    const char* dryWavPath=std::getenv("AWE64_P002_NATIVE_DRY_PCM_WAV_PATH");
+    const bool dryWavRequested=dryWavPath && *dryWavPath;
     const bool resourcePresent=sourcePath && *sourcePath;
     const bool bankPresent=bankPath && *bankPath;
     const bool diagnosticPresent=diagnosticPath && *diagnosticPath;
@@ -215,7 +277,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             (!completeRamOriginal || bankPresent || diagnosticPresent)));
 
     if((nativeRam && *nativeRam && !nativeRamRequested) ||
-       (traceRequested && !nativeRamRequested) ||
+       ((traceRequested || dryWavRequested) && !nativeRamRequested) ||
        modeConflict) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
@@ -285,6 +347,27 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                 chip_.close();return kResultFalse;
             }
             privateNativeRegisterTracePath_=output;
+        }
+        // Capture the actual chip PCM for the same requested private
+        // native RAM note test. Storage is allocated *before* any
+        // audio processing, and cannot exceed 30 seconds at 44.1kHz.
+        if(dryWavRequested) {
+            const std::filesystem::path output(dryWavPath);
+            if(!output.is_absolute()) {
+                std::fputs("P002 native dry PCM requires absolute path\n",
+                           stderr);
+                chip_.close();return kResultFalse;
+            }
+            try {
+                privateNativeDryPcm_.resize(44100u*2u*30u);
+            }catch (...) {
+                std::fputs("P002 native dry PCM allocation failed\n",
+                           stderr);
+                chip_.close();return kResultFalse;
+            }
+            privateNativeDryFrames_=0u;
+            privateNativeDryOverflow_=false;
+            privateNativeDryWavPath_=output;
         }
     }
     if(bankPath && *bankPath && sourcePath && *sourcePath) {
@@ -477,6 +560,17 @@ void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
         for(int32 i=0;i<count;++i) {
             const auto preL=scratch_[2u*size_t(i)];
             const auto preR=scratch_[2u*size_t(i)+1];
+            if(!privateNativeDryWavPath_.empty()) {
+                if(privateNativeDryFrames_*2u+1u<
+                   privateNativeDryPcm_.size()) {
+                    const auto at=privateNativeDryFrames_*2u;
+                    privateNativeDryPcm_[at]=static_cast<std::int16_t>(
+                        std::clamp(preL,int32_t(-32768),int32_t(32767)));
+                    privateNativeDryPcm_[at+1u]=static_cast<std::int16_t>(
+                        std::clamp(preR,int32_t(-32768),int32_t(32767)));
+                    ++privateNativeDryFrames_;
+                }else privateNativeDryOverflow_=true;
+            }
             if(preCardPcm16DiagnosticTap_) {
                 // Historical pre-CT1745 chip PCM diagnostic; remains
                 // byte-identical to all previous P001/P002 oracle tests.
