@@ -70,6 +70,12 @@ report documents `NOT_PROVEN` until original Creative driver origin,
 cross-clock correlation and actual original-vs-VST3 DRY PCM identity are
 independently demonstrated.
 
+## 2026-11-13 Codex independent RAM-sample scanner regression fix
+
+The original research control [PR #4 comment 6855958922](https://github.com/challanger2000/125A-AWE64-Gold-VST3/pull/4#issuecomment-6855958922) identified **three distinct scanner bugs**. The developer branch now keeps *historical* sample-waveform hits (`historical_pcm16_upload_matches`) separate from `final_state_unoverwritten_pcm16_matches`: an authentic final RAM-source candidate requires exactly ONE historical aligned full sample and no physical sample word rewritten at any time in the captured trace, **even when the rewritten value is identical**. This agrees with the existing unchanged strict C++ original-port replay overlap gate; unrelated RAM addresses may be overwritten without fabricating source sample evidence.
+
+Any incomplete `SMALW` pointer address at trace EOF, or on premature register-selector change, is a **NO GO** for both scanner and existing original-port exporter. Historical waveform search checks the next byte following a rejected odd-offset match, preventing a valid sample starting at byte offset 2 from being skipped. A second even-offset waveform occurrence remains an **ambiguous source placement NO GO**. End-to-end guest/SF2/EMU8K trace join additionally rejects stale historical sample matches and dangling pointer transactions. Regression tests are explicitly synthetic-only; no original VM/Creative driver, EMU8000 time-aligned PCM or final released RAM-SF2 playback has been verified by these tests.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
