@@ -23,8 +23,16 @@
 // independently establish the historical source of the recording.
 #include "CreativeOriginalRamPortReplay.h"
 #include "CreativeSf2RamSamplePcm.h"
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
+#endif
 #include <86box/snd_emu8k.h>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -40,6 +48,43 @@
 namespace {
 using awe64::creative::OriginalRamUploadPortWrite;
 namespace fs=std::filesystem;
+void verifyPinnedOriginalCreativeRom(const fs::path& path) {
+    // The private offline program must not silently accept a same-
+    // length but WRONG Creative ROM. The VST3 CI uses this exact
+    // independently pinned SHA256. No ROM bytes leave the host.
+    constexpr std::array<std::uint8_t,32> sourceSha{{
+        0x4e,0x14,0x3b,0x94,0xf7,0x58,0x73,0x4f,
+        0x59,0x4d,0xed,0x78,0xf4,0xe5,0x11,0x56,
+        0x35,0x97,0x5c,0x16,0xfa,0x37,0xfa,0xbe,
+        0xae,0x0b,0xaa,0x49,0x38,0xca,0x71,0x0e}};
+#ifdef _WIN32
+    std::ifstream file(path,std::ios::binary|std::ios::ate);
+    if(!file || file.tellg()!=1048576)
+        throw std::runtime_error("Original AWE32 ROM must be exact 1 MiB");
+    file.seekg(0);
+    std::vector<std::uint8_t> bytes(1048576u);
+    if(!file.read(reinterpret_cast<char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size())))
+        throw std::runtime_error("Original ROM identity read failed");
+    BCRYPT_ALG_HANDLE algorithm=nullptr;
+    auto status=BCryptOpenAlgorithmProvider(
+        &algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0u);
+    if(status<0 || algorithm==nullptr)
+        throw std::runtime_error("Windows CNG SHA256 unavailable");
+    std::array<std::uint8_t,32> found{};
+    status=BCryptHash(algorithm,nullptr,0u,bytes.data(),
+                      static_cast<ULONG>(bytes.size()),found.data(),
+                      static_cast<ULONG>(found.size()));
+    BCryptCloseAlgorithmProvider(algorithm,0u);
+    if(status<0 || found!=sourceSha)
+        throw std::runtime_error(
+            "Private original Creative ROM SHA256 mismatch");
+#else
+    (void)path;(void)sourceSha;
+    throw std::runtime_error(
+        "Private ROM SHA256 gate currently requires Windows CNG");
+#endif
+}
 std::vector<std::uint8_t> readSf2(const fs::path& p) {
     std::ifstream f(p,std::ios::binary|std::ios::ate);
     if(!f || f.tellg()<12 ||
@@ -117,6 +162,7 @@ int run(int argc,char** argv) {
     if(!sample)
         throw std::runtime_error("No validated mono 16-bit RAM SF2 sample");
     const auto trace=readFilteredOriginalCapture(tracefile);
+    verifyPinnedOriginalCreativeRom(rom);
     awe64::Chip chip{};
     std::string error{};
     if(!chip.open(rom,error))
@@ -152,6 +198,7 @@ int run(int argc,char** argv) {
              <<" sample_checked_words="<<count
              <<" source_capture_word_base=0x"<<std::hex<<base<<std::dec
              <<" original_chip_RAM_sample_readback_exact=TRUE"
+             <<" pinned_original_AWE32_ROM_SHA256_verified=TRUE"
              <<" source_guest_provenance=CALLER_ATTESTED_NOT_INDEPENDENTLY_PROVEN_BY_CLI"
              <<" original_driver_program_software=NOT_IMPLEMENTED"
              <<" native_vst3_RAM_audio_and_Win95_pcm_parity=NOT_PROVEN\n";
