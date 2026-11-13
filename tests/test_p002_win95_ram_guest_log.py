@@ -129,9 +129,9 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000001"),self.bank)
         with self.assertRaisesRegex(ValueError,"before/after load order"):
             auditor.audit(self.mutate(
-                "POST_LOAD_SYNTH_BANK_RESULT=0x00000000\\r\\n"
+                "POST_LOAD_SYNTH_BANK_RESULT=0x00000000\r\n"
                 "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
-                "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000\\r\\n"
+                "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000\r\n"
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000000"),self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
