@@ -122,6 +122,24 @@ target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
 add_test(NAME p002_native_soundfont_RAM_PCM_boundaries
          COMMAND awe64_p002_sf2_ram_pcm_inventory_test)
 
+# Preserve the original Creative guest's captured SMALW/SMLD OUT order.
+# This replay is NOT independently generated Win95 driver RAM allocation.
+# The 86Box chip core remains exactly pinned and unmodified.
+add_library(awe64_p002_original_ram_port_replay STATIC
+    src/creative_compat/CreativeOriginalRamPortReplay.cpp)
+target_include_directories(awe64_p002_original_ram_port_replay
+    PUBLIC src/creative_compat)
+target_link_libraries(awe64_p002_original_ram_port_replay
+    PUBLIC awe64_fork_chip)
+target_compile_features(awe64_p002_original_ram_port_replay
+    PUBLIC cxx_std_23)
+add_executable(awe64_p002_original_ram_port_replay_test
+    tests/p002_native_original_ram_port_replay.cpp)
+target_link_libraries(awe64_p002_original_ram_port_replay_test
+    PRIVATE awe64_p002_original_ram_port_replay)
+add_test(NAME p002_original_Win95_RAM_port_trace_replay_contract
+    COMMAND awe64_p002_original_ram_port_replay_test)
+
 
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
 # -> genuine ROM word-address descriptors, without voice/allocation guesses.
