@@ -28,6 +28,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Steinberg;
@@ -403,6 +404,195 @@ Audio renderManySourceNotes(IPluginFactory* factory,
     }
     return audio;
 }
+// P002 private REAL-ROM-SF2-bank research test: the exported plugin
+// reads this independent, small, STANDARD RIFF SoundFont at activation,
+// not a prerecorded 148-byte private NoteOn. Its audio callback runs
+// actual bank-to-original-VXD conversion and live chip voice allocation.
+// No original Creative VXD, SF2 bank data or ROM is embedded here.
+// This test's driver-table pack is SYNTHETIC and cannot prove original
+// Win95 state provenance; the user-facing pack generator hashes SBAWE.VXD.
+using PrivateBytes=std::vector<std::uint8_t>;
+void bankW16(PrivateBytes& b,std::uint32_t v) {
+    b.push_back(static_cast<std::uint8_t>(v));
+    b.push_back(static_cast<std::uint8_t>(v>>8u));
+}
+void bankW32(PrivateBytes& b,std::uint32_t v) {
+    bankW16(b,v);bankW16(b,v>>16u);
+}
+void bankName(PrivateBytes& b,std::string_view s) {
+    require(s.size()<=20,"synthetic RIFF name too long");
+    b.insert(b.end(),s.begin(),s.end());
+    b.insert(b.end(),20u-s.size(),0u);
+}
+void bankChunk(PrivateBytes& out,std::string_view tag,
+               const PrivateBytes& data) {
+    require(tag.size()==4,"synthetic RIFF chunk id");
+    out.insert(out.end(),tag.begin(),tag.end());
+    bankW32(out,static_cast<std::uint32_t>(data.size()));
+    out.insert(out.end(),data.begin(),data.end());
+    if(data.size()&1u)out.push_back(0u);
+}
+PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false) {
+    PrivateBytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,root;
+    bankName(phdr,"SYNTHBANK");bankW16(phdr,7u);bankW16(phdr,0u);
+    bankW16(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    bankName(phdr,"DRUM");bankW16(phdr,0u);bankW16(phdr,128u);
+    bankW16(phdr,1u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    bankName(phdr,"EOP");bankW16(phdr,0u);bankW16(phdr,0u);
+    bankW16(phdr,2u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
+    for(unsigned i=0u;i<3u;++i){bankW16(pbag,i);bankW16(pbag,0u);}
+    for(unsigned i=0u;i<2u;++i){bankW16(pgen,41u);bankW16(pgen,0u);}
+    bankName(inst,"PIANO");bankW16(inst,0u);
+    bankName(inst,"EOI");bankW16(inst,1u);
+    for(unsigned i=0u;i<2u;++i){bankW16(ibag,2u*i);bankW16(ibag,0u);}
+    bankW16(igen,8u);bankW16(igen,9617u);
+    bankW16(igen,53u);bankW16(igen,0u);
+    // Addresses point to the unchanged original ROM's actual GM0
+    // sample region; no copyright-protected PCM is embedded in the SF2.
+    bankName(shdr,"ROM-MONO");
+    bankW32(shdr,0xfeb9u);bankW32(shdr,0x152feu);
+    bankW32(shdr,0x152bbu);bankW32(shdr,0x152fau);
+    bankW32(shdr,44100u);
+    shdr.push_back(60u);shdr.push_back(0u);
+    bankW16(shdr,0u);bankW16(shdr,ramInsteadOfRom?1u:0x8001u);
+    bankName(shdr,"EOS");
+    for(int j=0;j<5;++j)bankW32(shdr,0u);
+    shdr.push_back(60u);shdr.push_back(0u);
+    bankW16(shdr,0u);bankW16(shdr,0u);
+    PrivateBytes ifil;bankW16(ifil,2u);bankW16(ifil,0u);
+    bankChunk(info,"ifil",ifil);
+    bankChunk(info,"isng",PrivateBytes{'E','M','U','8','0','0','0',0});
+    bankChunk(info,"IPRD",PrivateBytes{'S','B','A','W','E','3','2',0});
+    bankChunk(info,"irom",PrivateBytes{'1','M','G','M',0});
+    PrivateBytes listInfo{'I','N','F','O'};
+    listInfo.insert(listInfo.end(),info.begin(),info.end());
+    PrivateBytes pdta;
+    bankChunk(pdta,"phdr",phdr);bankChunk(pdta,"pbag",pbag);
+    bankChunk(pdta,"pgen",pgen);bankChunk(pdta,"inst",inst);
+    bankChunk(pdta,"ibag",ibag);bankChunk(pdta,"igen",igen);
+    bankChunk(pdta,"shdr",shdr);
+    PrivateBytes listPdta{'p','d','t','a'};
+    listPdta.insert(listPdta.end(),pdta.begin(),pdta.end());
+    PrivateBytes riffBody;
+    bankChunk(riffBody,"LIST",listInfo);
+    bankChunk(riffBody,"LIST",listPdta);
+    PrivateBytes result{'R','I','F','F'};
+    bankW32(result,static_cast<std::uint32_t>(riffBody.size()+4u));
+    result.insert(result.end(),{'s','f','b','k'});
+    result.insert(result.end(),riffBody.begin(),riffBody.end());
+    return result;
+}
+void writePrivateResearchFile(const std::filesystem::path& path,
+                              const PrivateBytes& bytes) {
+    std::ofstream stream(path,std::ios::binary|std::ios::trunc);
+    require(bool(stream),"open synthetic private source file");
+    stream.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+    require(bool(stream),"write synthetic private source file");
+}
+PrivateBytes buildPrivateSyntheticVxdResourcePack() {
+    PrivateBytes b{'1','2','5','A','B','K','0','1'};
+    constexpr std::array<std::uint8_t,32> originalVxdSha{{
+        0xd3,0x43,0xf2,0x42,0x8a,0xb3,0xe5,0x93,
+        0xc9,0xe4,0x2a,0x66,0x8c,0xf5,0x21,0xb7,
+        0x80,0x1e,0x12,0x39,0x79,0x2e,0xaf,0x7f,
+        0x2b,0x11,0xb5,0xf1,0x79,0xbc,0x7c,0x9a}};
+    b.insert(b.end(),originalVxdSha.begin(),originalVxdSha.end());
+    b.push_back(7u);b.push_back(2u); // program7, MIDI ch2
+    bankW16(b,0u);bankW32(b,524288u); // source 1MGM 1-MiB ROM
+    PrivateBytes state(0x1592u,0u);
+    state[0x158eu]=0x31u;state[0x158fu]=0x4du;
+    state[0x1590u]=0x47u;state[0x1591u]=0x4du;
+    state[0x06u]=30u;state[0x18u]=30u;
+    for(std::size_t v=0;v<30u;++v) {
+        const auto off=0x42u+v*0x20u;
+        state[off]=0xfeu;state[off+1u]=0x0fu;
+    }
+    b.insert(b.end(),state.begin(),state.end());
+    for(int i=0;i<59;++i)bankW16(b,0u); // source-shaped preset base
+    const auto gm0=realSourceDerivedGm0();
+    // SYNTHETIC instrument source template for public test only.
+    // No original private VXD table bytes are in Git or the plugin.
+    for(unsigned i=0u;i<59u;++i) {
+        auto value=static_cast<std::uint16_t>(
+            static_cast<unsigned>(gm0[2u*i])|
+            (static_cast<unsigned>(gm0[2u*i+1u])<<8u));
+        if(i==8u)value=0u; // bank's raw cutoff supplies this op
+        if(i==46u || i==47u)value=0u; // actual note key/velocity
+        bankW16(b,value);
+    }
+    for(unsigned i=0u;i<128u;++i)bankW32(b,0u);
+    for(unsigned i=0u;i<128u;++i)b.push_back(0u);
+    for(unsigned i=0u;i<15u;++i)bankW16(b,0u);
+    for(unsigned i=0u;i<16u;++i)bankW16(b,0u);
+    require(b.size()==6508u,"synthetic VXD source pack length wrong");
+    return b;
+}
+Audio renderRealBankNotes(IPluginFactory* factory,unsigned noteCount,
+                          bool pedalUp,bool wrongChannel=false) {
+    require(noteCount>=1u && noteCount<=3u,
+            "bank note count out of range");
+    constexpr std::array<int,3> keys{{60,64,67}};
+    Instance instance(factory,true);
+    Audio audio{};
+    for(int block=0;block<40;++block) {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers out{};
+        out.numChannels=2;out.channelBuffers32=buffers;
+        EventList events;
+        for(unsigned i=0;i<noteCount;++i) {
+            if(block!=static_cast<int>(i*2u) &&
+               block!=static_cast<int>(10u+i))continue;
+            const bool on=block==static_cast<int>(i*2u);
+            Event e{};
+            e.busIndex=0;e.sampleOffset=53+static_cast<int>(i);
+            e.type=on?Event::kNoteOnEvent:Event::kNoteOffEvent;
+            if(on) {
+                e.noteOn.channel=wrongChannel?1:2;
+                e.noteOn.pitch=static_cast<Steinberg::int16>(keys[i]);
+                e.noteOn.velocity=100.f/127.f;
+                e.noteOn.noteId=keys[i];
+            }else {
+                e.noteOff.channel=wrongChannel?1:2;
+                e.noteOff.pitch=static_cast<Steinberg::int16>(keys[i]);
+                e.noteOff.velocity=0.f;e.noteOff.noteId=keys[i];
+            }
+            require(events.addEvent(e)==kResultOk,
+                    "real SF2 bank MIDI event");
+        }
+        ParameterChanges changes(1);
+        if(block==8 || (block==18 && pedalUp)) {
+            int32 index=0;
+            auto* queue=changes.addParameterData(0x125A0064u,index);
+            require(queue!=nullptr,"real SF2 bank CC64 queue");
+            int32 point=0;
+            require(queue->addPoint(block==8?29:37,
+                                    block==8?1.:0.,point)==kResultOk,
+                    "real SF2 bank sustain point");
+        }
+        if(block==18)audio.hashBeforeBlock22=audio.hash;
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;data.numSamples=512;
+        data.outputs=&out;data.numOutputs=1;
+        data.inputEvents=&events;
+        data.inputParameterChanges=&changes;
+        require(instance.audio->process(data)==kResultOk,
+                "actual VST3 bank source processing failed");
+        for(unsigned frame=0;frame<512u;++frame)
+            for(const auto sample:{left[frame],right[frame]}) {
+                require(std::isfinite(sample),"ROM-SF2 bank PCM non-finite");
+                if(sample!=0.f)++audio.nonzero;
+                std::uint32_t bits=0u;
+                std::memcpy(&bits,&sample,sizeof bits);
+                for(unsigned byte=0;byte<4u;++byte) {
+                    audio.hash^=(bits>>(byte*8u))&255u;
+                    audio.hash*=0x100000001b3ull;
+                }
+            }
+    }
+    return audio;
+}
 } // namespace
 int wmain(int argc,wchar_t** argv){
     if(argc!=3)return 2;
@@ -432,6 +622,14 @@ int wmain(int argc,wchar_t** argv){
     duplicateExtraKeyFixture+=L".v5-duplicate-key";
     auto duplicateExtraVoiceFixture=fixture;
     duplicateExtraVoiceFixture+=L".v5-duplicate-physical";
+    auto sf2BankPath=fixture;
+    sf2BankPath+=L".private-rom-sf2";
+    auto ramSf2Path=fixture;
+    ramSf2Path+=L".private-ram-sf2";
+    auto vxdResourcePath=fixture;
+    vxdResourcePath+=L".private-source-pack";
+    auto badVxdResourcePath=fixture;
+    badVxdResourcePath+=L".mutated-source-pack";
     try{
         writeDiagFixture(fixture,false);
         writeDiagFixture(mutant,true);
@@ -448,6 +646,15 @@ int wmain(int argc,wchar_t** argv){
                          false,false,6u,true,false);
         writeDiagFixture(duplicateExtraVoiceFixture,false,false,false,false,false,
                          false,false,6u,false,true);
+        writePrivateResearchFile(sf2BankPath,
+                                 buildPrivateSyntheticRomSf2Bank());
+        writePrivateResearchFile(ramSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(true));
+        const auto privatePack=buildPrivateSyntheticVxdResourcePack();
+        writePrivateResearchFile(vxdResourcePath,privatePack);
+        auto mutatedPack=privatePack;
+        mutatedPack[8u]^=1u; // original driver identity must fail closed
+        writePrivateResearchFile(badVxdResourcePath,mutatedPack);
         require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "private Creative ROM process binding failed");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
@@ -595,6 +802,53 @@ int wmain(int argc,wchar_t** argv){
                            duplicateExtraVoiceFixture.c_str())==0,
                 "set v5 duplicate physical voice invalid fixture");
         {Instance rejectV5DuplicateVoice(factory,false);}
+        // P002 actual ROM-SF2 bank mode: same real exported DLL, this
+        // time loading a STANDARD RIFF bank at activation and converting
+        // each independent VST3 MIDI note through the bank parser,
+        // source generator resources, original live VXD allocator, and
+        // the genuine NoteOff/CC64 engine. No preauthored 148-byte
+        // NoteOn fixture is used by this path.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",L"")==0,
+                "clear old private diagnostic mode");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           sf2BankPath.c_str())==0,
+                "set external ROM SoundFont bank");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",
+                           vxdResourcePath.c_str())==0,
+                "set externally-derived source resource pack");
+        const auto firstBankKey=renderRealBankNotes(factory,1u,false);
+        const auto threeBankKeys=renderRealBankNotes(factory,3u,false);
+        const auto threeBankKeysAgain=renderRealBankNotes(factory,3u,false);
+        const auto releasedBankKeys=renderRealBankNotes(factory,3u,true);
+        const auto noAuthorizedChannel=renderRealBankNotes(factory,3u,false,true);
+        require(threeBankKeys.nonzero>100u &&
+                threeBankKeys.hash!=firstBankKey.hash,
+                "bank-derived multi-key MIDI did not create distinct real PCM");
+        require(threeBankKeys.hash==threeBankKeysAgain.hash,
+                "original bank-derived multi-NoteOn real VST3 PCM changed");
+        require(noAuthorizedChannel.nonzero==0u,
+                "unverified ROM-SF2 MIDI channel unexpectedly played");
+        require(threeBankKeys.hashBeforeBlock22==
+                releasedBankKeys.hashBeforeBlock22,
+                "original ROM-SF2 bank sustain changed PCM before pedal-up");
+        require(threeBankKeys.hash!=releasedBankKeys.hash,
+                "bank-derived original CC64 release did not affect PCM");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",
+                           badVxdResourcePath.c_str())==0,
+                "select corrupt original VXD source resource pack");
+        {Instance badSourcePack(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",
+                           vxdResourcePath.c_str())==0,
+                "restore source pack");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           ramSf2Path.c_str())==0,
+                "select RAM-sample source negative control");
+        const auto unsupportedRam=renderRealBankNotes(factory,1u,false);
+        require(unsupportedRam.nonzero==0u,
+                "unsupported RAM SF2 sample unexpectedly played as ROM");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
+                "clear private SF2 research mode");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            badMarkerFixture.c_str())==0,
                 "set invalid source note identity fixture");
@@ -616,6 +870,10 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(multiSourceFixture,ec);
         std::filesystem::remove(duplicateExtraKeyFixture,ec);
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
+        std::filesystem::remove(sf2BankPath,ec);
+        std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(vxdResourcePath,ec);
+        std::filesystem::remove(badVxdResourcePath,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
                  <<" original_ROM_from_hash_locked_external_source=TRUE"
                  <<" synthetic_original_x86_GM0_fixture=TRUE"
@@ -639,7 +897,12 @@ int wmain(int argc,wchar_t** argv){
                  <<" v5_eight_source_bound_MIDI_keys_real_VST3_PCM=TRUE"
                  <<" v5_eight_voice_original_CC64_release_real_VST3_PCM=TRUE"
                  <<" v5_wrong_velocity_duplicate_voice_and_key_rejected=TRUE"
-                 <<" full_SF2_bank_polyphony_CC64_lifecycle=NOT_IMPLEMENTED\n";
+                 <<" source_bank_file_loaded_inside_exported_VST3=TRUE"
+                 <<" real_bank_midi_three_key_EMU8000_PCM=TRUE"
+                 <<" real_bank_original_CC64_releases_three_source_voices=TRUE"
+                 <<" private_VXD_source_identity_mutation_rejected=TRUE"
+                 <<" unsupported_RAM_SF2_bank_fail_closed=TRUE"
+                 <<" unrestricted_RAM_SF2_and_Win95_PCM_PARITY=NOT_PROVEN\n";
         return 0;
     }catch(const std::exception& e){
         if(factory)factory->release();
@@ -656,6 +919,10 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(multiSourceFixture,ec);
         std::filesystem::remove(duplicateExtraKeyFixture,ec);
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
+        std::filesystem::remove(sf2BankPath,ec);
+        std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(vxdResourcePath,ec);
+        std::filesystem::remove(badVxdResourcePath,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
         return 1;
     }
