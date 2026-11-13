@@ -507,6 +507,20 @@ PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false,
     listPdta.insert(listPdta.end(),pdta.begin(),pdta.end());
     PrivateBytes riffBody;
     bankChunk(riffBody,"LIST",listInfo);
+    if(ramInsteadOfRom) {
+        // A TRUE signed-16-bit standard SoundFont RAM waveform, not
+        // merely a shdr with bit 0x8000 cleared. Until the original
+        // Creative DRAM allocator/upload is traced, activation MUST
+        // reject this bank instead of producing fake chip ROM audio.
+        PrivateBytes smpl;
+        smpl.reserve(0x15300u*2u);
+        for(unsigned i=0;i<0x15300u;++i)
+            bankW16(smpl,static_cast<std::uint16_t>(
+                i>=0xfeb9u && i<0x152feu ? (i*71u)&0xffffu:0u));
+        PrivateBytes sdta{'s','d','t','a'};
+        bankChunk(sdta,"smpl",smpl);
+        bankChunk(riffBody,"LIST",sdta);
+    }
     bankChunk(riffBody,"LIST",listPdta);
     PrivateBytes result{'R','I','F','F'};
     bankW32(result,static_cast<std::uint32_t>(riffBody.size()+4u));
@@ -966,9 +980,10 @@ int wmain(int argc,wchar_t** argv){
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                            ramSf2Path.c_str())==0,
                 "select RAM-sample source negative control");
-        const auto unsupportedRam=renderRealBankNotes(factory,1u,false);
-        require(unsupportedRam.nonzero==0u,
-                "unsupported RAM SF2 sample unexpectedly played as ROM");
+        {Instance unsupportedRam(factory,false);}
+        // This fully formed SDTA waveform is not authorized to play
+        // from fake ROM: original Win95 RAM sample placement/upload
+        // provenance has not been validated. Refuse at activation.
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                            layeredSf2Path.c_str())==0,
                 "select three-layer original-source ROM bank");
@@ -1104,6 +1119,7 @@ int wmain(int argc,wchar_t** argv){
                  <<" real_bank_original_CC64_releases_three_source_voices=TRUE"
                  <<" private_VXD_source_identity_mutation_rejected=TRUE"
                  <<" unsupported_RAM_SF2_bank_fail_closed=TRUE"
+                 <<" genuine_RAM_SF2_smpl_rejected_at_activation=TRUE"
                  <<" original_three_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_six_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_seventh_zone_cap_and_bad_third_fail_closed=TRUE"
