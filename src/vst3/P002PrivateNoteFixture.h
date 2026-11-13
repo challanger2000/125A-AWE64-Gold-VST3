@@ -22,6 +22,13 @@ struct P002PrivateNoteFixture {
     // v1 = source-proven NoteOn only; v2 additionally supplies each
     // original 0x20-byte VXD per-voice release record (synthetic CI
     // fixture tests are NOT original Win95 runtime captures).
+    // v4 is a bounded two-NoteOn diagnostic: second independently
+    // source-shaped descriptor group, distinct physical voice and key.
+    // This is not yet a dynamic bank loader or original Win95 runtime.
+    bool two_note_diagnostic=false;
+    std::uint8_t second_key=0;
+    std::uint8_t second_velocity=0;
+    std::uint8_t second_voice_count=0;
     bool verified_source_note_release=false;
     std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> original_device_state{};
     std::array<std::uint16_t,15> negative_attenuation{};
@@ -31,6 +38,13 @@ struct P002PrivateNoteFixture {
     [[nodiscard]] std::span<const awe64::creative::OriginalSf2VxdSnapshotVoice>
     selectedVoices() const noexcept {
         return {voices.data(),voice_count};
+    }
+    std::array<awe64::creative::OriginalSf2VxdSnapshotVoice,
+               awe64::creative::kOriginalCreativeMaxNoteStartDescriptors>
+        second_voices{};
+    [[nodiscard]] std::span<const awe64::creative::OriginalSf2VxdSnapshotVoice>
+    secondSelectedVoices() const noexcept {
+        return {second_voices.data(),second_voice_count};
     }
     [[nodiscard]] awe64::creative::OriginalSf2VerifiedVxdDeviceSnapshot
     sourceState() const noexcept {
