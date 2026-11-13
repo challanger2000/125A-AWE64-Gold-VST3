@@ -159,6 +159,7 @@ void WINAPI p002_ram_entry(void) {
     LONG rc;
     HMIDIOUT midi=0;
     ORIGINAL_CREATIVE_BUFFER buffer;
+    char userbank_file_buffer[128]="C:\\P002RAM.SF2";
     char dllpath[260];
     DWORD p=0u;
     int opened=0,loaded=0,haveMidi=0,success=0;
@@ -211,8 +212,10 @@ void WINAPI p002_ram_entry(void) {
        AWEManager(user, AWE_LOAD_USER_BANK, USER_BANK_NUM, &buffer).
        No sample placement, conversion or RAM allocation occurs here;
        ALL of it is performed by the original installed Creative driver. */
-    buffer.m_Size=sizeof(sample_path);
-    buffer.m_Buffer=(LPSTR)sample_path;
+    /* The original Creative WINAWE32 sample uses a *mutable 128-byte*
+       filename buffer and m_Size=128, not a string literal pointer. */
+    buffer.m_Size=sizeof(userbank_file_buffer);
+    buffer.m_Buffer=userbank_file_buffer;
     buffer.m_SizeUsed=0u;
     buffer.m_Flag=ORIGINAL_OPER_FILE;
     report("ORIGINAL_API_LOAD_BEGIN_TICK_MS=",GetTickCount()-t0);
