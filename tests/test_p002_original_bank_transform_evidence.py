@@ -175,17 +175,19 @@ class OriginalCreativeBankTransformTests(unittest.TestCase):
             research.verify(self.trace, self.sf2, 16)
 
     def test_missing_last_physical_sample_word_never_accepted(self):
-        lines = self.trace.read_text().splitlines()
-        # One rewrite doesn't substitute for a wholly missing sample
-        # word elsewhere. Its unwritten position must stay NO-GO.
-        target = f"1 A20 {independent_expected(SOURCE)[11] & 0xFFFF:04X}"
-        index = next(i for i,line in enumerate(lines) if line == target)
-        # Preserve valid original clock ordering by switching to read.
-        lines[index] = "R "+lines[index]
-        self.trace.write_text("\n".join(lines)+"\n", encoding="ascii")
-        report = research.verify(self.trace,self.sf2,16)
-        self.assertLess(report["sample_window_written_words"],len(SOURCE))
-        self.assertGreater(report["mismatched_final_ram_words"],0)
+        # A source bank may legitimately end in ZERO. A naive byte
+        # comparison would accept unwritten zero RAM as identical.
+        # Explicitly remove the last source-word write and all trailing
+        # guard writes rather than substituting a READ (which does not
+        # advance the original EMU8000 RAM pointer).
+        initial = authentic_port_shaped_trace(
+            independent_expected(SOURCE), add_rewrite=False).splitlines()
+        complete_until_penultimate = initial[:4+16+len(SOURCE)-1]
+        self.trace.write_text(
+            "\n".join(complete_until_penultimate)+"\n", encoding="ascii")
+        with self.assertRaisesRegex(
+                ValueError, "Unwritten physical sample words"):
+            research.verify(self.trace, self.sf2, 16)
 
     def test_invalid_source_first_guard_and_sf2_length_refused(self):
         bad = list(SOURCE)
