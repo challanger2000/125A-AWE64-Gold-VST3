@@ -48,14 +48,18 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "ORIGINAL_PROGRAM0_RC=0x00000000",
         "ORIGINAL_CC91_REVERB_SEND_ZERO_RC=0x00000000",
         "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC=0x00000000",
+        "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS=0x00000500",
         "ORIGINAL_MIDI_C4_VEL100_RC=0x00000000",
+        "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS=0x00000700",
         "ORIGINAL_MIDI_C4_OFF_RC=0x00000000",
         "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN",
         "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC=0x00000000",
         "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC=0x00000000",
+        "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS=0x00000A00",
         "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC=0x00000000",
+        "ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS=0x00000C00",
         "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000",
         "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END",
         "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC=0x00000000",
@@ -133,6 +137,46 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000",
                 "POST_LOAD_SYNTH_BANK_MODE_ID=0x00000000\r\n"
                 "POST_LOAD_SYNTH_BANK_RESULT=0x00000000"),self.bank)
+
+    def test_guest_c4_d4_submission_timestamps_and_negative_events(self):
+        report=auditor.audit(self.log,self.bank)
+        self.assertEqual(report["original_guest_winmm_C4_submission_ticks_ms"],
+                         {"note_on":0x500,"note_off":0x700})
+        self.assertEqual(report["original_guest_direct_D4_submission_ticks_ms"],
+                         {"note_on":0xA00,"note_off":0xC00})
+        self.assertEqual(report["guest_GetTickCount_to_86Box_EMU8000_frame_time"],
+                         "NOT_PROVEN_INDEPENDENT_CLOCK_DOMAINS")
+        before={
+            "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS":0x500,
+            "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS":0x700,
+            "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS":0xA00,
+            "ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS":0xC00,
+        }
+        for key,original in before.items():
+            line=f"{key}=0x{original:08X}\r\n"
+            with self.subTest(missing=key):
+                with self.assertRaisesRegex(ValueError,
+                                            "Missing original Creative result"):
+                    auditor.audit(self.mutate(line,""),self.bank)
+        # The actual guest sleeps 400ms between NoteOn and NoteOff,
+        # and 500+150ms between the two routes. Never pass a forged
+        # short note or a MIDI event predating SF2 upload.
+        for key,bad in (
+            ("ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS",0x510),
+            ("ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS",0x710),
+            ("ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS",0xA01),
+            ("ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS",0x10),
+        ):
+            with self.subTest(invalid=key):
+                with self.assertRaisesRegex(ValueError,"submission timestamps"):
+                    auditor.audit(self.mutate(
+                        f"{key}=0x{before[key]:08X}",
+                        f"{key}=0x{bad:08X}"),self.bank)
+        on_tick="ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS=0x00000A00"
+        on_result="ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC=0x00000000"
+        with self.assertRaisesRegex(ValueError,"log position/order invalid"):
+            auditor.audit(self.mutate(on_tick+"\r\n"+on_result,
+                                      on_result+"\r\n"+on_tick),self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
         result = auditor.audit(self.log, self.bank)
