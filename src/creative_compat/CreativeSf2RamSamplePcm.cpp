@@ -23,6 +23,23 @@ std::uint32_t le32(Bytes b,std::size_t i) noexcept {
     return static_cast<std::uint32_t>(le16(b,i))|
         (static_cast<std::uint32_t>(le16(b,i+2u))<<16u);
 }
+// The owner's ORIGINAL Creative bank contains seven RAM-mono shdr
+// records with loopEnd==sampleEnd+2. Both beyond-end source words
+// are actual zero-valued guard samples inside sdta/smpl. This is a
+// narrowly verified 2-word RAM guard, never a license to read beyond
+// the file or accept nonzero/out-of-bounds loop material.
+bool validRamLoopGuard(const Bytes sf2,const Chunk smpl,
+                       const std::uint32_t end,
+                       const std::uint32_t loopEnd) noexcept {
+    if(loopEnd<=end)return true;
+    if(!smpl.present || (smpl.size&1u)!=0u ||
+       loopEnd-end>2u || loopEnd>smpl.size/2u)return false;
+    for(std::uint32_t i=end;i<loopEnd;++i) {
+        const std::size_t at=smpl.start+static_cast<std::size_t>(i)*2u;
+        if(at+1u>=sf2.size() || le16(sf2,at)!=0u)return false;
+    }
+    return true;
+}
 template<class F>
 bool visit(Bytes b,std::size_t first,std::size_t end,F fn) noexcept {
     if(first>end || end>b.size())return false;
@@ -48,7 +65,7 @@ candidateOriginalSf2InventoryAllSampleTypes(
        !textAt(sf2,8u,"sfbk") ||
        le32(sf2,4u)!=sf2.size()-8u)
         return std::nullopt;
-    Chunk info{},pdta{};
+    Chunk info{},sdta{},pdta{};
     if(!visit(sf2,12u,sf2.size(),
         [&](std::size_t pos,Chunk item) noexcept {
             if(!textAt(sf2,pos,"LIST"))return true;
@@ -56,6 +73,9 @@ candidateOriginalSf2InventoryAllSampleTypes(
             if(textAt(sf2,item.start,"INFO")) {
                 if(info.present)return false;
                 info=item;
+            }else if(textAt(sf2,item.start,"sdta")) {
+                if(sdta.present)return false;
+                sdta=item;
             }else if(textAt(sf2,item.start,"pdta")) {
                 if(pdta.present)return false;
                 pdta=item;
@@ -77,6 +97,14 @@ candidateOriginalSf2InventoryAllSampleTypes(
             shdr=item;return true;
         }) || !shdr.present || shdr.size<2u*46u ||
        shdr.size%46u!=0u)return std::nullopt;
+    Chunk smpl{};
+    if(sdta.present &&
+       !visit(sf2,sdta.start+4u,sdta.start+sdta.size,
+         [&](std::size_t pos,Chunk item) noexcept {
+             if(!textAt(sf2,pos,"smpl"))return true;
+             if(smpl.present)return false;
+             smpl=item;return true;
+         }))return std::nullopt;
     const auto n=shdr.size/46u-1u;
     OriginalSf2SampleMemoryInventory result{};
     result.sample_headers=n;
@@ -91,8 +119,14 @@ candidateOriginalSf2InventoryAllSampleTypes(
         const auto sampleRate=le32(sf2,base+36u);
         const auto originalPitch=sf2[base+40u];
         if(start>=end || loopStart<start ||
-           loopStart>=loopEnd || loopEnd>end ||
+           loopStart>=loopEnd ||
            sampleRate==0u || originalPitch>127u)
+            return std::nullopt;
+        if(loopEnd>end &&
+           // Only RAM-mono permits the original verified two-zero-word
+           // smpl guard. ROM/stereo/linked types retain strict bounds.
+           !(type==1u && linked==0u &&
+             validRamLoopGuard(sf2,smpl,end,loopEnd)))
             return std::nullopt;
         if(type==0x8001u && linked==0u)
             ++result.rom_mono;
@@ -187,7 +221,8 @@ candidateOriginalSf2ReadRamMonoSamplePcm(
     const auto poolWords=smpl.size/2u;
     if(sampleType!=1u || linked!=0u || root>127u ||
        hz==0u || first>=last || last>poolWords ||
-       loopStart<first || loopStart>=loopEnd || loopEnd>last ||
+       loopStart<first || loopStart>=loopEnd ||
+       !validRamLoopGuard(sf2,smpl,last,loopEnd) ||
        last-first>ram_words)
         return std::nullopt;
     const auto begin=smpl.start+static_cast<std::size_t>(first)*2u;
