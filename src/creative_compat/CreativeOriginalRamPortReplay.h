@@ -59,4 +59,33 @@ candidateReplaySourceMatchedOriginalRamSf2Sample(
     std::uint32_t independently_observed_emu8000_sample_base_word,
     std::span<const OriginalRamUploadPortWrite> original_guest_upload_ports,
     bool independently_verified_original_Win95_Creative_RAM_trace) noexcept;
+// P002 independently measured ORIGINAL DRAM source experiment.
+// The captured 1996 Creative driver overwrites 255 physical words
+// within the 260921-word owner source bank. The historical strict
+// sample-first-write checker above remains unchanged; this SEPARATE
+// research gate proves the FINAL recorded physical RAM, including
+// every source-original overwrite, against independently authenticated
+// final source words BEFORE applying anything to the original chip.
+// Caller must validate BOTH original driver provenance and full source
+// bank identity via the separate original Windows-95/SHA auditor.
+// A boolean cannot establish that evidence on its own.
+//
+// This function uses O(sample-words) temporary memory on the CALLER'S
+// OFFLINE/ACTIVATION thread. Never invoke inside process()/render().
+struct OriginalObservedFinalRamBankReplay {
+    OriginalRamUploadReplayResult original_port_upload{};
+    std::uint32_t independently_observed_word_base=0u;
+    std::size_t independently_verified_final_word_count=0u;
+    std::size_t source_sample_physical_rewrite_events=0u;
+    std::size_t source_sample_distinct_rewritten_words=0u;
+};
+[[nodiscard]] std::optional<OriginalObservedFinalRamBankReplay>
+candidateReplayObservedOriginalCreativeFinalRamBank(
+    awe64::Chip& pinned_original_emu8000,
+    std::span<const OriginalRamUploadPortWrite> actual_original_filtered_ports,
+    std::uint32_t independently_observed_final_word_base,
+    std::span<const std::uint16_t> independently_authenticated_final_words,
+    bool independent_win95_creative_driver_source_verified,
+    bool independent_source_bank_and_final_word_hash_verified);
+
 } // namespace awe64::creative
