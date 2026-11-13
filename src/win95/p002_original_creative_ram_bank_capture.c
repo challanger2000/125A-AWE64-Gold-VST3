@@ -377,7 +377,7 @@ void WINAPI p002_ram_entry(void) {
        Fix BOTH WinMM and AWE_SEND_MIDI. Only a register capture
        with CCCA/PSST/CSL in RAM >=0x200000 proves RAM playback.
     */
-    emit("ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6\\r\\n");
+    emit("ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6\r\n");
     /* The bank-load phase above is the authoritative DRAM-upload
        measurement. The following MIDI-only phase is separate and
        cannot prove selection of a specific bank without register/PCM
