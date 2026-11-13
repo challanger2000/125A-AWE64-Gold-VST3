@@ -296,6 +296,95 @@ P002 **DRAFT**; source original audio parity requires a separately
 controlled native VST3 RAM bank renderer and source-clock-aligned
 PCM evidence.
 
+## 2026-11-13 ACTUAL Win95 original driver RAM transfer — complete one-bank reference
+
+**This is now a REAL ORIGINAL Creative Win95/86Box reference capture, not
+synthetic CI fixtures.** The developer booted the owner's original existing
+Windows 95 guest in the **SHA-pinned, hardware-calibrated**
+`turican0/86Box-AWE32 v6.0-AWE32-0.93` fork, with CPU dynarec disabled
+**only on the disposable private VM clone**. The first fresh attempt
+accidentally used an outdated P002RAM.EXE and aborted on Creative's
+optional `AWE_GET_SYN_BANK=305` returning `0xCB`; this was **our own
+test-staging error**, not a kernel fault. Using the current CI-built
+`P002RAM.EXE` corrected it. The installed original
+`C:\WINDOWS\SYSTEM\AWEMAN32.DLL` + `SBAWE.VXD` successfully
+executed `AWE_LOAD_USER_BANK=204` and `AWE_CLEAR_USER_BANK`
+(both returned `0`), plus WinMM C4 and Creative API D4 NoteOn/Off.
+The exact 555,754-byte owner `Synth 512 Bank.sf2` was staged.
+Original DRAM query: **260,937 16-bit RAM words allocated**.
+
+The guest log, the **actual original EMU8000 physical port events**
+(`EMU8K_TRACE`) and the original **pre-card stereo PCM16 AWE32_WAV**
+were recorded concurrently. The original trace has **759,286 registered
+port events**, including **261,264 in-range SMLD RAM write events**.
+The source SF2 `smpl` has **260,921 signed 16-bit sample words**.
+The physical RAM writes show an original **16-word preface** followed by
+the contiguous source sample data beginning at source-observed absolute
+address **`0x200010`**. The register stream includes **255 physical
+addresses in that sample interval that were written more than once**;
+tests must evaluate **the final source-observed value at every word**,
+not infer a pristine single-write trace or reject this legitimate
+Creative upload as a malformed bank. The RAM state is reconstructed from
+captured port traffic: this is **not a direct independent RAM readback**.
+
+**One-owner-bank empirical transform (completely checked):**
+
+`y[n] = (6*x[n] - x[n-1] - x[n+1]) >> 3`
+
+Use signed source PCM16 integers and arithmetic right shift for negative
+values. Preserve source runs of **three or more consecutive zero words**
+as zero (including 32/33-word inter-sample silent guard padding),
+whereas runs of one or two zeros are filtered; the first source word
+is a source-zero guard. With these exact observed boundary conditions,
+**260,921 of 260,921 actual final original RAM sample words are
+bit-for-bit equal** for this one private owner bank, with zero
+mismatches. The earlier 225 apparent discrepancies at source-zero
+positions were an incomplete **developer's empirical model**, not
+hardware distortion or evidence of a bad original EMU8000 core.
+
+**Source-only, never production DSP:** The new
+`tools/p002_verify_original_creative_ram_transfer.py` requires the
+private original trace, exact source SF2, **real original guest API
+log**, and explicitly specified observed sample-base address. It
+strictly checks original driver bank identity, original source DRAM
+allocation (including 16-word preface), full physical RAM word coverage,
+final-written values, observed rewrites, sample count and empirical
+transform. It stores only bounded counts and SHA256 in a new
+**private report** outside Git. It does NOT extrapolate the rule to
+other user banks or implement a synthesized Creative loader in the VST3.
+The independently authored
+`tools/p002_original_bank_transform_evidence.py` also checks source
+SF2 sample headers (including seven observed loop-end +2 cases),
+physical overwrite events, observed guard offset and final-RAM state
+separately, without any private samples in CI. The original
+`snd_emu8k.c` and CT1745 implementation have NOT changed.
+
+**Private frozen evidence (NOT committed to GitHub):**
+
+- Original `EMU8K_TRACE` 12,924,247 bytes,
+  SHA256 `4ec6e1764afade0ae965c2ec81cae27b107ff10701c9f727b7d20e06876422f9`
+- Original calibrated-fork AWE32 WAV, 6,085,800 stereo frames /
+  138 s @ 44.1 kHz PCM16,
+  SHA256 `eec7dbe6dee6ee08766841fedfa9ed636df067ad94e8fdf03f4e0b8988faebbb`
+- Original guest Win95 `P002RAM.LOG`,
+  SHA256 `660a01264550415d50d2cd071e752e9388ebb63071288acbefe95c0386a07096`
+- Private source SF2,
+  SHA256 `d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b`
+
+The owner has been provided a **private reference ZIP** containing the
+original complete trace, WAV, guest log, port-reconstructed RAM image,
+full bit-exact transfer-audit report and a short unnormalized C4/D4 WAV.
+No original owner's Microsoft/Creative binaries, ROM, private SF2
+samples or entire VM are published to the public repository.
+
+**Open release gates remain:** The empirical sample-upload behavior
+has been confirmed for **one 77-preset bank only**; arbitrary SF2
+banks, source VXD-derived generalized conversion, original Creative
+voice-register assignment for each preset, final actual native VST3
+RAM-bank playback, and source-original vs VST3 **sample-exact DRY PCM**
+are **not proved**. No user-facing RAM bank support or final GUI/ASIO
+approval until these gates pass. PR #4 remains DRAFT.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
