@@ -1153,6 +1153,31 @@ int wmain(int argc,wchar_t** argv){
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
+        // Original RAM preload must be fail-closed in the ACTUAL
+        // exported Windows VST3. Public CI uses only synthetic/invalid
+        // files; the real owner Creative/SF2 evidence stays PRIVATE.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",
+                            ramSf2Path.c_str())==0,
+                "set synthetic incomplete original RAM source");
+        {Instance rejectMissingSourcePorts(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS",
+                            sourceDerivedFixture.c_str())==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16",
+                            mutant.c_str())==0,
+                "set deliberately wrong complete original RAM sources");
+        {Instance rejectInvalidOriginalCaptureSha(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                            sf2BankPath.c_str())==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",
+                            vxdResourcePath.c_str())==0,
+                "set mutually exclusive private source bank modes");
+        {Instance rejectRomAndRamSourceConflict(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS",L"")==0 &&
+                _wputenv_s(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16",L"")==0,
+                "clear tested synthetic invalid RAM research inputs");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            badMarkerFixture.c_str())==0,
                 "set invalid source note identity fixture");
