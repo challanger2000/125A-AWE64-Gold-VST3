@@ -194,7 +194,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
             "681587 E22 003A",
         ]+[f"681588 A20 {word:04X}" for word in self.sample_words]
         report=probe.scan_capture(synthetic_source,self.expected)
-        self.assertEqual(report["register_events"],len(synthetic_source)-1)
+        self.assertEqual(report["register_events"],len(synthetic_source))
         self.assertEqual(report["original_register_reads"],1)
         self.assertEqual(report["ram_word_writes"],len(self.sample_words))
         self.assertEqual(report["direct_pcm16_upload_matches"],1)
