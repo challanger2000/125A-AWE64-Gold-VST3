@@ -49,6 +49,8 @@ on:
       - 'src/vst3/P002PrivateRomBank.cpp'
       - 'src/vst3/P002PrivateOriginalRamCapture.h'
       - 'src/vst3/P002PrivateOriginalRamCapture.cpp'
+      - 'src/vst3/P002PrivateOriginalRamNotes.h'
+      - 'src/vst3/P002PrivateOriginalRamNotes.cpp'
       - 'tools/p002_make_private_vst3_rom_bank_resources.py'
       - 'tests/test_p002_make_private_vst3_rom_bank_resources.py'
       - 'src/vst3/P001Minimal.cpp'
