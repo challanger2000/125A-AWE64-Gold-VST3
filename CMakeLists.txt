@@ -113,6 +113,8 @@ target_include_directories(awe64_p002_sf2_ram_pcm_inventory
     PUBLIC src/creative_compat)
 target_compile_features(awe64_p002_sf2_ram_pcm_inventory
     PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC awe64_p002_sbk_layers)
 add_executable(awe64_p002_sf2_ram_pcm_inventory_test
     tests/p002_native_sf2_ram_pcm_inventory.cpp)
 target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
