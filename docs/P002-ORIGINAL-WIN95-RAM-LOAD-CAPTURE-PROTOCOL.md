@@ -129,6 +129,37 @@ The existing **single-command Win95 guest + exact SoundFont + source RAM trace e
 ```
 
 All offsets above are placeholders, not timing observations. Missing or corrupt input fails closed; an explicit PCM mismatch creates a private report identifying the unequal samples and exits nonzero. Even exact PCM window equality leaves the original driver, bank/clock alignment and release gates marked **NOT PROVEN**, until the private original capture is independently authenticated. The P002 evidence join also still refuses ambiguous or later-overwritten source-SF2 RAM addresses.
+## 2026-11-13 Original Creative Win95 ABI and synth-mode instrumentation
+
+Original Creative 1994–96 `WINDOWS/INCLUDE/INDICES.H` uses
+`#pragma pack(2)` under Win32: the original `CBufferObject` is
+**14 bytes**, with field offsets `m_Size=0`, `m_Buffer=4`,
+`m_SizeUsed=8`, `m_Flag=12`. Our previous **16-byte default-packed
+guest-test struct was our developer error**. It is now corrected in
+`src/win95/p002_original_creative_ram_bank_capture.c` with a
+compile-time layout lock. The guest log records the 14-byte size, and
+`tools/p002_verify_original_win95_ram_guest_log.py` rejects old/wrong
+capture records. The physical byte offsets were already the same; do
+not claim this change alone corrected the sound or verified driver RAM
+upload. The pinned EMU8000 kernel is untouched.
+
+The same original Win95 guest now calls the documented
+`AWE_GET_SYN_BANK=305` exactly as demonstrated by Creative
+`WINAWE32.C`: a correctly packed `CBufferObject` carries the
+synth-bank MODE as `m_Flag`. The guest logs this **read-only** query
+both before and after loading the SF2. The auditor demands successful
+return codes, authentic event order and an enum in
+`0=GENERAL_MIDI, 1=ROLAND_GS, 2=MT_32, 3=USER_CUSTOM_BANK`.
+It records whether the mode changed, without requesting a mode change.
+This resolves an observational blind spot in our own test harness,
+but **does not** prove MIDI CC0=1 selects the uploaded user bank or that
+the original chip actually rendered the RAM samples. That requires
+original Creative Win95 driver/86Box register and digital PCM evidence.
+
+Original source reference: [Creative `INDICES.H`](https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/INCLUDE/INDICES.H),
+[`WINAWE32.C`](https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/SAMPLE/AWEDEMO/WINAWE32.C), and
+[`AWE_API.H`](https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/INCLUDE/AWE_API.H).
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
