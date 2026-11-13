@@ -191,6 +191,85 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
                 kOriginalVxdMinDeviceImage,mutable_state.begin());
     return played;
 }
+std::optional<OriginalSf2ExecutedLiveLayeredBankNote>
+candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+    awe64::Chip& chip,
+    const std::span<std::uint8_t> mutable_state,
+    const std::span<const std::uint8_t> bank,
+    const MidiMessage& midi,
+    const MidiState& midi_state,
+    const std::uint16_t bank_number,
+    const std::size_t rom_word_count,
+    const OriginalCreativeSf2DriverResources& resources,
+    const OriginalSf2VoiceStartConditions& start,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_context,
+    const bool source_verified) noexcept {
+    if(!source_verified || !chip.ready() ||
+       !source_context.independently_verified_original_vxd_snapshot ||
+       !source_context.original_lcod_31word_table_verified ||
+       mutable_state.size()<kOriginalVxdMinDeviceImage ||
+       source_context.original_state_bytes.size()<
+           kOriginalVxdMinDeviceImage ||
+       !std::equal(mutable_state.begin(),
+                   mutable_state.begin()+kOriginalVxdMinDeviceImage,
+                   source_context.original_state_bytes.begin()))
+        return std::nullopt;
+    const auto inventory=prepareOriginalCreativeRomNote(
+        midi,midi_state,bank,bank_number,rom_word_count);
+    if(!inventory || inventory->count<2u ||
+       inventory->count>kOriginalCreativeMaxNoteStartDescriptors)
+        return std::nullopt;
+    for(std::size_t i=0;i<inventory->count;++i) {
+        if(inventory->layers[i].metadata.source_format!=
+           OriginalCreativeBankFormat::Format2Sf2)
+            return std::nullopt;
+    }
+    // Plan the original THREE-LANE idle-voice lookup on a source VXD
+    // image copy. A previously selected physical voice gets precisely
+    // the original channel/key marker in this scratch image, so it is
+    // no longer eligible as completely idle for the NEXT layer.
+    // The chip isn't triggered until the WHOLE multi-voice original
+    // output plan has passed the existing descriptor/register oracle.
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> scratch{};
+    std::copy_n(mutable_state.begin(),scratch.size(),scratch.begin());
+    OriginalSf2ExecutedLiveLayeredBankNote result{};
+    std::array<std::uint8_t,kOriginalCreativeMaxNoteStartDescriptors> selected{};
+    for(std::size_t layer=0;layer<inventory->count;++layer) {
+        const auto chosen=candidateOriginalSf2LiveVxdMonoVoice(
+            chip,scratch,true);
+        if(!chosen || chosen->reason!=
+             OriginalWin95MonoSelectionReason::CompletelyIdle ||
+           chosen->physical_voice>=kOriginalCreativeMusicVoices)
+            return std::nullopt;
+        const auto physical=chosen->physical_voice;
+        for(std::size_t prior=0;prior<layer;++prior)
+            if(selected[prior]==physical)return std::nullopt;
+        selected[layer]=physical;
+        result.selections[layer]=*chosen;
+        const auto row=kOriginalVxdVoiceRowStart+
+            static_cast<std::size_t>(physical)*kOriginalVxdVoiceRowStride;
+        scratch[row]=midi.data1;
+        scratch[row+1u]=midi.channel;
+    }
+    const auto compiled=candidateOriginalSf2CompileRomBankNote(
+        bank,midi,midi_state,bank_number,rom_word_count,
+        resources,start,source_context,
+        std::span<const std::uint8_t>(selected.data(),inventory->count),true);
+    if(!compiled || compiled->voice_count!=inventory->count ||
+       compiled->typed_original_outs.count!=
+           static_cast<std::size_t>(inventory->count)*
+               kOriginalSf2OneVoiceStartWrites)
+        return std::nullopt;
+    auto verified_after=source_context;
+    verified_after.original_state_bytes=compiled->vxd_state_after_noteon;
+    if(!applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+           chip,compiled->selectedVoices(),verified_after))
+        return std::nullopt;
+    std::copy_n(compiled->vxd_state_after_noteon.begin(),
+                kOriginalVxdMinDeviceImage,mutable_state.begin());
+    result.original_compilation=*compiled;
+    return result;
+}
 namespace {
 std::uint16_t readSourceMarker(
     const std::span<const std::uint8_t> state,
@@ -204,10 +283,20 @@ std::uint16_t readSourceMarker(
 bool OriginalSf2RomBankVoiceOwnership::recordExecutedNoteOn(
     const OriginalSf2ExecutedLiveIdleMonoNote& executed,
     const std::span<const std::uint8_t> state) noexcept {
-    const auto voices=executed.original_compilation.selectedVoices();
+    return recordCompiledNoteOn(executed.original_compilation,state);
+}
+bool OriginalSf2RomBankVoiceOwnership::recordExecutedNoteOn(
+    const OriginalSf2ExecutedLiveLayeredBankNote& executed,
+    const std::span<const std::uint8_t> state) noexcept {
+    return recordCompiledNoteOn(executed.original_compilation,state);
+}
+bool OriginalSf2RomBankVoiceOwnership::recordCompiledNoteOn(
+    const OriginalSf2CompiledRomBankNote& compiled,
+    const std::span<const std::uint8_t> state) noexcept {
+    const auto voices=compiled.selectedVoices();
     if(state.size()<kOriginalVxdMinDeviceImage ||
        voices.empty() || voices.size()>kOriginalCreativeMaxNoteStartDescriptors ||
-       executed.original_compilation.voice_count!=voices.size())
+       compiled.voice_count!=voices.size())
         return false;
     std::uint32_t physicals=0u;
     for(const auto& src:voices) {
