@@ -64,13 +64,16 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha,
                       bool releaseV2=false,bool sustain=false,
                       bool wrongOriginalMarker=false,
                       bool sourceDerivedV3=false,
-                      bool twoNoteV4=false,bool duplicateSecondVoice=false){
+                      bool twoNoteV4=false,bool duplicateSecondVoice=false,
+                      unsigned extraNotesV5=0u,
+                      bool duplicateExtraKey=false,
+                      bool duplicateExtraVoice=false){
     std::ofstream o(p,std::ios::binary|std::ios::trunc);
     require(bool(o),"cannot open synthetic P002 host fixture");
     auto raw=[&](std::uint8_t b){o.put(static_cast<char>(b));};
     for(const char c:std::string("125AP2D1"))o.put(c);
     const std::array<std::uint8_t,6> head{{
-        static_cast<std::uint8_t>(twoNoteV4?4u:sourceDerivedV3?3u:releaseV2?2u:1u),
+        static_cast<std::uint8_t>(extraNotesV5?5u:twoNoteV4?4u:sourceDerivedV3?3u:releaseV2?2u:1u),
         0u,0u,60u,90u,1u}};
     for(const auto v:head)raw(v);
     std::array<std::uint8_t,32> vxd{{
@@ -110,7 +113,7 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha,
     for(int i=0;i<62;++i)raw(0u); // unused for GM0 attack 125
     raw(0u); // physical voice0, NOT the fixed P001 voice29
     for(const auto v:realSourceDerivedGm0())raw(v);
-    if(twoNoteV4) {
+    if(twoNoteV4 || extraNotesV5>0u) {
         // Exact second fixture record (no new driver template):
         // independently selected original physical voice 3 and MIDI
         // key64, same source GM0 148-byte descriptor family. The
@@ -120,6 +123,25 @@ void writeDiagFixture(const std::filesystem::path& p,bool badSha,
         auto second=realSourceDerivedGm0();
         word(second,46u,64); // explicit second MIDI key in source-shaped case
         for(const auto v:second)raw(v);
+    }
+    if(extraNotesV5>0u) {
+        // v5 extends the prior authenticated two-note fixture with
+        // independently source-backed additional groups. Each one
+        // owns its original physical voice and NoteOn descriptor.
+        require(extraNotesV5<=6u,"too many synthetic v5 note groups");
+        raw(static_cast<std::uint8_t>(extraNotesV5));
+        constexpr std::array<std::uint8_t,6> keys{{67,69,72,74,76,79}};
+        constexpr std::array<std::uint8_t,6> physical{{6,9,12,15,18,21}};
+        for(unsigned i=0;i<extraNotesV5;++i) {
+            const auto key=static_cast<std::uint8_t>(
+                duplicateExtraKey && i+1u==extraNotesV5?64u:keys[i]);
+            raw(key);raw(90u);raw(1u);
+            raw(duplicateExtraVoice && i+1u==extraNotesV5
+                ?3u:physical[i]);
+            auto desc=realSourceDerivedGm0();
+            word(desc,46u,key);
+            for(const auto v:desc)raw(v);
+        }
     }
     require(bool(o),"synthetic diagnostic fixture truncated");
 }
@@ -180,6 +202,7 @@ struct Audio {
     std::uint64_t hashBeforeBlock12=0xcbf29ce484222325ull;
     std::uint64_t hashBeforeBlock2=0xcbf29ce484222325ull;
     std::uint64_t hashBeforeBlock13=0xcbf29ce484222325ull;
+    std::uint64_t hashBeforeBlock22=0xcbf29ce484222325ull;
 };
 Audio renderNote(IPluginFactory* factory,float velocity,
                  int noteOffBlock=-1,int noteOffChannel=0,
@@ -306,6 +329,80 @@ Audio renderTwoSourceNotes(IPluginFactory* factory,bool sendSecond,
     }
     return audio;
 }
+// First exported real VST3 eight-source-note exercise. This is a
+// bounded externally authenticated source-note table, not arbitrary
+// soundbank key mapping, voice stealing or original Win95 PCM parity.
+Audio renderManySourceNotes(IPluginFactory* factory,
+                            const unsigned count,
+                            const bool liftPedal,
+                            const bool badThirdVelocity=false) {
+    require(count>0u && count<=8u,"invalid authenticated MIDI event count");
+    constexpr std::array<int,8> keys{{60,64,67,69,72,74,76,79}};
+    Instance instance(factory,true);
+    Audio audio{};
+    const auto enqueue=[&](EventList& list,bool on,int key,int offset,
+                           float velocity) {
+        Event e{};
+        e.busIndex=0;e.sampleOffset=offset;
+        e.type=on?Event::kNoteOnEvent:Event::kNoteOffEvent;
+        if(on) {
+            e.noteOn.channel=0;
+            e.noteOn.pitch=static_cast<Steinberg::int16>(key);
+            e.noteOn.velocity=velocity;
+            e.noteOn.noteId=key;
+        }else {
+            e.noteOff.channel=0;
+            e.noteOff.pitch=static_cast<Steinberg::int16>(key);
+            e.noteOff.velocity=0.f;
+            e.noteOff.noteId=key;
+        }
+        require(list.addEvent(e)==kResultOk,"v5 original-source MIDI enqueue");
+    };
+    for(int block=0;block<40;++block) {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=buffers;
+        EventList events;
+        for(unsigned i=0;i<count;++i) {
+            if(block==static_cast<int>(i))
+                enqueue(events,true,keys[i],47+static_cast<int>(i),
+                        badThirdVelocity && i==2u?75.f/127.f:90.f/127.f);
+            if(block==static_cast<int>(10u+i))
+                enqueue(events,false,keys[i],101+static_cast<int>(i),0.f);
+        }
+        ParameterChanges changes(1);
+        if(block==9 || (block==22 && liftPedal)) {
+            int32 idx=0;
+            auto* q=changes.addParameterData(0x125A0064u,idx);
+            require(q!=nullptr,"v5 CC64 queue absent");
+            int32 point=0;
+            require(q->addPoint(block==9?73:37,
+                                block==9?1.:0.,point)==kResultOk,
+                    "v5 actual CC64 sample-offset rejected");
+        }
+        if(block==22)audio.hashBeforeBlock22=audio.hash;
+        ProcessData data{};
+        data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+        data.numSamples=512;data.outputs=&bus;data.numOutputs=1;
+        data.inputEvents=&events;
+        data.inputParameterChanges=&changes;
+        require(instance.audio->process(data)==kResultOk,
+                "exported VST3 source-v5 multi-note process failed");
+        for(unsigned frame=0;frame<512u;++frame)
+            for(const auto value:{left[frame],right[frame]}) {
+                require(std::isfinite(value),"v5 digital PCM nonfinite");
+                if(value!=0.f)++audio.nonzero;
+                std::uint32_t bits=0;
+                std::memcpy(&bits,&value,sizeof bits);
+                for(unsigned byte=0;byte<4u;++byte) {
+                    audio.hash^=(bits>>(byte*8u))&255u;
+                    audio.hash*=0x100000001b3ull;
+                }
+            }
+    }
+    return audio;
+}
 } // namespace
 int wmain(int argc,wchar_t** argv){
     if(argc!=3)return 2;
@@ -329,6 +426,12 @@ int wmain(int argc,wchar_t** argv){
     twoSourceNotesFixture+=L".two-source-notes";
     auto duplicateVoiceFixture=fixture;
     duplicateVoiceFixture+=L".duplicate-voice";
+    auto multiSourceFixture=fixture;
+    multiSourceFixture+=L".eight-source-notes";
+    auto duplicateExtraKeyFixture=fixture;
+    duplicateExtraKeyFixture+=L".v5-duplicate-key";
+    auto duplicateExtraVoiceFixture=fixture;
+    duplicateExtraVoiceFixture+=L".v5-duplicate-physical";
     try{
         writeDiagFixture(fixture,false);
         writeDiagFixture(mutant,true);
@@ -339,6 +442,12 @@ int wmain(int argc,wchar_t** argv){
         writeDiagFixture(derivedSustainFixture,false,false,true,false,true);
         writeDiagFixture(twoSourceNotesFixture,false,false,false,false,false,true);
         writeDiagFixture(duplicateVoiceFixture,false,false,false,false,false,true,true);
+        writeDiagFixture(multiSourceFixture,false,false,false,false,false,
+                         false,false,6u);
+        writeDiagFixture(duplicateExtraKeyFixture,false,false,false,false,false,
+                         false,false,6u,true,false);
+        writeDiagFixture(duplicateExtraVoiceFixture,false,false,false,false,false,
+                         false,false,6u,false,true);
         require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "private Creative ROM process binding failed");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
@@ -453,6 +562,39 @@ int wmain(int argc,wchar_t** argv){
                            duplicateVoiceFixture.c_str())==0,
                 "set duplicate physical voice fixture");
         {Instance rejectSecondDup(factory,false);}
+        // v5: actual 8 independent original-source NoteOn groups in
+        // the exported DLL. Control sample sequences differ from four
+        // notes; independently reject one wrong MIDI velocity. Each
+        // NoteOff is deferred by original channel CC64 and the original
+        // pedal-up scan releases all eight physical voice slots.
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           multiSourceFixture.c_str())==0,
+                "set original-source v5 eight-note fixture");
+        const auto fourHeld=renderManySourceNotes(factory,4u,false);
+        const auto eightHeld=renderManySourceNotes(factory,8u,false);
+        const auto eightHeldAgain=renderManySourceNotes(factory,8u,false);
+        const auto eightLift=renderManySourceNotes(factory,8u,true);
+        const auto wrongThird=renderManySourceNotes(factory,8u,false,true);
+        require(eightHeld.nonzero>1000u &&
+                eightHeld.hash!=fourHeld.hash,
+                "original-source VST3 v5 additional notes were silent");
+        require(eightHeldAgain.hash==eightHeld.hash &&
+                eightHeldAgain.nonzero==eightHeld.nonzero,
+                "original-source v5 multi-voice chip PCM nondeterministic");
+        require(eightHeld.hash!=wrongThird.hash,
+                "unverified third MIDI velocity unexpectedly played");
+        require(eightLift.hashBeforeBlock22==eightHeld.hashBeforeBlock22,
+                "v5 eight-note release changed audio before CC64 pedal-up");
+        require(eightLift.hash!=eightHeld.hash,
+                "original channel CC64 failed to release 8 VST3 notes");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           duplicateExtraKeyFixture.c_str())==0,
+                "set v5 duplicate key invalid fixture");
+        {Instance rejectV5DuplicateKey(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
+                           duplicateExtraVoiceFixture.c_str())==0,
+                "set v5 duplicate physical voice invalid fixture");
+        {Instance rejectV5DuplicateVoice(factory,false);}
         require(_wputenv_s(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",
                            badMarkerFixture.c_str())==0,
                 "set invalid source note identity fixture");
@@ -471,6 +613,9 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(derivedSustainFixture,ec);
         std::filesystem::remove(twoSourceNotesFixture,ec);
         std::filesystem::remove(duplicateVoiceFixture,ec);
+        std::filesystem::remove(multiSourceFixture,ec);
+        std::filesystem::remove(duplicateExtraKeyFixture,ec);
+        std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
                  <<" original_ROM_from_hash_locked_external_source=TRUE"
                  <<" synthetic_original_x86_GM0_fixture=TRUE"
@@ -491,6 +636,9 @@ int wmain(int argc,wchar_t** argv){
                  <<" source_verified_two_sequential_keys_actual_VST3_PCM=TRUE"
                  <<" source_CC64_two_physical_voices_actual_VST3_PCM=TRUE"
                  <<" unverified_second_voice_rejected=TRUE"
+                 <<" v5_eight_source_bound_MIDI_keys_real_VST3_PCM=TRUE"
+                 <<" v5_eight_voice_original_CC64_release_real_VST3_PCM=TRUE"
+                 <<" v5_wrong_velocity_duplicate_voice_and_key_rejected=TRUE"
                  <<" full_SF2_bank_polyphony_CC64_lifecycle=NOT_IMPLEMENTED\n";
         return 0;
     }catch(const std::exception& e){
@@ -505,6 +653,9 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(derivedSustainFixture,ec);
         std::filesystem::remove(twoSourceNotesFixture,ec);
         std::filesystem::remove(duplicateVoiceFixture,ec);
+        std::filesystem::remove(multiSourceFixture,ec);
+        std::filesystem::remove(duplicateExtraKeyFixture,ec);
+        std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
         return 1;
     }
