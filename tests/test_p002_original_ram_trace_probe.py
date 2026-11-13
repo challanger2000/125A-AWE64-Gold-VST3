@@ -92,10 +92,10 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
     def test_literal_guest_RAM_port_export_without_synthesis(self):
         filtered=list(probe.filter_original_ram_upload_port_writes(
             self.trace))
-        # 2 exact SMALW setters (3 writes each), 2 exact SMLD
-        # selectors, 41 exact source-word writes. Other voice/FX
-        # writes and read events must not leak into the RAM replay.
-        self.assertEqual(len(filtered),6+2+41)
+        # 2 original SMALW setters (3 writes each), 3 captured
+        # SMLD selectors (including original re-selection after an
+        # unrelated register), and 41 exact source PCM words.
+        self.assertEqual(len(filtered),6+3+41)
         self.assertEqual(filtered[:5],[
             (2,0xE22,0x36),(2,0xA20,0x0100),
             (2,0xA22,0x0020),(3,0xE22,0x3A),
@@ -124,7 +124,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SMALW pointer"):
             list(probe.filter_original_ram_upload_port_writes(truncated))
         illegal=list(self.trace)
-        illegal[10]="4 A22 00FF"
+        illegal[10]="4 A22 0001"
         with self.assertRaisesRegex(ValueError,"outside installed"):
             list(probe.filter_original_ram_upload_port_writes(illegal))
         with self.assertRaisesRegex(ValueError,"no complete"):
