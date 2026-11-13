@@ -35,6 +35,16 @@
 #define ORIGINAL_AWE_NO_ERR 0L
 #define ORIGINAL_OPER_FILE 0u
 #define ORIGINAL_USER_BANK_NUMBER 1u
+/* Construct WinMM MIDI short messages from their actual MIDI bytes:
+   status=B0 (channel 1), controller=0, value=1. Never hand-write
+   packed DWORDs: 0x000001B0 silently selects CC1 instead of CC0. */
+#define ORIGINAL_MIDI_CC(channel,controller,value) \
+    ((DWORD)(0xB0u | ((DWORD)(channel)&15u)) | \
+     ((DWORD)(controller)<<8u) | ((DWORD)(value)<<16u))
+typedef char original_cc0_bank1_byte_order_assert[
+    (ORIGINAL_MIDI_CC(0u,0u,1u)==0x000100B0u) ? 1 : -1];
+typedef char original_cc1_not_bank_select_assert[
+    (ORIGINAL_MIDI_CC(0u,1u,0u)==0x000001B0u) ? 1 : -1];
 
 typedef LONG (WINAPI *CREATIVE_AWEMANAGER)(
     DWORD original_handle,UINT original_api,
@@ -385,7 +395,7 @@ void WINAPI p002_ram_entry(void) {
        original driver program bank mapping formula. */
     Sleep(200);
     if(!send_midi(midi,0x000079B0u,"ORIGINAL_RESET_CONTROLLERS_RC"))goto done;
-    if(!send_midi(midi,0x000100B0u,
+    if(!send_midi(midi,ORIGINAL_MIDI_CC(0u,0u,1u),
                   "ORIGINAL_BANK_SELECT_MSB1_RC"))goto done;
     if(!send_midi(midi,0x000000C0u,"ORIGINAL_PROGRAM0_RC"))goto done;
     /* DRY comparison first. Original MIDI controllers 91/93 = 0:
@@ -413,7 +423,7 @@ void WINAPI p002_ram_entry(void) {
        routes. Without this, WinMM C4 and AWE_SEND_MIDI D4 may use
        DIFFERENT bank state and cannot isolate the routing difference.
        Bank MSB=1 remains a PROBE, not proof of a RAM-bank mapping. */
-    if(!original_send_midi(manager,handle,0x000100B0u,
+    if(!original_send_midi(manager,handle,ORIGINAL_MIDI_CC(0u,0u,1u),
                            "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC"))
         goto done;
     if(!original_send_midi(manager,handle,0x000000C0u,
