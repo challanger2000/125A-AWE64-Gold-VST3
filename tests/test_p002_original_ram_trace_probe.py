@@ -174,6 +174,61 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                             capture,private_export)
                     self.assertFalse(private_export.exists())
 
+    def test_real_86box_win95_boot_register_bank_interleaving(self):
+        # These 15 exact lines came from our real 86Box AWE32 calibrated
+        # v6.0-AWE32-0.93 Windows95 boot TRACE. The FOLLOWING sample
+        # waveform is synthetic-only: source ROM/SF2 parity is not proven.
+        real_original_boot=[
+            "680527 E22 0036","680527 E20 FF00",
+            "680527 E22 0056","680527 E20 0000",
+            "680530 E22 0036","680530 A20 0000",
+            "680530 A22 8000","680530 E22 0037",
+            "681585 E22 0036","681585 A20 0000",
+            "681585 A22 0100","681585 E22 003A",
+            "681585 A20 AA55","681585 E22 0034",
+            "R 681585 A20 0002",
+        ]
+        synthetic_source=real_original_boot+[
+            "681586 E22 0036","681586 E20 D000",
+            "681586 A20 0400","681586 A22 0020",
+            "681587 E22 003A",
+        ]+[f"681588 A20 {word:04X}" for word in self.sample_words]
+        report=probe.scan_capture(synthetic_source,self.expected)
+        self.assertEqual(report["register_events"],len(synthetic_source)-1)
+        self.assertEqual(report["original_register_reads"],1)
+        self.assertEqual(report["ram_word_writes"],len(self.sample_words))
+        self.assertEqual(report["direct_pcm16_upload_matches"],1)
+        self.assertEqual(report["first_final_state_emu8000_word_address"],
+                         0x200400)
+        filtered=list(probe.filter_original_ram_upload_port_writes(
+            synthetic_source))
+        self.assertEqual(len(filtered),3+1+len(self.sample_words))
+        self.assertEqual(filtered[:4],[
+            (681586,0xE22,0x36),(681586,0xA20,0x0400),
+            (681586,0xA22,0x0020),(681587,0xE22,0x3A)])
+        self.assertTrue(all(p in (0xE22,0xA20,0xA22)
+                            for _,p,_ in filtered))
+        self.assertNotIn((681585,0xA20,0xAA55),filtered)
+        # Invalid off-chip data that is NOT an observed original
+        # AA55/55AA capacity probe must still fail closed.
+        bad=[line.replace("681585 A20 AA55","681585 A20 1234")
+             for line in synthetic_source]
+        with self.assertRaisesRegex(ValueError,"outside installed"):
+            probe.scan_capture(bad,self.expected)
+        with self.assertRaisesRegex(ValueError,"outside installed"):
+            list(probe.filter_original_ram_upload_port_writes(bad))
+        # No new bank-port tolerance for unexpected A24 or A22 writes.
+        for tail in (["681600 E22 0036","681600 A24 1234"],
+                     ["681600 E22 003A","681600 A22 1234"],
+                     ["681600 E22 0036","681600 A20 1000",
+                      "681600 E22 003A","681600 A20 1234"]):
+            with self.subTest(tail=tail):
+                with self.assertRaisesRegex(ValueError,"SMALW|SMLD|pointer"):
+                    probe.scan_capture(synthetic_source+tail,self.expected)
+                with self.assertRaisesRegex(ValueError,"SMALW|SMLD|pointer"):
+                    list(probe.filter_original_ram_upload_port_writes(
+                        synthetic_source+tail))
+
     def test_pcm_bitflip_and_wrong_endianness_rejected(self):
         mutant=list(self.trace)
         mutant[16]=(mutant[16][:-4]+
@@ -258,8 +313,18 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         # A complete prior soundbank sample is NOT enough to accept a
         # truncated new SMALW write at EOF. Both scanner and literal
         # exporter must require a COMPLETE hardware trace.
-        for tail in (["49 E22 0036"],
-                     ["49 E22 0036","49 A20 1234"],
+        # A bare 0x36 selector is NOT an attempted RAM pointer:
+        # the original fork regularly selects it for unrelated E20/
+        # 620/622 data-bank accesses. Only a partial A20/A22 pointer
+        # actually in progress is a truncated hardware RAM address.
+        bare=self.trace+["49 E22 0036"]
+        self.assertEqual(
+            probe.scan_capture(bare,self.expected)[
+                "final_state_unoverwritten_pcm16_matches"],1)
+        self.assertEqual(len(list(probe.filter_original_ram_upload_port_writes(
+            bare))),len(list(probe.filter_original_ram_upload_port_writes(
+            self.trace))))
+        for tail in (["49 E22 0036","49 A20 1234"],
                      ["49 E22 0036","49 A22 0020"],
                      ["49 E22 0036","49 A20 1234",
                       "49 E22 003A"]):
