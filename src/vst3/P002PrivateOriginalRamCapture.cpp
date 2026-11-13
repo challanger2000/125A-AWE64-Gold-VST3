@@ -135,6 +135,12 @@ bool parseExactOriginalSourcePorts(
 }
 } // namespace
 
+bool isExactOriginalCreativeRamOwnerSf2(
+    const std::span<const std::uint8_t> source) noexcept {
+    return source.size()==kSourceBankBytes &&
+           exactSha256(source,kOwnerSf2Sha);
+}
+
 bool preloadOriginalCreativeCapturedRamSource(
     awe64::Chip& chip,const std::filesystem::path& privateOwnerSf2,
     const std::filesystem::path& originalFilteredCapturedRamPorts,

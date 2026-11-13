@@ -1,6 +1,7 @@
 #include "P002PrivateRomBank.h"
 #include "CreativeMidiRomPlan.h"
 #include "CreativeSf2RamSamplePcm.h"
+#include "P002PrivateOriginalRamCapture.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -166,7 +167,8 @@ bool P002PrivateRomBank::load(
         // This is the SAME bank already admitted by the separate
         // original RAM trace+PCM SHA verifier on the activation thread.
         // Generalized Creative RAM placement has NOT been established.
-        if(sampleInventory->sample_headers!=83u ||
+        if(!isExactOriginalCreativeRamOwnerSf2(bank_bytes_) ||
+           sampleInventory->sample_headers!=83u ||
            sampleInventory->ram_mono!=83u ||
            sampleInventory->rom_mono!=0u ||
            sampleInventory->unsupported!=0u ||
