@@ -212,6 +212,20 @@ bool P002PrivateRomBank::noteOn(
     held_keys_[key]=true;
     return true;
 }
+bool P002PrivateRomBank::programChange(
+    const std::uint8_t program) noexcept {
+    if(!ready_ || program>127u)return false;
+    // This is the existing source-original logical ProgramChange
+    // decoder/state stage. No invented chip writes: only subsequent
+    // actual bank zones are selected using the new program number.
+    MidiMessage change{};
+    change.kind=MidiKind::Program;
+    change.channel=channel_;
+    change.data1=program;
+    midi_.apply(change);
+    program_=program;
+    return true;
+}
 bool P002PrivateRomBank::noteOff(
     awe64::Chip& chip,const std::uint8_t channel,
     const std::uint8_t key) noexcept {
