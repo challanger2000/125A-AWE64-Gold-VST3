@@ -20,6 +20,8 @@ on:
       - tests/test_p002_compare_original_dry_pcm.py
       - tools/p002_verify_original_creative_ram_transfer.py
       - tests/test_p002_verify_original_creative_ram_transfer.py
+      - tools/p002_verify_original_ram_note_geometry.py
+      - tests/test_p002_verify_original_ram_note_geometry.py
       - tools/p002_original_bank_transform_evidence.py
       - tests/test_p002_original_bank_transform_evidence.py
       - .github/workflows/p002-win95-ram-bank-capture.yml
@@ -42,6 +44,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_p002_join_win95_ram_evidence.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_compare_original_dry_pcm.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_verify_original_creative_ram_transfer.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_verify_original_ram_note_geometry.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_original_bank_transform_evidence.py' -v
           echo 'P002_REAL_SOURCE_THREE_TAP_ZERO_RUN_CREATIVE_RAM_TRANSFER_SYNTHETIC_NEGATIVE_CONTROLS_PASS'
           echo 'P002_ORIGINAL_CREATIVE_AND_VST3_STRICT_DRY_PCM16_COMPARATOR_SYNTHETIC_NEGATIVES_PASS'
