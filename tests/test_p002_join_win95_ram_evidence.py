@@ -187,6 +187,79 @@ class OriginalWin95RamCombinedSourceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SMALW pointer"):
             joined.analyze_join(self.clone,self.sf2,partial,0)
 
+    def test_private_join_optional_exact_native_pcm16_window(self):
+        # Both files are SYNTHETIC. This tests only integration of the
+        # evidence aggregator with the independently tested exact PCM
+        # comparator; driver provenance and release remain NOT PROVEN.
+        native=self.root/"synthetic-vst3-precard-comparator.wav"
+        with wave.open(str(native),"wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(44100)
+            w.writeframes(struct.pack("<hh",320,-320)*44100)
+        log,evidence=joined.analyze_join(
+            self.clone,self.sf2,self.trace,0,self.wav,
+            native_precard_wav=native,
+            original_start_frame=0,vst3_start_frame=0,frames=44100)
+        self.assertEqual(log,self.log)
+        self.assertTrue(evidence["selected_source_window_pcm16_equal"])
+        self.assertTrue(evidence[
+            "private_precisely_selected_precard_PCM16_comparison"][
+                "sample_exact"])
+        self.assertEqual(evidence["original_driver_native_VST3_pcm_parity"],
+                         "NOT_PROVEN")
+        self.assertFalse(evidence["release_approved"])
+        self.assertFalse(evidence["native_VST3_RAM_SF2_sound_ready"])
+
+        # One changed LSB in the second synthetic native WAV MUST
+        # leave an auditable mismatch, not a fake 'join PASS'.
+        changed=self.root/"synthetic-vst3-mismatched.wav"
+        with wave.open(str(changed),"wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(44100)
+            w.writeframes(struct.pack("<hh",320,-320)*22050)
+            w.writeframes(struct.pack("<hh",321,-320))
+            w.writeframes(struct.pack("<hh",320,-320)*22049)
+        _,bad=joined.analyze_join(
+            self.clone,self.sf2,self.trace,0,self.wav,
+            native_precard_wav=changed,
+            original_start_frame=0,vst3_start_frame=0,frames=44100)
+        self.assertFalse(bad["selected_source_window_pcm16_equal"])
+        self.assertEqual(bad["status"],
+                         "P002_PRIVATE_SOURCE_RAM_AND_PCM_WINDOW_MISMATCH")
+        self.assertEqual(bad[
+            "private_precisely_selected_precard_PCM16_comparison"][
+                "mismatched_channel_samples"],1)
+        self.assertFalse(bad["release_approved"])
+
+    def test_private_join_rejects_partial_native_pcm_window_inputs(self):
+        native=self.root/"not-actually-original-vst3.wav"
+        native.write_bytes(b"no real PCM")
+        cases=[
+            {"native_precard_wav":native},
+            {"native_precard_wav":native,
+             "original_start_frame":0,"vst3_start_frame":0},
+            {"original_start_frame":0,"vst3_start_frame":0,"frames":44100},
+            {"native_precard_wav":native,"original_start_frame":0,
+             "vst3_start_frame":0,"frames":44100},
+        ]
+        for case in cases[:3]:
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(ValueError,"mandatory together"):
+                    joined.analyze_join(
+                        self.clone,self.sf2,self.trace,0,self.wav,**case)
+        # Complete argument set with corrupt native PCM must NOT create
+        # source evidence or silently skip actual WAV decoding.
+        with self.assertRaises((ValueError,wave.Error)):
+            joined.analyze_join(self.clone,self.sf2,self.trace,0,self.wav,
+                                **cases[-1])
+        with self.assertRaisesRegex(ValueError,"mandatory together"):
+            joined.analyze_join(
+                self.clone,self.sf2,self.trace,0,None,
+                native_precard_wav=native,
+                original_start_frame=0,vst3_start_frame=0,frames=44100)
+
     def test_silent_or_unsupported_source_wav_cannot_be_certified(self):
         silent=self.root/"source-silent.wav"
         with wave.open(str(silent),"wb") as w:
