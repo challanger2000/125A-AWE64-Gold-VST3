@@ -25,6 +25,7 @@ MAX_RAM_WORDS = 0xE00000
 MUST_ZERO = (
     "ORIGINAL_AWEMAN32_AWE_OPEN_RC",
     "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC",
+    "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC",
     "ORIGINAL_AWEMAN32_AWE_CLOSE_RC",
     "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC",
     "PRE_LOAD_RESULT",
@@ -67,6 +68,7 @@ REQUIRED = MUST_ZERO + (
     "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA",
     "ORIGINAL_API_LOAD_BEGIN_TICK_MS",
     "ORIGINAL_API_LOAD_END_TICK_MS",
+    "ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS",
     "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS",
     "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS",
     "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS",
@@ -205,7 +207,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     winmm_off = seen["ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS"]
     direct_on = seen["ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS"]
     direct_off = seen["ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS"]
-    if not (end_ms <= winmm_on < winmm_off <
+    custom_mode_ms = seen["ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS"]
+    if not (end_ms <= custom_mode_ms < winmm_on < winmm_off <
             direct_on < direct_off and
             winmm_off-winmm_on >= 300 and
             direct_on-winmm_off >= 400 and
@@ -232,6 +235,9 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             original_result_position("POST_LOAD_SYNTH_BANK_RESULT") <
             original_result_position("POST_LOAD_SYNTH_BANK_MODE_ID") <
             original_result_position("POST_LOAD_RESULT") <
+            original_result_position("ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC") <
+            original_result_position("ORIGINAL_RESET_CONTROLLERS_RC") <
             lines.index(DIRECT_BEGIN)):
         raise ValueError("Original Creative synth mode before/after load order invalid")
     # Prove that each timestamp was emitted BEFORE its matching source
@@ -316,6 +322,12 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_driver_ram_allocated_words": delta,
         "original_guest_load_begin_ms": begin_ms,
         "original_guest_load_end_ms": end_ms,
+        "original_creative_custom_synth_mode_select_api": 203,
+        "original_creative_custom_synth_mode_value": 3,
+        "original_creative_custom_synth_mode_select_submit_tick_ms": custom_mode_ms,
+        "original_creative_custom_synth_mode_select_result": "ORIGINAL_API_ACCEPTED_ONLY",
+        "C4_D4_actually_use_RAM_samples":
+            "NOT_PROVEN_REQUIRES_INDEPENDENT_CCCA_PSST_CSL_ADDRESS_CAPTURE",
         "original_guest_winmm_C4_submission_ticks_ms":
             {"note_on": winmm_on, "note_off": winmm_off},
         "original_guest_direct_D4_submission_ticks_ms":
