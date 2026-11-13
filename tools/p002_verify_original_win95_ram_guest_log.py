@@ -25,7 +25,6 @@ MAX_RAM_WORDS = 0xE00000
 MUST_ZERO = (
     "ORIGINAL_AWEMAN32_AWE_OPEN_RC",
     "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC",
-    "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC",
     "ORIGINAL_AWEMAN32_AWE_CLOSE_RC",
     "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC",
     "PRE_LOAD_RESULT",
@@ -68,7 +67,6 @@ REQUIRED = MUST_ZERO + (
     "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA",
     "ORIGINAL_API_LOAD_BEGIN_TICK_MS",
     "ORIGINAL_API_LOAD_END_TICK_MS",
-    "ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS",
     "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS",
     "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS",
     "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS",
@@ -207,8 +205,7 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     winmm_off = seen["ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS"]
     direct_on = seen["ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS"]
     direct_off = seen["ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS"]
-    custom_mode_ms = seen["ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS"]
-    if not (end_ms <= custom_mode_ms < winmm_on < winmm_off <
+    if not (end_ms <= winmm_on < winmm_off <
             direct_on < direct_off and
             winmm_off-winmm_on >= 300 and
             direct_on-winmm_off >= 400 and
@@ -235,11 +232,22 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             original_result_position("POST_LOAD_SYNTH_BANK_RESULT") <
             original_result_position("POST_LOAD_SYNTH_BANK_MODE_ID") <
             original_result_position("POST_LOAD_RESULT") <
-            original_result_position("ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS") <
-            original_result_position("ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC") <
             original_result_position("ORIGINAL_RESET_CONTROLLERS_RC") <
             lines.index(DIRECT_BEGIN)):
         raise ValueError("Original Creative synth mode before/after load order invalid")
+    # The original Creative FAQ F.6 explicitly requires CC0=1 for
+    # User Bank 1; AWE_SELECT_SYN_BANK(203,USER_CUSTOM_BANK=3) is
+    # NOT the user-bank selection and the Win95 driver returned 0x6B.
+    # This nonnumeric source-program marker must precede both routes.
+    midi_bank_rule = "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6"
+    if lines.count(midi_bank_rule) != 1:
+        raise ValueError("Missing original Creative FAQ F.6 CC0=1 selection rule")
+    if not (original_result_position("POST_LOAD_RESULT") <
+            lines.index(midi_bank_rule) <
+            original_result_position("ORIGINAL_RESET_CONTROLLERS_RC")):
+        raise ValueError("Original Creative user bank CC0=1 marker order invalid")
+    if any("SELECT_USER_CUSTOM_BANK" in line for line in lines):
+        raise ValueError("Unsupported original synth-mode bank 203 reintroduced")
     # Prove that each timestamp was emitted BEFORE its matching source
     # NoteOn / NoteOff call, within the appropriate original MIDI phase.
     # The captured guest OS ticks still do not establish sample-exact
@@ -322,10 +330,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "original_driver_ram_allocated_words": delta,
         "original_guest_load_begin_ms": begin_ms,
         "original_guest_load_end_ms": end_ms,
-        "original_creative_custom_synth_mode_select_api": 203,
-        "original_creative_custom_synth_mode_value": 3,
-        "original_creative_custom_synth_mode_select_submit_tick_ms": custom_mode_ms,
-        "original_creative_custom_synth_mode_select_result": "ORIGINAL_API_ACCEPTED_ONLY",
+        "original_user_bank_midi_cc0_controller": 0,
+        "original_user_bank_midi_cc0_value": 1,
         "C4_D4_actually_use_RAM_samples":
             "NOT_PROVEN_REQUIRES_INDEPENDENT_CCCA_PSST_CSL_ADDRESS_CAPTURE",
         "original_guest_winmm_C4_submission_ticks_ms":
