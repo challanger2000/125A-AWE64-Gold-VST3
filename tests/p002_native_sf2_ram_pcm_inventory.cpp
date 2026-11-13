@@ -35,7 +35,8 @@ Bytes make(
     bool withSmpl=true,bool withSm24=false,bool duplicateSmpl=false,
     bool duplicateShdr=false,std::uint32_t rate=44100u,
     std::uint16_t sampleLink=0u,bool withMidiPreset=false,
-    bool genericSf2Metadata=false,bool additionalRamSample=false) {
+    bool genericSf2Metadata=false,bool additionalRamSample=false,
+    bool originalTwoWordSilentLoopGuard=false) {
     Bytes info,sdta,pdta,shdr,smpl;
     Bytes version{};w16(version,2u);w16(version,1u);
     chunk(info,"ifil",version);
@@ -46,7 +47,9 @@ Bytes make(
     }
     for(unsigned i=0;i<64u;++i)
         w16(smpl,static_cast<std::uint16_t>(
-            i==8u?0x8001u:i==9u?0x7fffu:i*109u));
+            i==8u?0x8001u:i==9u?0x7fffu:
+            (originalTwoWordSilentLoopGuard && (i==40u || i==41u))
+              ?0u:i*109u));
     if(withSmpl)chunk(sdta,"smpl",smpl);
     if(duplicateSmpl)chunk(sdta,"smpl",smpl);
     if(withSm24)chunk(sdta,"sm24",Bytes(64u,0u));
@@ -123,6 +126,48 @@ int main() {
           valid->pitch_correction==-7 &&
           valid->total_pool_words==64u);
     CHECK(valid->sample_pcm_le16.size()==64u);
+    // Seven ACTUAL original-Creative RAM-mono headers in the owner's
+    // Synth 512 Bank use loopEnd==sampleEnd+2. Source smpl words at
+    // end and end+1 are zero. Accept ONLY that real bounded guard;
+    // don't reclassify it as an unsupported/stereo/ROM sample.
+    const auto originalGuard=make(
+        1u,8u,40u,12u,42u,true,false,false,false,44100u,0u,
+        true,false,false,true);
+    const auto guarded=candidateOriginalSf2ReadRamMonoSamplePcm(
+        originalGuard,0u,capacityWords);
+    CHECK(guarded && guarded->end_word==40u &&
+          guarded->loop_end_word==42u &&
+          guarded->sample_pcm_le16.size()==64u);
+    const auto guardedInventory=
+        candidateOriginalSf2InventoryAllSampleTypes(originalGuard);
+    CHECK(guardedInventory &&
+          guardedInventory->ram_mono==1u &&
+          guardedInventory->rom_mono==0u &&
+          guardedInventory->unsupported==0u);
+    const auto guardedPlan=candidateOriginalSf2RamMonoNotePcmPlan(
+        originalGuard,0u,7u,60u,100u,capacityWords);
+    CHECK(guardedPlan && guardedPlan->count==1u &&
+          guardedPlan->layers[0].loop_end_word==42u);
+    // Fail closed on precisely the same overhang with nonzero PCM,
+    // a third guard word, an out-of-pool address, or a ROM sample.
+    CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(
+        make(1u,8u,40u,12u,42u),0u,capacityWords));
+    CHECK(!candidateOriginalSf2InventoryAllSampleTypes(
+        make(1u,8u,40u,12u,42u)));
+    CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(
+        make(1u,8u,40u,12u,43u,true,false,false,false,
+             44100u,0u,false,false,false,true),0u,capacityWords));
+    CHECK(!candidateOriginalSf2ReadRamMonoSamplePcm(
+        make(1u,8u,40u,12u,65u,true,false,false,false,
+             44100u,0u,false,false,false,true),0u,capacityWords));
+    CHECK(!candidateOriginalSf2InventoryAllSampleTypes(
+        make(0x8001u,8u,40u,12u,42u,true,false,false,false,
+             44100u,0u,false,false,false,true)));
+    // Sample PCM view remains EXACT original bytes [start,end); the
+    // loop guard is verified separately, never appended or invented.
+    CHECK(guarded->sample_pcm_le16.size() ==
+          static_cast<std::size_t>(guarded->end_word-guarded->start_word)*2u);
+
     const auto ramInventory=candidateOriginalSf2InventoryAllSampleTypes(sf2);
     CHECK(ramInventory && ramInventory->sample_headers==1u &&
           ramInventory->ram_mono==1u &&
@@ -247,6 +292,8 @@ int main() {
              <<" generic_non_1MGM_format2_RAM_SF2_preset_note_sample=TRUE"
              <<" original_ROM_bank_mixed_later_RAM_shdr_detected=TRUE"
              <<" original_ROM_only_Creative_metadata_gate_unchanged=TRUE"
+             <<" original_Creative_RAM_loopEnd_plus_two_zeros=TRUE"
+             <<" nonzero_or_third_guard_rejected=TRUE"
              <<" standard_46byte_RAM_shdr_boundaries=TRUE"
              <<" original_28MiB_EMU8000_capacity_enforced=TRUE"
              <<" ROM_stereo_sm24_EOS_and_truncation_rejected=TRUE"
