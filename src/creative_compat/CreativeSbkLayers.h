@@ -151,4 +151,13 @@ struct SbkRomAddress {
 [[nodiscard]] std::optional<SbkLayerSet> resolveCreativeSbkLayers(
     std::span<const std::uint8_t> raw, std::uint16_t bank,
     std::uint8_t program, std::uint8_t key, std::uint8_t velocity) noexcept;
+// Generic STANDARD SF2 format-2 RAM file metadata, without requiring
+// the proprietary original Creative 1MGM/isng/IPRD/irom labels.
+// The same bounded four-scope zone and key/velocity scanner is used,
+// but its validity on an arbitrary SF2 is only a structural data
+// interpretation, NOT evidence of original SBAWE.VXD guest behavior.
+// The strict source-verified resolveCreativeSbkLayers() stays untouched.
+[[nodiscard]] std::optional<SbkLayerSet> candidateStandardSf2RamLayers(
+    std::span<const std::uint8_t> raw, std::uint16_t bank,
+    std::uint8_t program, std::uint8_t key, std::uint8_t velocity) noexcept;
 }
