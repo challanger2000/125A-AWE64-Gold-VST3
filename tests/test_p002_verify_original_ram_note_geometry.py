@@ -5,6 +5,7 @@ trace in public CI; the real private trace is audited OFFLINE separately.
 """
 from __future__ import annotations
 import tempfile
+import struct
 from pathlib import Path
 import unittest
 
@@ -41,6 +42,47 @@ def synthetic_trace():
             out.extend(source_note(frame+j,voice))
     out.append(f"{D4+15} E22 0030")
     return out
+
+
+
+def source_shaped_bank():
+    """Synthetic 83-sample RIFF fixture matching ONLY captured word layout.
+
+    No original PCM, Creative ROM, private user sample bytes or 86Box
+    trace are shipped. This verifies the original shdr/port join.
+    """
+    def chunk(name, payload):
+        return name + struct.pack("<I",len(payload)) + payload + (
+            b"\0" if len(payload)&1 else b"")
+    headers = bytearray()
+    for sample_id in range(83):
+        if sample_id == 82:
+            start,end,loop_start,loop_end = 260287,260889,260296,260697
+        else:
+            start = 4 + sample_id*200
+            end,loop_start,loop_end = start+100,start+8,start+92
+        name = (f"SYNTH{sample_id:02d}".encode("ascii")
+                if sample_id != 82 else b"SYNTH_LAST")
+        headers.extend(name.ljust(20,b"\0"))
+        headers.extend(struct.pack(
+            "<IIIII",start,end,loop_start,loop_end,44100))
+        headers.extend(bytes((60,0)))
+        headers.extend(struct.pack("<HH",0,1))
+    headers.extend(b"EOS".ljust(46,b"\0"))
+    info = chunk(b"LIST", b"INFO"+chunk(b"ifil",struct.pack("<HH",2,1)))
+    sdta = chunk(b"LIST", b"sdta"+chunk(b"smpl",bytes(260921*2)))
+    pdta = chunk(b"LIST", b"pdta"+chunk(b"shdr",bytes(headers)))
+    return chunk(b"RIFF",b"sfbk"+info+sdta+pdta)
+
+
+def set_original_ram_allocated_word_count(log):
+    return (log.replace(
+        "PRE_LOAD_FREE_16BIT_WORDS=0x00D00000",
+        "PRE_LOAD_FREE_16BIT_WORDS=0x00E00000").replace(
+        "POST_LOAD_FREE_16BIT_WORDS=0x00CF0000",
+        "POST_LOAD_FREE_16BIT_WORDS=0x00DC04B7").replace(
+        "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x00010000",
+        "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x0003FB49"))
 
 
 class OriginalRamNoteGeometryProofTests(unittest.TestCase):
@@ -97,15 +139,9 @@ class OriginalRamNoteGeometryProofTests(unittest.TestCase):
     def test_original_win95_guest_log_and_sf2_provenance_combined(self):
         with tempfile.TemporaryDirectory(prefix="synthetic-ram-voice-") as td:
             root=Path(td)
-            sf2=sf2_bank()
-            log=synth_guest_log(len(sf2)).decode("ascii")
-            log=log.replace(
-                "PRE_LOAD_FREE_16BIT_WORDS=0x00D00000",
-                "PRE_LOAD_FREE_16BIT_WORDS=0x00E00000").replace(
-                "POST_LOAD_FREE_16BIT_WORDS=0x00CF0000",
-                "POST_LOAD_FREE_16BIT_WORDS=0x00DC04B7").replace(
-                "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x00010000",
-                "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x0003FB49")
+            sf2=source_shaped_bank()
+            log=synth_guest_log(len(sf2),sf2).decode("ascii")
+            log=set_original_ram_allocated_word_count(log)
             (root/"source.sf2").write_bytes(sf2)
             # synth_guest_log supplies canonical CRLF bytes. write_text()
             # translates LF again on Windows and creates CR-CR-LF, making
@@ -118,6 +154,13 @@ class OriginalRamNoteGeometryProofTests(unittest.TestCase):
                 C4,D4,BASE)
             self.assertTrue(
                 proof["original_Win95_Creative_API_load_and_MIDI_CC0_1_audited"])
+            self.assertTrue(proof["all_four_original_voice_sample_bindings_exact"])
+            self.assertEqual(proof["source_sample_header_count"],83)
+            self.assertEqual(proof["shared_original_sf2_shdr_sample_id"],82)
+            self.assertEqual(proof["initial_CCCA_start_word_offset"],-4)
+            self.assertEqual(proof["initial_PSST_loop_start_word_offset"],-1)
+            self.assertEqual(proof["initial_CSL_loop_end_word_offset"],-1)
+            self.assertEqual(set(proof["original_ram_midi_voice_sample_ids"].values()),{82})
             self.assertEqual(
                 proof["status"],"ORIGINAL_CREATIVE_C4_D4_VERIFIED_REAL_RAM_NOT_ROM")
             (root/"guest.log").write_bytes(
@@ -125,6 +168,20 @@ class OriginalRamNoteGeometryProofTests(unittest.TestCase):
                     "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000000",
                     "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000001").encode("ascii"))
             with self.assertRaisesRegex(ValueError,"BANK_SELECT_MSB1"):
+                checker.analyze(root/"trace.log",root/"guest.log",
+                                root/"source.sf2",C4,D4,BASE)
+            # Distinct negative gate: even if the forged SF2 and guest FNV
+            # agree, shifting one genuine sample loop address by 1 word
+            # must NOT be accepted as an original-source RAM note.
+            mutated=bytearray(sf2)
+            sample_name=mutated.index(b"SYNTH_LAST")
+            struct.pack_into("<I",mutated,sample_name+28,260297)
+            forged_sf2=bytes(mutated)
+            (root/"source.sf2").write_bytes(forged_sf2)
+            forged_log=set_original_ram_allocated_word_count(
+                synth_guest_log(len(forged_sf2),forged_sf2).decode("ascii"))
+            (root/"guest.log").write_bytes(forged_log.encode("ascii"))
+            with self.assertRaisesRegex(ValueError,"UNIQUE original SF2 shdr"):
                 checker.analyze(root/"trace.log",root/"guest.log",
                                 root/"source.sf2",C4,D4,BASE)
 
