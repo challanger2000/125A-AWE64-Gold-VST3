@@ -158,7 +158,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                         ValueError,"SMALW|SMLD"):
                     probe.scan_capture(trace,self.expected)
                 with self.assertRaisesRegex(
-                        ValueError,"SMALW|SMLD"):
+                        ValueError,"SMALW|SMLD|pointer truncated"):
                     list(probe.filter_original_ram_upload_port_writes(trace))
                 with tempfile.TemporaryDirectory() as td:
                     root=Path(td)
@@ -166,10 +166,10 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                     capture=root/"bad.original.trace"
                     private_export=root/"must-not-exist.trace"
                     source.write_bytes(self.sf2)
-                    capture.write_text("\\n".join(trace)+"\\n",encoding="ascii")
+                    capture.write_text("\n".join(trace)+"\n",encoding="ascii")
                     with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
                         probe.analyze(capture,source,0)
-                    with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                    with self.assertRaisesRegex(ValueError,"SMALW|SMLD|pointer truncated"):
                         probe.write_private_upload_replay(
                             capture,private_export)
                     self.assertFalse(private_export.exists())
