@@ -65,10 +65,9 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
         processing_=false; active_=false; playingKey_=-1;
-        p002SecondPlayingKey_=-1;
-        p002DiagnosticSecondNoteConsumed_=false;
+        p002Started_.fill(false);
+        p002KeyDown_.fill(false);
         p002DiagnosticEnabled_=false;
-        p002DiagnosticNoteConsumed_=false;
         chip_.close(); // non-RT activation thread only
         return kResultOk;
     }
@@ -100,9 +99,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002DiagnosticEnabled_=true;
     }
     active_=true; playingKey_=-1;
-    p002SecondPlayingKey_=-1;
-    p002DiagnosticNoteConsumed_=false;
-    p002DiagnosticSecondNoteConsumed_=false;
+    p002Started_.fill(false);
+    p002KeyDown_.fill(false);
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::setProcessing(TBool state) {
@@ -122,44 +120,30 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
     if(p002DiagnosticEnabled_) {
-        // This is ONLY a one-note authenticated ORIGINAL x86 VXD source
-        // diagnostic, not a GM soundbank manager, MIDI program map,
-        // multi-key/polyphonic allocator or production release path.
-        // MIDI note value and velocity are fixed by independently
-        // captured ORIGINAL SBAWE.VXD 148-byte voice descriptors.
+        // Select a unique, activation-verified original source NoteOn
+        // by MIDI key + velocity, NOT by a guessed soundbank program,
+        // synthetic envelope, physical voice "free list" or bank index.
+        // The key-to-source table was preflighted before activation;
+        // the audio callback only performs bounded static table scans.
         const auto incoming=static_cast<int>(velocity*127.f+0.5f);
         if(channel!=p002Fixture_.channel)return;
-        // Exact private, source-validated NoteOn slots. These are
-        // intentionally NOT dynamically allocated or silently repeated;
-        // each physical voice is bound to one independently preflighted
-        // original descriptor and one MIDI key/velocity.
-        const bool first=pitch==p002Fixture_.key &&
-                         incoming==p002Fixture_.velocity &&
-                         !p002DiagnosticNoteConsumed_;
-        const bool second=p002Fixture_.two_note_diagnostic &&
-                          pitch==p002Fixture_.second_key &&
-                          incoming==p002Fixture_.second_velocity &&
-                          !p002DiagnosticSecondNoteConsumed_ &&
-                          p002DiagnosticNoteConsumed_;
-        if(!first && !second)return;
-        const auto notes=first?p002Fixture_.selectedVoices():
-                               p002Fixture_.secondSelectedVoices();
-        if(second &&
-           !awe64::creative::candidateOriginalSf2StoreNoteOnSourceReleaseState(
-               p002Fixture_.original_device_state,true,notes))
+        for(std::size_t group=0;group<p002Fixture_.noteGroupCount();++group) {
+            if(p002Started_[group] ||
+               pitch!=p002Fixture_.groupKey(group) ||
+               incoming!=p002Fixture_.groupVelocity(group))continue;
+            const auto notes=p002Fixture_.groupVoices(group);
+            if(!awe64::creative::candidateOriginalSf2StoreNoteOnSourceReleaseState(
+                   p002Fixture_.original_device_state,true,notes) ||
+               !awe64::creative::candidateOriginalSf2WriteInitialIpToVxdState(
+                   p002Fixture_.original_device_state,true,notes))
+                return;
+            if(!awe64::creative::applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+                   chip_,notes,p002Fixture_.sourceState()))return;
+            p002Started_[group]=true;
+            p002KeyDown_[group]=true;
             return;
-        if(!awe64::creative::candidateOriginalSf2WriteInitialIpToVxdState(
-               p002Fixture_.original_device_state,true,notes))return;
-        if(!awe64::creative::applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
-               chip_,notes,p002Fixture_.sourceState()))return;
-        if(first) {
-            playingKey_=pitch;
-            p002DiagnosticNoteConsumed_=true;
-        }else {
-            p002SecondPlayingKey_=pitch;
-            p002DiagnosticSecondNoteConsumed_=true;
         }
-        return;
+        return; // No unauthorized source voice, no invisible retrigger.
     }
     // Fixed ROM voice with pitch-tracked IP. Creative velocity and bank
     // translation are explicitly reserved for P002/P003.
@@ -189,39 +173,30 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     playingKey_=pitch;
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
-    if (active_ && (playingKey_==pitch ||
-                       (p002DiagnosticEnabled_ &&
-                        p002SecondPlayingKey_==pitch))) {
-        if(p002DiagnosticEnabled_) {
-            if(channel!=p002Fixture_.channel)return;
-            const bool second=p002Fixture_.two_note_diagnostic &&
-                p002SecondPlayingKey_==pitch;
-            const auto notes=second?p002Fixture_.secondSelectedVoices():
-                                    p002Fixture_.selectedVoices();
-            // P002 private fixture v2: exact original VXD LCOD+0x6072
-            // note marker, sustain, encoded release bytes and conditional
-            // readback of the genuine chip's CSL/PSST. Version 1 still
-            // has no authenticated release state: never guess it.
-            if(p002Fixture_.verified_source_note_release) {
-                const auto executed=
-                    awe64::creative::applyOriginalSf2MidiNoteOffFromVxdState(
-                        chip_,p002Fixture_.original_device_state,
-                        notes,
-                        static_cast<std::uint8_t>(channel),
-                        static_cast<std::uint8_t>(pitch),true);
-                if(!executed)return;
-            }
-            // Source-original sustain-deferred NoteOff intentionally does
-            // not stop playback. CC64 pedal-release state is still OPEN.
-            if(second)p002SecondPlayingKey_=-1;
-            else playingKey_=-1;
+    if(!active_)return;
+    if(p002DiagnosticEnabled_) {
+        if(channel!=p002Fixture_.channel || pitch<0 || pitch>127)return;
+        for(std::size_t group=0;group<p002Fixture_.noteGroupCount();++group) {
+            if(!p002Started_[group] || !p002KeyDown_[group] ||
+               pitch!=p002Fixture_.groupKey(group))continue;
+            // Original VXD physical marker and generator30/38 release
+            // byte preflight. Pedal-down keeps this voice sounding
+            // until the same source release is performed by CC64-up.
+            if(p002Fixture_.verified_source_note_release &&
+               !awe64::creative::applyOriginalSf2MidiNoteOffFromVxdState(
+                   chip_,p002Fixture_.original_device_state,
+                   p002Fixture_.groupVoices(group),
+                   static_cast<std::uint8_t>(channel),
+                   static_cast<std::uint8_t>(pitch),true))
+                return;
+            p002KeyDown_[group]=false;
             return;
         }
-        // On this original chip, bit 0x0080 DISABLES the envelope
-        // generator. 0x8080 therefore freezes its current level and leaves
-        // the PCM audible: it is NOT a working NoteOff. Keep the engine on
-        // and set the genuine release flag 0x8000 with fast test decay 0x7F.
-        // P002 must derive program-specific release from Creative driver traces.
+        return;
+    }
+    if(playingKey_==pitch) {
+        // Normal P001 fixed ROM test voice stays byte-for-byte the
+        // original P001 diagnostic path; production SF2 is not claimed.
         write(5,kVoice,0xA20,0x807Fu);
         playingKey_=-1;
     }
@@ -230,20 +205,19 @@ bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
     if(!p002DiagnosticEnabled_ ||
        !p002Fixture_.verified_source_note_release || value>127u)
         return false;
-    // Real original Win95 SBAWE.VXD LCOD+0x656D CC64 channel+4 and
-    // deferred note marker low0xFF -> LCOD+0x60E4 envelope release.
-    // Uses the already authenticated original assigned physical voice
-    // rows; no heap, file access, guessed voice stealing or own DSP.
+    // Real original Win95 SBAWE.VXD LCOD+0x656D scans all 30
+    // physical channel:FF deferred rows. Assemble every actual
+    // NoteOn's source-backed physical record on the stack; exclude
+    // unplayed groups to avoid fictional active voice provenance.
     std::array<awe64::creative::OriginalSf2VxdSnapshotVoice,
-               2u*awe64::creative::kOriginalCreativeMaxNoteStartDescriptors>
-        assigned{};
+               awe64::creative::kOriginalCreativeMusicVoices> assigned{};
     std::size_t count=0;
-    for(const auto& note:p002Fixture_.selectedVoices())
-        assigned[count++]=note;
-    if(p002Fixture_.two_note_diagnostic &&
-       p002DiagnosticSecondNoteConsumed_) {
-        for(const auto& note:p002Fixture_.secondSelectedVoices())
-            assigned[count++]=note;
+    for(std::size_t group=0;group<p002Fixture_.noteGroupCount();++group) {
+        if(!p002Started_[group])continue;
+        for(const auto& voice:p002Fixture_.groupVoices(group)) {
+            if(count>=assigned.size())return false;
+            assigned[count++]=voice;
+        }
     }
     return awe64::creative::applyOriginalSf2MidiCc64FromVxdState(
         chip_,p002Fixture_.original_device_state,
