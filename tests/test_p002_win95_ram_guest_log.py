@@ -43,6 +43,8 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "POST_LOAD_FREE_16BIT_WORDS=0x00CF0000",
         "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0x00010000",
         "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF",
+        "ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS=0x00000380",
+        "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x00000000",
         "ORIGINAL_RESET_CONTROLLERS_RC=0x00000000",
         "ORIGINAL_BANK_SELECT_MSB1_RC=0x00000000",
         "ORIGINAL_PROGRAM0_RC=0x00000000",
@@ -222,6 +224,39 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"log position/order invalid"):
             auditor.audit(self.mutate(on_tick+"\r\n"+on_result,
                                       on_result+"\r\n"+on_tick),self.bank)
+
+    def test_original_creative_custom_bank_mode_must_precede_actual_notes(self):
+        # Previous REAL 86Box guest audio was ROM-only (CCCA<0x200000)
+        # although Creative AWE_LOAD_USER_BANK=0. This fixture models
+        # the CORRECT original AWE_SELECT_SYN_BANK=203, enum SBANK 3.
+        # Successful API results still don't certify RAM sample voice.
+        result=auditor.audit(self.log,self.bank)
+        self.assertEqual(result["original_creative_custom_synth_mode_select_api"],203)
+        self.assertEqual(result["original_creative_custom_synth_mode_value"],3)
+        self.assertEqual(
+            result["C4_D4_actually_use_RAM_samples"],
+            "NOT_PROVEN_REQUIRES_INDEPENDENT_CCCA_PSST_CSL_ADDRESS_CAPTURE")
+        with self.assertRaisesRegex(ValueError,"SELECT_USER_CUSTOM_BANK_RC"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x00000000",
+                "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x000000CB"),
+                self.bank)
+        with self.assertRaisesRegex(ValueError,"Missing original Creative result"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x00000000\r\n",
+                ""),self.bank)
+        with self.assertRaisesRegex(ValueError,"submission timestamps"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS=0x00000380",
+                "ORIGINAL_USER_CUSTOM_BANK_SELECT_SUBMIT_TICK_MS=0x00000580"),
+                self.bank)
+        with self.assertRaisesRegex(ValueError,"order invalid"):
+            auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x00000000\r\n"
+                "ORIGINAL_RESET_CONTROLLERS_RC=0x00000000",
+                "ORIGINAL_RESET_CONTROLLERS_RC=0x00000000\r\n"
+                "ORIGINAL_AWEMAN32_SELECT_USER_CUSTOM_BANK_RC=0x00000000"),
+                self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
         result = auditor.audit(self.log, self.bank)
