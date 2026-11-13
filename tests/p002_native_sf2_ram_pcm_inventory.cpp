@@ -35,7 +35,7 @@ Bytes make(
     bool withSmpl=true,bool withSm24=false,bool duplicateSmpl=false,
     bool duplicateShdr=false,std::uint32_t rate=44100u,
     std::uint16_t sampleLink=0u,bool withMidiPreset=false,
-    bool genericSf2Metadata=false) {
+    bool genericSf2Metadata=false,bool additionalRamSample=false) {
     Bytes info,sdta,pdta,shdr,smpl;
     Bytes version{};w16(version,2u);w16(version,1u);
     chunk(info,"ifil",version);
@@ -79,6 +79,14 @@ Bytes make(
     w32(shdr,rate);
     shdr.push_back(60u);shdr.push_back(249u); // signed correction -7
     w16(shdr,sampleLink);w16(shdr,sampleType);
+    if(additionalRamSample) {
+        name(shdr,"RAM-SECOND");
+        w32(shdr,8u);w32(shdr,40u);
+        w32(shdr,12u);w32(shdr,36u);
+        w32(shdr,rate);
+        shdr.push_back(60u);shdr.push_back(0u);
+        w16(shdr,0u);w16(shdr,1u);
+    }
     name(shdr,"EOS");
     for(int k=0;k<5;++k)w32(shdr,0u);
     shdr.push_back(0u);shdr.push_back(0u);w16(shdr,0u);w16(shdr,0u);
@@ -115,6 +123,27 @@ int main() {
           valid->pitch_correction==-7 &&
           valid->total_pool_words==64u);
     CHECK(valid->sample_pcm_le16.size()==64u);
+    const auto ramInventory=candidateOriginalSf2InventoryAllSampleTypes(sf2);
+    CHECK(ramInventory && ramInventory->sample_headers==1u &&
+          ramInventory->ram_mono==1u &&
+          ramInventory->rom_mono==0u &&
+          ramInventory->unsupported==0u);
+    const auto romInventory=candidateOriginalSf2InventoryAllSampleTypes(
+        make(0x8001u));
+    CHECK(romInventory && romInventory->sample_headers==1u &&
+          romInventory->rom_mono==1u &&
+          romInventory->ram_mono==0u);
+    const auto mixed=candidateOriginalSf2InventoryAllSampleTypes(
+        make(0x8001u,8u,40u,12u,36u,true,false,false,false,
+             44100u,0u,false,false,true));
+    CHECK(mixed && mixed->sample_headers==2u &&
+          mixed->rom_mono==1u && mixed->ram_mono==1u);
+    CHECK(!candidateOriginalSf2InventoryAllSampleTypes(
+        make(1u,40u,8u)));
+    const auto unsupportedInventory=
+        candidateOriginalSf2InventoryAllSampleTypes(make(2u));
+    CHECK(unsupportedInventory &&
+          unsupportedInventory->unsupported==1u);
     CHECK(valid->sample_pcm_le16.data()!=nullptr);
     CHECK(valid->sample_pcm_le16[0]==1u &&
           valid->sample_pcm_le16[1]==0x80u &&
@@ -216,6 +245,7 @@ int main() {
              <<" real_SF2_sdta_smpl_16bit_PCM_extract=TRUE"
              <<" source_original_MIDI_program_zone_to_real_RAM_PCM=TRUE"
              <<" generic_non_1MGM_format2_RAM_SF2_preset_note_sample=TRUE"
+             <<" original_ROM_bank_mixed_later_RAM_shdr_detected=TRUE"
              <<" original_ROM_only_Creative_metadata_gate_unchanged=TRUE"
              <<" standard_46byte_RAM_shdr_boundaries=TRUE"
              <<" original_28MiB_EMU8000_capacity_enforced=TRUE"
