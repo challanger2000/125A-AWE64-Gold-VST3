@@ -531,3 +531,49 @@ No Studio One/ASIO until final GUI.
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
+
+
+## 2026-11-13 — Win95 CC0=1 guest package corrected; full public P002 Windows CI restored
+
+Original driver source-format Bank Select is MIDI **CC0 (MSB) = 1**, encoded
+as WinMM DWORD `0x000100B0`. The old experimental `0x000001B0`
+instead sent CC1=0. Both WinMM `midiOutShortMsg` and original
+`AWE_SEND_MIDI` now call a single byte-wise `ORIGINAL_MIDI_CC(0,0,1)`
+macro. Compile-time checks and explicit regression tests cover both
+packings; these are **developer harness fixes**, not changes to the
+genuine Creative driver or original EMU8000 core.
+
+The pre-fix private owner VM package contained the **stale Win95 guest**
+(17,631 bytes; SHA256
+`c047495e0c7970ef34f80deb4cdb5152c5d759c169dbb95e753575b1ad8b3efa`).
+An updated **owner-private** package was assembled with the exact
+Win95 Pentium `P002RAM.EXE` from successful
+[CI #43509195148](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43509195148):
+18,143 bytes; SHA256
+`accbf6d6d75d4d4d62bf1326ef1a5365c0b3b9f58b4a32e7b4cd8d7d7a3c9769`.
+Inside the **disposable 512-MiB FAT16 clone only**, this file replaces
+`C:\\P002RAM.EXE` within the same three existing clusters. The
+FAT copies and private owner `C:\\P002RAM.SF2` SHA256
+`d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b`
+remain untouched. After offline exact readback and ZIP CRC verification,
+the **private** replacement archive
+`125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip`
+is 134,022,365 bytes, SHA256
+`ae7b6debdd7024e243f6f4c33f3769c950210e0b68c54abf0eef1f1554d8c1ba`.
+Do **not** upload that proprietary user archive to GitHub or CI.
+
+The previous full Windows [CI #43506027114](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43506027114)
+was red due to **our own cross-platform test fixture error**:
+`write_text()` retranslated already-CRLF Win95 logs into CR-CR-LF
+on Windows. Preserve the original byte-precise ASCII CRLF via
+`write_bytes()`; audit negative-control mutations use the same route.
+The trigger list now includes RAM-geometry tests.
+
+Full [P002 Windows CI #43509692632](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43509692632)
+completed **SUCCESS** after the corrections: original fork CT1745
+differential, all native Windows CTests, 185 public Python tests,
+genuine exported original-core VST3 and existing 125A Plugin Test Lab
+headless inventory. This is a **public synthetic/oracle test PASS**,
+not a claim of independent complete original Creative MIDI-to-register
+or live RAM SoundFont PCM parity. P002 remains DRAFT and neither the
+source EMU8000 DSP nor owner's authentic reference assets were changed.
