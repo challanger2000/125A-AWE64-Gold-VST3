@@ -23,6 +23,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
+#include <stddef.h>
 
 #define ORIGINAL_AWE_OPEN 101u
 #define ORIGINAL_AWE_CLOSE 102u
@@ -37,15 +38,34 @@
 typedef LONG (WINAPI *CREATIVE_AWEMANAGER)(
     DWORD original_handle,UINT original_api,
     LPARAM original_argument1,LPARAM original_argument2);
-/* Creative's published INDICES.H CBufferObject Windows32 ABI:
- * DWORD m_Size; LPSTR m_Buffer; DWORD m_SizeUsed; WORD m_Flag;
- * The Win95 API's 32-bit alignment yields sizeof(...) == 16. */
+/* EXACT Creative 1994-96 WINDOWS/INCLUDE/INDICES.H Win32 ABI:
+ * #ifdef _WIN32
+ * #pragma pack(2)
+ * #endif
+ * typedef struct { DWORD m_Size; LPSTR m_Buffer; DWORD m_SizeUsed;
+ *                  WORD m_Flag; } CBufferObject;
+ * #pragma pack()
+ *
+ * On the original Win95 PE32 ABI: sizeof(CBufferObject) == 14,
+ * offsets (0, 4, 8, 12). The previous 16-byte default packing in
+ * our GUEST TEST HARNESS was our own ABI mistake, not an unknown
+ * Creative driver inconsistency. The original source dictates 14.
+ */
+#pragma pack(push, 2)
 typedef struct original_creative_buffer {
     DWORD m_Size;
     LPSTR m_Buffer;
     DWORD m_SizeUsed;
     WORD m_Flag;
 } ORIGINAL_CREATIVE_BUFFER;
+#pragma pack(pop)
+typedef char p002_original_creative_cbuffer_layout_must_match[
+    sizeof(ORIGINAL_CREATIVE_BUFFER)==14u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Size)==0u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Buffer)==4u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_SizeUsed)==8u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Flag)==12u ? 1 : -1
+];
 
 static HANDLE log_file=INVALID_HANDLE_VALUE;
 static const char hexchars[]="0123456789ABCDEF";
@@ -206,10 +226,16 @@ void WINAPI p002_ram_entry(void) {
     if(log_file==INVALID_HANDLE_VALUE)ExitProcess(29);
     t0=GetTickCount();
     emit("P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START\r\n");
-    if(sizeof(ORIGINAL_CREATIVE_BUFFER)!=16u) {
+    /* Both size and offsets are independently locked at compile time.
+     * Keep the guest log's ABI provenance visible to the private
+     * source auditor; do not assert a default-packed 16-byte struct. */
+    if(sizeof(ORIGINAL_CREATIVE_BUFFER)!=14u ||
+       offsetof(ORIGINAL_CREATIVE_BUFFER,m_Flag)!=12u) {
         emit("ORIGINAL_AWEMAN32_CBUFFER_ABI_UNEXPECTED\r\n");
         goto done;
     }
+    report("ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
+           (DWORD)sizeof(ORIGINAL_CREATIVE_BUFFER));
     if(!sample_identity(&sample_bytes,&sample_fnv32)) {
         emit("PRIVATE_SAMPLE_MISSING_INVALID_RIFF_OR_UNREADABLE\r\n");
         goto done;
