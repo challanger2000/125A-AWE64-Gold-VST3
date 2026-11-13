@@ -131,11 +131,17 @@ static int original_query_dram(CREATIVE_AWEMANAGER manager,
     *available_words=available;
     return 1;
 }
-static int sample_identity(DWORD*byte_count) {
+/* Unkeyed FNV-1a32 is only a source-identity cross-check, NOT
+   cryptographic proof of sample authenticity. The offline auditor
+   also SHA256-locks the private SF2 file and genuine guest trace. */
+static BYTE bank_hash_buffer[4096];
+static int sample_identity(DWORD*byte_count,DWORD*bank_fnv32) {
     HANDLE f;
     DWORD result=0u;
     BYTE head[12];
-    DWORD read=0u;
+    DWORD read=0u,total=0u,i;
+    DWORD fnv=2166136261u;
+    DWORD riff_size=0u;
     f=CreateFileA(sample_path,GENERIC_READ,FILE_SHARE_READ,
                   0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
     if(f==INVALID_HANDLE_VALUE)return 0;
@@ -146,14 +152,35 @@ static int sample_identity(DWORD*byte_count) {
        head[8]!='s'||head[9]!='f'||head[10]!='b'||head[11]!='k') {
         CloseHandle(f);return 0;
     }
+    riff_size=((DWORD)head[4])|((DWORD)head[5]<<8u)|
+              ((DWORD)head[6]<<16u)|((DWORD)head[7]<<24u);
+    if(riff_size!=result-8u ||
+       SetFilePointer(f,0,0,FILE_BEGIN)!=0u) {
+        CloseHandle(f);return 0;
+    }
+    for(;;) {
+        read=0u;
+        if(!ReadFile(f,bank_hash_buffer,sizeof(bank_hash_buffer),
+                     &read,0) || read>result-total) {
+            CloseHandle(f);return 0;
+        }
+        if(read==0u)break;
+        total+=read;
+        for(i=0u;i<read;++i) {
+            fnv^=(DWORD)bank_hash_buffer[i];
+            fnv*=16777619u;
+        }
+    }
     CloseHandle(f);
+    if(total!=result)return 0;
     *byte_count=result;
+    *bank_fnv32=fnv;
     return 1;
 }
 void WINAPI p002_ram_entry(void) {
     HMODULE dll=0;
     CREATIVE_AWEMANAGER manager=0;
-    DWORD handle=0u,sample_bytes=0u;
+    DWORD handle=0u,sample_bytes=0u,sample_fnv32=0u;
     DWORD max_before=0u,free_before=0u;
     DWORD max_after=0u,free_after=0u;
     LONG rc;
@@ -172,11 +199,12 @@ void WINAPI p002_ram_entry(void) {
         emit("ORIGINAL_AWEMAN32_CBUFFER_ABI_UNEXPECTED\r\n");
         goto done;
     }
-    if(!sample_identity(&sample_bytes)) {
-        emit("PRIVATE_SAMPLE_MISSING_OR_NOT_SFBK\r\n");
+    if(!sample_identity(&sample_bytes,&sample_fnv32)) {
+        emit("PRIVATE_SAMPLE_MISSING_INVALID_RIFF_OR_UNREADABLE\r\n");
         goto done;
     }
     report("PRIVATE_WIN95_SF2_SIZE=",sample_bytes);
+    report("PRIVATE_WIN95_SF2_FNV1A32=",sample_fnv32);
     /* Do not silently load AWEMAN.DLL fallback, OpenAL or non-original
        Windows synthesizer. Win95 installed Creative AWEMAN32 mandatory. */
     dll=LoadLibraryA("AWEMAN32.DLL");
