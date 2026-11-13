@@ -118,6 +118,17 @@ python tools/p002_compare_original_dry_pcm.py --original-precard-wav "PRIVATE\or
 The explicit window start positions must be justified by original MIDI/register timestamps, **not automatically guessed** from a matching waveform. The comparator reports first differing frame, count of differing channel samples and stereo frames, exact signed 16-bit LSB peak/error, RMS and SHA256 of the compared windows. It does **not** normalize amplitude, shift sample timing, resample, swap channels or accept silence as musical parity. Exit 0 = exact window equality; exit 1 = measured waveform mismatch; exit 2 = invalid/unusable evidence. Both equal and unequal results explicitly mark independent original Creative driver/ROM/SF2 provenance, register/FX consistency and release approval **NOT PROVEN**.
 
 Automated synthetic-only negative controls cover single-bit PCM differences, a one-frame shift, gain differences, channel swaps, silence, wrong format, insufficient frames, and output-report overwrite attempts. These tests validate the *comparator*, not the Windows 95 driver playback.
+
+The existing **single-command Win95 guest + exact SoundFont + source RAM trace evidence join** (`tools/p002_join_original_win95_ram_evidence.py`) now also supports this comparator, without requiring a separate manual analysis. Supply the existing `--original-dry-wav` together with **all four** additional options:
+
+```text
+--vst3-precard-wav PRIVATE/native-precard-pcm16.wav
+--original-start-frame 441000
+--vst3-start-frame 0
+--frames 44100
+```
+
+All offsets above are placeholders, not timing observations. Missing or corrupt input fails closed; an explicit PCM mismatch creates a private report identifying the unequal samples and exits nonzero. Even exact PCM window equality leaves the original driver, bank/clock alignment and release gates marked **NOT PROVEN**, until the private original capture is independently authenticated. The P002 evidence join also still refuses ambiguous or later-overwritten source-SF2 RAM addresses.
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
