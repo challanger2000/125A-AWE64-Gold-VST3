@@ -1,4 +1,5 @@
 #include "CreativeOriginalRamPortReplay.h"
+#include "CreativeSf2RamSamplePcm.h"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -98,5 +99,82 @@ candidateReplayOriginalCreativeCapturedRamUpload(
     for(const auto& event:trace)
         chip.writePort(event.port,event.value);
     return *plan;
+}
+std::optional<OriginalRamUploadReplayResult>
+candidateReplaySourceMatchedOriginalRamSf2Sample(
+    awe64::Chip& chip,
+    const std::span<const std::uint8_t> sf2_bank,
+    const std::uint16_t sample_id,
+    const std::uint32_t source_observed_base,
+    const std::span<const OriginalRamUploadPortWrite> captured,
+    const bool independently_verified_original_guest) noexcept {
+    if(!independently_verified_original_guest || !chip.ready() ||
+       !validAddress(source_observed_base))
+        return std::nullopt;
+    const auto source_sample=candidateOriginalSf2ReadRamMonoSamplePcm(
+        sf2_bank,sample_id,awe64::kSampleRamBytes/2u);
+    if(!source_sample || source_sample->sample_pcm_le16.size()==0u ||
+       (source_sample->sample_pcm_le16.size()&1u)!=0u)
+        return std::nullopt;
+    const auto sample_words=source_sample->sample_pcm_le16.size()/2u;
+    if(sample_words>static_cast<std::size_t>(
+            kExclusiveFmReservedWord-source_observed_base))
+        return std::nullopt;
+    // Preflight the complete independently supplied source trace,
+    // including all words before/after the selected SF2 sample.
+    if(!preflight(captured))return std::nullopt;
+
+    // Exact physical 16-bit sample-word comparison. Reconstruct the
+    // original SMALW/SMLD address latch from the captured chip-port
+    // traffic, including any source driver SMALW pointer resets. A
+    // caller-provided base is NOT accepted without source word-for-word
+    // correspondence. No device/driver allocator is synthesized here.
+    std::uint16_t selector=0xffffu,lo=0u,hi=0u;
+    bool haveLo=false,haveHi=false,haveAddress=false;
+    std::uint32_t current=0u;
+    std::size_t matched=0u;
+    for(const auto& e:captured) {
+        if(e.port==kVoiceSelectorPort) {
+            selector=e.value;
+            if(selector==kPointerSelect) {
+                haveLo=false;haveHi=false;haveAddress=false;
+            }
+        }else if(selector==kPointerSelect) {
+            if(e.port==kDataLowPort) {
+                lo=e.value;haveLo=true;
+            }else if(e.port==kDataHighPort) {
+                hi=e.value;haveHi=true;
+            }else return std::nullopt;
+            if(haveLo && haveHi) {
+                current=static_cast<std::uint32_t>(lo)|
+                    (static_cast<std::uint32_t>(hi)<<16u);
+                haveAddress=true;
+            }
+        }else if(selector==kDataSelect &&
+                 e.port==kDataLowPort && haveAddress) {
+            if(current>=source_observed_base &&
+               current-source_observed_base<sample_words) {
+                // Physical addresses must be visited exactly once in
+                // increasing order; no overlapping/duplicate writers
+                // or partial sample fills are accepted.
+                if(current!=source_observed_base+matched ||
+                   matched>=sample_words)return std::nullopt;
+                const auto i=matched*2u;
+                const auto pcm=source_sample->sample_pcm_le16;
+                const auto expected=static_cast<std::uint16_t>(
+                    static_cast<unsigned>(pcm[i])|
+                    (static_cast<unsigned>(pcm[i+1u])<<8u));
+                if(e.value!=expected)return std::nullopt;
+                ++matched;
+            }
+            ++current;
+        }
+    }
+    if(matched!=sample_words)return std::nullopt;
+    // The traced source waveform is COMPLETELY identical to the
+    // caller's actual SF2 sample. Only now commit the raw captured
+    // port stream to the original 86Box chip; no guessed note DSP.
+    return candidateReplayOriginalCreativeCapturedRamUpload(
+        chip,captured,true);
 }
 } // namespace awe64::creative
