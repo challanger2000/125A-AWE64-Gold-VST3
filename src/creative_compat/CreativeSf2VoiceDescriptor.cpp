@@ -166,6 +166,80 @@ candidateOriginalSf2NoteFromVerifiedVxdResources(
     if(!started)return std::nullopt;
     return OriginalCreativeSf2NoteDescriptors{*built,*started};
 }
+std::optional<OriginalCreativeSf2NoteDescriptors>
+candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+    const SbkLayer& layer,
+    const OriginalSf2RamSamplePcmView& sample,
+    const OriginalSf2RamPhysicalLayer& physical,
+    const OriginalCreativeSf2DriverResources& resources,
+    const std::uint32_t original_preset_group,
+    const OriginalSf2VoiceStartConditions& state,
+    const bool independently_verified_ram_upload) noexcept {
+    constexpr std::uint32_t physicalRamFirst=0x200000u;
+    constexpr std::uint32_t physicalRamEnd=0x1000000u;
+    if(!independently_verified_ram_upload ||
+       layer.source_format!=OriginalCreativeBankFormat::Format2Sf2 ||
+       layer.original_preset_row_index!=original_preset_group ||
+       layer.rom_sample_selector!=sample.sample_id ||
+       sample.sample_id!=physical.sample_id ||
+       state.creative_bank!=layer.bank ||
+       state.midi_key!=layer.key ||
+       state.midi_velocity!=layer.velocity ||
+       sample.sample_rate_hz==0u || sample.original_pitch>127u ||
+       sample.start_word>=sample.end_word ||
+       sample.loop_start_word<sample.start_word ||
+       sample.loop_start_word>=sample.loop_end_word ||
+       sample.loop_end_word>sample.total_pool_words ||
+       sample.total_pool_words>0xE00000u ||
+       sample.sample_pcm_le16.size()!=
+           static_cast<std::size_t>(sample.end_word-sample.start_word)*2u ||
+       physical.physical_sample_start<physicalRamFirst+4u ||
+       physical.physical_sample_end>physicalRamEnd ||
+       physical.physical_sample_start<sample.start_word)
+        return std::nullopt;
+    // Full source shdr coordinates must share exactly one independently
+    // authenticated Creative DRAM base.
+    const auto base=physical.physical_sample_start-sample.start_word;
+    if(base<physicalRamFirst+4u ||
+       static_cast<std::uint64_t>(base)+sample.total_pool_words>
+           physicalRamEnd ||
+       base+sample.end_word!=physical.physical_sample_end ||
+       base+sample.loop_start_word!=physical.physical_loop_start ||
+       base+sample.loop_end_word!=physical.physical_loop_end ||
+       physical.candidate_initial_ccca!=
+           physical.physical_sample_start-4u ||
+       physical.candidate_initial_psst!=
+           physical.physical_loop_start-1u ||
+       physical.candidate_initial_csl!=
+           physical.physical_loop_end-1u)
+        return std::nullopt;
+    const auto merged=candidateOriginalSf2GeneratorsWithVerifiedTemplates(
+        layer,resources.preset_template,resources.instrument_template);
+    if(!merged)return std::nullopt;
+    const auto pitch=originalCreativeSf2SampleRateToDwPitch(
+        sample.sample_rate_hz,resources.pitch_tables);
+    if(!pitch || *pitch>0xffffffu)return std::nullopt;
+    auto before=*merged;
+    const auto dword=[&](const unsigned offset,
+                         const std::uint32_t value) noexcept {
+        for(unsigned i=0u;i<4u;++i)
+            before[offset+i]=static_cast<std::uint8_t>(value>>(i*8u));
+    };
+    dword(0x76u,physical.physical_sample_start);
+    dword(0x7au,physical.physical_sample_end);
+    dword(0x7eu,physical.physical_loop_start);
+    dword(0x82u,physical.physical_loop_end);
+    dword(0x86u,*pitch);
+    before[0x8au]=sample.original_pitch;
+    before[0x8bu]=static_cast<std::uint8_t>(sample.pitch_correction);
+    word(before,0x8cu/2u,1u); // REAL RAM mono, never 0x8001 ROM
+    word(before,0x8eu/2u,0u); // original mono sampleLink
+    dword(0x90u,original_preset_group);
+    const auto after=candidateOriginalSf2EncodedRamVoiceDescriptor(
+        before,state,true);
+    if(!after)return std::nullopt;
+    return OriginalCreativeSf2NoteDescriptors{before,*after};
+}
 std::optional<CreativeSf2VoiceDescriptorBytes>
 candidateOriginalSf2GeneratorsWithVerifiedTemplates(
     const SbkLayer& layer,
@@ -257,28 +331,30 @@ candidateOriginalSf2VoiceWithVerifiedRomSampleMetadata(
     dword(0x90u,original_preset_group);
     return result;
 }
-std::optional<CreativeSf2VoiceDescriptorBytes>
-candidateOriginalSf2EncodedVoiceDescriptor(
+static std::optional<CreativeSf2VoiceDescriptorBytes>
+encodeOriginalSf2DescriptorByAuthenticatedSampleType(
     const CreativeSf2VoiceDescriptorBytes& merged,
-    const OriginalSf2VoiceStartConditions& context) noexcept {
+    const OriginalSf2VoiceStartConditions& context,
+    const bool verifiedRamMono) noexcept {
     if(context.midi_key>127u || context.midi_velocity==0u ||
        context.midi_velocity>127u || context.channel_pan>127u ||
        context.channel_chorus>127u || context.channel_reverb>127u)
         return std::nullopt;
-    // This is the verified 1MGM ROM-mono path only. Linked stereo and
-    // RAM samples must never silently use ROM addresses/voice settings.
-    if(u16(merged,0x8cu)!=0x8001u)return std::nullopt;
+    // Genuine ROM and independently trace-bound RAM sample types are
+    // separate entrypoints; no ROM fallback for unverified RAM.
+    if(u16(merged,0x8cu)!=(verifiedRamMono?0x0001u:0x8001u))
+        return std::nullopt;
     auto result=merged;
-    // Original format-2 voice transition clears the ROM qualifier bit
-    // in the POST-START descriptor: 0x8001 -> 0x0001. Its actual ROM
-    // address was resolved earlier by the unchanged original ROM planner.
-    word(result,0x8cu/2u,0x0001u);
-    // Reuse the established original CC7/CC11/velocity/ROM attenuation.
+    // Original ROM source clears high sample qualifier on NoteOn;
+    // a RAM descriptor already carries mono sampleType 0x0001.
+    if(!verifiedRamMono)word(result,0x8cu/2u,0x0001u);
+    // Reuse the established original CC7/CC11/velocity attenuation.
     // Descriptor +0x60 is signed generator48; device state +0x10 is
     // independently supplied, never inferred from the SoundFont.
     auto volume=context.volume;
     volume.encoded_voice_amplitude=signedWord(merged,48u);
-    volume.original_1mgm_rom_sample=true;
+    // The source's ROM-only +16 attenuation must never leak into RAM.
+    volume.original_1mgm_rom_sample=!verifiedRamMono;
     const auto attenuation=candidateOriginalCreativeAttenuation(
         context.midi_velocity,volume);
     if(!attenuation)return std::nullopt;
@@ -341,5 +417,22 @@ candidateOriginalSf2EncodedVoiceDescriptor(
         word(result,op,boundedWord(send+channel,0,255));
     }
     return result;
+}
+std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2EncodedVoiceDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& merged,
+    const OriginalSf2VoiceStartConditions& context) noexcept {
+    // Identical existing genuine ROM source path.
+    return encodeOriginalSf2DescriptorByAuthenticatedSampleType(
+        merged,context,false);
+}
+std::optional<CreativeSf2VoiceDescriptorBytes>
+candidateOriginalSf2EncodedRamVoiceDescriptor(
+    const CreativeSf2VoiceDescriptorBytes& merged,
+    const OriginalSf2VoiceStartConditions& context,
+    const bool independently_verified_original_ram_source) noexcept {
+    if(!independently_verified_original_ram_source)return std::nullopt;
+    return encodeOriginalSf2DescriptorByAuthenticatedSampleType(
+        merged,context,true);
 }
 } // namespace awe64::creative
