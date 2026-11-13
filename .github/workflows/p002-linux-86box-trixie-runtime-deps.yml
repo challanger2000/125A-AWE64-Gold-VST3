@@ -23,7 +23,7 @@ jobs:
           mkdir -p /tmp/p002-public-runtime
           cd /tmp/p002-public-runtime
           apt-get download libserialport0 libslirp0 librtmidi6
-          for file in *.deb; do dpkg-deb --contents "$file" | grep -E '\\.so\\.' | head -10; done
+          for file in *.deb; do dpkg-deb --field "$file" Package Version; done
           sha256sum *.deb > sha256sums.txt
           echo 'P002_PUBLIC_DEBIAN13_MISSING_LIBRARIES_DOWNLOADED'
       - uses: actions/upload-artifact@v4
