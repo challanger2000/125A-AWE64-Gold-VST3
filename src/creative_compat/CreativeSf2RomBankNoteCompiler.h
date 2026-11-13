@@ -73,4 +73,25 @@ candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
     const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
     const OriginalSf2VerifiedVxdDeviceSnapshot& original_device_state,
     bool original_rom_sf2_and_live_state_verified) noexcept;
+// Source-verified SEQUENTIAL ROM-SF2 MIDI NoteOn with ORIGINAL live
+// hardware allocator and a single mutable Win95 VXD device state.
+// The existing single-note source bank compiler/chip writer is reused;
+// only after its exact original 61-OUT execution succeeded is its
+// source-generated 0x1592-byte AFTER-state copied into the caller state.
+// The subsequent NoteOn sees prior busy keys and must find another
+// independently original-identified COMPLETELY-IDLE physical voice.
+// No arbitrary voice stealing, ROM sample magic, new DSP or fake preset.
+// Intended for non-RT P002 research host until full driver provenance.
+[[nodiscard]] std::optional<OriginalSf2ExecutedLiveIdleMonoNote>
+candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+    awe64::Chip& real_pinned_emu8000_chip,
+    std::span<std::uint8_t> source_mutable_vxd_state,
+    std::span<const std::uint8_t> original_sf2_bank,
+    const MidiMessage& original_note_on,
+    const MidiState& original_midi_channel_state,
+    std::uint16_t original_resolved_bank,
+    std::size_t original_rom_sample_word_count,
+    const OriginalCreativeSf2DriverResources& source_vxd_sf2_resources,
+    const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
+    bool independently_verified_source_state_and_bank) noexcept;
 } // namespace awe64::creative
