@@ -140,7 +140,7 @@ int wmain(int argc, wchar_t** argv) {
     HMODULE module=nullptr;
     IPluginFactory* factory=nullptr;
     try {
-        require(SetEnvironmentVariableW(L"AWE64_P001_ROM_PATH",argv[2])!=0,
+        require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "Cannot configure original private ROM");
         // Assert original fork's EMU8K_STATE_DUMP cannot fprintf from DAW thread.
         wchar_t temp[MAX_PATH]={};
