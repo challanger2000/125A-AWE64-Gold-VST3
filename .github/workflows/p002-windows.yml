@@ -196,6 +196,10 @@ jobs:
             if ($LASTEXITCODE -eq 0) { throw 'Wrong source original RAM address accepted' }
             & $cli[0].FullName $rom $wrongSample 0 0x200010 $source $sourceFlag
             if ($LASTEXITCODE -eq 0) { throw 'Wrong bank SF2 original RAM PCM accepted' }
+            # Every expected negative exit code was checked explicitly.
+            # PowerShell otherwise propagates the final intentional
+            # exit=1 as a FALSE workflow failure even after PASS.
+            $global:LASTEXITCODE = 0
             Write-Host 'P002_ORIGINAL_HASH_LOCKED_CHIP_REAL_WINDOWS_RAM_CLI_SYNTHETIC_ONLY_PASS'
           } finally {
             Remove-Item "$rom" -Force -ErrorAction SilentlyContinue
