@@ -8,6 +8,7 @@ from tools import p002_make_private_vst3_rom_bank_resources as mod
 from tools.p002_extract_original_vxd_sf2_resources import extract
 from test_p002_extract_original_vxd_sf2_resources import synthetic_le
 import struct
+import hashlib
 
 def idle_state():
     state=bytearray(0x1592)
@@ -22,9 +23,11 @@ class OriginalRomBankPackTest(unittest.TestCase):
     def make(self, state=None, **args):
         # Only this PUBLIC SYNTHETIC unittest monkey-patches the exact
         # original hash oracle. The CLI does not provide this bypass.
-        with mock.patch.object(
-            mod,"extract",
-            side_effect=lambda raw:extract(raw,require_original_hash=False)):
+        fake=extract(synthetic_le(),require_original_hash=False)
+        digest=hashlib.sha256(mod.vxd_original_table_bytes(fake)).hexdigest()
+        with (mock.patch.object(mod,"extract",return_value=fake),
+              mock.patch.object(mod,"EXPECTED_ORIGINAL_NATIVE_TABLE_SHA256",
+                                digest)):
             return mod.build(synthetic_le(),
                              bytes(idle_state() if state is None else state),
                              program=args.get("program",7),
@@ -49,6 +52,20 @@ class OriginalRomBankPackTest(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<I",b,pitch_base+127*4)[0],
                          1000+127*10000)
         self.assertEqual(struct.unpack_from("<b",b,pitch_base+512)[0],64)
+
+    def test_source_hash_field_cannot_authorize_forged_original_tables(self):
+        # Even after a mocked authenticated LE parser (ONLY public
+        # synthetic test), source-table content must match an independent
+        # immutable digest. A correct magic/VXD SHA header is not enough.
+        fake=extract(synthetic_le(),require_original_hash=False)
+        self.assertNotEqual(
+            hashlib.sha256(mod.vxd_original_table_bytes(fake)).hexdigest(),
+            mod.EXPECTED_ORIGINAL_NATIVE_TABLE_SHA256)
+        with mock.patch.object(mod,"extract",return_value=fake):
+            with self.assertRaisesRegex(ValueError,"LCOD/PDAT"):
+                mod.build(synthetic_le(),bytes(idle_state()),
+                          program=0,channel=0,bank=0)
+        self.assertEqual(len(mod.vxd_original_table_bytes(fake)),820)
 
     def test_missing_original_source_sha_cannot_be_bypassed_by_cli(self):
         with self.assertRaisesRegex(ValueError,"exact original"):
