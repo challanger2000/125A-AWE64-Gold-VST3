@@ -258,6 +258,51 @@ int main() {
         CHECK(static_cast<std::uint16_t>(
             core->ram[0x10u+i])==data[i]);
 
+    // P002 actual source-measured boundary case: the original Creative
+    // loader writes the same RAM word more than once. Prove the FINAL
+    // recorded physical contents BEFORE any real chip write; keep
+    // original source port chronology and reject fake final words.
+    Writes originalWithRewrites=traced;
+    const std::array<std::uint16_t,1> changedFirst{{0x1234u}};
+    addWords(originalWithRewrites,13u,0x200011u,changedFirst);
+    const std::array<std::uint16_t,1> restoredOriginal{{data[1]}};
+    addWords(originalWithRewrites,15u,0x200011u,restoredOriginal);
+    const std::span<const std::uint16_t> expectedFinal(data);
+    using awe64::creative::candidateReplayObservedOriginalCreativeFinalRamBank;
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0x200010u,expectedFinal,false,true));
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0x200010u,expectedFinal,true,false));
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0x20000fu,expectedFinal,true,true));
+    // The exact FINAL last word matters even if the earlier physical
+    // events contain the right value; no normalization is allowed.
+    auto invalidFinal=data;
+    invalidFinal[3]^=1u;
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0x200010u,invalidFinal,true,true));
+    CHECK(static_cast<std::uint16_t>(
+        core->ram[0x11u])==data[1]); // no negative-test side effect
+    auto sourceWithoutFinalWord=traced;
+    sourceWithoutFinalWord.erase(sourceWithoutFinalWord.begin()+7u);
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,sourceWithoutFinalWord,0x200010u,expectedFinal,true,true));
+    CHECK(!candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0xffffdeu,expectedFinal,true,true));
+    const auto verified=candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,originalWithRewrites,0x200010u,expectedFinal,true,true);
+    CHECK(verified &&
+          verified->independently_observed_word_base==0x200010u &&
+          verified->independently_verified_final_word_count==4u &&
+          verified->source_sample_physical_rewrite_events==2u &&
+          verified->source_sample_distinct_rewritten_words==1u &&
+          verified->original_port_upload.original_sample_words==7u &&
+          verified->original_port_upload.exact_port_writes==
+              originalWithRewrites.size());
+    for(unsigned i=0;i<data.size();++i)
+        CHECK(static_cast<std::uint16_t>(
+            core->ram[0x10u+i])==data[i]);
+
     std::cout<<"P002_SOURCE_ORIGINAL_EMU8000_RAM_PORT_REPLAY_PASS"
              <<" source_32bit_word_addresses=TRUE"
              <<" original_SMALW_SMLD_port_order=TRUE"
@@ -267,6 +312,8 @@ int main() {
              <<" source_guest_trace_in_test=SYNTHETIC_ONLY"
              <<" original_Creative_driver_RAM_upload_verified=NOT_YET"
              <<" exact_source_SF2_pcm_vs_captured_RAM_ports=TRUE"
+             <<" source_creative_repeated_RAM_final_word_parity=TRUE"
+             <<" negative_invalid_final_RAM_no_chip_mutation=TRUE"
              <<" last_word_corruption_and_wrong_base_no_chip_mutation=TRUE\n";
     return 0;
 }
