@@ -41,6 +41,69 @@ bool visit(Bytes b,std::size_t first,std::size_t end,F fn) noexcept {
     return true;
 }
 }
+std::optional<OriginalSf2SampleMemoryInventory>
+candidateOriginalSf2InventoryAllSampleTypes(
+    const Bytes sf2) noexcept {
+    if(sf2.size()<12u || !textAt(sf2,0u,"RIFF") ||
+       !textAt(sf2,8u,"sfbk") ||
+       le32(sf2,4u)!=sf2.size()-8u)
+        return std::nullopt;
+    Chunk info{},pdta{};
+    if(!visit(sf2,12u,sf2.size(),
+        [&](std::size_t pos,Chunk item) noexcept {
+            if(!textAt(sf2,pos,"LIST"))return true;
+            if(item.size<4u)return false;
+            if(textAt(sf2,item.start,"INFO")) {
+                if(info.present)return false;
+                info=item;
+            }else if(textAt(sf2,item.start,"pdta")) {
+                if(pdta.present)return false;
+                pdta=item;
+            }
+            return true;
+        }) || !info.present || !pdta.present)return std::nullopt;
+    Chunk ifil{},shdr{};
+    if(!visit(sf2,info.start+4u,info.start+info.size,
+        [&](std::size_t pos,Chunk item) noexcept {
+            if(!textAt(sf2,pos,"ifil"))return true;
+            if(ifil.present)return false;
+            ifil=item;return true;
+        }) || !ifil.present || ifil.size!=4u ||
+       le16(sf2,ifil.start)!=2u)return std::nullopt;
+    if(!visit(sf2,pdta.start+4u,pdta.start+pdta.size,
+        [&](std::size_t pos,Chunk item) noexcept {
+            if(!textAt(sf2,pos,"shdr"))return true;
+            if(shdr.present)return false;
+            shdr=item;return true;
+        }) || !shdr.present || shdr.size<2u*46u ||
+       shdr.size%46u!=0u)return std::nullopt;
+    const auto n=shdr.size/46u-1u;
+    OriginalSf2SampleMemoryInventory result{};
+    result.sample_headers=n;
+    for(std::size_t i=0u;i<n;++i) {
+        const auto base=shdr.start+46u*i;
+        const auto type=le16(sf2,base+44u);
+        const auto linked=le16(sf2,base+42u);
+        const auto start=le32(sf2,base+20u);
+        const auto end=le32(sf2,base+24u);
+        const auto loopStart=le32(sf2,base+28u);
+        const auto loopEnd=le32(sf2,base+32u);
+        const auto sampleRate=le32(sf2,base+36u);
+        const auto originalPitch=sf2[base+40u];
+        if(start>=end || loopStart<start ||
+           loopStart>=loopEnd || loopEnd>end ||
+           sampleRate==0u || originalPitch>127u)
+            return std::nullopt;
+        if(type==0x8001u && linked==0u)
+            ++result.rom_mono;
+        else if(type==1u && linked==0u)
+            ++result.ram_mono;
+        else
+            ++result.unsupported;
+    }
+    return result;
+}
+
 std::optional<OriginalSf2RamSamplePcmView>
 candidateOriginalSf2ReadRamMonoSamplePcm(
     const Bytes sf2,
