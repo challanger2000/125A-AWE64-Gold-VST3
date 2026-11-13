@@ -177,16 +177,16 @@ def scan_capture(lines, expected_pcm: bytes):
             read_events += 1
             continue
         if port == 0xE22:
-            if selector == 0x36 and (lo is None or hi is None):
+            if selector == 0x36 and (lo is not None or hi is not None) and (lo is None or hi is None):
                 raise ValueError(
                     "incomplete original SMALW pointer before selector change")
             selector = value
             if selector == 0x36:  # exactly original EMU8000 SMALW
                 pointer = None
                 lo = hi = None
-            elif selector == 0x3A and pointer is None:
-                raise ValueError(
-                    "original SMLD selector missing complete SMALW pointer")
+            # A source trace can select SMLD merely to READ it.
+            # Require an actual *write to A20* before treating this
+            # selection as a RAM transfer. Reads never establish upload.
             continue
         if selector == 0x36:
             if port == 0xA20:
@@ -197,18 +197,30 @@ def scan_capture(lines, expected_pcm: bytes):
                 if hi is not None:
                     raise ValueError("duplicate original SMALW high address")
                 hi = value
+            elif port in (0xE20, 0x620, 0x622):
+                # Original 86Box uses the same selector while writing
+                # to OTHER real chip data banks. No A20/A22 RAM address
+                # component is supplied by these events.
+                continue
             else:
-                # The native filtered-port preflight rejects any other
-                # write while the original pointer selector is active.
-                # Ignoring it would certify a stream native replay rejects.
                 raise ValueError("unexpected original SMALW data port")
             if lo is not None and hi is not None:
                 pointer = lo | (hi << 16)
-                if not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
-                    raise ValueError("captured Creative RAM pointer outside installed 28 MiB")
+                # Defer the installed-RAM range check until an actual
+                # SMLD A20 DATA write; the source also writes 0x80000000
+                # pointers during chip initialization without RAM upload.
         elif selector == 0x3A and port == 0xA20:
-            if pointer is None or not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
+            if pointer is None:
                 raise ValueError("original SMLD write missing safe SMALW pointer")
+            if not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
+                # Verified original fork/Win95 trace uses AA55/55AA
+                # probe writes outside the installed RAM capacity.
+                # They are never sample data, and cannot enter replay.
+                # Any OTHER invalid physical write is NO-GO.
+                if value not in (0xAA55, 0x55AA):
+                    raise ValueError("captured original RAM pointer outside installed 28 MiB")
+                pointer += 1
+                continue
             if run_address is None:
                 run_address = pointer
             elif pointer != run_address + len(run) // 2:
@@ -226,9 +238,9 @@ def scan_capture(lines, expected_pcm: bytes):
             write_words += 1
             if len(run) > MAX_RAM_WORDS * 2:
                 raise ValueError("original contiguous RAM upload exceeds installed capacity")
-        elif selector == 0x3A:
+        elif selector == 0x3A and port not in (0xE20, 0x620, 0x622):
             raise ValueError("unexpected original SMLD data port")
-    if selector == 0x36 and (lo is None or hi is None):
+    if selector == 0x36 and (lo is not None or hi is not None) and (lo is None or hi is None):
         raise ValueError("incomplete original SMALW pointer at trace EOF")
     evaluate()
     if write_words == 0:
@@ -260,17 +272,20 @@ def scan_capture(lines, expected_pcm: bytes):
 
 
 def filter_original_ram_upload_port_writes(lines):
-    """Extract only ACTUAL captured SMALW/SMLD writes.
+    """Emit only fully observed, in-range original SMALW/SMLD RAM writes.
 
-    Each emitted 3-field event is a literal write from the original
-    EMU8K_TRACE (frame, port, value). No new pointer, sample, blank loop
-    padding, source byte order or address is ever synthesized. The
-    filtered output is directly compatible with the original chip
-    port-replay preflight, not a general register-trace equivalent.
+    The captured 86Box trace intermixes E20/620/622 register-bank writes,
+    SMLD reads and RAM-size probe words (AA55/55AA) above installed DRAM.
+    None belong to a replay. Buffer the original SMALW selector/halves
+    until the first *valid in-range* SMLD write proves it was actually
+    used; never fabricate source pointer/data or lose fail-closed gates.
     """
     selector = None
-    low = high = None
-    pointer = None
+    low = high = pointer = None
+    pending_pointer = []
+    pointer_emitted = False
+    data_selector = None
+    data_selector_emitted = False
     frame_prev = -1
     yielded_words = 0
     for number, raw in enumerate(lines, 1):
@@ -292,50 +307,63 @@ def filter_original_ram_upload_port_writes(lines):
         if read:
             continue
         if port == 0xE22:
+            if (selector == 0x36 and
+                    (low is not None or high is not None) and
+                    (low is None or high is None)):
+                raise ValueError("Original RAM pointer truncated mid-capture")
+            selector = value
             if value == 0x36:
-                if selector == 0x36 and (low is None or high is None):
-                    raise ValueError("Original RAM pointer truncated mid-capture")
-                selector = 0x36
-                low = high = None
-                pointer = None
-                yield frame, port, value
+                low = high = pointer = None
+                pending_pointer = [(frame, port, value)]
+                pointer_emitted = False
+                data_selector = None
             elif value == 0x3A:
-                if pointer is None:
-                    # Captures started mid-stream without a valid
-                    # original SMALW pointer are NOT self-contained.
-                    raise ValueError("Original SMLD stream has no SMALW pointer")
-                selector = 0x3A
-                yield frame, port, value
-            else:
-                if selector == 0x36 and (low is None or high is None):
-                    raise ValueError("Incomplete original RAM address setter")
-                selector = None
+                # The original driver also selects SMLD to READ it.
+                data_selector = (frame, port, value)
+                data_selector_emitted = False
             continue
         if selector == 0x36:
-            if port not in (0xA20, 0xA22):
-                raise ValueError("Unexpected original SMALW data port")
             if port == 0xA20:
                 if low is not None:
                     raise ValueError("Duplicate original RAM low pointer")
                 low = value
-            else:
+                pending_pointer.append((frame, port, value))
+            elif port == 0xA22:
                 if high is not None:
                     raise ValueError("Duplicate original RAM high pointer")
                 high = value
-            yield frame, port, value
+                pending_pointer.append((frame, port, value))
+            elif port in (0xE20, 0x620, 0x622):
+                # Real 86Box source 0x0036 can address OTHER chip-bank
+                # data ports. They do not write an A20/A22 pointer half.
+                continue
+            else:
+                raise ValueError("Unexpected original SMALW data port")
             if low is not None and high is not None:
-                pointer = low | (high << 16)
-                if not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
-                    raise ValueError("Original pointer outside installed EMU8000 RAM")
+                pointer = low | high << 16
         elif selector == 0x3A and port == 0xA20:
-            if pointer is None or not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
-                raise ValueError("Original source SMLD past installed RAM")
-            yielded_words += 1
-            yield frame, port, value
+            if pointer is None:
+                raise ValueError("Original SMLD stream has no SMALW pointer")
+            if RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
+                if not pointer_emitted:
+                    if len(pending_pointer) != 3:
+                        raise ValueError("Original RAM pointer source events missing")
+                    yield from pending_pointer
+                    pointer_emitted = True
+                if not data_selector_emitted:
+                    if data_selector is None:
+                        raise ValueError("Original SMLD selector source missing")
+                    yield data_selector
+                    data_selector_emitted = True
+                yield frame, port, value
+                yielded_words += 1
+            elif value not in (0xAA55, 0x55AA):
+                raise ValueError("Original RAM pointer outside installed 28 MiB")
             pointer += 1
-        elif selector == 0x3A:
+        elif selector == 0x3A and port not in (0xE20, 0x620, 0x622):
             raise ValueError("Unexpected original SMLD data port")
-    if selector == 0x36 and (low is None or high is None):
+    if (selector == 0x36 and (low is not None or high is not None)
+            and (low is None or high is None)):
         raise ValueError("Original RAM trace has trailing partial address")
     if not yielded_words:
         raise ValueError("Original trace has no complete RAM SMLD words")
