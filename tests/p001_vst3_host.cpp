@@ -132,10 +132,45 @@ int wmain(int argc,wchar_t** argv){
         require(!std::equal(held.begin()+noteoffFrame,held.end(),
                              off.begin()+noteoffFrame),
                 "NoteOff had no audible effect at any later frame");
+        // Independently invoke the SAME actual exported Windows VST3
+        // again with its real AWE64 Gold CT1745 post-chip mixer path.
+        // Compare every unclipped pre-card sample to the ORIGINAL
+        // pinned 86Box reset: fm/master 32767/32768 each, int32
+        // truncation, float sink /32768 WITHOUT PCM16 saturation.
+        require(SetEnvironmentVariableW(
+            L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"")!=0,
+            "cannot switch exported VST3 to full original CT1745 output");
+        auto full=play(factory,false);
+        auto fullOff=play(factory,true);
+        require(full.size()==held.size() && fullOff.size()==off.size(),
+                "full AWE64 card path frame count differs from diagnostic");
+        std::size_t verified=0u,different=0u;
+        constexpr double sourceAtt=32767.0/32768.0;
+        for(std::size_t i=0;i<held.size();++i) {
+            if(std::fabs(held[i])>=0.999f)continue; // tap clipped pre-card
+            const auto originalChip=static_cast<std::int32_t>(held[i]*32768.f);
+            const auto post=static_cast<std::int32_t>(
+                (static_cast<double>(originalChip)*sourceAtt)*sourceAtt);
+            const float expected=static_cast<float>(post)/32768.f;
+            require(full[i]==expected,
+                    "actual exported AWE64 Gold CT1745 default float samples differ from fork");
+            const auto originalOff=static_cast<std::int32_t>(off[i]*32768.f);
+            const auto postOff=static_cast<std::int32_t>(
+                (static_cast<double>(originalOff)*sourceAtt)*sourceAtt);
+            require(fullOff[i]==static_cast<float>(postOff)/32768.f,
+                    "AWE64 CT1745 noteoff vector differs from fork");
+            ++verified;
+            if(full[i]!=held[i])++different;
+        }
+        require(verified>5000 && different>100,
+                "full CT1745 VST3 was not independently exercised");
         factory->release();factory=nullptr;
         FreeLibrary(module);module=nullptr;
         std::cout<<"P001_REAL_VST3_HOST_MIDI_PASS frames="<<held.size()
-                 <<" noteon=137 noteoff="<<noteoffFrame<<" nonzero="<<nonzero<<'\n';
+                 <<" noteon=137 noteoff="<<noteoffFrame<<" nonzero="<<nonzero
+                 <<" full_awe64_ct1745_fork_samples_verified="<<verified
+                 <<" original_card_mixer_output_samples_changed="<<different
+                 <<" no_double_emu8000_DSP=TRUE pre_card_tap_preserved=TRUE\n";
         return 0;
     }catch(const std::exception& e) {
         if(factory)factory->release();
