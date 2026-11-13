@@ -161,6 +161,30 @@ int main() {
     invalid.pop_back();invalid.pop_back();invalid.pop_back();
     CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
         chip,invalid,true)); // dangling pointer before SMLD
+    // The source Python scanner already rejects interrupted SMALW.
+    // Native replay must likewise reject before ANY physical chip write,
+    // including when a later completely valid upload could hide it.
+    for(unsigned n=0u;n<3u;++n) {
+        invalid=traced;
+        const std::size_t switchAt=1u+n;
+        invalid.insert(invalid.begin()+switchAt,
+                       {5u,0xe22u,0x36u});
+        CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
+            chip,invalid,true)); // 0, 1 or 2 pointer halves skipped
+        CHECK(static_cast<std::uint16_t>(core->ram[0x10u])==before[0]);
+    }
+    // No original SMLD may select data without a full 32-bit pointer;
+    // even if a later segment would otherwise be source-valid.
+    invalid=traced;
+    invalid.insert(invalid.begin()+2u,{5u,0xe22u,0x3au});
+    CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
+        chip,invalid,true));
+    CHECK(static_cast<std::uint16_t>(core->ram[0x10u])==before[0]);
+    // Invalid SMALW data ports must not be ignored as incidental events.
+    invalid=traced;invalid[1u].port=0xa24u;
+    CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
+        chip,invalid,true));
+    CHECK(static_cast<std::uint16_t>(core->ram[0x10u])==before[0]);
     CHECK(!candidateReplayOriginalCreativeCapturedRamUpload(
         chip,{},true));
     chip.close();
