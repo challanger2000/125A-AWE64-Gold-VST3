@@ -1,0 +1,30 @@
+name: P002 pinned original calibrated 86Box Linux runtime for actual private Win95 boot
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths: ['.github/workflows/p002-linux-86box-fork-runtime.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  package_linux_calibrated_86box:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Fetch official pinned turican0 Linux 86Box fork and verify published SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 20 --max-time 240 \
+            'https://github.com/turican0/86Box-AWE32/releases/download/v6.0-AWE32-0.93/86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz' \
+            -o 86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz
+          echo '5d92ab7bc78ef971acfb776575987ec17c81386d90c3d144e46661a1649ffb6d  86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz' | sha256sum -c
+          tar tzf 86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz > archive-contents.txt
+          echo 'P002_ORIGINAL_TURICAN0_LINUX_EXECUTABLE_PINNED_SHA256_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-ORIGINAL-CALIBRATED-86BOX-LINUX-0.93
+          path: |
+            86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz
+            archive-contents.txt
+          retention-days: 2
+          if-no-files-found: error
