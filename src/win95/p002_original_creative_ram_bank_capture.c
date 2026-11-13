@@ -89,7 +89,15 @@ static void hex32(DWORD value) {
     emit(string);
 }
 static void report(const char*name,DWORD value) {
-    emit(name);hex32(value);emit("\r\n");
+    unsigned n=0u;
+    while(name[n])++n;
+    emit(name);
+    /* Our original guest source sent some names without '='. The
+       previous helper concatenated NAME + 0xVALUE, producing an invalid
+       key despite a SUCCESSFUL original AWE_SEND_MIDI / WinMM call.
+       Fix the LOG FORMAT in the test harness; never modify driver. */
+    if(n==0u || name[n-1u]!='=')emit("=");
+    hex32(value);emit("\r\n");
 }
 static int contains(const char*hay,const char*needle) {
     unsigned i,j;
