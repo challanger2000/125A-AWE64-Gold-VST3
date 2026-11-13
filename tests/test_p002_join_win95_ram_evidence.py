@@ -77,6 +77,12 @@ class OriginalWin95RamCombinedSourceTests(unittest.TestCase):
         self.assertEqual(result["source_bank_load_call_vs_EMU8000_clock_correlation"],
                          "NOT_PROVEN_FROM_INDEPENDENT_CLOCKS")
         self.assertFalse(result["release_approved"])
+        self.assertTrue(result[
+            "captured_source_sf2_RAM_final_state_no_overlap_candidate"])
+        self.assertEqual(
+            result["original_emu8000_RAM_source_sample_match"][
+                "original_chip_trace_evidence"][
+                    "final_state_unoverwritten_pcm16_matches"],1)
 
     def test_complete_private_cli_source_trace_filter_and_output(self):
         out_log=self.root/"private-joined-original.log"
@@ -154,6 +160,32 @@ class OriginalWin95RamCombinedSourceTests(unittest.TestCase):
             "\n".join(other)+"\n",encoding="ascii")
         with self.assertRaisesRegex(ValueError,"EXACTLY ONE"):
             joined.analyze_join(self.clone,self.sf2,wrong,0)
+
+    def test_codex_overwritten_historical_ram_source_rejected_by_join(self):
+        # Counterexample #1: complete original-looking upload, then
+        # source VM overwrites first sample word through another
+        # perfectly formed SMALW/SMLD sequence.
+        tail=[
+            "50 E22 0036","50 A20 0400","50 A22 0020",
+            "50 E22 003A","50 A20 DEAD",
+        ]
+        mutated=self.root/"private-overwritten-historical-source.trace"
+        mutated.write_text(
+            self.trace.read_text(encoding="ascii") +
+            "\n".join(tail)+"\n",encoding="ascii")
+        with self.assertRaisesRegex(ValueError,"overwritten|overlapped"):
+            joined.analyze_join(self.clone,self.sf2,mutated,0)
+
+    def test_codex_partial_final_pointer_rejected_by_join(self):
+        # Counterexample #2: Source capture ends with an uncommitted
+        # SMALW low-address half. A completed earlier sample cannot
+        # authorize this incomplete Win95 hardware trace.
+        partial=self.root/"private-partial-final-smalw.trace"
+        partial.write_text(
+            self.trace.read_text(encoding="ascii")+
+            "50 E22 0036\n50 A20 1234\n",encoding="ascii")
+        with self.assertRaisesRegex(ValueError,"SMALW pointer"):
+            joined.analyze_join(self.clone,self.sf2,partial,0)
 
     def test_silent_or_unsupported_source_wav_cannot_be_certified(self):
         silent=self.root/"source-silent.wav"
