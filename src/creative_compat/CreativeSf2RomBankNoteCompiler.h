@@ -96,6 +96,33 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
     const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
     const OriginalSf2VerifiedVxdDeviceSnapshot& source_verified_vxd_context,
     bool independently_verified_source_state_and_bank) noexcept;
+// Multiple original ROM SF2 instrument zones under ONE NoteOn.
+// Original PCOD matches at most six zones. Each physical slot comes
+// from an actual original VXD live COMPLETELY-IDLE selector pass, with
+// previous selected slots provisionally marked occupied for the NEXT
+// pass. The final multi-voice source plan is fully verified and only
+// THEN written to the immutable original EMU8000 chip. No software DSP,
+// guessed physical modulo allocation or busy-voice stealing. The
+// exact historical microtiming between allocation passes and original
+// individual voice OUTs remains an explicit unverified boundary.
+struct OriginalSf2ExecutedLiveLayeredBankNote {
+    std::array<OriginalWin95MonoSelection,
+               kOriginalCreativeMaxNoteStartDescriptors> selections{};
+    OriginalSf2CompiledRomBankNote original_compilation{};
+};
+[[nodiscard]] std::optional<OriginalSf2ExecutedLiveLayeredBankNote>
+candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+    awe64::Chip& real_pinned_emu8000_chip,
+    std::span<std::uint8_t> source_mutable_vxd_state,
+    std::span<const std::uint8_t> original_sf2_bank,
+    const MidiMessage& original_note_on,
+    const MidiState& original_midi_channel_state,
+    std::uint16_t original_resolved_bank,
+    std::size_t original_rom_sample_word_count,
+    const OriginalCreativeSf2DriverResources& source_vxd_sf2_resources,
+    const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_verified_vxd_context,
+    bool independently_verified_source_state_and_bank) noexcept;
 // A source-verified 30-physical-voice bank session's MIDI release ledger.
 // Register only real bank-compiled NoteOns already executed by the
 // original hardware allocator; then use the exact Creative VXD NoteOff
@@ -107,6 +134,12 @@ class OriginalSf2RomBankVoiceOwnership {
 public:
     [[nodiscard]] bool recordExecutedNoteOn(
         const OriginalSf2ExecutedLiveIdleMonoNote& executed,
+        std::span<const std::uint8_t> post_noteon_vxd_state) noexcept;
+    [[nodiscard]] bool recordExecutedNoteOn(
+        const OriginalSf2ExecutedLiveLayeredBankNote& executed,
+        std::span<const std::uint8_t> post_noteon_vxd_state) noexcept;
+    [[nodiscard]] bool recordCompiledNoteOn(
+        const OriginalSf2CompiledRomBankNote& compilation,
         std::span<const std::uint8_t> post_noteon_vxd_state) noexcept;
     [[nodiscard]] std::optional<OriginalSf2SourceNoteReleaseResult>
     noteOff(awe64::Chip& chip,
