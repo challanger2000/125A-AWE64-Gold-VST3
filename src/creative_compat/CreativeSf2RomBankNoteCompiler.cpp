@@ -160,17 +160,25 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
     const std::size_t rom_word_count,
     const OriginalCreativeSf2DriverResources& resources,
     const OriginalSf2VoiceStartConditions& start,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_context,
     const bool source_verified) noexcept {
     if(!source_verified || !chip.ready() ||
-       mutable_state.size()<kOriginalVxdMinDeviceImage)
+       !source_context.independently_verified_original_vxd_snapshot ||
+       !source_context.original_lcod_31word_table_verified ||
+       mutable_state.size()<kOriginalVxdMinDeviceImage ||
+       source_context.original_state_bytes.size()<
+           kOriginalVxdMinDeviceImage ||
+       !std::equal(
+           mutable_state.begin(),
+           mutable_state.begin()+kOriginalVxdMinDeviceImage,
+           source_context.original_state_bytes.begin()))
         return std::nullopt;
-    OriginalSf2VerifiedVxdDeviceSnapshot original{};
+    // Retain the independently original-source 15+16 lookup tables.
+    // They are not part of the 59-WORD SF2 generator templates, and
+    // inventing zero attenuation tables would falsify attack128.
+    auto original=source_context;
     original.original_state_bytes=
         std::span<const std::uint8_t>(mutable_state.data(),mutable_state.size());
-    original.independently_verified_original_vxd_snapshot=true;
-    original.original_lcod_31word_table_verified=true;
-    original.source_negative_15word_table=resources.negative_attenuation_table;
-    original.source_positive_16word_table=resources.positive_attenuation_table;
     const auto played=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         chip,bank,midi,midi_state,bank_number,rom_word_count,
         resources,start,original,true);
