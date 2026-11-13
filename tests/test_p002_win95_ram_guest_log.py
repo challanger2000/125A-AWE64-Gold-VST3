@@ -92,8 +92,8 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                         self.bank)
         with self.assertRaisesRegex(ValueError,"Missing original Creative result"):
             auditor.audit(self.mutate(
-                "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E",
-                "NO_ABI_EVIDENCE"),self.bank)
+                "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=0x0000000E\r\n",
+                ""),self.bank)
 
     def test_positive_source_log_gate_not_claim_original_pcm(self):
         result = auditor.audit(self.log, self.bank)
