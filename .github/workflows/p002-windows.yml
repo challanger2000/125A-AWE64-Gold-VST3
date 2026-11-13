@@ -58,6 +58,8 @@ on:
       - 'tests/p002_gold_ct1745_fork_differential.cpp'
       - 'tests/p001_vst3_host.cpp'
       - 'tests/p001_vst3_rt_host.cpp'
+      - 'tools/p002_verify_real_vst3_pcm_capture.py'
+      - 'tests/test_p002_verify_real_vst3_pcm_capture.py'
       - 'tests/p002_native_sbk_layers.cpp'
       - 'tests/p002_native_sf2_ram_pcm_inventory.cpp'
       - 'src/creative_compat/CreativeOriginalRamPortReplay.h'
@@ -185,6 +187,8 @@ jobs:
               '4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e') {
             throw 'Pinned genuine 1-MiB Creative ROM SHA mismatch'
           }
+          $nativeCaptureA = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-a.wav'
+          $nativeCaptureB = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-b.wav'
           try {
             cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host awe64_p001_vst3_host awe64_p001_vst3_rt_host
             if ($LASTEXITCODE -ne 0) { throw 'Actual P002/P001 VST3, separate CT1745 card oracle and MinHook RT host build failed' }
@@ -207,10 +211,22 @@ jobs:
             if ($dualHost.Count -ne 1 -or $rtHost.Count -ne 1) {
                throw 'Original CT1745 actual-VST3 dual output and RT MinHook hosts absent'
             }
-            & $dualHost[0].FullName $dll.FullName $rom
+            # Render two independent exported VST3 instances and
+            # write host-side only pre-card stereo signed PCM16 WAV.
+            # These CI files remain ephemeral, never as artifacts.
+            & $dualHost[0].FullName $dll.FullName $rom $nativeCaptureA
             if ($LASTEXITCODE -ne 0) {
-               throw 'Original CT1745 versus AWE32_WAV pre-card source ROM PCM output differential failed on real VST3'
+               throw 'Real exported VST3 failed first exact pre-card PCM WAV render'
             }
+            & $dualHost[0].FullName $dll.FullName $rom $nativeCaptureB
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real exported VST3 failed repeat pre-card PCM WAV render'
+            }
+            python tools/p002_verify_real_vst3_pcm_capture.py --capture-a $nativeCaptureA --capture-b $nativeCaptureB
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real VST3 stereo PCM16 header/NoteOn/repeatability check failed'
+            }
+            Write-Host 'P002_ACTUAL_EXPORTED_VST3_PRECARD_STEREO_PCM16_WAV_TWO_RUNS_PASS; ORIGINAL_WIN95_RAM_SF2_PARITY_NOT_PROVEN'
             & $rtHost[0].FullName $dll.FullName $rom
             if ($LASTEXITCODE -ne 0) {
                throw 'Real VST3 per-output 1200 callback MinHook 0-heap positive-controlled verification failed'
@@ -249,6 +265,8 @@ jobs:
             Write-Host 'P002_ORIGINAL_HASH_LOCKED_CHIP_REAL_WINDOWS_RAM_CLI_SYNTHETIC_ONLY_PASS'
           } finally {
             Remove-Item "$rom" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$nativeCaptureA" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$nativeCaptureB" -Force -ErrorAction SilentlyContinue
           }
       - name: Fetch exact existing 125A Plugin Test Lab P74/P73
         shell: pwsh
