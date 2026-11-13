@@ -1,6 +1,13 @@
 #include "P002PrivateOriginalRamCapture.h"
 #include "CreativeOriginalRamPortReplay.h"
 #include "CreativeSf2RamSamplePcm.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <bcrypt.h>
 #include <algorithm>
 #include <array>
