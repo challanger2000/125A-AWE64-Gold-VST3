@@ -4,6 +4,8 @@ on:
     branches: [develop/p002-creative-register-oracle]
     paths:
       - src/win95/p002_original_creative_ram_bank_capture.c
+      - tools/p002_stage_original_win95_ram_probe.py
+      - tests/test_p002_win95_ram_stage.py
       - .github/workflows/p002-win95-ram-bank-capture.yml
   workflow_dispatch:
 permissions:
@@ -14,6 +16,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Verify disposable FAT16 Win95 source preservation and private SF2 guest staging
+        run: |
+          python3 -m unittest discover -s tests -p 'test_p002_win95_ram_stage.py' -v
+          echo 'P002_PRIVATE_WIN95_ORIGINAL_DRIVER_RAM_GUEST_FAT16_STAGING_SYNTHETIC_PASS'
       - name: Install original Win95-compatible i586 compiler
         run: |
           sudo apt-get update -qq
