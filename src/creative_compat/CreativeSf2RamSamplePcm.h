@@ -73,4 +73,39 @@ candidateOriginalSf2RamMonoNotePcmPlan(
     std::uint8_t midi_key,
     std::uint8_t midi_velocity,
     std::size_t original_emu8000_ram_capacity_words) noexcept;
+// P002 link: independently authenticated original physical RAM placement
+// + actual MIDI bank/program/velocity layer selection + source VXD
+// NoteOn address geometry. The source bank is caller-owned, no heap or I/O.
+// Only one original RAM bank and sample 82 were independently captured;
+// address predictions for any OTHER sample are hypotheses requiring their
+// own live Creative driver register/PCM comparison, NOT approved audio.
+//
+// Return physical WORD addresses only; original per-voice Q/pan/send,
+// physical allocation, full 61-register NoteOn and clocks remain unknown.
+struct OriginalSf2RamPhysicalLayer {
+    std::uint16_t sample_id=0u;
+    std::uint32_t physical_sample_start=0u;
+    std::uint32_t physical_sample_end=0u;
+    std::uint32_t physical_loop_start=0u;
+    std::uint32_t physical_loop_end=0u;
+    std::uint32_t candidate_initial_ccca=0u;
+    std::uint32_t candidate_initial_psst=0u;
+    std::uint32_t candidate_initial_csl=0u;
+};
+struct OriginalSf2RamPhysicalNotePlan {
+    std::array<OriginalSf2RamPhysicalLayer,kOriginalCreativeRamNoteMaxLayers>
+        layers{};
+    std::uint8_t count=0u;
+};
+[[nodiscard]] std::optional<OriginalSf2RamPhysicalNotePlan>
+candidateOriginalSf2RamPhysicalNotePlan(
+    std::span<const std::uint8_t> raw_soundfont,
+    std::uint16_t bank,
+    std::uint8_t program,
+    std::uint8_t midi_key,
+    std::uint8_t midi_velocity,
+    std::uint32_t independently_observed_ram_sample_base,
+    std::size_t independently_observed_source_pcm_words,
+    bool original_creative_driver_physical_ram_upload_verified) noexcept;
+
 } // namespace awe64::creative
