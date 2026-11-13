@@ -103,7 +103,9 @@ class OriginalWin95RamCombinedSourceTests(unittest.TestCase):
             x for x in out_ports.read_text().splitlines()
             if not x.startswith("#")]
         self.assertGreater(len(event_lines),40)
-        self.assertTrue(any(x.endswith("0A20 8001") for x in event_lines))
+        self.assertTrue(any(
+            x.endswith(f"0A20 {self.words[0]:04X}")
+            for x in event_lines))
         self.assertFalse(any(" E20 " in x for x in event_lines))
         # Reusing an old private result should be refused rather than
         # overwriting source evidence (without executing the full work).
@@ -121,8 +123,11 @@ class OriginalWin95RamCombinedSourceTests(unittest.TestCase):
 
     def test_mutated_sample_or_source_file_identity_fails_closed(self):
         lines=self.trace.read_text(encoding="ascii").splitlines()
-        index=next(i for i,x in enumerate(lines) if x.endswith("A20 8001"))
-        lines[index]=lines[index][:-4]+"8000"
+        index=next(
+            i for i,x in enumerate(lines)
+            if x.endswith(f"A20 {self.words[0]:04X}"))
+        lines[index]=(lines[index][:-4] +
+                      f"{self.words[0]^1:04X}")
         wrongtrace=self.root/"private-bad-trace.trace"
         wrongtrace.write_text("\n".join(lines)+"\n",encoding="ascii")
         with self.assertRaisesRegex(ValueError,"EXACTLY ONE"):
