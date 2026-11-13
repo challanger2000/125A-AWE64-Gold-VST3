@@ -561,9 +561,9 @@ PrivateBytes buildPrivateSyntheticVxdResourcePack() {
 }
 Audio renderRealBankNotes(IPluginFactory* factory,unsigned noteCount,
                           bool pedalUp,bool wrongChannel=false) {
-    require(noteCount>=1u && noteCount<=3u,
+    require(noteCount>=1u && noteCount<=6u,
             "bank note count out of range");
-    constexpr std::array<int,3> keys{{60,64,67}};
+    constexpr std::array<int,6> keys{{60,64,67,69,72,74}};
     Instance instance(factory,true);
     Audio audio{};
     for(int block=0;block<40;++block) {
@@ -991,6 +991,22 @@ int wmain(int argc,wchar_t** argv){
         require(sixVoices.nonzero>100u &&
                 sixVoices.hash!=layeredOne.hash,
                 "six matching source SF2 zones not independently played");
+        // Five separate keys, six SF2 zones per NoteOn = all THIRTY
+        // original EMU8000 musical voices. The sixth key MUST NOT
+        // overwrite any held physical slot (no unverified voice steal).
+        // CC64 lifts and releases the full 30 source-verified ledger.
+        const auto thirtyVoiceHeld=renderRealBankNotes(factory,5u,false);
+        const auto thirtyVoiceLift=renderRealBankNotes(factory,5u,true);
+        const auto refusedThirtyFirst=renderRealBankNotes(factory,6u,false);
+        require(thirtyVoiceHeld.nonzero>100u &&
+                thirtyVoiceHeld.hash!=sixVoices.hash,
+                "30 physical original source-bank voices not emitted");
+        require(refusedThirtyFirst.hash==thirtyVoiceHeld.hash,
+                "unverified 31st SF2 voice illegally stole original hardware");
+        require(thirtyVoiceLift.hashBeforeBlock22==
+                thirtyVoiceHeld.hashBeforeBlock22 &&
+                thirtyVoiceLift.hash!=thirtyVoiceHeld.hash,
+                "all 30 source bank voices not released by original CC64");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                            sevenZoneSf2Path.c_str())==0,
                 "select seven layers with invalid seventh EOS");
@@ -1092,6 +1108,9 @@ int wmain(int argc,wchar_t** argv){
                  <<" original_six_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_seventh_zone_cap_and_bad_third_fail_closed=TRUE"
                  <<" original_layered_SF2_NoteOff_CC64=TRUE"
+                 <<" original_30_physical_SF2_bank_voices_real_VST3_PCM=TRUE"
+                 <<" original_30_voice_CC64_full_release=TRUE"
+                 <<" original_unproven_31st_voice_stealing_forbidden=TRUE"
                  <<" actual_source_ROM_SF2_program_7_to_9_changes_PCM=TRUE"
                  <<" program_change_existing_voices_unaffected=TRUE"
                  <<" program_change_same_sample_precedes_NoteOn=TRUE"
