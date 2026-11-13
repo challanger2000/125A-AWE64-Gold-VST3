@@ -59,7 +59,8 @@ def source_shaped_bank():
         if sample_id == 82:
             start,end,loop_start,loop_end = 260287,260889,260296,260697
         else:
-            start = 4 + sample_id*200
+            # Real Creative shdr[0] begins at pool word zero, not 4.
+            start = sample_id*200
             end,loop_start,loop_end = start+100,start+8,start+92
         name = (f"SYNTH{sample_id:02d}".encode("ascii")
                 if sample_id != 82 else b"SYNTH_LAST")
