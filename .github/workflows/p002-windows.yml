@@ -186,8 +186,8 @@ jobs:
             throw 'Pinned genuine 1-MiB Creative ROM SHA mismatch'
           }
           try {
-            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host
-            if ($LASTEXITCODE -ne 0) { throw 'Actual P002 VST3 diagnostic host build failed' }
+            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host awe64_p001_vst3_host awe64_p001_vst3_rt_host
+            if ($LASTEXITCODE -ne 0) { throw 'Actual P002/P001 VST3, separate CT1745 card oracle and MinHook RT host build failed' }
             $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' |
                 Where-Object { $_.DirectoryName -match 'x86_64-win' } |
                 Select-Object -First 1
@@ -197,6 +197,26 @@ jobs:
             if (-not $dll -or -not $hostExe) { throw 'Actual exported VST3 or independent diagnostic host DLL missing' }
             & $hostExe.FullName $dll.FullName $rom
             if ($LASTEXITCODE -ne 0) { throw 'Actual VST3 P002 original-ROM MIDI PCM or negative controls failed' }
+            # P002's historical PCM tap is NOT the actual card output.
+            # Independently run the real exported DLL in BOTH modes:
+            # source AWE32_WAV-equivalent PCM16 and post-CT1745 float.
+            $dualHost = @(Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p001_vst3_host.exe' |
+               Where-Object { $_.DirectoryName -match 'Release' })
+            $rtHost = @(Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p001_vst3_rt_host.exe' |
+               Where-Object { $_.DirectoryName -match 'Release' })
+            if ($dualHost.Count -ne 1 -or $rtHost.Count -ne 1) {
+               throw 'Original CT1745 actual-VST3 dual output and RT MinHook hosts absent'
+            }
+            & $dualHost[0].FullName $dll.FullName $rom
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Original CT1745 versus AWE32_WAV pre-card source ROM PCM output differential failed on real VST3'
+            }
+            & $rtHost[0].FullName $dll.FullName $rom
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real VST3 per-output 1200 callback MinHook 0-heap positive-controlled verification failed'
+            }
+            Write-Host 'P002_ACTUAL_EXPORTED_WINDOWS_VST3_ORIGINAL_CT1745_FLOAT_AND_PRECARD_PCM16_ORACLES_BOTH_PASS'
+            Write-Host 'P002_ACTUAL_EXPORTED_WINDOWS_VST3_ORIGINAL_CT1745_AND_PCM16_1200_BLOCK_HEAP_AUDIT_BOTH_PASS'
             # Source RAM replay uses a REAL hash-pinned EMU8000 and
             # independently parsed external RIFF/PCM. Synthetic
             # generator is public and is NOT an original Win95 capture.
