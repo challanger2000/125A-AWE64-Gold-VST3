@@ -12,6 +12,8 @@ on:
       - tests/test_p002_extract_win95_ram_log_fat16.py
       - tools/p002_attest_private_win95_creative_driver_fat16.py
       - tests/test_p002_attest_private_win95_creative_driver_fat16.py
+      - tools/p002_arm_private_win95_autorun.py
+      - tests/test_p002_arm_private_win95_autorun.py
       - tools/p002_join_original_win95_ram_evidence.py
       - tests/test_p002_join_win95_ram_evidence.py
       - tools/p002_compare_original_dry_pcm.py
@@ -32,6 +34,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_p002_win95_ram_guest_log.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_extract_win95_ram_log_fat16.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_attest_private_win95_creative_driver_fat16.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_arm_private_win95_autorun.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_join_win95_ram_evidence.py' -v
           python3 -m unittest discover -s tests -p 'test_p002_compare_original_dry_pcm.py' -v
           echo 'P002_ORIGINAL_CREATIVE_AND_VST3_STRICT_DRY_PCM16_COMPARATOR_SYNTHETIC_NEGATIVES_PASS'
