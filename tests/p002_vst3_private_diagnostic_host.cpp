@@ -625,6 +625,76 @@ Audio renderRealBankNotes(IPluginFactory* factory,unsigned noteCount,
     }
     return audio;
 }
+// Independent exported VST3 tests for actual SF2 MIDI Program Change.
+// The private VST3 parameter changes only the original logical channel
+// program; the resulting NOTE START is freshly compiled from program9's
+// genuinely distinct SF2 preset/instrument zone. No retuning existing
+// voices, no extra synthetic/second sound engine.
+Audio renderBankProgramChange(
+    IPluginFactory* factory,int changeToProgram,
+    bool playSecond=true,bool tieWithSecondNote=false) {
+    Instance instance(factory,true);
+    Audio audio{};
+    const auto event=[&](EventList& list,bool on,int key,int offset) {
+        Event e{};
+        e.type=on?Event::kNoteOnEvent:Event::kNoteOffEvent;
+        e.busIndex=0;e.sampleOffset=offset;
+        if(on) {
+            e.noteOn.channel=2;e.noteOn.pitch=static_cast<Steinberg::int16>(key);
+            e.noteOn.velocity=100.f/127.f;e.noteOn.noteId=key;
+        }else {
+            e.noteOff.channel=2;e.noteOff.pitch=static_cast<Steinberg::int16>(key);
+            e.noteOff.velocity=0.f;e.noteOff.noteId=key;
+        }
+        require(list.addEvent(e)==kResultOk,
+                "original ROM SF2 program-switch MIDI event");
+    };
+    for(int block=0;block<25;++block) {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers output{};
+        output.numChannels=2;output.channelBuffers32=buffers;
+        EventList events;
+        if(block==0)event(events,true,60,53);
+        if(block==2)event(events,false,60,71);
+        if(playSecond && block==5)event(events,true,64,79);
+        if(playSecond && block==11)event(events,false,64,91);
+        ParameterChanges changes(1);
+        const bool programAtThisBlock=changeToProgram>=0 &&
+            block==(tieWithSecondNote?5:4);
+        if(programAtThisBlock) {
+            int32 index=0;
+            auto* queue=changes.addParameterData(0x125A00C0u,index);
+            require(queue!=nullptr,"original source program queue absent");
+            int32 point=0;
+            require(queue->addPoint(tieWithSecondNote?79:29,
+                static_cast<Steinberg::Vst::ParamValue>(
+                    changeToProgram)/127.,point)==kResultOk,
+                "original source program step invalid");
+        }
+        if(block==5)audio.hashBeforeBlock2=audio.hash;
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;data.numSamples=512;
+        data.outputs=&output;data.numOutputs=1;
+        data.inputEvents=&events;
+        data.inputParameterChanges=&changes;
+        require(instance.audio->process(data)==kResultOk,
+                "real VST3 ROM SF2 per-program playback failed");
+        for(unsigned i=0;i<512u;++i)
+            for(const auto sample:{left[i],right[i]}) {
+                require(std::isfinite(sample),"original program PCM nonfinite");
+                if(sample!=0.f)++audio.nonzero;
+                std::uint32_t bits=0u;
+                std::memcpy(&bits,&sample,sizeof bits);
+                for(unsigned byte=0;byte<4u;++byte) {
+                    audio.hash^=(bits>>(byte*8u))&255u;
+                    audio.hash*=0x100000001b3ull;
+                }
+            }
+    }
+    return audio;
+}
 } // namespace
 int wmain(int argc,wchar_t** argv){
     if(argc!=3)return 2;
@@ -933,6 +1003,30 @@ int wmain(int argc,wchar_t** argv){
         const auto badThirdZone=renderRealBankNotes(factory,1u,false);
         require(badThirdZone.nonzero==0u,
                 "invalid third ROM SF2 layer partially started hardware");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           twoProgramSf2Path.c_str())==0,
+                "set multi-program actual ROM SF2 bank");
+        const auto defaultProgram7=renderBankProgramChange(factory,-1);
+        const auto program9=renderBankProgramChange(factory,9);
+        const auto program9AtSameSample=renderBankProgramChange(
+            factory,9,true,true);
+        const auto nonexistentProgram0=renderBankProgramChange(factory,0);
+        const auto noSecondNoSwitch=renderBankProgramChange(
+            factory,-1,false);
+        const auto noSecondButSwitch=renderBankProgramChange(
+            factory,9,false);
+        require(defaultProgram7.nonzero>100u &&
+                program9.nonzero>100u &&
+                defaultProgram7.hashBeforeBlock2==
+                program9.hashBeforeBlock2 &&
+                defaultProgram7.hash!=program9.hash,
+                "ROM SF2 actual second preset did not change chip PCM");
+        require(program9AtSameSample.hash==program9.hash,
+                "same-sample VST3 program selection was not applied before MIDI");
+        require(noSecondNoSwitch.hash==noSecondButSwitch.hash,
+                "program change incorrectly modified sounding original voice");
+        require(nonexistentProgram0.hash!=defaultProgram7.hash,
+                "unselected SF2 program unexpectedly played old preset");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
@@ -998,6 +1092,9 @@ int wmain(int argc,wchar_t** argv){
                  <<" original_six_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_seventh_zone_cap_and_bad_third_fail_closed=TRUE"
                  <<" original_layered_SF2_NoteOff_CC64=TRUE"
+                 <<" actual_source_ROM_SF2_program_7_to_9_changes_PCM=TRUE"
+                 <<" program_change_existing_voices_unaffected=TRUE"
+                 <<" program_change_same_sample_precedes_NoteOn=TRUE"
                  <<" unrestricted_RAM_SF2_and_Win95_PCM_PARITY=NOT_PROVEN\n";
         return 0;
     }catch(const std::exception& e){
