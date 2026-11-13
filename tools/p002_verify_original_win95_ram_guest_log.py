@@ -29,6 +29,8 @@ MUST_ZERO = (
     "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC",
     "PRE_LOAD_RESULT",
     "POST_LOAD_RESULT",
+    "PRE_LOAD_SYNTH_BANK_RESULT",
+    "POST_LOAD_SYNTH_BANK_RESULT",
     "ORIGINAL_CREATIVE_MIDIOUT_OPEN_RESULT",
     "ORIGINAL_RESET_CONTROLLERS_RC",
     "ORIGINAL_BANK_SELECT_MSB1_RC",
@@ -54,6 +56,8 @@ REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
     "PRIVATE_WIN95_SF2_FNV1A32",
     "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
+    "PRE_LOAD_SYNTH_BANK_MODE_ID",
+    "POST_LOAD_SYNTH_BANK_MODE_ID",
     "WIN95_ORIGINAL_MIDI_ENDPOINTS",
     "CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT",
     "PRE_LOAD_TOTAL_16BIT_WORDS",
@@ -146,6 +150,14 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
     # authentic SBAWE.VXD. Refuse stale/old incorrect guest logs.
     if seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"] != 14:
         raise ValueError("Original Creative CBufferObject ABI must be pack(2) and exactly 14 bytes")
+    # Creative's WINAWE32.C obtains the current synthesis mode through
+    # AWE_GET_SYN_BANK (305), 14-byte packed CBufferObject.m_Flag:
+    # 0=GM, 1=GS, 2=MT32, 3=USER_CUSTOM_BANK. A reported mode is
+    # NOT proof that CC0=1 selects user bank #1.
+    for mode_label in ("PRE_LOAD_SYNTH_BANK_MODE_ID",
+                       "POST_LOAD_SYNTH_BANK_MODE_ID"):
+        if seen[mode_label] > 3:
+            raise ValueError("Original Creative synth bank enum invalid: "+mode_label)
     if seen["CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT"] != 1 or not (
             1 <= seen["WIN95_ORIGINAL_MIDI_ENDPOINTS"] <= 64):
         raise ValueError("Ambiguous/non-original AWE MIDI device selection")
@@ -173,6 +185,22 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
                 "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=")) <
             lines.index(CAPTURE_END)):
         raise ValueError("Original Win95 load result escaped bank-upload capture markers")
+    # Source mode is read before user-bank upload, then again after,
+    # so a change is OBSERVED rather than silently presumed absent.
+    def original_result_position(key):
+        return next(i for i, entry in enumerate(lines)
+                    if entry.startswith(key+"="))
+    if not (original_result_position("ORIGINAL_AWEMAN32_AWE_OPEN_RC") <
+            original_result_position("PRE_LOAD_SYNTH_BANK_RESULT") <
+            original_result_position("PRE_LOAD_SYNTH_BANK_MODE_ID") <
+            original_result_position("PRE_LOAD_RESULT") <
+            lines.index(CAPTURE_BEGIN) <
+            lines.index(CAPTURE_END) <
+            original_result_position("POST_LOAD_SYNTH_BANK_RESULT") <
+            original_result_position("POST_LOAD_SYNTH_BANK_MODE_ID") <
+            original_result_position("POST_LOAD_RESULT") <
+            lines.index(DIRECT_BEGIN)):
+        raise ValueError("Original Creative synth mode before/after load order invalid")
     # Both original-driver MIDI routes must select the SAME controlled
     # user-bank candidate before program and notes. An accepted API call
     # does NOT establish that Bank 1 was actually rendered from RAM;
@@ -217,6 +245,14 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
         "creative_aweman32_module_path": dll_path,
         "original_creative_cbuffer_pack2_size_bytes":
             seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"],
+        "original_creative_synth_mode_before_load_id":
+            seen["PRE_LOAD_SYNTH_BANK_MODE_ID"],
+        "original_creative_synth_mode_after_load_id":
+            seen["POST_LOAD_SYNTH_BANK_MODE_ID"],
+        "original_synth_mode_change_observed":
+            seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] != seen["POST_LOAD_SYNTH_BANK_MODE_ID"],
+        "original_midi_CC0_user_bank_mapping":
+            "NOT_PROVEN_BY_SYNTH_MODE_QUERY",
         "original_driver_total_ram_words": seen["PRE_LOAD_TOTAL_16BIT_WORDS"],
         "original_driver_free_ram_before_words": before,
         "original_driver_free_ram_after_words": after,
