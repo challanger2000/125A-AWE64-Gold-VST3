@@ -105,6 +105,21 @@ target_link_libraries(awe64_p002_sbk_layers_test PRIVATE awe64_p002_sbk_layers)
 add_test(NAME p002_native_creative_sbk_multilayer_contract
          COMMAND awe64_p002_sbk_layers_test)
 
+# Standard RAM-SF2 PCM inventory is the first original-driver-RAM
+// prerequisite, not guessed Creative VXD DRAM placement or hardware DSP.
+add_library(awe64_p002_sf2_ram_pcm_inventory STATIC
+    src/creative_compat/CreativeSf2RamSamplePcm.cpp)
+target_include_directories(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC cxx_std_23)
+add_executable(awe64_p002_sf2_ram_pcm_inventory_test
+    tests/p002_native_sf2_ram_pcm_inventory.cpp)
+target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
+    PRIVATE awe64_p002_sf2_ram_pcm_inventory)
+add_test(NAME p002_native_soundfont_RAM_PCM_boundaries
+         COMMAND awe64_p002_sf2_ram_pcm_inventory_test)
+
 
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
 # -> genuine ROM word-address descriptors, without voice/allocation guesses.
