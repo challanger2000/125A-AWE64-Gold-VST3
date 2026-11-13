@@ -29,6 +29,7 @@
 #define ORIGINAL_AWE_LOAD_USER_BANK 204u
 #define ORIGINAL_AWE_CLEAR_USER_BANK 205u
 #define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
+#define ORIGINAL_AWE_SEND_MIDI 401u /* Creative 1996 API BASE_MIDI+1 */
 #define ORIGINAL_AWE_NO_ERR 0L
 #define ORIGINAL_OPER_FILE 0u
 #define ORIGINAL_USER_BANK_NUMBER 1u
@@ -112,6 +113,16 @@ static int send_midi(HMIDIOUT device,DWORD msg,const char*name) {
     const MMRESULT rc=midiOutShortMsg(device,msg);
     report(name,rc);
     return rc==MMSYSERR_NOERROR;
+}
+static int original_send_midi(CREATIVE_AWEMANAGER manager,
+                              DWORD handle,DWORD packed_message,
+                              const char*label) {
+    /* Original WINAWE32.C calls AWEManager(h,AWE_SEND_MIDI,
+       packed_32bit_MIDI_short_message,0); not own driver synthesis. */
+    const LONG rc=manager(handle,ORIGINAL_AWE_SEND_MIDI,
+                          (LPARAM)packed_message,0);
+    report(label,(DWORD)rc);
+    return rc==ORIGINAL_AWE_NO_ERR;
 }
 static int original_query_dram(CREATIVE_AWEMANAGER manager,
                                DWORD handle,const char*label,
@@ -285,6 +296,26 @@ void WINAPI p002_ram_entry(void) {
     Sleep(400);
     if(!send_midi(midi,0x00003C80u,"ORIGINAL_MIDI_C4_OFF_RC"))goto done;
     Sleep(500);
+    /* Additional independent ORIGINAL CREATIVE 1996 API route rather
+       than assuming WinMM and AWEManager send exactly the same VXD
+       sequence. D4 distinguishes the API route in the register and
+       DRY PCM traces; C4 was WinMM above. Original driver alone
+       performs all register translations and voice ownership. */
+    emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN\r\n");
+    if(!original_send_midi(manager,handle,0x000000C0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC"))goto done;
+    if(!original_send_midi(manager,handle,0x00005BB0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC"))goto done;
+    if(!original_send_midi(manager,handle,0x00005DB0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC"))goto done;
+    Sleep(150);
+    if(!original_send_midi(manager,handle,0x00643E90u,
+                           "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC"))goto done;
+    Sleep(400);
+    if(!original_send_midi(manager,handle,0x00003E80u,
+                           "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"))goto done;
+    Sleep(500);
+    emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n");
     success=1;
 done:
     if(haveMidi) {
