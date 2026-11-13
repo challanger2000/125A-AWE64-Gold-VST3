@@ -1,4 +1,5 @@
 #include "CreativeSf2RamSamplePcm.h"
+#include "CreativeSbkLayers.h"
 #include <array>
 #include <limits>
 #include <string_view>
@@ -137,5 +138,39 @@ candidateOriginalSf2ReadRamMonoSamplePcm(
         static_cast<std::uint32_t>(poolWords),
         sf2.subspan(begin,countBytes)
     };
+}
+std::optional<OriginalSf2RamNotePcmPlan>
+candidateOriginalSf2RamMonoNotePcmPlan(
+    const std::span<const std::uint8_t> bank_bytes,
+    const std::uint16_t bank,
+    const std::uint8_t program,
+    const std::uint8_t key,
+    const std::uint8_t velocity,
+    const std::size_t ram_words) noexcept {
+    // This reuses the separately verified Creative SF2 preset/zone
+    // decoder and its source six-descriptor limit; no new or guessed
+    // per-key sample selection rule is introduced.
+    const auto matched=resolveCreativeSbkLayers(
+        bank_bytes,bank,program,key,velocity);
+    if(!matched || ram_words==0u)return std::nullopt;
+    OriginalSf2RamNotePcmPlan result{};
+    result.bank=bank;result.program=program;
+    result.key=key;result.velocity=velocity;
+    const std::size_t n=matched->count<kOriginalCreativeRamNoteMaxLayers
+        ? matched->count:kOriginalCreativeRamNoteMaxLayers;
+    for(std::size_t i=0;i<n;++i) {
+        const auto& layer=matched->layers[i];
+        if(layer.source_format!=OriginalCreativeBankFormat::Format2Sf2)
+            return std::nullopt;
+        const auto pcm=candidateOriginalSf2ReadRamMonoSamplePcm(
+            bank_bytes,layer.rom_sample_selector,ram_words);
+        // Reject the ENTIRE MIDI NoteOn plan if any authorized
+        // instrument layer lacks a real 16-bit RAM sample. Do not
+        // partially map the other layers to arbitrary DRAM locations.
+        if(!pcm)return std::nullopt;
+        result.layers[i]=*pcm;
+    }
+    result.count=static_cast<std::uint8_t>(n);
+    return result;
 }
 } // namespace awe64::creative
