@@ -31,6 +31,12 @@ public:
     [[nodiscard]] bool noteOff(awe64::Chip& chip,std::uint8_t channel,
                                std::uint8_t key) noexcept;
     [[nodiscard]] bool sustain(awe64::Chip& chip,std::uint8_t value) noexcept;
+    // A source-valid MIDI ProgramChange alters only FUTURE bank zone
+    // selection, never existing chip voices or their original releases.
+    [[nodiscard]] bool programChange(std::uint8_t program) noexcept;
+    [[nodiscard]] std::uint8_t currentProgram() const noexcept {
+        return program_;
+    }
     [[nodiscard]] std::size_t trackedVoices() const noexcept {
         return ownership_.trackedPhysicalVoices();
     }
