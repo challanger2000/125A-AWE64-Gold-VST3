@@ -197,6 +197,11 @@ def scan_capture(lines, expected_pcm: bytes):
                 if hi is not None:
                     raise ValueError("duplicate original SMALW high address")
                 hi = value
+            else:
+                # The native filtered-port preflight rejects any other
+                # write while the original pointer selector is active.
+                # Ignoring it would certify a stream native replay rejects.
+                raise ValueError("unexpected original SMALW data port")
             if lo is not None and hi is not None:
                 pointer = lo | (hi << 16)
                 if not RAM_FIRST <= pointer < RAM_END_EXCLUSIVE:
@@ -221,6 +226,8 @@ def scan_capture(lines, expected_pcm: bytes):
             write_words += 1
             if len(run) > MAX_RAM_WORDS * 2:
                 raise ValueError("original contiguous RAM upload exceeds installed capacity")
+        elif selector == 0x3A:
+            raise ValueError("unexpected original SMLD data port")
     if selector == 0x36 and (lo is None or hi is None):
         raise ValueError("incomplete original SMALW pointer at trace EOF")
     evaluate()
@@ -304,7 +311,9 @@ def filter_original_ram_upload_port_writes(lines):
                     raise ValueError("Incomplete original RAM address setter")
                 selector = None
             continue
-        if selector == 0x36 and port in (0xA20, 0xA22):
+        if selector == 0x36:
+            if port not in (0xA20, 0xA22):
+                raise ValueError("Unexpected original SMALW data port")
             if port == 0xA20:
                 if low is not None:
                     raise ValueError("Duplicate original RAM low pointer")
@@ -324,6 +333,8 @@ def filter_original_ram_upload_port_writes(lines):
             yielded_words += 1
             yield frame, port, value
             pointer += 1
+        elif selector == 0x3A:
+            raise ValueError("Unexpected original SMLD data port")
     if selector == 0x36 and (low is None or high is None):
         raise ValueError("Original RAM trace has trailing partial address")
     if not yielded_words:
