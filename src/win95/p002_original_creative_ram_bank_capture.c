@@ -28,6 +28,7 @@
 #define ORIGINAL_AWE_CLOSE 102u
 #define ORIGINAL_AWE_LOAD_USER_BANK 204u
 #define ORIGINAL_AWE_CLEAR_USER_BANK 205u
+#define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
 #define ORIGINAL_AWE_NO_ERR 0L
 #define ORIGINAL_OPER_FILE 0u
 #define ORIGINAL_USER_BANK_NUMBER 1u
@@ -112,6 +113,24 @@ static int send_midi(HMIDIOUT device,DWORD msg,const char*name) {
     report(name,rc);
     return rc==MMSYSERR_NOERROR;
 }
+static int original_query_dram(CREATIVE_AWEMANAGER manager,
+                               DWORD handle,const char*label,
+                               DWORD*total_words,DWORD*available_words) {
+    /* Exact original 1994–96 Creative WINAWE32.C query ABI:
+       AWEManager(h, AWE_QUERY_DRAM_SIZE, &max, &available).
+       Both values are in ORIGINAL EMU8000 16-bit WORDS, not bytes.
+       No guessed RAM allocator or post-hoc unit conversion. */
+    DWORD total=0u,available=0u;
+    const LONG rc=manager(handle,ORIGINAL_AWE_QUERY_DRAM_SIZE,
+                          (LPARAM)&total,(LPARAM)&available);
+    emit(label);emit("_RESULT=");hex32((DWORD)rc);emit("\r\n");
+    if(rc!=ORIGINAL_AWE_NO_ERR)return 0;
+    emit(label);emit("_TOTAL_16BIT_WORDS=");hex32(total);emit("\r\n");
+    emit(label);emit("_FREE_16BIT_WORDS=");hex32(available);emit("\r\n");
+    *total_words=total;
+    *available_words=available;
+    return 1;
+}
 static int sample_identity(DWORD*byte_count) {
     HANDLE f;
     DWORD result=0u;
@@ -135,6 +154,8 @@ void WINAPI p002_ram_entry(void) {
     HMODULE dll=0;
     CREATIVE_AWEMANAGER manager=0;
     DWORD handle=0u,sample_bytes=0u;
+    DWORD max_before=0u,free_before=0u;
+    DWORD max_after=0u,free_after=0u;
     LONG rc;
     HMIDIOUT midi=0;
     ORIGINAL_CREATIVE_BUFFER buffer;
@@ -178,6 +199,14 @@ void WINAPI p002_ram_entry(void) {
     opened=1;
     if(!original_synth_device(&midi))goto done;
     haveMidi=1;
+    /* Original source API 308: inspect driver-reported DRAM before
+       letting Creative allocate/upload the private SoundFont. */
+    if(!original_query_dram(manager,handle,"PRE_LOAD",
+                            &max_before,&free_before))
+        goto done;
+    if(max_before==0u || free_before>max_before) {
+        emit("ORIGINAL_DRIVER_PRELOAD_RAM_QUERY_UNUSABLE\r\n");goto done;
+    }
     /* Exact original 1996 Creative example CBufferObject and
        AWEManager(user, AWE_LOAD_USER_BANK, USER_BANK_NUM, &buffer).
        No sample placement, conversion or RAM allocation occurs here;
@@ -195,6 +224,16 @@ void WINAPI p002_ram_entry(void) {
     emit("ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END\r\n");
     if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
     loaded=1;
+    if(!original_query_dram(manager,handle,"POST_LOAD",
+                            &max_after,&free_after))
+        goto done;
+    if(max_after!=max_before || free_after>free_before) {
+        emit("ORIGINAL_DRIVER_DRAM_SIZE_INCONSISTENT\r\n");
+        goto done;
+    }
+    report("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=",
+           free_before-free_after);
+    emit("GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF\r\n");
     /* The bank-load phase above is the authoritative DRAM-upload
        measurement. The following MIDI-only phase is separate and
        cannot prove selection of a specific bank without register/PCM
