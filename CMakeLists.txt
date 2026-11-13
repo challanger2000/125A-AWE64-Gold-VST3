@@ -655,6 +655,13 @@ if(AWE64_BUILD_P001_VST3)
         message(FATAL_ERROR "Unexpected pinned test-only MinHook commit: ${MINHOOK_HEAD}")
     endif()
     add_subdirectory("${AWE64_MINHOOK_ROOT}" "${CMAKE_BINARY_DIR}/minhook")
+    # P002 loads actual external SoundFont data and reads the original
+    # hardware allocator inside process(); zero allocations must hold
+    # across bank NoteOn, 30 voices, MIDI program and CC64. MinHook is
+    # test-only, never part of the shipped VST3.
+    target_link_libraries(awe64_p002_diagnostic_vst3_host PRIVATE minhook)
+    target_compile_definitions(awe64_p002_diagnostic_vst3_host
+        PRIVATE AWE64_P002_RT_HEAP_AUDIT=1)
     add_executable(awe64_p001_vst3_rt_host tests/p001_vst3_rt_host.cpp)
     target_link_libraries(awe64_p001_vst3_rt_host PRIVATE sdk sdk_hosting minhook)
     target_include_directories(awe64_p001_vst3_rt_host PRIVATE "${AWE64_VST3_SDK_ROOT}")
