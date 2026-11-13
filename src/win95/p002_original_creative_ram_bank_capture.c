@@ -350,8 +350,13 @@ void WINAPI p002_ram_entry(void) {
     if(!send_midi(midi,0x00005BB0u,"ORIGINAL_CC91_REVERB_SEND_ZERO_RC"))goto done;
     if(!send_midi(midi,0x00005DB0u,"ORIGINAL_CC93_CHORUS_SEND_ZERO_RC"))goto done;
     Sleep(150);
+    /* GetTickCount timestamps are guest-OS submission anchors only.
+       They are NOT interchangeable with original EMU8000 chip frames;
+       chip register timing/PCM must be independently captured. */
+    report("ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS=",GetTickCount()-t0);
     if(!send_midi(midi,0x00643C90u,"ORIGINAL_MIDI_C4_VEL100_RC"))goto done;
     Sleep(400);
+    report("ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS=",GetTickCount()-t0);
     if(!send_midi(midi,0x00003C80u,"ORIGINAL_MIDI_C4_OFF_RC"))goto done;
     Sleep(500);
     /* Additional independent ORIGINAL CREATIVE 1996 API route rather
@@ -374,9 +379,11 @@ void WINAPI p002_ram_entry(void) {
     if(!original_send_midi(manager,handle,0x00005DB0u,
                            "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC"))goto done;
     Sleep(150);
+    report("ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS=",GetTickCount()-t0);
     if(!original_send_midi(manager,handle,0x00643E90u,
                            "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC"))goto done;
     Sleep(400);
+    report("ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS=",GetTickCount()-t0);
     if(!original_send_midi(manager,handle,0x00003E80u,
                            "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"))goto done;
     Sleep(500);
