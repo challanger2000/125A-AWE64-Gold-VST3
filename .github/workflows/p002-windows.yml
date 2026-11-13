@@ -56,6 +56,8 @@ on:
       - 'src/creative_compat/CreativeOriginalRamPortReplay.h'
       - 'src/creative_compat/CreativeOriginalRamPortReplay.cpp'
       - 'tests/p002_native_original_ram_port_replay.cpp'
+      - 'tools/p002_original_ram_trace_probe.py'
+      - 'tests/test_p002_original_ram_trace_probe.py'
       - 'tests/p002_native_midi_rom_plan.cpp'
       - 'tests/p002_native_pitch_candidate.cpp'
       - 'tests/p002_native_controller_volume.cpp'
@@ -97,7 +99,7 @@ jobs:
       - name: Strict negative controls for register timing, direction, port, bits, order, and missing events
         shell: pwsh
         run: |
-          python -m py_compile tools/p002_register_oracle.py tools/p002_voice_register_audit.py tests/test_p002_register_oracle.py tests/test_p002_voice_register_audit.py tools/p002_original_matrix_audit.py tests/test_p002_original_matrix_audit.py tools/p002_verify_velocity_candidate.py tests/test_p002_velocity_candidate.py tools/p002_sbk_descriptor_probe.py tests/test_p002_sbk_descriptor_probe.py tools/p002_extract_original_vxd_sf2_resources.py tests/test_p002_extract_original_vxd_sf2_resources.py tools/p002_make_private_vst3_rom_bank_resources.py tests/test_p002_make_private_vst3_rom_bank_resources.py tests/p002_private_sf2_bank_builder_differential.py tests/test_p002_private_sf2_bank_builder_differential.py tests/p002_private_sf2_pitch_matrix_differential.py tests/test_p002_private_sf2_pitch_matrix_differential.py tests/p002_private_sf2_note_start_prefix_differential.py tests/test_p002_private_sf2_note_start_prefix_differential.py
+          python -m py_compile tools/p002_register_oracle.py tools/p002_voice_register_audit.py tests/test_p002_register_oracle.py tests/test_p002_voice_register_audit.py tools/p002_original_matrix_audit.py tests/test_p002_original_matrix_audit.py tools/p002_verify_velocity_candidate.py tests/test_p002_velocity_candidate.py tools/p002_sbk_descriptor_probe.py tests/test_p002_sbk_descriptor_probe.py tools/p002_extract_original_vxd_sf2_resources.py tests/test_p002_extract_original_vxd_sf2_resources.py tools/p002_make_private_vst3_rom_bank_resources.py tests/test_p002_make_private_vst3_rom_bank_resources.py tools/p002_original_ram_trace_probe.py tests/test_p002_original_ram_trace_probe.py tests/p002_private_sf2_bank_builder_differential.py tests/test_p002_private_sf2_bank_builder_differential.py tests/p002_private_sf2_pitch_matrix_differential.py tests/test_p002_private_sf2_pitch_matrix_differential.py tests/p002_private_sf2_note_start_prefix_differential.py tests/test_p002_private_sf2_note_start_prefix_differential.py
           if ($LASTEXITCODE -ne 0) { throw 'P002 strict oracle Python syntax invalid' }
           python -m unittest discover -s tests -p 'test_p002_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
@@ -110,6 +112,7 @@ jobs:
           path: |
             tools/p002_original_matrix_audit.py
             tools/p002_register_oracle.py
+            tools/p002_original_ram_trace_probe.py
           retention-days: 3
           if-no-files-found: error
   real_125a_test_lab_headless_inventory:
