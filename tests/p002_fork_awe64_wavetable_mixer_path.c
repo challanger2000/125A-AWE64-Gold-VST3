@@ -69,6 +69,37 @@ load_chip_output(sb_t *sb, const int32_t *input, uint16_t frames)
     wavetable_pos_global = frames;
 }
 
+/* Differential oracle entrypoints. Compiled in a separate Linux C
+ * translation unit from the real unchanged pinned snd_sb.c; no
+ * reimplementation of the original CT1745 DSP/filters.
+ * Static filters.h state is the fork's real process-global state,
+ * so one differential test instance runs each filter sequentially.
+ */
+#ifdef P002_ORIGINAL_CT1745_DIFFERENTIAL_ORACLE
+static sb_t p002_original_card_for_differential;
+void p002_original_ct1745_oracle_reset(void)
+{
+    memset(&p002_original_card_for_differential, 0,
+           sizeof(p002_original_card_for_differential));
+    sb_ct1745_mixer_reset(&p002_original_card_for_differential);
+}
+void p002_original_ct1745_oracle_write(unsigned reg, unsigned value)
+{
+    write_mixer(&p002_original_card_for_differential,
+                (uint8_t) reg, (uint8_t) value);
+}
+void p002_original_ct1745_oracle_process(
+    const int32_t* source, int32_t* post_mixer, unsigned frames)
+{
+    if (frames > 32u) return; /* bounded public synthetic oracle only */
+    memset(post_mixer, 0, (size_t) frames * 2u * sizeof(int32_t));
+    load_chip_output(&p002_original_card_for_differential,
+                     source, (uint16_t) frames);
+    sb_get_wavetable_buffer_sb16_awe32(
+        post_mixer, (uint16_t) frames,
+        &p002_original_card_for_differential);
+}
+#else
 int
 main(void)
 {
@@ -150,3 +181,4 @@ main(void)
     puts("post_mixer_clipping=NONE sink_policy=SEPARATE");
     return 0;
 }
+#endif /* P002_ORIGINAL_CT1745_DIFFERENTIAL_ORACLE */
