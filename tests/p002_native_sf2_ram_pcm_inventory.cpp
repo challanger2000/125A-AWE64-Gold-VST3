@@ -1,4 +1,5 @@
 #include "CreativeSf2RamSamplePcm.h"
+#include "CreativeSbkLayers.h"
 #include <array>
 #include <algorithm>
 #include <cstdint>
@@ -33,11 +34,12 @@ Bytes make(
     std::uint32_t loopStart=12u,std::uint32_t loopEnd=36u,
     bool withSmpl=true,bool withSm24=false,bool duplicateSmpl=false,
     bool duplicateShdr=false,std::uint32_t rate=44100u,
-    std::uint16_t sampleLink=0u,bool withMidiPreset=false) {
+    std::uint16_t sampleLink=0u,bool withMidiPreset=false,
+    bool genericSf2Metadata=false) {
     Bytes info,sdta,pdta,shdr,smpl;
     Bytes version{};w16(version,2u);w16(version,1u);
     chunk(info,"ifil",version);
-    if(withMidiPreset) {
+    if(withMidiPreset && !genericSf2Metadata) {
         chunk(info,"isng",Bytes{'E','M','U','8','0','0','0',0});
         chunk(info,"IPRD",Bytes{'S','B','A','W','E','3','2',0});
         chunk(info,"irom",Bytes{'1','M','G','M',0});
@@ -130,6 +132,27 @@ int main() {
           sourceNote->layers[0].sample_id==0u &&
           sourceNote->layers[0].sample_pcm_le16.size()==64u &&
           sourceNote->layers[0].sample_pcm_le16[0]==1u);
+    // A NORMAL format-2 RAM SoundFont should not need the proprietary
+    // original Creative 1MGM/EMU8000/SBAWE32 INFO fields. Preserve
+    // the strict original ROM parser gate separately from RAM SF2.
+    const auto genericBank=make(
+        1u,8u,40u,12u,36u,true,false,false,false,
+        44100u,0u,true,true);
+    CHECK(!resolveCreativeSbkLayers(genericBank,0u,7u,60u,100u));
+    const auto generic=candidateStandardSf2RamLayers(
+        genericBank,0u,7u,60u,100u);
+    CHECK(generic && generic->count==1u &&
+          generic->layers[0].rom_sample_selector==0u &&
+          generic->layers[0].source_format==
+              OriginalCreativeBankFormat::Format2Sf2);
+    const auto genericPcm=candidateOriginalSf2RamMonoNotePcmPlan(
+        genericBank,0u,7u,60u,100u,capacityWords);
+    CHECK(genericPcm && genericPcm->count==1u &&
+          genericPcm->layers[0].sample_id==0u &&
+          genericPcm->layers[0].sample_pcm_le16.size()==64u &&
+          genericPcm->layers[0].sample_pcm_le16[0]==1u);
+    CHECK(!candidateOriginalSf2RamMonoNotePcmPlan(
+        genericBank,0u,7u,60u,100u,31u));
     const auto unselected=candidateOriginalSf2RamMonoNotePcmPlan(
         midiBank,0u,6u,60u,100u,capacityWords);
     CHECK(unselected && unselected->count==0u);
@@ -192,6 +215,8 @@ int main() {
     std::cout<<"P002_RAM_SF2_PCM_INVENTORY_SOURCE_DATA_PASS"
              <<" real_SF2_sdta_smpl_16bit_PCM_extract=TRUE"
              <<" source_original_MIDI_program_zone_to_real_RAM_PCM=TRUE"
+             <<" generic_non_1MGM_format2_RAM_SF2_preset_note_sample=TRUE"
+             <<" original_ROM_only_Creative_metadata_gate_unchanged=TRUE"
              <<" standard_46byte_RAM_shdr_boundaries=TRUE"
              <<" original_28MiB_EMU8000_capacity_enforced=TRUE"
              <<" ROM_stereo_sm24_EOS_and_truncation_rejected=TRUE"
