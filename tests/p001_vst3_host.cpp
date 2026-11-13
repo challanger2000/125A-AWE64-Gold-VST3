@@ -112,7 +112,7 @@ int wmain(int argc,wchar_t** argv){
     HMODULE module=nullptr;
     IPluginFactory* factory=nullptr;
     try{
-        require(SetEnvironmentVariableW(L"AWE64_P001_ROM_PATH",argv[2])!=0,
+        require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "cannot configure private original ROM");
         module=LoadLibraryW(argv[1]);require(module!=nullptr,"VST3 LoadLibraryW failed");
         auto get=reinterpret_cast<IPluginFactory*(*)()>(
