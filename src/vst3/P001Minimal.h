@@ -5,6 +5,7 @@
 #include "P002PrivateNoteFixture.h"
 #include "P002PrivateRomBank.h"
 #include "CreativeSf2VxdSourceRelease.h"
+#include "OriginalCt1745WavetableMixer.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
 #include <cstddef>
@@ -45,6 +46,10 @@ private:
     void write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t value) noexcept;
 
     awe64::Chip chip_;
+    // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
+    // (the pinned EMU8000 chip processing itself is unchanged).
+    awe64::card::OriginalCt1745WavetableMixer originalGoldCard_{};
+    bool preCardPcm16DiagnosticTap_=false; // explicit private regression only
     P002PrivateNoteFixture p002Fixture_{};
     P002PrivateRomBank p002RomBank_{};
     bool p002BankEnabled_=false; // private, original-source ROM-SF2 bank
