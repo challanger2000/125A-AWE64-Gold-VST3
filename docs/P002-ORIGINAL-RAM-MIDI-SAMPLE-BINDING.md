@@ -133,3 +133,35 @@ mapping is exact for the source-attested one owner's SoundFont; no
 unverified generalized Creative RAM allocator was introduced. No
 Studio One / ASIO / GUI action until the final overall release phase.
 P002 remains DRAFT.
+
+
+## Original source VXD table cryptographic binding
+
+The preceding native RAM-SF2 note compiler uses exact original Creative
+1996 LCOD/PDAT tables, not surrogate pitch/attenuation approximations.
+The user-private original 77,370-byte `SBAWE.VXD` had full-file SHA256
+`d343f2428ab3e593c9e42a668cf521b7801e1239792eaf7f2b11b5f179bc7c9a`.
+The original LE page-mapped source yielded **820 table bytes**, in this
+exact order: 59 signed instrument-template WORDs, 128 pitch DWORDs,
+128 signed slope bytes, 15 negative-volume WORDs, and 16 positive-volume
+WORDs. Their independent concatenated SHA256 is:
+
+`0703643c6df3a8af8aa3ee94a272b40ff349462245f6e2491c27dc3344a1761a`
+
+This digest was calculated locally from the owner's original VXD, not
+from a fabricated fixture. **No VXD bytes or original table contents**
+were published. The P002 private-resource builder now validates this
+exact table hash even after checking the full VXD SHA; the exported
+Windows VST3 performs the same independent **820-byte SHA256 check
+during activation** before accepting the original RAM note mode.
+All 59 source preset-template WORDs must additionally be zero. The
+older ROM source workflow remains unchanged.
+
+Both checks specifically close a provenance gap: the old `125ABK01`
+resource pack contained a self-declared VXD digest in its header but
+could otherwise be produced with unverified substitute pitch and volume
+tables. The new RAM mode rejects such packs rather than treating them
+as original Creative logic. The separately supplied mutable Win95
+0x1592-byte device-state snapshot still requires independent provenance
+and is not authenticated by this tables-only hash. This improvement
+is not itself a successful original/native DRY-PCM equivalence test.
