@@ -92,6 +92,18 @@ int main() {
         auto invalid=raw;
         set(invalid,0x8cu/2u,1); // RAM sample: not a ROM descriptor
         CHECK(!candidateOriginalSf2EncodedVoiceDescriptor(invalid,ctx));
+        // Same source PCOD conversion for independently trace-bound RAM.
+        CHECK(!candidateOriginalSf2EncodedRamVoiceDescriptor(invalid,ctx,false));
+        const auto encodedRam=candidateOriginalSf2EncodedRamVoiceDescriptor(
+            invalid,ctx,true);
+        CHECK(encodedRam);
+        CHECK(get(*encodedRam,0x8cu/2u)==1u);
+        CHECK(get(*encodedRam,19u)==v.volume-16u);
+        for(unsigned op=0u;op<59u;++op)
+            if(op!=19u)CHECK(get(*encodedRam,op)==get(*after,op));
+        for(unsigned off=0x76u;off<0x94u;++off)
+            CHECK((*encodedRam)[off]==(*after)[off]);
+        CHECK(!candidateOriginalSf2EncodedRamVoiceDescriptor(raw,ctx,true));
         set(invalid,0x8cu/2u,0x8002); // ROM right/link: unsupported
         CHECK(!candidateOriginalSf2EncodedVoiceDescriptor(invalid,ctx));
         auto bad=ctx;
@@ -397,6 +409,70 @@ int main() {
     CHECK(get(whole->before_note_start,0x8cu/2u)==0x8001u);
     CHECK(get(whole->after_note_start,0x8cu/2u)==0x0001u);
     CHECK(whole->after_note_start[0x8bu]==249u);
+    // The P002 RAM source uses the SAME original PCOD generator/
+    // pitch/envelope/filter implementation, but draws physical sample
+    // offsets from independently verified original Win95 DRAM.
+    std::array<std::uint8_t,1800> physicalPcm{};
+    OriginalSf2RamSamplePcmView ownerRam{};
+    ownerRam.sample_id=3u;
+    ownerRam.start_word=100u;
+    ownerRam.end_word=1000u;
+    ownerRam.loop_start_word=200u;
+    ownerRam.loop_end_word=900u;
+    ownerRam.sample_rate_hz=44100u;
+    ownerRam.original_pitch=60u;
+    ownerRam.pitch_correction=-7;
+    ownerRam.total_pool_words=1500u;
+    ownerRam.sample_pcm_le16=physicalPcm;
+    constexpr std::uint32_t observedPoolBase=0x200010u;
+    OriginalSf2RamPhysicalLayer mapped{};
+    mapped.sample_id=3u;
+    mapped.physical_sample_start=observedPoolBase+ownerRam.start_word;
+    mapped.physical_sample_end=observedPoolBase+ownerRam.end_word;
+    mapped.physical_loop_start=observedPoolBase+ownerRam.loop_start_word;
+    mapped.physical_loop_end=observedPoolBase+ownerRam.loop_end_word;
+    mapped.candidate_initial_ccca=mapped.physical_sample_start-4u;
+    mapped.candidate_initial_psst=mapped.physical_loop_start-1u;
+    mapped.candidate_initial_csl=mapped.physical_loop_end-1u;
+    const auto ramCompiled=candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,mapped,testResources,40u,startContext,true);
+    CHECK(ramCompiled);
+    CHECK(get(ramCompiled->before_note_start,0x8cu/2u)==1u);
+    CHECK(get(ramCompiled->after_note_start,0x8cu/2u)==1u);
+    CHECK(readDword(ramCompiled->before_note_start,0x76u)==
+          mapped.physical_sample_start);
+    CHECK(readDword(ramCompiled->before_note_start,0x7eu)==
+          mapped.physical_loop_start);
+    CHECK(readDword(ramCompiled->before_note_start,0x82u)==
+          mapped.physical_loop_end);
+    CHECK(readDword(ramCompiled->before_note_start,0x86u)==0xe00000u);
+    CHECK(get(ramCompiled->after_note_start,19u)+16u==
+          get(whole->after_note_start,19u));
+    for(unsigned op=0;op<59u;++op)
+        if(op!=19u)CHECK(get(ramCompiled->after_note_start,op)==
+                         get(whole->after_note_start,op));
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,mapped,testResources,40u,startContext,false));
+    auto forgedPhysical=mapped;
+    ++forgedPhysical.physical_loop_start;
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,forgedPhysical,testResources,40u,startContext,true));
+    forgedPhysical=mapped;forgedPhysical.sample_id=4u;
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,forgedPhysical,testResources,40u,startContext,true));
+    auto forgedSample=ownerRam;
+    forgedSample.sample_pcm_le16={};
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,forgedSample,mapped,testResources,40u,startContext,true));
+    forgedSample=ownerRam;forgedSample.start_word=101u;
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,forgedSample,mapped,testResources,40u,startContext,true));
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,mapped,testResources,41u,startContext,true));
+    auto badContext=startContext;
+    badContext.midi_velocity=91u;
+    CHECK(!candidateOriginalSf2RamNoteFromVerifiedVxdResources(
+        fullLayer,ownerRam,mapped,testResources,40u,badContext,true));
     auto wrongSample=originalRom;
     wrongSample.sample_id=4u;
     CHECK(!candidateOriginalSf2NoteFromVerifiedVxdResources(
