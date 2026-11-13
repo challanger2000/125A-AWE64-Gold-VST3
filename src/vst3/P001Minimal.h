@@ -46,6 +46,8 @@ private:
     P002PrivateNoteFixture p002Fixture_{};
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     bool p002DiagnosticNoteConsumed_=false; // no fake retrigger allocator
+    bool p002DiagnosticSecondNoteConsumed_=false; // v4, source-bound voice
+    int p002SecondPlayingKey_=-1;
     std::array<int32_t, 980u*2u> scratch_{};
     int playingKey_ = -1;
     bool active_ = false;
