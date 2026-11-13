@@ -149,4 +149,38 @@ candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         return std::nullopt;
     return OriginalSf2ExecutedLiveIdleMonoNote{*selected,*compiled};
 }
+std::optional<OriginalSf2ExecutedLiveIdleMonoNote>
+candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+    awe64::Chip& chip,
+    const std::span<std::uint8_t> mutable_state,
+    const std::span<const std::uint8_t> bank,
+    const MidiMessage& midi,
+    const MidiState& midi_state,
+    const std::uint16_t bank_number,
+    const std::size_t rom_word_count,
+    const OriginalCreativeSf2DriverResources& resources,
+    const OriginalSf2VoiceStartConditions& start,
+    const bool source_verified) noexcept {
+    if(!source_verified || !chip.ready() ||
+       mutable_state.size()<kOriginalVxdMinDeviceImage)
+        return std::nullopt;
+    OriginalSf2VerifiedVxdDeviceSnapshot original{};
+    original.original_state_bytes=
+        std::span<const std::uint8_t>(mutable_state.data(),mutable_state.size());
+    original.independently_verified_original_vxd_snapshot=true;
+    original.original_lcod_31word_table_verified=true;
+    original.source_negative_15word_table=resources.negative_attenuation_table;
+    original.source_positive_16word_table=resources.positive_attenuation_table;
+    const auto played=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
+        chip,bank,midi,midi_state,bank_number,rom_word_count,
+        resources,start,original,true);
+    if(!played)return std::nullopt;
+    // Original source LCOD+0x3DF8/0x5A9D/0x574F state mutations
+    // from the exact just-started physical voice become the only
+    // caller-visible state transition. The next live allocator can
+    // no longer treat that already-keyed source voice as idle.
+    std::copy_n(played->original_compilation.vxd_state_after_noteon.begin(),
+                kOriginalVxdMinDeviceImage,mutable_state.begin());
+    return played;
+}
 } // namespace awe64::creative
