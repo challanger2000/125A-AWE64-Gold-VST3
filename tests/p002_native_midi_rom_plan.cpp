@@ -286,6 +286,10 @@ int main(){
     // chip through the original LIVE idle selector. The already-played
     // voice0 is retained in the source VXD state, not overwritten.
     auto sequentialState=live->original_compilation.vxd_state_after_noteon;
+    OriginalSf2RomBankVoiceOwnership bankVoiceLedger{};
+    CHECK(bankVoiceLedger.recordExecutedNoteOn(*live,sequentialState));
+    CHECK(bankVoiceLedger.trackedPhysicalVoices()==1u);
+    CHECK(!bankVoiceLedger.recordExecutedNoteOn(*live,sequentialState));
     auto sourceContext=verifiedSyntheticVxd;
     sourceContext.original_state_bytes=sequentialState;
     auto secondMidi=decodeWinMmShort(0x00644092u); // ch2, key64, vel100
@@ -306,6 +310,8 @@ int main(){
           secondLive->original_selection.reason==
               OriginalWin95MonoSelectionReason::CompletelyIdle &&
           secondLive->original_compilation.voice_count==1u);
+    CHECK(bankVoiceLedger.recordExecutedNoteOn(*secondLive,sequentialState));
+    CHECK(bankVoiceLedger.trackedPhysicalVoices()==2u);
     const auto secondRow=kOriginalVxdVoiceRowStart+
                          3u*kOriginalVxdVoiceRowStride;
     CHECK(sequentialState[afterRow]==60u &&
@@ -326,6 +332,8 @@ int main(){
         liveChip,sequentialState,sf2,*thirdMidi,midi,0u,524288u,
         verifiedSyntheticResources,thirdConditions,sourceContext,true);
     CHECK(thirdLive && thirdLive->original_selection.physical_voice==6u);
+    CHECK(bankVoiceLedger.recordExecutedNoteOn(*thirdLive,sequentialState));
+    CHECK(bankVoiceLedger.trackedPhysicalVoices()==3u);
     const auto thirdRow=kOriginalVxdVoiceRowStart+
                         6u*kOriginalVxdVoiceRowStride;
     CHECK(sequentialState[afterRow]==60u &&
@@ -340,6 +348,57 @@ int main(){
         liveChip,sequentialState,sf2,*thirdMidi,midi,0u,524288u,
         verifiedSyntheticResources,thirdConditions,staleSourceContext,true));
     CHECK(sequentialState==allThreeState);
+    // CRITICAL BRIDGE: these three played keys are genuine source-SF2
+    // bank-compiled voices, not synthetic private 148-byte host fixtures.
+    // Reuse the original LCOD+0x6072 NoteOff and LCOD+0x656D CC64.
+    const auto pedalDown=bankVoiceLedger.controller64(
+        liveChip,sequentialState,2u,127u);
+    CHECK(pedalDown && pedalDown->sustain_enabled &&
+          pedalDown->typed_port_writes==0u &&
+          bankVoiceLedger.trackedPhysicalVoices()==3u);
+    const auto off60=bankVoiceLedger.noteOff(
+        liveChip,sequentialState,2u,60u);
+    const auto off64=bankVoiceLedger.noteOff(
+        liveChip,sequentialState,2u,64u);
+    const auto off67=bankVoiceLedger.noteOff(
+        liveChip,sequentialState,2u,67u);
+    CHECK(off60 && off64 && off67 &&
+          off60->deferred_by_sustain &&
+          off64->deferred_by_sustain &&
+          off67->deferred_by_sustain &&
+          off60->typed_port_writes==0u &&
+          off64->typed_port_writes==0u &&
+          off67->typed_port_writes==0u &&
+          sequentialState[afterRow]==0xffu &&
+          sequentialState[secondRow]==0xffu &&
+          sequentialState[thirdRow]==0xffu &&
+          bankVoiceLedger.trackedPhysicalVoices()==3u);
+    CHECK(!bankVoiceLedger.noteOff(liveChip,sequentialState,2u,60u));
+    const auto unaffectedBefore=sequentialState;
+    // Untracked suspended physical voice must reject the ENTIRE
+    // original pedal-up transaction before any source state mutation.
+    const auto untrackedRow=kOriginalVxdVoiceRowStart+
+        9u*kOriginalVxdVoiceRowStride;
+    sequentialState[untrackedRow]=0xffu;
+    sequentialState[untrackedRow+1u]=2u;
+    CHECK(!bankVoiceLedger.controller64(liveChip,sequentialState,2u,0u));
+    CHECK(sequentialState[afterRow]==0xffu &&
+          sequentialState[secondRow]==0xffu &&
+          sequentialState[thirdRow]==0xffu);
+    sequentialState=unaffectedBefore;
+    const auto pedalUp=bankVoiceLedger.controller64(
+        liveChip,sequentialState,2u,0u);
+    CHECK(pedalUp && !pedalUp->sustain_enabled &&
+          pedalUp->released_deferred_voices==3u &&
+          pedalUp->typed_port_writes==12u &&
+          bankVoiceLedger.trackedPhysicalVoices()==0u);
+    CHECK(sequentialState[afterRow]==0xfeu &&
+          sequentialState[afterRow+1u]==0x0fu &&
+          sequentialState[secondRow]==0xfeu &&
+          sequentialState[secondRow+1u]==0x0fu &&
+          sequentialState[thirdRow]==0xfeu &&
+          sequentialState[thirdRow+1u]==0x0fu);
+    CHECK(!bankVoiceLedger.noteOff(liveChip,sequentialState,2u,67u));
     const auto wrongLive=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         liveChip,sbk,*on,midi,0u,524288u,verifiedSyntheticResources,
         conditions,verifiedSyntheticVxd,true);
@@ -404,5 +463,7 @@ int main(){
              <<" private_bytes=NONE"
              <<" original_live_idle_three_distinct_bank_noteons=TRUE"
              <<" source_vxd_state_committed_after_each_actual_chip_note=TRUE"
-             <<" no_unproven_busy_voice_steal=TRUE\n";
+             <<" no_unproven_busy_voice_steal=TRUE"
+             <<" bank_derived_three_voices_original_NoteOff_CC64=TRUE"
+             <<" untracked_original_CC64_deferred_voice_rejected=TRUE\n";
 }
