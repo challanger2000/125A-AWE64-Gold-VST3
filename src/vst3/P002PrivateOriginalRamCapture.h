@@ -17,6 +17,14 @@ namespace awe64::vst3 {
 // Confirms the entire 555,754-byte exact original Creative 83-sample
 // owner SoundFont SHA256 before any source-authenticated RAM MIDI
 // compilation. This is activation-thread only, never in process().
+// Verify exact PCOD/LCOD/PDAT resources from the SHA-pinned original
+// 77,370-byte Creative SBAWE.VXD. The 820-byte input is the raw,
+// packed instrument-template/pitch/volume section from 125ABK01,
+// excluding the caller-provided mutable 0x1592-byte Win95 state.
+// This does not authenticate the mutable guest state or establish PCM.
+[[nodiscard]] bool isExactOriginalCreativeVxdResources(
+    std::span<const std::uint8_t> five_original_tables) noexcept;
+
 [[nodiscard]] bool isExactOriginalCreativeRamOwnerSf2(
     std::span<const std::uint8_t> source) noexcept;
 [[nodiscard]] bool preloadOriginalCreativeCapturedRamSource(
