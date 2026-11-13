@@ -250,8 +250,10 @@ int main(){
         CHECK(f);
     }
     awe64::Chip liveChip{};
+    awe64::Chip layeredChip{};
     std::string chipError;
     CHECK(liveChip.open(syntheticRom,chipError));
+    CHECK(layeredChip.open(syntheticRom,chipError));
     std::error_code cleanup;
     fs::remove(syntheticRom,cleanup);
     originalState[6]=30u; // original VXD 30 music voices
@@ -264,6 +266,10 @@ int main(){
             (3u<<5u)|i)); // original VTFT DATA0
         liveChip.writePort(0x620u,0u);
         liveChip.writePort(0x622u,0u);
+        layeredChip.writePort(0xe22u,static_cast<std::uint16_t>(
+            (3u<<5u)|i));
+        layeredChip.writePort(0x620u,0u);
+        layeredChip.writePort(0x622u,0u);
     }
     const auto live=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         liveChip,sf2,*on,midi,0u,524288u,verifiedSyntheticResources,
@@ -399,6 +405,74 @@ int main(){
           sequentialState[thirdRow]==0xfeu &&
           sequentialState[thirdRow+1u]==0x0fu);
     CHECK(!bankVoiceLedger.noteOff(liveChip,sequentialState,2u,67u));
+    // A single original SF2 MIDI NoteOn may match SIX instrument
+    // zones. This regression tests three layers, with ONE original
+    // hardware-selected completely-idle physical voice per layer,
+    // one verified 183-OUT complete chip plan and one NoteOff/CC64
+    // release covering all three original source-backed voices.
+    auto layeredState=originalState; // original 30-slot all-idle image
+    auto layeredContext=verifiedSyntheticVxd;
+    layeredContext.original_state_bytes=layeredState;
+    const auto threeZones=fixture(true,3u);
+    const auto layeredBefore=layeredState;
+    CHECK(!candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+        layeredChip,layeredState,threeZones,*on,midi,0u,524288u,
+        verifiedSyntheticResources,conditions,layeredContext,false));
+    CHECK(layeredState==layeredBefore);
+    const auto wrongZone=fixture(true,3u,true);
+    CHECK(!candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+        layeredChip,layeredState,wrongZone,*on,midi,0u,524288u,
+        verifiedSyntheticResources,conditions,layeredContext,true));
+    CHECK(layeredState==layeredBefore);
+    const auto layered=
+        candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+            layeredChip,layeredState,threeZones,*on,midi,0u,524288u,
+            verifiedSyntheticResources,conditions,layeredContext,true);
+    CHECK(layered && layered->original_compilation.voice_count==3u &&
+          layered->original_compilation.typed_original_outs.count==183u);
+    CHECK(layered->selections[0].physical_voice==0u &&
+          layered->selections[1].physical_voice==3u &&
+          layered->selections[2].physical_voice==6u);
+    const auto layerRow0=kOriginalVxdVoiceRowStart;
+    const auto layerRow3=kOriginalVxdVoiceRowStart+
+                         3u*kOriginalVxdVoiceRowStride;
+    const auto layerRow6=kOriginalVxdVoiceRowStart+
+                         6u*kOriginalVxdVoiceRowStride;
+    CHECK(layeredState[layerRow0]==60u &&
+          layeredState[layerRow3]==60u &&
+          layeredState[layerRow6]==60u &&
+          layeredState[layerRow0+1u]==2u &&
+          layeredState[layerRow3+1u]==2u &&
+          layeredState[layerRow6+1u]==2u);
+    const auto* layeredRegisters=layeredChip.rawForContractTesting();
+    CHECK(layeredRegisters &&
+          layeredRegisters->voice[0].ip==0xe000u &&
+          layeredRegisters->voice[3].ip==0xe000u &&
+          layeredRegisters->voice[6].ip==0xe000u);
+    OriginalSf2RomBankVoiceOwnership layeredLedger{};
+    CHECK(layeredLedger.recordExecutedNoteOn(*layered,layeredState));
+    CHECK(layeredLedger.trackedPhysicalVoices()==3u);
+    CHECK(!layeredLedger.recordExecutedNoteOn(*layered,layeredState));
+    const auto downLayers=layeredLedger.controller64(
+        layeredChip,layeredState,2u,127u);
+    CHECK(downLayers && downLayers->sustain_enabled);
+    const auto offLayers=layeredLedger.noteOff(
+        layeredChip,layeredState,2u,60u);
+    CHECK(offLayers && offLayers->deferred_by_sustain &&
+          offLayers->typed_port_writes==0u &&
+          layeredLedger.trackedPhysicalVoices()==3u);
+    const auto upLayers=layeredLedger.controller64(
+        layeredChip,layeredState,2u,0u);
+    CHECK(upLayers && upLayers->released_deferred_voices==3u &&
+          upLayers->typed_port_writes==12u &&
+          layeredLedger.trackedPhysicalVoices()==0u);
+    CHECK(layeredState[layerRow0]==0xfeu &&
+          layeredState[layerRow3]==0xfeu &&
+          layeredState[layerRow6]==0xfeu);
+    // One-zone path stays governed by the previous single-note API.
+    CHECK(!candidateOriginalSf2StartNextIdleLayeredRomBankNoteOnLiveChip(
+        layeredChip,layeredState,sf2,*on,midi,0u,524288u,
+        verifiedSyntheticResources,conditions,layeredContext,true));
     const auto wrongLive=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         liveChip,sbk,*on,midi,0u,524288u,verifiedSyntheticResources,
         conditions,verifiedSyntheticVxd,true);
@@ -465,5 +539,8 @@ int main(){
              <<" source_vxd_state_committed_after_each_actual_chip_note=TRUE"
              <<" no_unproven_busy_voice_steal=TRUE"
              <<" bank_derived_three_voices_original_NoteOff_CC64=TRUE"
-             <<" untracked_original_CC64_deferred_voice_rejected=TRUE\n";
+             <<" untracked_original_CC64_deferred_voice_rejected=TRUE"
+             <<" original_three_layer_ONE_MIDI_note_183_port_writes=TRUE"
+             <<" original_three_layer_single_NoteOff_CC64_releases_all=TRUE"
+             <<" wrong_last_layer_fails_before_chip_writes=TRUE\n";
 }
