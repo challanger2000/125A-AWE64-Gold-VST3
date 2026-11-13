@@ -1,5 +1,6 @@
 #include "P001Minimal.h"
 #include "pluginterfaces/base/ibstream.h"
+#include "P002PrivateOriginalRamCapture.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/vstspeaker.h"
@@ -73,6 +74,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002Started_.fill(false);
         p002KeyDown_.fill(false);
         p002BankEnabled_=false;
+        p002PrivateRamPreloaded_=false;
         p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
         preCardPcm16DiagnosticTap_=false;
@@ -108,14 +110,56 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     // preset when the private fixture is missing/corrupt.
     p002DiagnosticEnabled_=false;
     p002BankEnabled_=false;
+    p002PrivateRamPreloaded_=false;
     const char* bankPath=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
     const char* sourcePath=std::getenv("AWE64_P002_PRIVATE_VXD_RESOURCES_PATH");
     const char* diagnosticPath=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
+    // P002 private original SOURCE RAM capture from the actual Win95
+    // Creative driver. THREE independently SHA-pinned private inputs
+    // are mandatory. Nothing is embedded in or distributed with VST3.
+    const char* originalRamSf2=
+        std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2");
+    const char* originalRamPorts=
+        std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS");
+    const char* originalRamFinal=
+        std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16");
+    const bool anyCapturedRam=
+        (originalRamSf2 && *originalRamSf2) ||
+        (originalRamPorts && *originalRamPorts) ||
+        (originalRamFinal && *originalRamFinal);
+
     if((bankPath && *bankPath) != (sourcePath && *sourcePath) ||
-       ((bankPath && *bankPath) && (diagnosticPath && *diagnosticPath))) {
+       ((bankPath && *bankPath) && (diagnosticPath && *diagnosticPath)) ||
+       (anyCapturedRam &&
+        (!(originalRamSf2 && *originalRamSf2) ||
+         !(originalRamPorts && *originalRamPorts) ||
+         !(originalRamFinal && *originalRamFinal) ||
+         (bankPath && *bankPath) ||
+         (diagnosticPath && *diagnosticPath)))) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
         chip_.close();return kResultFalse;
+    }
+    if(anyCapturedRam) {
+        std::string why;
+        if(!preloadOriginalCreativeCapturedRamSource(
+                chip_,std::filesystem::path(originalRamSf2),
+                std::filesystem::path(originalRamPorts),
+                std::filesystem::path(originalRamFinal),why)) {
+            std::fprintf(stderr,
+                "125A P002 ORIGINAL RAM source replay rejected: %s\n",
+                why.c_str());
+            chip_.close();return kResultFalse;
+        }
+        p002PrivateRamPreloaded_=true;
+        // This explicitly does NOT route NoteOn through the P001 ROM
+        // voice or guess the Creative source VXD RAM voice descriptors.
+        // Authentic source RAM is physically loaded; actual RAM
+        // NoteOn/Off and native PCM comparison remain separate gates.
+        std::fputs("P002_REAL_ORIGINAL_CREATIVE_83_RAM_SAMPLES_PRELOADED"
+                   " full_source_port_replay=TRUE"
+                   " source_final_260921_PCM16_WORDS_EXACT=TRUE"
+                   " RAM_NOTEON=NOT_AUTHORIZED_YET\n",stderr);
     }
     if(bankPath && *bankPath && sourcePath && *sourcePath) {
         std::string why;
@@ -160,6 +204,7 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
+    if(p002PrivateRamPreloaded_)return; // no guessed P001 ROM fallback
     if(p002BankEnabled_) {
         if(channel<0 || channel>15)return;
         const int encoded=static_cast<int>(velocity*127.f+0.5f);
@@ -224,6 +269,7 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
     if(!active_)return;
+    if(p002PrivateRamPreloaded_)return; // no fake RAM note release
     if(p002BankEnabled_) {
         if(channel>=0 && channel<16 && pitch>=0 && pitch<=127)
             (void)p002RomBank_.noteOff(
