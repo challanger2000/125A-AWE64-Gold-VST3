@@ -40,7 +40,8 @@ private:
     };
     struct Group {
         Clip on{},off{};
-        std::uint16_t elapsed=0u,next_on=0u;
+        std::uint32_t elapsed=0u;
+        std::uint16_t next_on=0u;
         bool active=false,started=false;
     };
     std::array<Group,2> notes_{};
