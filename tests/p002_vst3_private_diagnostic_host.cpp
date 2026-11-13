@@ -432,7 +432,11 @@ void bankChunk(PrivateBytes& out,std::string_view tag,
     out.insert(out.end(),data.begin(),data.end());
     if(data.size()&1u)out.push_back(0u);
 }
-PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false) {
+PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false,
+                                             unsigned matchingZones=1u,
+                                             bool invalidLastZone=false) {
+    require(matchingZones>=1u && matchingZones<=7u,
+            "synthetic SF2 layer count invalid");
     PrivateBytes phdr,pbag,pgen,inst,ibag,igen,shdr,info,root;
     bankName(phdr,"SYNTHBANK");bankW16(phdr,7u);bankW16(phdr,0u);
     bankW16(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);bankW32(phdr,0u);
@@ -443,10 +447,15 @@ PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false) {
     for(unsigned i=0u;i<3u;++i){bankW16(pbag,i);bankW16(pbag,0u);}
     for(unsigned i=0u;i<2u;++i){bankW16(pgen,41u);bankW16(pgen,0u);}
     bankName(inst,"PIANO");bankW16(inst,0u);
-    bankName(inst,"EOI");bankW16(inst,1u);
-    for(unsigned i=0u;i<2u;++i){bankW16(ibag,2u*i);bankW16(ibag,0u);}
-    bankW16(igen,8u);bankW16(igen,9617u);
-    bankW16(igen,53u);bankW16(igen,0u);
+    bankName(inst,"EOI");bankW16(inst,matchingZones);
+    for(unsigned i=0u;i<=matchingZones;++i){
+        bankW16(ibag,2u*i);bankW16(ibag,0u);
+    }
+    for(unsigned i=0u;i<matchingZones;++i) {
+        bankW16(igen,8u);bankW16(igen,9617u);
+        bankW16(igen,53u);
+        bankW16(igen,(invalidLastZone && i+1u==matchingZones)?1u:0u);
+    }
     // Addresses point to the unchanged original ROM's actual GM0
     // sample region; no copyright-protected PCM is embedded in the SF2.
     bankName(shdr,"ROM-MONO");
@@ -626,6 +635,14 @@ int wmain(int argc,wchar_t** argv){
     sf2BankPath+=L".private-rom-sf2";
     auto ramSf2Path=fixture;
     ramSf2Path+=L".private-ram-sf2";
+    auto layeredSf2Path=fixture;
+    layeredSf2Path+=L".private-three-zone-rom-sf2";
+    auto sixZoneSf2Path=fixture;
+    sixZoneSf2Path+=L".private-six-zone-rom-sf2";
+    auto sevenZoneSf2Path=fixture;
+    sevenZoneSf2Path+=L".private-seven-zone-capped-sf2";
+    auto invalidLayerSf2Path=fixture;
+    invalidLayerSf2Path+=L".private-invalid-final-zone";
     auto vxdResourcePath=fixture;
     vxdResourcePath+=L".private-source-pack";
     auto badVxdResourcePath=fixture;
@@ -650,6 +667,14 @@ int wmain(int argc,wchar_t** argv){
                                  buildPrivateSyntheticRomSf2Bank());
         writePrivateResearchFile(ramSf2Path,
                                  buildPrivateSyntheticRomSf2Bank(true));
+        writePrivateResearchFile(layeredSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(false,3u));
+        writePrivateResearchFile(sixZoneSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(false,6u));
+        writePrivateResearchFile(sevenZoneSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(false,7u,true));
+        writePrivateResearchFile(invalidLayerSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(false,3u,true));
         const auto privatePack=buildPrivateSyntheticVxdResourcePack();
         writePrivateResearchFile(vxdResourcePath,privatePack);
         auto mutatedPack=privatePack;
@@ -846,6 +871,40 @@ int wmain(int argc,wchar_t** argv){
         const auto unsupportedRam=renderRealBankNotes(factory,1u,false);
         require(unsupportedRam.nonzero==0u,
                 "unsupported RAM SF2 sample unexpectedly played as ROM");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           layeredSf2Path.c_str())==0,
+                "select three-layer original-source ROM bank");
+        const auto layeredOne=renderRealBankNotes(factory,1u,false);
+        const auto layeredHeld=renderRealBankNotes(factory,3u,false);
+        const auto layeredLift=renderRealBankNotes(factory,3u,true);
+        require(layeredOne.nonzero>100u &&
+                layeredOne.hash!=firstBankKey.hash,
+                "actual VST3 three-layer original bank unchanged from mono");
+        require(layeredHeld.hash!=threeBankKeys.hash,
+                "actual VST3 three-layer bank is not musically different");
+        require(layeredHeld.hashBeforeBlock22==
+                layeredLift.hashBeforeBlock22 &&
+                layeredHeld.hash!=layeredLift.hash,
+                "actual VST3 layered source CC64 failed");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           sixZoneSf2Path.c_str())==0,
+                "select six-layer original SF2 note");
+        const auto sixVoices=renderRealBankNotes(factory,1u,false);
+        require(sixVoices.nonzero>100u &&
+                sixVoices.hash!=layeredOne.hash,
+                "six matching source SF2 zones not independently played");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           sevenZoneSf2Path.c_str())==0,
+                "select seven layers with invalid seventh EOS");
+        const auto sevenCapped=renderRealBankNotes(factory,1u,false);
+        require(sevenCapped.hash==sixVoices.hash,
+                "original 6-layer cap incorrectly started seventh EOS");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           invalidLayerSf2Path.c_str())==0,
+                "select source bank with invalid third zone");
+        const auto badThirdZone=renderRealBankNotes(factory,1u,false);
+        require(badThirdZone.nonzero==0u,
+                "invalid third ROM SF2 layer partially started hardware");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
@@ -872,6 +931,10 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::filesystem::remove(sf2BankPath,ec);
         std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(layeredSf2Path,ec);
+        std::filesystem::remove(sixZoneSf2Path,ec);
+        std::filesystem::remove(sevenZoneSf2Path,ec);
+        std::filesystem::remove(invalidLayerSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
@@ -902,6 +965,10 @@ int wmain(int argc,wchar_t** argv){
                  <<" real_bank_original_CC64_releases_three_source_voices=TRUE"
                  <<" private_VXD_source_identity_mutation_rejected=TRUE"
                  <<" unsupported_RAM_SF2_bank_fail_closed=TRUE"
+                 <<" original_three_zone_ROM_SF2_vst3_PCM=TRUE"
+                 <<" original_six_zone_ROM_SF2_vst3_PCM=TRUE"
+                 <<" original_seventh_zone_cap_and_bad_third_fail_closed=TRUE"
+                 <<" original_layered_SF2_NoteOff_CC64=TRUE"
                  <<" unrestricted_RAM_SF2_and_Win95_PCM_PARITY=NOT_PROVEN\n";
         return 0;
     }catch(const std::exception& e){
@@ -921,6 +988,10 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::filesystem::remove(sf2BankPath,ec);
         std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(layeredSf2Path,ec);
+        std::filesystem::remove(sixZoneSf2Path,ec);
+        std::filesystem::remove(sevenZoneSf2Path,ec);
+        std::filesystem::remove(invalidLayerSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
