@@ -136,7 +136,8 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             seen[key] = int(word, 16)
         elif line not in (CAPTURE_BEGIN, CAPTURE_END, DIRECT_BEGIN, DIRECT_END,
                           SUCCESS, NO_EVIDENCE,
-                          "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF") and not (
+                          "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF",
+                          "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6") and not (
                           line.startswith("LOADED_CREATIVE_MODULE_PATH=") or
                           line.startswith("WIN95_MIDI_DEVICE=")):
             raise ValueError("Unrecognized original Creative guest log line: " + line[:80])
