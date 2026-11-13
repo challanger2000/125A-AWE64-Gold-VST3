@@ -16,6 +16,7 @@
 #include "CreativeSf2VxdStateSnapshot.h"
 #include "CreativeSf2VoiceDescriptor.h"
 #include "CreativeSf2VxdLiveAllocator.h"
+#include "CreativeSf2VxdSourceRelease.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -95,4 +96,32 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
     const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
     const OriginalSf2VerifiedVxdDeviceSnapshot& source_verified_vxd_context,
     bool independently_verified_source_state_and_bank) noexcept;
+// A source-verified 30-physical-voice bank session's MIDI release ledger.
+// Register only real bank-compiled NoteOns already executed by the
+// original hardware allocator; then use the exact Creative VXD NoteOff
+// and 30-slot CC64 release. No invented sample envelopes or voice stealing.
+// This is allocation-free and can be shared by the native bank research
+// host and a later source-loaded VST3 instrument. Caller owns chip and
+// original VXD memory and must not mutate them through another path.
+class OriginalSf2RomBankVoiceOwnership {
+public:
+    [[nodiscard]] bool recordExecutedNoteOn(
+        const OriginalSf2ExecutedLiveIdleMonoNote& executed,
+        std::span<const std::uint8_t> post_noteon_vxd_state) noexcept;
+    [[nodiscard]] std::optional<OriginalSf2SourceNoteReleaseResult>
+    noteOff(awe64::Chip& chip,
+            std::span<std::uint8_t> mutable_vxd_state,
+            std::uint8_t midi_channel,
+            std::uint8_t midi_key) noexcept;
+    [[nodiscard]] std::optional<OriginalSf2SourceCc64Result>
+    controller64(awe64::Chip& chip,
+                 std::span<std::uint8_t> mutable_vxd_state,
+                 std::uint8_t midi_channel,
+                 std::uint8_t controller_value) noexcept;
+    [[nodiscard]] std::size_t trackedPhysicalVoices() const noexcept;
+private:
+    std::array<OriginalSf2VxdSnapshotVoice,
+               kOriginalCreativeMusicVoices> source_voices_{};
+    std::array<bool,kOriginalCreativeMusicVoices> occupied_{};
+};
 } // namespace awe64::creative
