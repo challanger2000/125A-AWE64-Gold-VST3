@@ -12,11 +12,12 @@ def sf2_bank():
     data = bytes([i % 251 for i in range(512)])
     return b"RIFF" + (len(data) + 4).to_bytes(4, "little") + b"sfbk" + data
 
-def synth_guest_log(bank_size: int) -> bytes:
+def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
+    source=sf2_bank() if bank_bytes is None else bank_bytes
     lines = [
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START",
         "PRIVATE_WIN95_SF2_SIZE=" + hex32(bank_size),
-        "PRIVATE_WIN95_SF2_FNV1A32=" + hex32(auditor.fnv1a32(sf2_bank())),
+        "PRIVATE_WIN95_SF2_FNV1A32=" + hex32(auditor.fnv1a32(source)),
         "LOADED_CREATIVE_MODULE_PATH=C:\\WINDOWS\\SYSTEM\\AWEMAN32.DLL",
         "ORIGINAL_AWEMAN32_AWE_OPEN_RC=0x00000000",
         "WIN95_ORIGINAL_MIDI_ENDPOINTS=0x00000002",
