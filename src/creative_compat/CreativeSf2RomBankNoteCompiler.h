@@ -93,5 +93,6 @@ candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
     std::size_t original_rom_sample_word_count,
     const OriginalCreativeSf2DriverResources& source_vxd_sf2_resources,
     const OriginalSf2VoiceStartConditions& source_device_and_channel_conditions,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& source_verified_vxd_context,
     bool independently_verified_source_state_and_bank) noexcept;
 } // namespace awe64::creative
