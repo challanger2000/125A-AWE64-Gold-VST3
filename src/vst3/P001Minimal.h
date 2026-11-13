@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 
 namespace awe64::vst3 {
 inline constexpr Steinberg::Vst::ParamID kP002PrivateDiagnosticCc64Param=0x125A0064u;
@@ -57,6 +58,11 @@ private:
     // Actual original Creative captured RAM source: loaded off-RT
     // into unchanged EMU8000 but no inferred RAM NoteOn voice plan.
     bool p002PrivateRamPreloaded_=false;
+    // Explicit private *write-only* native register evidence is captured
+    // in a fixed-size adapter buffer on process(); saved only when
+    // setActive(false) runs outside the audio callback. No automatic
+    // alignment or original Creative provenance is claimed.
+    std::filesystem::path privateNativeRegisterTracePath_{};
     // Optional SHA-pinned ORIGINAL Win95 source NoteOn/Off port
     // capture, only alongside the separately authenticated RAM preload.
     // Captured at C4(60) and D4(62), velocity 100, User Bank 1.

@@ -1161,6 +1161,16 @@ int wmain(int argc,wchar_t** argv){
         {Instance refuseNativeRamWithoutSource(factory,false);}
         require(_wputenv_s(L"AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES",L"")==0,
                 "clear native source RAM mode");
+        // The exported VST3 must NEVER create or overwrite private
+        // OUT evidence just because a host supplies a path. Only the
+        // authenticated original Win95 RAM native development mode
+        // may arm the bounded 44.1kHz port-write recorder.
+        require(_wputenv_s(L"AWE64_P002_NATIVE_REGISTER_OUT_PATH",
+                            L"C:\\private\\p002-native-should-not-exist.txt")==0,
+                "set unauthorized native port trace");
+        {Instance rejectNativeTraceWithoutAuthenticSource(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_NATIVE_REGISTER_OUT_PATH",L"")==0,
+                "clear unauthorized native port trace");
         // Original RAM preload must be fail-closed in the ACTUAL
         // exported Windows VST3. Public CI uses only synthetic/invalid
         // files; the real owner Creative/SF2 evidence stays PRIVATE.

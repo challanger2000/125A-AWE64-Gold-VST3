@@ -9,6 +9,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <limits>
 #include <string>
 
@@ -20,6 +27,42 @@ constexpr int kVoice = 29;      // single test voice, not the Creative P002 allo
 constexpr uint32_t kStart = 458995u, kLoopBegin = 459001u, kLoopEnd = 467282u;
 // P001 test-only ROM region from the original AWE32 AWETEST tool, NOT GM/SBK.
 constexpr uint8_t kState[8] = {'1','2','5','A','P','0','0','1'};
+// Write-only sample-clock evidence. All I/O at setActive(false), NOT process().
+bool savePrivateNativeRegisterOuts(
+    const std::filesystem::path& output,
+    const std::span<const awe64::ChipPortWrite> events,
+    const bool overflow) noexcept {
+    if(output.empty() || !output.is_absolute() || overflow || events.empty())
+        return false;
+    HANDLE h=CreateFileW(output.c_str(),GENERIC_WRITE,0,nullptr,
+                         CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(h==INVALID_HANDLE_VALUE)return false;
+    constexpr char header[]=
+        "# INDEPENDENT_NATIVE_P002_PORT_WRITES_ONLY\n"
+        "# CLOCK=HOST_44100_SAMPLE_FRAMES; ORIGIN=ACTIVATION\n"
+        "# SOURCE_ORIGINAL_WIN95_PROVENANCE=SEPARATELY_REQUIRED\n";
+    DWORD written=0;
+    bool ok=WriteFile(h,header,static_cast<DWORD>(sizeof(header)-1u),
+                      &written,nullptr)!=0 &&
+            written==static_cast<DWORD>(sizeof(header)-1u);
+    for(const auto& item:events) {
+        if(!ok)break;
+        char line[96]{};
+        const int n=std::snprintf(line,sizeof(line),"%llu %X %X\n",
+            static_cast<unsigned long long>(item.frame),
+            static_cast<unsigned>(item.port),
+            static_cast<unsigned>(item.value));
+        if(n<=0 || n>=static_cast<int>(sizeof(line))) {
+            ok=false;break;
+        }
+        written=0;
+        ok=WriteFile(h,line,static_cast<DWORD>(n),&written,nullptr)!=0 &&
+           written==static_cast<DWORD>(n);
+    }
+    if(!CloseHandle(h))ok=false;
+    if(!ok)DeleteFileW(output.c_str());
+    return ok;
+}
 inline float digitalPcm16(int32_t s) noexcept {
     return static_cast<float>(std::clamp(s, int32_t(-32768), int32_t(32767))) / 32768.0f;
 }
@@ -73,6 +116,12 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 }
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
+        const bool traceSaved=privateNativeRegisterTracePath_.empty() ||
+            savePrivateNativeRegisterOuts(
+                privateNativeRegisterTracePath_,chip_.portWriteTrace(),
+                chip_.portWriteTraceOverflow());
+        privateNativeRegisterTracePath_.clear();
+        chip_.disarmPortWriteTrace();
         processing_=false; active_=false; playingKey_=-1;
         p002Started_.fill(false);
         p002KeyDown_.fill(false);
@@ -84,7 +133,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         preCardPcm16DiagnosticTap_=false;
         originalGoldCard_.reset(); // exact original CT1745 reset on the non-RT thread
         chip_.close(); // non-RT activation thread only
-        return kResultOk;
+        return traceSaved ? kResultOk : kResultFalse;
     }
     if (active_) return kResultOk;
     // The original 86Box AWE64 Gold CT1745 mixer starts at the source
@@ -148,6 +197,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     const char* nativeRam=std::getenv("AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES");
     const bool nativeRamRequested=(nativeRam && nativeRam[0]=='1' &&
                                    nativeRam[1]=='\0');
+    const char* tracePath=std::getenv("AWE64_P002_NATIVE_REGISTER_OUT_PATH");
+    const bool traceRequested=tracePath && *tracePath;
     const bool resourcePresent=sourcePath && *sourcePath;
     const bool bankPresent=bankPath && *bankPath;
     const bool diagnosticPresent=diagnosticPath && *diagnosticPath;
@@ -164,6 +215,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             (!completeRamOriginal || bankPresent || diagnosticPresent)));
 
     if((nativeRam && *nativeRam && !nativeRamRequested) ||
+       (traceRequested && !nativeRamRequested) ||
        modeConflict) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
@@ -223,6 +275,17 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         chip_.writePort(0xe22u,(1u<<5u)|31u);
         chip_.writePort(0xa20u,0x0004u);
         p002BankEnabled_=true;
+        // Arm only AFTER the authentic Win95 Creative source RAM upload
+        // and the private VXD table/state SHA gates have succeeded.
+        if(traceRequested) {
+            const std::filesystem::path output(tracePath);
+            if(!output.is_absolute() ||
+               !chip_.armPortWriteTrace(262144u)) {
+                std::fputs("P002 native port trace cannot be armed\n",stderr);
+                chip_.close();return kResultFalse;
+            }
+            privateNativeRegisterTracePath_=output;
+        }
     }
     if(bankPath && *bankPath && sourcePath && *sourcePath) {
         std::string why;
