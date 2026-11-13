@@ -32,8 +32,9 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     // INPUT. The opt-in P002 source diagnostic therefore exposes
     // a real automatable parameter consumed sample-accurately from
     // IParameterChanges. In normal P001 mode this parameter is absent.
-    if(const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
-       diag && *diag)
+    const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
+    const char* bank=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
+    if((diag && *diag) || (bank && *bank))
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
@@ -67,6 +68,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         processing_=false; active_=false; playingKey_=-1;
         p002Started_.fill(false);
         p002KeyDown_.fill(false);
+        p002BankEnabled_=false;
+        p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
         chip_.close(); // non-RT activation thread only
         return kResultOk;
@@ -87,10 +90,31 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     // changes approved P001 normal playback or accepts a bankless fake
     // preset when the private fixture is missing/corrupt.
     p002DiagnosticEnabled_=false;
-    if(const char* diag=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
-       diag && *diag) {
+    p002BankEnabled_=false;
+    const char* bankPath=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
+    const char* sourcePath=std::getenv("AWE64_P002_PRIVATE_VXD_RESOURCES_PATH");
+    const char* diagnosticPath=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
+    if((bankPath && *bankPath) != (sourcePath && *sourcePath) ||
+       ((bankPath && *bankPath) && (diagnosticPath && *diagnosticPath))) {
+        std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
+                   stderr);
+        chip_.close();return kResultFalse;
+    }
+    if(bankPath && *bankPath && sourcePath && *sourcePath) {
         std::string why;
-        if(!loadP002PrivateNoteFixture(std::filesystem::path(diag),p002Fixture_,why)) {
+        if(!p002RomBank_.load(std::filesystem::path(sourcePath),
+                             std::filesystem::path(bankPath),why)) {
+            std::fprintf(stderr,"125A P002 source ROM bank rejected: %s\n",
+                         why.c_str());
+            chip_.close();return kResultFalse;
+        }
+        chip_.writePort(0xe22u,(1u<<5u)|31u);
+        chip_.writePort(0xa20u,0x0004u);
+        p002BankEnabled_=true;
+    }
+    if(diagnosticPath && *diagnosticPath) {
+        std::string why;
+        if(!loadP002PrivateNoteFixture(std::filesystem::path(diagnosticPath),p002Fixture_,why)) {
             std::fprintf(stderr,"125A P002 source diagnostic rejected: %s\\n",why.c_str());
             chip_.close();return kResultFalse;
         }
@@ -119,6 +143,15 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
+    if(p002BankEnabled_) {
+        if(channel<0 || channel>15)return;
+        const int encoded=static_cast<int>(velocity*127.f+0.5f);
+        if(encoded<=0 || encoded>127)return;
+        (void)p002RomBank_.noteOn(chip_,static_cast<std::uint8_t>(channel),
+                                 static_cast<std::uint8_t>(pitch),
+                                 static_cast<std::uint8_t>(encoded));
+        return;
+    }
     if(p002DiagnosticEnabled_) {
         // Select a unique, activation-verified original source NoteOn
         // by MIDI key + velocity, NOT by a guessed soundbank program,
@@ -174,6 +207,13 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
     if(!active_)return;
+    if(p002BankEnabled_) {
+        if(channel>=0 && channel<16 && pitch>=0 && pitch<=127)
+            (void)p002RomBank_.noteOff(
+                chip_,static_cast<std::uint8_t>(channel),
+                static_cast<std::uint8_t>(pitch));
+        return;
+    }
     if(p002DiagnosticEnabled_) {
         if(channel!=p002Fixture_.channel || pitch<0 || pitch>127)return;
         for(std::size_t group=0;group<p002Fixture_.noteGroupCount();++group) {
@@ -202,6 +242,7 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
     }
 }
 bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
+    if(p002BankEnabled_)return p002RomBank_.sustain(chip_,value);
     if(!p002DiagnosticEnabled_ ||
        !p002Fixture_.verified_source_note_release || value>127u)
         return false;
@@ -260,9 +301,9 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     // the previous no-parameter path, while P002 private diagnostic can
     // reproduce source LCOD+0x656D pedal down/up sample accurately.
     IParamValueQueue* sustainQueue=nullptr;
-    if(p002DiagnosticEnabled_ &&
-       p002Fixture_.verified_source_note_release &&
-       data.inputParameterChanges) {
+    if(((p002DiagnosticEnabled_ &&
+         p002Fixture_.verified_source_note_release) ||
+        p002BankEnabled_) && data.inputParameterChanges) {
         const auto count=data.inputParameterChanges->getParameterCount();
         for(int32 q=0;q<count;++q) {
             auto* queue=data.inputParameterChanges->getParameterData(q);
@@ -315,10 +356,12 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             continue;
         }
         if(e.type==Event::kNoteOnEvent &&
-           (p002DiagnosticEnabled_ || e.noteOn.channel==0))
+           (p002DiagnosticEnabled_ || p002BankEnabled_ ||
+            e.noteOn.channel==0))
             noteOn(e.noteOn.channel,e.noteOn.pitch,e.noteOn.velocity);
         else if(e.type==Event::kNoteOffEvent &&
-                (p002DiagnosticEnabled_ || e.noteOff.channel==0))
+                (p002DiagnosticEnabled_ || p002BankEnabled_ ||
+                 e.noteOff.channel==0))
             noteOff(e.noteOff.channel,e.noteOff.pitch);
         ++midiIndex;
     }
