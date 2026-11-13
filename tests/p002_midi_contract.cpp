@@ -60,6 +60,33 @@ int main() {
     CHECK(state.channel(9).bank_lsb==7);
     CHECK(state.channel(8).cc7_volume==101);
     CHECK(state.channel(10).cc7_volume==101);
+    // State APIs can also receive direct C++ messages from the native
+    // Creative bank compiler, not only validated WinMM short packets.
+    // Invalid channel 16 must NEVER alias channel zero or modify bank 0.
+    {
+        MidiState guarded{};
+        MidiMessage invalid{};
+        invalid.kind=MidiKind::Controller;
+        invalid.channel=16u;invalid.data1=0u;invalid.data2=1u;
+        guarded.apply(invalid);
+        CHECK(guarded.channel(0).bank_msb==0u);
+        invalid.kind=MidiKind::Program;
+        invalid.channel=255u;invalid.data1=45u;invalid.data2=0u;
+        guarded.apply(invalid);
+        CHECK(guarded.channel(15).program==0u);
+        invalid.channel=0u;invalid.data1=128u;invalid.data2=0u;
+        guarded.apply(invalid);
+        CHECK(guarded.channel(0).program==0u);
+        invalid.kind=MidiKind::Controller;
+        invalid.data1=0u;invalid.data2=128u;
+        guarded.apply(invalid);
+        CHECK(guarded.channel(0).bank_msb==0u);
+        // A two-byte Program Change may contain an unused raw data2.
+        invalid.kind=MidiKind::Program;
+        invalid.data1=46u;invalid.data2=255u;
+        guarded.apply(invalid);
+        CHECK(guarded.channel(0).program==46u);
+    }
     // Reject malformed/status-byte injection and non-MIDI 0xF* system codes.
     CHECK(!decodeWinMmShort(msg(0xf0,12,15)));
     CHECK(!decodeWinMmShort(msg(0x70,60,100)));
