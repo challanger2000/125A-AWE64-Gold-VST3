@@ -4,6 +4,7 @@
 // real PCM generation and audible sensitivity to ROM wave contents.
 // Not independent Win95 Creative driver PCM equivalence or production VST3.
 #include "CreativeSf2VxdStateSnapshot.h"
+#include "CreativeSf2VxdSourceRelease.h"
 #include "Chip.h"
 #include <algorithm>
 #include <array>
@@ -126,6 +127,130 @@ Pcm playback(const fs::path& rom,std::uint32_t& ip,std::uint32_t& ptrx){
     }
     return result;
 }
+// P002 multi-note research oracle: two separate original-source NoteOns
+// at different keys and physical EMU8000 voices, then original channel
+// CC64 pedal-down, two deferred NoteOffs, and pedal-up. This is actual
+// digital chip PCM, NOT a second software ADSR, a native VST3
+// multi-note host, or an independent Creative Win95 PCM reference.
+struct PolyEvidence {
+    Pcm pre_release{},post_release{};
+    std::uint16_t ip0=0,ip3=0;
+    std::uint16_t dcysusv0=0,dcysusv3=0;
+    std::size_t released=0;
+    bool both_deferred=false,both_idle=false;
+};
+Pcm hashFrames(awe64::Chip& chip,const unsigned frames) {
+    Pcm result{};
+    std::array<std::int32_t,512u*2u> samples{};
+    for(unsigned offset=0;offset<frames;offset+=512u) {
+        const auto size=std::min(512u,frames-offset);
+        chip.render(samples.data(),size);
+        for(unsigned i=0;i<size*2u;++i) {
+            const auto value=samples[i];
+            if(value!=0)++result.nonzero;
+            result.peak=std::max(result.peak,value<0?-value:value);
+            const auto bits=static_cast<std::uint32_t>(value);
+            for(unsigned byte=0;byte<4u;++byte) {
+                result.fnv^=(bits>>(8u*byte))&0xffu;
+                result.fnv*=0x100000001b3ull;
+            }
+        }
+    }
+    return result;
+}
+PolyEvidence polyPlayback(
+    const fs::path& rom,const bool pedal_lift,
+    const bool two_voices) {
+    awe64::Chip chip;
+    std::string reason;
+    if(!chip.open(rom,reason))
+        throw std::runtime_error("P002 poly ROM open: "+reason);
+    chip.writePort(0xe22u,(1u<<5u)|31u);
+    chip.writePort(0xa20u,0x0004u);
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> state{};
+    constexpr std::uint32_t kRom=0x4d474d31u;
+    for(unsigned i=0;i<4u;++i)
+        state[kOriginalVxdRomIdOffset+i]=
+            static_cast<std::uint8_t>(kRom>>(8u*i));
+    OriginalSf2VerifiedVxdDeviceSnapshot source{};
+    source.original_state_bytes=state;
+    source.independently_verified_original_vxd_snapshot=true;
+    source.original_lcod_31word_table_verified=true;
+    auto piano0=gm0();
+    // Proven original GM0 descriptor generator30/38 encoded NOTE START
+    // values. No synthetic release byte is substituted at NoteOff.
+    gen(piano0.assigned_voice.verified_after_start_record,30u,127);
+    gen(piano0.assigned_voice.verified_after_start_record,38u,41);
+    auto piano3=piano0;
+    piano3.assigned_voice.physical_voice=3u;
+    piano3.assigned_voice.played_midi_key=64u;
+    // Actual SF2 per-note played key, same ROM sample root and original
+    // descriptor; pitch is computed by the existing PCOD source path.
+    gen(piano3.assigned_voice.verified_after_start_record,46u,64);
+    const std::array<OriginalSf2VxdSnapshotVoice,2> assigned{{piano0,piano3}};
+    const auto first=std::span<const OriginalSf2VxdSnapshotVoice>(
+        assigned.data(),1u);
+    const auto second=std::span<const OriginalSf2VxdSnapshotVoice>(
+        assigned.data()+1u,1u);
+    const auto all=std::span<const OriginalSf2VxdSnapshotVoice>(
+        assigned.data(),two_voices?2u:1u);
+    const auto start=[&](const auto selected) {
+        if(!candidateOriginalSf2StoreNoteOnSourceReleaseState(
+               state,true,selected) ||
+           !candidateOriginalSf2WriteInitialIpToVxdState(
+               state,true,selected) ||
+           !applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+               chip,selected,source))
+            throw std::runtime_error("Original multi-NoteOn chip start failed");
+    };
+    start(first);
+    (void)hashFrames(chip,1024u);
+    if(two_voices)start(second);
+    (void)hashFrames(chip,1024u);
+    const auto* core=chip.rawForContractTesting();
+    PolyEvidence out{};
+    out.ip0=core->voice[0].ip;
+    if(two_voices)out.ip3=core->voice[3].ip;
+    const auto down=applyOriginalSf2MidiCc64FromVxdState(
+        chip,state,all,0u,127u,true);
+    if(!down || !down->sustain_enabled ||
+       down->typed_port_writes!=0u)
+        throw std::runtime_error("Original poly pedal-down failed");
+    const auto off0=applyOriginalSf2MidiNoteOffFromVxdState(
+        chip,state,first,0u,60u,true);
+    if(!off0 || !off0->deferred_by_sustain ||
+       off0->typed_port_writes!=0u)
+        throw std::runtime_error("Original first deferred NoteOff failed");
+    if(two_voices) {
+        const auto off3=applyOriginalSf2MidiNoteOffFromVxdState(
+            chip,state,second,0u,64u,true);
+        if(!off3 || !off3->deferred_by_sustain ||
+           off3->typed_port_writes!=0u)
+            throw std::runtime_error("Original second deferred NoteOff failed");
+    }
+    const auto voice0=kOriginalVxdVoiceRowStart;
+    const auto voice3=kOriginalVxdVoiceRowStart+
+                      3u*kOriginalVxdVoiceRowStride;
+    out.both_deferred=state[voice0]==0xffu &&
+        (!two_voices || state[voice3]==0xffu);
+    out.pre_release=hashFrames(chip,4096u);
+    if(pedal_lift) {
+        const auto up=applyOriginalSf2MidiCc64FromVxdState(
+            chip,state,all,0u,0u,true);
+        if(!up || up->sustain_enabled ||
+           up->released_deferred_voices!=(two_voices?2u:1u) ||
+           up->typed_port_writes!=(two_voices?8u:4u))
+            throw std::runtime_error("Original physical poly pedal-up failed");
+        out.released=up->released_deferred_voices;
+    }
+    out.dcysusv0=core->voice[0].dcysusv;
+    if(two_voices)out.dcysusv3=core->voice[3].dcysusv;
+    out.both_idle=state[voice0]==0xfeu && state[voice0+1u]==0x0fu &&
+        (!two_voices ||
+         (state[voice3]==0xfeu && state[voice3+1u]==0x0fu));
+    out.post_release=hashFrames(chip,32768u);
+    return out;
+}
 } // namespace
 int main(){
     try {
@@ -141,6 +266,25 @@ int main(){
         CHECK(different.nonzero>200u && different.peak>20);
         CHECK(a.fnv==b.fnv && a.nonzero==b.nonzero);
         CHECK(a.fnv!=different.fnv);
+        // Distinct original SF2 MIDI notes on physical voices 0 and 3
+        // MUST both contribute real digital PCM, with the same exact
+        // pre-release stream regardless of future pedal lift. Pedal-up
+        // then releases BOTH existing source-verified held voices through
+        // genuine VXD envelope bytes and chip ports.
+        const auto dualHeld=polyPlayback(saw.path,false,true);
+        const auto dualReleased=polyPlayback(saw.path,true,true);
+        const auto soloHeld=polyPlayback(saw.path,false,false);
+        CHECK(dualHeld.ip0==0xc961u &&
+              dualHeld.ip3!=0u && dualHeld.ip3!=dualHeld.ip0);
+        CHECK(dualHeld.both_deferred && dualReleased.both_deferred);
+        CHECK(dualHeld.pre_release.fnv==dualReleased.pre_release.fnv);
+        CHECK(dualHeld.post_release.nonzero>500u);
+        CHECK(dualHeld.post_release.fnv!=soloHeld.post_release.fnv);
+        CHECK(dualReleased.released==2u && dualReleased.both_idle);
+        CHECK(dualReleased.dcysusv0==0x8029u &&
+              dualReleased.dcysusv3==0x8029u);
+        CHECK(dualReleased.post_release.fnv!=dualHeld.post_release.fnv);
+
         std::cout<<"P002_ORIGINAL_ROM_SF2_NOTEON_REAL_PCM_PASS"
                  <<" source_original_GM0_61_OUT=TRUE"
                  <<" pinned_EMU8000_real_digital_pcm=TRUE"
@@ -148,6 +292,9 @@ int main(){
                  <<" synthetic_rom_mutation_changes_pcm=TRUE"
                  <<" original_Creative_ROM=NOT_TESTED"
                  <<" original_Win95_PCM_PARITY=NOT_PROVEN"
+                 <<" P002_original_dual_sequential_NoteOn_real_PCM=TRUE"
+                 <<" P002_source_CC64_two_voice_pedal_lift_changes_PCM=TRUE"
+                 <<" P002_original_30_voice_full_polyphonic_runtime=NOT_PROVEN"
                  <<" P002_production_VST3=NOT_CONNECTED\n";
         return 0;
     }catch(const std::exception& ex){
