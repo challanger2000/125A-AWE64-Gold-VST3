@@ -72,6 +72,43 @@ int main() {
         CHECK(compare()); // filter memory across separate audio blocks
     }
     CHECK(compared==8u*(1u+2u*writes.size()));
+    // All original 4-bit tone positions, BOTH stereo channels. Keep
+    // original filter histories live when moving between cut/bypass/boost.
+    constexpr std::array<std::uint8_t,4> toneRegs{{0x44,0x45,0x46,0x47}};
+    for(auto reg:toneRegs)for(unsigned nibble=0;nibble<16;++nibble) {
+        const auto value=static_cast<std::uint8_t>(
+            (nibble<<4u)|(15u-nibble)); // low bits intentionally set
+        p002_original_ct1745_oracle_write(reg,value);
+        CHECK(card.applyVerifiedOriginalRegister(reg,value,true));
+        CHECK(compare());
+    }
+    // Original SB16 master/FM aliases and packed CT1745 stereo aliases.
+    constexpr std::array<std::uint8_t,4> aliases{{0x02,0x06,0x22,0x26}};
+    constexpr std::array<std::uint8_t,8> aliasValues{{
+        0x00,0x01,0x0f,0x10,0x40,0x81,0xa5,0xff}};
+    for(auto reg:aliases)for(auto value:aliasValues) {
+        p002_original_ct1745_oracle_write(reg,value);
+        CHECK(card.applyVerifiedOriginalRegister(reg,value,true));
+        CHECK(compare());
+    }
+    // Both channels' attenuation and output gain at register boundaries.
+    constexpr std::array<std::uint8_t,6> gainRegs{{
+        0x30,0x31,0x34,0x35,0x41,0x42}};
+    constexpr std::array<std::uint8_t,6> gainValues{{
+        0x00,0x07,0x40,0x88,0xf8,0xff}};
+    for(auto reg:gainRegs)for(auto value:gainValues) {
+        p002_original_ct1745_oracle_write(reg,value);
+        CHECK(card.applyVerifiedOriginalRegister(reg,value,true));
+        CHECK(compare());
+    }
+    // Unauthenticated and unsupported mixer events MUST leave the
+    // audible state unchanged, not silently apply invented mixer writes.
+    CHECK(!card.applyVerifiedOriginalRegister(0x30,0x00,false));
+    CHECK(!card.applyVerifiedOriginalRegister(0x99,0xff,true));
+    CHECK(compare());
+    CHECK(compared==8u*(1u+2u*writes.size()+
+        toneRegs.size()*16u+aliases.size()*aliasValues.size()+
+        gainRegs.size()*gainValues.size()+1u));
     CHECK(card.floatSink(exact[1])==
           static_cast<float>(exact[1])/32768.f);
     std::printf(
