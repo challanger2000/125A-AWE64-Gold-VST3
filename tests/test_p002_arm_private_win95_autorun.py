@@ -78,7 +78,7 @@ class OriginalWin95DisposableAutostartTests(unittest.TestCase):
             self.assertEqual(reader.read_root_file(
                 fat16.RAM_SF2_NAME,fat16.MAX_BANK),sf2.read_bytes())
             self.assertEqual(reader.fat[:4096],reader.fat[:4096])
-        with self.assertRaisesRegex(ValueError,"must be new"):
+        with self.assertRaisesRegex(ValueError,"New disposable Win95 clone required"):
             autorun.prepare(original,clone,exe,sf2)
 
     def test_occupied_original_winini_run_is_never_overwritten(self):
@@ -102,7 +102,7 @@ class OriginalWin95DisposableAutostartTests(unittest.TestCase):
     def test_missing_original_winini_is_not_reinvented(self):
         original,exe,sf2=fixture(self.root,missing_winini=True)
         clone=self.root/"must-not-survive-missing-ini.img"
-        with self.assertRaisesRegex(ValueError,"Missing or duplicated"):
+        with self.assertRaisesRegex(ValueError,"Win95 FAT16 directory missing or duplicate"):
             autorun.prepare(original,clone,exe,sf2)
         self.assertFalse(clone.exists())
 
