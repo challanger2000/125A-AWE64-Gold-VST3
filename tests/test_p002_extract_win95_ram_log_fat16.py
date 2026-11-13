@@ -64,9 +64,9 @@ def add_original_guest_log(clone: Path, data: bytes,
     return free
 
 
-def new_guest(root: Path):
+def new_guest(root: Path, bank_bytes: bytes | None = None):
     original, exe, sf2 = write_inputs(root)
-    sf2.write_bytes(sf2_bank())
+    sf2.write_bytes(sf2_bank() if bank_bytes is None else bank_bytes)
     # The legacy test fixture never needed the MBR partition length.
     # The read-only extractor deliberately requires it.
     with original.open("r+b") as disk:
