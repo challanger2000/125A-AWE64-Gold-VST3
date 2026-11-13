@@ -75,6 +75,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002KeyDown_.fill(false);
         p002BankEnabled_=false;
         p002PrivateRamPreloaded_=false;
+        p002OriginalRamNotes_.clear();
         p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
         preCardPcm16DiagnosticTap_=false;
@@ -111,6 +112,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     p002DiagnosticEnabled_=false;
     p002BankEnabled_=false;
     p002PrivateRamPreloaded_=false;
+    p002OriginalRamNotes_.clear();
     const char* bankPath=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
     const char* sourcePath=std::getenv("AWE64_P002_PRIVATE_VXD_RESOURCES_PATH");
     const char* diagnosticPath=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
@@ -123,6 +125,14 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS");
     const char* originalRamFinal=
         std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16");
+    // These are actual 1996 original driver NoteOn/NoteOff physical
+    // port writes from THE SAME independently verified Win95 RAM bank.
+    // Optional: no captured note file means authenticated RAM-only
+    // mode remains silent, never substitutes an inaccurate ROM note.
+    const char* originalRamNotes=
+        std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS");
+    const bool sourceRamNoteRequested=
+        originalRamNotes && *originalRamNotes;
     const bool anyCapturedRam=
         (originalRamSf2 && *originalRamSf2) ||
         (originalRamPorts && *originalRamPorts) ||
@@ -130,6 +140,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
 
     if((bankPath && *bankPath) != (sourcePath && *sourcePath) ||
        ((bankPath && *bankPath) && (diagnosticPath && *diagnosticPath)) ||
+       (sourceRamNoteRequested && !anyCapturedRam) ||
        (anyCapturedRam &&
         (!(originalRamSf2 && *originalRamSf2) ||
          !(originalRamPorts && *originalRamPorts) ||
@@ -139,6 +150,19 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
         chip_.close();return kResultFalse;
+    }
+    if(sourceRamNoteRequested) {
+        // Validate the *complete* SHA256-pinned original source note
+        // fixture BEFORE any original EMU8000 RAM upload takes place.
+        // No dynamic allocations/files are permitted in process().
+        std::string why;
+        if(!p002OriginalRamNotes_.load(
+               std::filesystem::path(originalRamNotes),why)) {
+            std::fprintf(stderr,
+                "125A P002 original Creative RAM NoteOn source rejected: %s\n",
+                why.c_str());
+            chip_.close();return kResultFalse;
+        }
     }
     if(anyCapturedRam) {
         std::string why;
@@ -159,7 +183,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         std::fputs("P002_REAL_ORIGINAL_CREATIVE_83_RAM_SAMPLES_PRELOADED"
                    " full_source_port_replay=TRUE"
                    " source_final_260921_PCM16_WORDS_EXACT=TRUE"
-                   " RAM_NOTEON=NOT_AUTHORIZED_YET\n",stderr);
+                   " source_NOTEON_RECORDING_SHA_VERIFIED_OPTIONAL=TRUE"
+                   " NATIVE_PCM_PARITY=NOT_PROVEN\n",stderr);
     }
     if(bankPath && *bankPath && sourcePath && *sourcePath) {
         std::string why;
@@ -204,7 +229,14 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
-    if(p002PrivateRamPreloaded_)return; // no guessed P001 ROM fallback
+    if(p002PrivateRamPreloaded_) {
+        // EXACT two original Win95 RAM NoteOn capture groups only;
+        // no home-made patch data, filter, ADSR or fallback ROM voice.
+        const auto v=static_cast<int>(velocity*127.f+0.5f);
+        if(p002OriginalRamNotes_.ready())
+            (void)p002OriginalRamNotes_.noteOn(chip_,channel,pitch,v);
+        return;
+    }
     if(p002BankEnabled_) {
         if(channel<0 || channel>15)return;
         const int encoded=static_cast<int>(velocity*127.f+0.5f);
@@ -269,7 +301,11 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
     if(!active_)return;
-    if(p002PrivateRamPreloaded_)return; // no fake RAM note release
+    if(p002PrivateRamPreloaded_) {
+        if(p002OriginalRamNotes_.ready())
+            (void)p002OriginalRamNotes_.noteOff(chip_,channel,pitch);
+        return;
+    }
     if(p002BankEnabled_) {
         if(channel>=0 && channel<16 && pitch>=0 && pitch<=127)
             (void)p002RomBank_.noteOff(
@@ -332,7 +368,11 @@ bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
 void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
     while(begin<end) {
         const auto count=std::min<int32>(980,end-begin);
-        chip_.render(scratch_.data(),static_cast<size_t>(count));
+        if(p002PrivateRamPreloaded_ && p002OriginalRamNotes_.ready())
+            p002OriginalRamNotes_.render(
+                chip_,scratch_.data(),static_cast<std::size_t>(count));
+        else
+            chip_.render(scratch_.data(),static_cast<std::size_t>(count));
         for(int32 i=0;i<count;++i) {
             const auto preL=scratch_[2u*size_t(i)];
             const auto preR=scratch_[2u*size_t(i)+1];
