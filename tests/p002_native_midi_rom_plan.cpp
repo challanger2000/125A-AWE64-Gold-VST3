@@ -281,6 +281,65 @@ int main(){
     const auto afterRow=kOriginalVxdVoiceRowStart;
     CHECK(live->original_compilation.vxd_state_after_noteon[afterRow]==60u);
     CHECK(live->original_compilation.vxd_state_after_noteon[afterRow+1u]==2u);
+    // Three consecutive MIDI NoteOns now carry the same actual ROM
+    // SF2 bank, same original VXD resource tables, and the real pinned
+    // chip through the original LIVE idle selector. The already-played
+    // voice0 is retained in the source VXD state, not overwritten.
+    auto sequentialState=live->original_compilation.vxd_state_after_noteon;
+    auto sourceContext=verifiedSyntheticVxd;
+    sourceContext.original_state_bytes=sequentialState;
+    auto secondMidi=decodeWinMmShort(0x00644092u); // ch2, key64, vel100
+    CHECK(secondMidi && secondMidi->channel==2u &&
+          secondMidi->data1==64u);
+    auto secondConditions=conditions;
+    secondConditions.midi_key=64u;
+    const auto unchangedBefore=sequentialState;
+    CHECK(!candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+        liveChip,sequentialState,sf2,*secondMidi,midi,0u,524288u,
+        verifiedSyntheticResources,secondConditions,sourceContext,false));
+    CHECK(sequentialState==unchangedBefore);
+    const auto secondLive=candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+        liveChip,sequentialState,sf2,*secondMidi,midi,0u,524288u,
+        verifiedSyntheticResources,secondConditions,sourceContext,true);
+    CHECK(secondLive &&
+          secondLive->original_selection.physical_voice==3u &&
+          secondLive->original_selection.reason==
+              OriginalWin95MonoSelectionReason::CompletelyIdle &&
+          secondLive->original_compilation.voice_count==1u);
+    const auto secondRow=kOriginalVxdVoiceRowStart+
+                         3u*kOriginalVxdVoiceRowStride;
+    CHECK(sequentialState[afterRow]==60u &&
+          sequentialState[afterRow+1u]==2u &&
+          sequentialState[secondRow]==64u &&
+          sequentialState[secondRow+1u]==2u);
+    CHECK(originalChipState->voice[0].ip==0xe000u &&
+          originalChipState->voice[3].ip!=0u &&
+          originalChipState->voice[3].ip!=originalChipState->voice[0].ip);
+    // The original second NoteOn committed state must feed the NEXT
+    // allocation; no application-chosen increment or voice stealing.
+    auto thirdMidi=decodeWinMmShort(0x00644392u); // ch2, key67, vel100
+    CHECK(thirdMidi && thirdMidi->data1==67u);
+    auto thirdConditions=conditions;
+    thirdConditions.midi_key=67u;
+    sourceContext.original_state_bytes=sequentialState;
+    const auto thirdLive=candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+        liveChip,sequentialState,sf2,*thirdMidi,midi,0u,524288u,
+        verifiedSyntheticResources,thirdConditions,sourceContext,true);
+    CHECK(thirdLive && thirdLive->original_selection.physical_voice==6u);
+    const auto thirdRow=kOriginalVxdVoiceRowStart+
+                        6u*kOriginalVxdVoiceRowStride;
+    CHECK(sequentialState[afterRow]==60u &&
+          sequentialState[secondRow]==64u &&
+          sequentialState[thirdRow]==67u &&
+          sequentialState[thirdRow+1u]==2u &&
+          originalChipState->voice[6].ip!=0u);
+    // Reject stale source context independently of the bank contents.
+    auto staleSourceContext=verifiedSyntheticVxd;
+    const auto allThreeState=sequentialState;
+    CHECK(!candidateOriginalSf2StartNextIdleRomBankNoteOnLiveChip(
+        liveChip,sequentialState,sf2,*thirdMidi,midi,0u,524288u,
+        verifiedSyntheticResources,thirdConditions,staleSourceContext,true));
+    CHECK(sequentialState==allThreeState);
     const auto wrongLive=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
         liveChip,sbk,*on,midi,0u,524288u,verifiedSyntheticResources,
         conditions,verifiedSyntheticVxd,true);
@@ -341,5 +400,9 @@ int main(){
     CHECK(ramSf2[base+45u]==128u);
     ramSf2[base+45u]=0u; // type ROM mono 0x8001 -> RAM mono 0x0001
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,ramSf2,0,524288));
-    std::cout<<"P002_SYNTHETIC_16CH_MIDI_PROGRAM_TO_ROM_ADDRESS_PASS private_bytes=NONE\n";
+    std::cout<<"P002_SYNTHETIC_16CH_MIDI_PROGRAM_TO_ROM_ADDRESS_PASS"
+             <<" private_bytes=NONE"
+             <<" original_live_idle_three_distinct_bank_noteons=TRUE"
+             <<" source_vxd_state_committed_after_each_actual_chip_note=TRUE"
+             <<" no_unproven_busy_voice_steal=TRUE\n";
 }
