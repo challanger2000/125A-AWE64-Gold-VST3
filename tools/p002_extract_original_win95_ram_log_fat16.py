@@ -45,6 +45,13 @@ def require(ok: bool, description: str):
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 class PrivateFat16Reader:
     def __init__(self, image: Path):
@@ -196,8 +203,7 @@ def extract_guest_ram_evidence(clone: Path, original_sf2: Path):
         evaluated = audit(log, sf2)
         result = {
             **evaluated,
-            "private_win95_clone_sha256": hashlib.sha256(
-                disk.image.read_bytes()).hexdigest(),
+            "private_win95_clone_sha256": sha256_file(disk.image),
             "private_win95_log_extracted_from_fat16_root": True,
             "guest_sf2_entire_content_identical_to_private_source": True,
             "actual_original_emu8000_RAM_upload_trace": "NOT_VERIFIED_BY_GUEST_LOG",
