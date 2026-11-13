@@ -60,6 +60,25 @@ add_test(NAME p001_direct_fork_pcm_and_negative_controls
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.
 
+# Independent research: execute the pinned fork's actual static AWE64 Gold
+# post-EMU8000 wavetable mixer.  The test includes snd_sb.c from the unmodified
+# submodule and isolates only its post-chip boundary; no replacement DSP is
+# linked into the VST3 or chip adapter.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(awe64_p002_fork_wavetable_mixer_path
+        tests/p002_fork_awe64_wavetable_mixer_path.c)
+    target_include_directories(awe64_p002_fork_wavetable_mixer_path PRIVATE
+        "${FORK_ROOT}/src/include" "${FORK_ROOT}/src" "${FORK_ROOT}/src/cpu")
+    target_compile_options(awe64_p002_fork_wavetable_mixer_path PRIVATE
+        -ffunction-sections -fdata-sections)
+    target_link_options(awe64_p002_fork_wavetable_mixer_path PRIVATE
+        -Wl,--gc-sections)
+    target_link_libraries(awe64_p002_fork_wavetable_mixer_path PRIVATE m)
+    add_test(NAME p002_pinned_fork_awe64_gold_wavetable_mixer_path
+             COMMAND awe64_p002_fork_wavetable_mixer_path)
+endif()
+
 # P002: Creative 1996 public API factual identifiers and byte-level WinMM
 # staging. No claim of original driver register/acoustic equivalence until
 # independently captured original Creative traces are compared.
