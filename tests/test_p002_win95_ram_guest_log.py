@@ -167,6 +167,7 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
                 self.bank)
         with self.assertRaisesRegex(ValueError,"source phase|phase"):
             auditor.audit(self.mutate(
+                "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000\r\n"
                 "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END",
                 "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n"
                 "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC=0x00000000"),
