@@ -160,6 +160,34 @@ Original source reference: [Creative `INDICES.H`](https://github.com/qb40/sound-
 [`WINAWE32.C`](https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/SAMPLE/AWEDEMO/WINAWE32.C), and
 [`AWE_API.H`](https://github.com/qb40/sound-blaster-awe32/blob/master/WINDOWS/INCLUDE/AWE_API.H).
 
+## 2026-11-13 original Win95 MIDI submission-time evidence
+
+`P002RAM.EXE` also emits **four original guest OS ticks**:
+`ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS`,
+`ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS`,
+`ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS` and
+`ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS`. Each value is captured with
+Win95 `GetTickCount()-t0` immediately **before** the matching
+`midiOutShortMsg` or Creative `AWE_SEND_MIDI` call, after the
+completed bank load and explicit 0% CC91/CC93 sends.
+
+The original-guest log auditor requires the exact source phase and
+submission order, and conservative elapsed-time checks for the two
+400-ms NoteOn/NoteOff holds and the 500+150-ms gap between the
+WinMM C4 and original AWEManager D4 source paths. Missing, reordered,
+zero-duration, pre-bank-load or too-short note timing is NO GO.
+Read-back results remain separate: `midiOutShortMsg` or
+`AWE_SEND_MIDI` success only means an API call was accepted, **not**
+that the MIDI event reached the EMU8000 at that exact tick.
+
+These times are **not EMU8K_TRACE sample frames or an audio clock**.
+The private source analysis reports
+`guest_GetTickCount_to_86Box_EMU8000_frame_time =
+NOT_PROVEN_INDEPENDENT_CLOCK_DOMAINS`. Only the independent original
+guest register trace and recorded DRY PCM can establish actual
+original chip event frames; never convert guest ticks to 44.1-kHz PCM
+positions by assuming a fixed conversion or offset.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
