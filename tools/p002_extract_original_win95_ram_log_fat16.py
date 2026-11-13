@@ -135,13 +135,71 @@ class PrivateFat16Reader:
         self.fat = fat1
         self.root = self._read(self.root_start, self.root_bytes)
 
-    def read_root_file(self, short_name: bytes, max_bytes: int):
+    def read_short_path_file(
+            self, components: tuple[bytes, ...], max_bytes: int) -> bytes:
+        """Read C:\\8.3\\...\\FILE from the PRIVATE FAT16 disk, read-only.
+
+        Only pre-supplied exact 11-byte FAT16 names are accepted. No
+        NTFS/VFAT long-name inference, case folding or path traversal.
+        This is used solely to attest real guest-installed Creative
+        driver file bytes; it does NOT execute them in Win95.
+        """
+        require(2 <= len(components) <= 4,
+                "Private FAT16 source driver path depth invalid")
+        for name in components:
+            require(len(name) == 11 and name.isascii(),
+                    "Private FAT16 path component must be literal 8.3 bytes")
+        current_dir = self.root
+        for name in components[:-1]:
+            matches = []
+            for offset in range(0, len(current_dir), 32):
+                item = current_dir[offset:offset+32]
+                if item[0] == 0:
+                    break
+                if item[0] == 0xE5 or item[11] == 0x0F:
+                    continue
+                if item[:11] == name:
+                    matches.append(item)
+            require(len(matches) == 1,
+                    "Original Creative FAT16 directory missing/ambiguous: "
+                    + name.decode("ascii"))
+            folder = matches[0]
+            require(folder[11] & 0x10 and not folder[11] & 0x08,
+                    "Original Creative FAT16 source directory has wrong attributes")
+            cluster = struct.unpack_from("<H", folder, 26)[0]
+            visited: set[int] = set()
+            contents = bytearray()
+            for _ in range(32):
+                require(2 <= cluster < self.cluster_count + 2 and
+                        cluster not in visited,
+                        "Original Creative FAT16 directory cycle/out-of-range")
+                visited.add(cluster)
+                offset = self.data_start + (cluster-2)*self.cluster_bytes
+                contents.extend(self._read(offset, self.cluster_bytes))
+                nxt = struct.unpack_from("<H", self.fat, cluster*2)[0]
+                if FAT_EOC <= nxt <= 0xFFFF:
+                    break
+                require(2 <= nxt < self.cluster_count + 2 and
+                        nxt < FAT_RESERVED_START,
+                        "Original Creative FAT16 directory chain invalid")
+                cluster = nxt
+            else:
+                raise ValueError("Original Creative FAT16 directory too large")
+            current_dir = bytes(contents)
+        return self.read_root_file(
+            components[-1], max_bytes, directory_data=current_dir)
+
+    def read_root_file(self, short_name: bytes, max_bytes: int,
+                       *, directory_data: bytes | None = None):
         require(len(short_name) == 11 and
                 short_name.isascii() and max_bytes > 0,
                 "Unexpected FAT16 8.3 target")
         entries = []
-        for offset in range(0, self.root_bytes, 32):
-            entry = self.root[offset:offset + 32]
+        directory = self.root if directory_data is None else directory_data
+        require(len(directory) % 32 == 0 and len(directory) <= 256*1024,
+                "Original Creative FAT16 directory extent invalid")
+        for offset in range(0, len(directory), 32):
+            entry = directory[offset:offset + 32]
             if entry[0] == 0:  # FAT: no later active root entries
                 break
             if entry[0] == 0xE5 or entry[11] == 0x0F:
