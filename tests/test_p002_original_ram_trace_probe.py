@@ -268,6 +268,63 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
         self.assertEqual(duplicate["historical_pcm16_upload_matches"],2)
         self.assertEqual(duplicate["final_state_unoverwritten_pcm16_matches"],0)
 
+    def test_research_historical_sample_overwrite_cannot_certify_final_ram(self):
+        # Exactly the independent Codex counterexample: same physical
+        # word overwritten AFTER successful full original sample upload.
+        # Historical occurrence remains one, final unoverwritten
+        # placement MUST be NO-GO even if overwritten with same value.
+        for replacement in (0xDEAD, self.sample_words[0]):
+            trace=self.trace+[
+                "45 E22 0036","45 A20 0400","45 A22 0020",
+                "46 E22 003A",f"47 A20 {replacement:04X}",
+            ]
+            evidence=probe.scan_capture(trace,self.expected)
+            self.assertEqual(evidence["historical_pcm16_upload_matches"],1)
+            self.assertEqual(evidence["direct_pcm16_upload_matches"],1)
+            self.assertEqual(evidence["final_state_unoverwritten_pcm16_matches"],0)
+            self.assertEqual(evidence["selected_sample_overlapped_ram_words"],1)
+            self.assertEqual(evidence["physical_ram_word_rewrite_events"],1)
+            self.assertIsNone(evidence["first_final_state_emu8000_word_address"])
+            with tempfile.TemporaryDirectory() as td:
+                p=Path(td)
+                (p/"source.sf2").write_bytes(self.sf2)
+                (p/"overwrite.trace").write_text(
+                    "\n".join(trace)+"\n",encoding="ascii")
+                with self.assertRaisesRegex(ValueError,"overwritten or overlapped"):
+                    probe.analyze(p/"overwrite.trace",p/"source.sf2",0)
+
+    def test_research_trailing_incomplete_smalw_rejected_by_both_scanners(self):
+        # Original Codex case 2. A historical full match does not
+        # excuse a dangling pointer low half at capture EOF.
+        partial=self.trace+["50 E22 0036","50 A20 1234"]
+        with self.assertRaisesRegex(ValueError,"incomplete original SMALW"):
+            probe.scan_capture(partial,self.expected)
+        with self.assertRaisesRegex(ValueError,"trailing partial address"):
+            list(probe.filter_original_ram_upload_port_writes(partial))
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)
+            (p/"source.sf2").write_bytes(self.sf2)
+            (p/"partial.trace").write_text(
+                "\n".join(partial)+"\n",encoding="ascii")
+            with self.assertRaisesRegex(ValueError,"incomplete original SMALW"):
+                probe.analyze(p/"partial.trace",p/"source.sf2",0)
+
+    def test_research_odd_byte_hit_does_not_skip_aligned_second_byte(self):
+        # Original Codex 32-byte repeat counterexample: byte matches
+        # at offsets 1,2,3, ONLY offset2 is aligned to 16-bit words.
+        expected=b"\x11"*32
+        raw=b"\0"+b"\x11"*34+b"\0"
+        words=struct.unpack("<18H",raw)
+        trace=[
+            "0 E22 0036","0 A20 0400","0 A22 0020","0 E22 003A"
+        ]+[f"{1+i} A20 {word:04X}" for i,word in enumerate(words)]
+        evidence=probe.scan_capture(trace,expected)
+        self.assertEqual(evidence["direct_pcm16_upload_matches"],1)
+        self.assertEqual(evidence["first_match_emu8000_word_address"],0x200401)
+        self.assertEqual(evidence["final_state_unoverwritten_pcm16_matches"],1)
+        self.assertEqual(evidence["first_final_state_emu8000_word_address"],
+                         0x200401)
+
     def test_pointer_provenance_and_range_controls(self):
         bad=list(self.trace)
         bad[10]="4 A22 0001"  # below installed RAM base
