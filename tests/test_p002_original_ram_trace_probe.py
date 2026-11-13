@@ -89,6 +89,48 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
             self.assertEqual(report["source_guest_win95_SBAWE_VXD_provenance"],
                              "MUST_BE_VERIFIED_SEPARATELY")
 
+    def test_literal_guest_RAM_port_export_without_synthesis(self):
+        filtered=list(probe.filter_original_ram_upload_port_writes(
+            self.trace))
+        # 2 exact SMALW setters (3 writes each), 2 exact SMLD
+        # selectors, 41 exact source-word writes. Other voice/FX
+        # writes and read events must not leak into the RAM replay.
+        self.assertEqual(len(filtered),6+2+41)
+        self.assertEqual(filtered[:5],[
+            (2,0xE22,0x36),(2,0xA20,0x0100),
+            (2,0xA22,0x0020),(3,0xE22,0x3A),
+            (3,0xA20,0x0011)])
+        self.assertEqual(filtered[5:9],[
+            (4,0xE22,0x36),(4,0xA20,0x0400),
+            (4,0xA22,0x0020),(5,0xE22,0x3A)])
+        self.assertEqual(filtered[-1][1:],(0xA20,self.sample_words[-1]))
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            source=root/"source-original-guest.trace"
+            result=root/"private-upload-filtered.trace"
+            source.write_text("\n".join(self.trace)+"\n",encoding="ascii")
+            written=probe.write_private_upload_replay(source,result)
+            self.assertEqual(written,len(filtered))
+            output=result.read_text(encoding="ascii")
+            self.assertIn("PROVENANCE REQUIRES INDEPENDENT",output)
+            self.assertIn("4 A20 0400",output)
+            self.assertNotIn("0 E22 0001",output)
+            self.assertNotIn("R 1 E20 0000",output)
+            with self.assertRaisesRegex(ValueError,"overwrite"):
+                probe.write_private_upload_replay(source,result)
+
+    def test_guest_port_export_refuses_incomplete_or_outside_DRAM(self):
+        truncated=[x for x in self.trace if x!="4 A22 0020"]
+        with self.assertRaisesRegex(ValueError,"SMALW pointer"):
+            list(probe.filter_original_ram_upload_port_writes(truncated))
+        illegal=list(self.trace)
+        illegal[10]="4 A22 00FF"
+        with self.assertRaisesRegex(ValueError,"outside installed"):
+            list(probe.filter_original_ram_upload_port_writes(illegal))
+        with self.assertRaisesRegex(ValueError,"no complete"):
+            list(probe.filter_original_ram_upload_port_writes(
+                ["0 E22 0001","0 A20 00FE"]))
+
     def test_pcm_bitflip_and_wrong_endianness_rejected(self):
         mutant=list(self.trace)
         mutant[16]=(mutant[16][:-4]+
