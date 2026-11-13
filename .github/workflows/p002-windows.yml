@@ -24,6 +24,7 @@ on:
       - 'tests/p002_native_sf2_full_noteon.cpp'
       - 'tests/p002_native_sf2_original_targets.cpp'
       - 'tests/p002_native_sf2_vxd_state_snapshot.cpp'
+      - 'tests/p002_native_sf2_live_allocator.cpp'
       - 'src/creative_compat/CreativeSf2RomBankNoteCompiler.cpp'
       - 'tests/p002_native_sf2_source_release.cpp'
       - 'tests/p002_native_sf2_dry_pcm.cpp'
@@ -81,7 +82,7 @@ jobs:
         run: |
           cmake -S . -B build-p002 -G 'Visual Studio 17 2022' -A x64
           if ($LASTEXITCODE -ne 0) { throw 'P002 configure or pinned original DSP verification failed' }
-          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_p002_vxd_voice_termination_test awe64_p002_real_chip_port_bridge_test awe64_p002_vxd_sample_address_test awe64_p002_vxd_note_release_test awe64_p002_vxd_voice_envelope_prelude_test awe64_p002_sf2_voice_descriptor_test awe64_p002_sf2_note_start_ports_test awe64_p002_sf2_note_continuation_test awe64_p002_sf2_final_note_ports_test awe64_p002_sf2_full_noteon_test awe64_p002_sf2_original_targets_test awe64_p002_sf2_vxd_state_snapshot_test awe64_p002_sf2_source_note_release_test awe64_p002_original_sf2_dry_pcm_test awe64_p002_sf2_note_start_prefix_oracle awe64_p002_sf2_descriptor_oracle awe64_chip_contract awe64_direct_fork_fixture awe64_replay
+          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_p002_vxd_voice_termination_test awe64_p002_real_chip_port_bridge_test awe64_p002_vxd_sample_address_test awe64_p002_vxd_note_release_test awe64_p002_vxd_voice_envelope_prelude_test awe64_p002_sf2_voice_descriptor_test awe64_p002_sf2_note_start_ports_test awe64_p002_sf2_note_continuation_test awe64_p002_sf2_final_note_ports_test awe64_p002_sf2_full_noteon_test awe64_p002_sf2_original_targets_test awe64_p002_sf2_vxd_state_snapshot_test awe64_p002_sf2_live_vxd_allocator_test awe64_p002_sf2_source_note_release_test awe64_p002_original_sf2_dry_pcm_test awe64_p002_sf2_note_start_prefix_oracle awe64_p002_sf2_descriptor_oracle awe64_chip_contract awe64_direct_fork_fixture awe64_replay
           if ($LASTEXITCODE -ne 0) { throw 'P002 actual Windows x64 test binaries failed to compile' }
           ctest --test-dir build-p002 -C Release --output-on-failure -V
           if ($LASTEXITCODE -ne 0) { throw 'P001 regression or P002 WinMM contract failed' }
