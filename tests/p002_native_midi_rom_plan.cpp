@@ -1,10 +1,15 @@
 #include "CreativeMidiRomPlan.h"
 #include "CreativeSf2VoiceDescriptor.h"
 #include "CreativeSf2RomBankNoteCompiler.h"
+#include "Chip.h"
 #include <algorithm>
 #include <vector>
 #include <string_view>
 #include <iostream>
+#include <array>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
 using namespace awe64::creative;
 using Bytes=std::vector<std::uint8_t>;
 #define CHECK(c) do{if(!(c)){std::cerr<<"P002_ROM_PLAN_FAIL line="<<__LINE__<<" "<<#c<<"\n";return 1;}}while(0)
@@ -224,6 +229,62 @@ int main(){
     CHECK(!candidateOriginalSf2CompileRomBankNote(
         sbk,*on,midi,0u,524288u,verifiedSyntheticResources,conditions,
         verifiedSyntheticVxd,allocated,true)); // format1 ≠ format2
+    // First COMPLETE native ROM SF2 bank → SF2 descriptor → live
+    // original HW-based physical allocator → source-ordered 61 OUTs →
+    // genuine unchanged EMU8000. The chip sample ROM is synthetic and
+    // discarded immediately; no Creative bytes are uploaded to GitHub.
+    namespace fs=std::filesystem;
+    const fs::path syntheticRom=fs::temp_directory_path()/
+        "125a-p002-source-bank-live-mono-test.raw";
+    {
+        std::ofstream f(syntheticRom,std::ios::binary|std::ios::trunc);
+        CHECK(f);
+        for(std::uint32_t i=0;i<524288u;++i) {
+            const std::int16_t sample=i>=5u && i<25u
+                ?static_cast<std::int16_t>((static_cast<int>(i)-15)*1100)
+                :0;
+            const auto v=static_cast<std::uint16_t>(sample);
+            f.put(static_cast<char>(v));
+            f.put(static_cast<char>(v>>8u));
+        }
+        CHECK(f);
+    }
+    awe64::Chip liveChip{};
+    std::string chipError;
+    CHECK(liveChip.open(syntheticRom,chipError));
+    std::error_code cleanup;
+    fs::remove(syntheticRom,cleanup);
+    originalState[6]=30u; // original VXD 30 music voices
+    originalState[0x18u]=30u; // validated original allocation mode count
+    for(unsigned i=0;i<30u;++i) {
+        const auto at=kOriginalVxdVoiceRowStart+
+                      i*kOriginalVxdVoiceRowStride;
+        originalState[at]=0xfeu;originalState[at+1u]=0x0fu;
+        liveChip.writePort(0xe22u,static_cast<std::uint16_t>(
+            (3u<<5u)|i)); // original VTFT DATA0
+        liveChip.writePort(0x620u,0u);
+        liveChip.writePort(0x622u,0u);
+    }
+    const auto live=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
+        liveChip,sf2,*on,midi,0u,524288u,verifiedSyntheticResources,
+        conditions,verifiedSyntheticVxd,true);
+    CHECK(live && live->original_compilation.voice_count==1u &&
+          live->original_compilation.typed_original_outs.count==61u &&
+          live->original_selection.physical_voice==0u);
+    const auto* originalChipState=liveChip.rawForContractTesting();
+    CHECK(originalChipState && originalChipState->voice[0].ip==0xe000u);
+    // Replaying the same initialized source state without a completed
+    // NoteOff would select another *idle* physical voice; the controller
+    // owning the VXD state must commit after successful source NoteOn.
+    // This test checks the result's AFTER state, never inventing a
+    // replacement state for a busy original voice.
+    const auto afterRow=kOriginalVxdVoiceRowStart;
+    CHECK(live->original_compilation.vxd_state_after_noteon[afterRow]==60u);
+    CHECK(live->original_compilation.vxd_state_after_noteon[afterRow+1u]==2u);
+    const auto wrongLive=candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
+        liveChip,sbk,*on,midi,0u,524288u,verifiedSyntheticResources,
+        conditions,verifiedSyntheticVxd,true);
+    CHECK(!wrongLive); // original SF1 and ROM SF2 are distinct paths
     const auto transposedIp=candidateOriginalSf2InitialIpFromDescriptor(
         *started,61u,0,0);
     CHECK(transposedIp && *transposedIp==0xe155u);

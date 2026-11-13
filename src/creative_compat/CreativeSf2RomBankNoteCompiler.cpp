@@ -109,4 +109,44 @@ candidateOriginalSf2CompileRomBankNote(
     result.typed_original_outs=*ports;
     return result;
 }
+std::optional<OriginalSf2ExecutedLiveIdleMonoNote>
+candidateOriginalSf2StartSingleRomBankLayerOnLiveChip(
+    awe64::Chip& chip,
+    const std::span<const std::uint8_t> bank,
+    const MidiMessage& midi,
+    const MidiState& midi_state,
+    const std::uint16_t bank_number,
+    const std::size_t rom_word_count,
+    const OriginalCreativeSf2DriverResources& resources,
+    const OriginalSf2VoiceStartConditions& start,
+    const OriginalSf2VerifiedVxdDeviceSnapshot& state,
+    const bool verified) noexcept {
+    if(!chip.ready() || !verified)return std::nullopt;
+    const auto inventory=prepareOriginalCreativeRomNote(
+        midi,midi_state,bank,bank_number,rom_word_count);
+    if(!inventory || inventory->count!=1u ||
+       inventory->layers[0].metadata.source_format!=
+           OriginalCreativeBankFormat::Format2Sf2)
+        return std::nullopt;
+    const auto selected=candidateOriginalSf2LiveVxdMonoVoice(
+        chip,state.original_state_bytes,
+        state.independently_verified_original_vxd_snapshot);
+    if(!selected || selected->reason!=
+            OriginalWin95MonoSelectionReason::CompletelyIdle)
+        return std::nullopt; // no original busy-voice-steal without proof
+    const std::array<std::uint8_t,1> assigned{{selected->physical_voice}};
+    auto compiled=candidateOriginalSf2CompileRomBankNote(
+        bank,midi,midi_state,bank_number,rom_word_count,
+        resources,start,state,assigned,true);
+    if(!compiled || compiled->voice_count!=1u)
+        return std::nullopt;
+    auto derived=state;
+    derived.original_state_bytes=compiled->vxd_state_after_noteon;
+    // The existing production port bridge FULLY preflights all 61
+    // source-ordered typed OUTs BEFORE executing on the real chip.
+    if(!applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+           chip,compiled->selectedVoices(),derived))
+        return std::nullopt;
+    return OriginalSf2ExecutedLiveIdleMonoNote{*selected,*compiled};
+}
 } // namespace awe64::creative

@@ -491,7 +491,9 @@ target_include_directories(awe64_p002_sf2_rom_bank_note_compiler
 target_compile_features(awe64_p002_sf2_rom_bank_note_compiler PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_rom_bank_note_compiler
     PUBLIC awe64_p002_sf2_voice_descriptor
-           awe64_p002_sf2_vxd_state_snapshot awe64_p002_rom_note_plan)
+           awe64_p002_sf2_vxd_state_snapshot
+           awe64_p002_sf2_live_vxd_allocator
+           awe64_p002_rom_note_plan)
 target_link_libraries(awe64_p002_rom_note_plan_test
     PRIVATE awe64_p002_sf2_rom_bank_note_compiler)
 # First actual non-silent DIGITAL PCM rendered from ORIGINAL P002 SF2
