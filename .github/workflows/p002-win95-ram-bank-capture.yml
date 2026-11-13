@@ -92,5 +92,9 @@ jobs:
             win95-ram/P002RAM.EXE
             win95-ram/P002RAM.sha256
             win95-ram/pe-headers.txt
+            tools/p002_arm_private_win95_autorun.py
+            tools/p002_stage_original_win95_ram_probe.py
+            tools/p002_extract_original_win95_ram_log_fat16.py
+            tools/p002_verify_original_win95_ram_guest_log.py
           retention-days: 3
           if-no-files-found: error
