@@ -75,10 +75,23 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002BankEnabled_=false;
         p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
+        preCardPcm16DiagnosticTap_=false;
+        originalGoldCard_.reset(); // exact original CT1745 reset on the non-RT thread
         chip_.close(); // non-RT activation thread only
         return kResultOk;
     }
     if (active_) return kResultOk;
+    // The original 86Box AWE64 Gold CT1745 mixer starts at the source
+    // reset registers (FM/master 0xF8, bass/treble 0x80). Reverb/chorus,
+    // INIT EQ and calibrated -1.1dB are ALREADY in the EMU8000 chip
+    // and are deliberately never duplicated.
+    originalGoldCard_.reset();
+    // Preserve the unchanged pre-card AWE32_WAV/PCM16 reference path
+    // only when an independent private native regression host requests
+    // it. Ordinary instrument output now follows the original AWE64
+    // Gold card mixer and fork FLOAT wavetable sink.
+    const char* rawTap=std::getenv("AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC");
+    preCardPcm16DiagnosticTap_=(rawTap && rawTap[0]=='1' && rawTap[1]=='\0');
     // P001 temporary private ROM location. Deliberately no ROM embedded in VST3.
     const char* path = std::getenv("AWE64_P001_ROM_PATH");
     if (!path || !*path) {
@@ -275,8 +288,24 @@ void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
         const auto count=std::min<int32>(980,end-begin);
         chip_.render(scratch_.data(),static_cast<size_t>(count));
         for(int32 i=0;i<count;++i) {
-            left[begin+i]=digitalPcm16(scratch_[2u*size_t(i)]);
-            right[begin+i]=digitalPcm16(scratch_[2u*size_t(i)+1]);
+            const auto preL=scratch_[2u*size_t(i)];
+            const auto preR=scratch_[2u*size_t(i)+1];
+            if(preCardPcm16DiagnosticTap_) {
+                // Historical pre-CT1745 chip PCM diagnostic; remains
+                // byte-identical to all previous P001/P002 oracle tests.
+                left[begin+i]=digitalPcm16(preL);
+                right[begin+i]=digitalPcm16(preR);
+            }else {
+                // Independent ORIGINAL SB AWE64 Gold downstream stage.
+                // Do not clip to PCM16: 86Box sound.c uses FLOAT /32768.
+                const auto card=originalGoldCard_.process(preL,preR);
+                left[begin+i]=
+                    awe64::card::OriginalCt1745WavetableMixer::floatSink(
+                        card.left);
+                right[begin+i]=
+                    awe64::card::OriginalCt1745WavetableMixer::floatSink(
+                        card.right);
+            }
         }
         begin+=count;
     }
