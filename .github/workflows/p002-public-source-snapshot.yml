@@ -4,7 +4,7 @@ on:
     branches: [develop/p002-creative-register-oracle]
     paths:
       - '.github/workflows/p002-public-source-snapshot.yml'
-      - 'src/creative_compat/CreativeVxdSampleAddress.*'
+      - 'src/creative_compat/**'
       - 'tests/p002_native_vxd_sample_address.cpp'
       - 'tools/p002_verify_original_ram_note_geometry.py'
       - 'tests/test_p002_verify_original_ram_note_geometry.py'
