@@ -65,6 +65,8 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
         processing_=false; active_=false; playingKey_=-1;
+        p002SecondPlayingKey_=-1;
+        p002DiagnosticSecondNoteConsumed_=false;
         p002DiagnosticEnabled_=false;
         p002DiagnosticNoteConsumed_=false;
         chip_.close(); // non-RT activation thread only
@@ -98,7 +100,9 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002DiagnosticEnabled_=true;
     }
     active_=true; playingKey_=-1;
+    p002SecondPlayingKey_=-1;
     p002DiagnosticNoteConsumed_=false;
+    p002DiagnosticSecondNoteConsumed_=false;
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::setProcessing(TBool state) {
@@ -123,18 +127,38 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
         // multi-key/polyphonic allocator or production release path.
         // MIDI note value and velocity are fixed by independently
         // captured ORIGINAL SBAWE.VXD 148-byte voice descriptors.
-        if(p002DiagnosticNoteConsumed_)return; // no invented polyphonic allocator
-        const auto expected=static_cast<int>(p002Fixture_.velocity);
         const auto incoming=static_cast<int>(velocity*127.f+0.5f);
-        if(channel!=p002Fixture_.channel || pitch!=p002Fixture_.key ||
-           incoming!=expected) return;
-        auto notes=p002Fixture_.selectedVoices();
+        if(channel!=p002Fixture_.channel)return;
+        // Exact private, source-validated NoteOn slots. These are
+        // intentionally NOT dynamically allocated or silently repeated;
+        // each physical voice is bound to one independently preflighted
+        // original descriptor and one MIDI key/velocity.
+        const bool first=pitch==p002Fixture_.key &&
+                         incoming==p002Fixture_.velocity &&
+                         !p002DiagnosticNoteConsumed_;
+        const bool second=p002Fixture_.two_note_diagnostic &&
+                          pitch==p002Fixture_.second_key &&
+                          incoming==p002Fixture_.second_velocity &&
+                          !p002DiagnosticSecondNoteConsumed_ &&
+                          p002DiagnosticNoteConsumed_;
+        if(!first && !second)return;
+        const auto notes=first?p002Fixture_.selectedVoices():
+                               p002Fixture_.secondSelectedVoices();
+        if(second &&
+           !awe64::creative::candidateOriginalSf2StoreNoteOnSourceReleaseState(
+               p002Fixture_.original_device_state,true,notes))
+            return;
         if(!awe64::creative::candidateOriginalSf2WriteInitialIpToVxdState(
                p002Fixture_.original_device_state,true,notes))return;
         if(!awe64::creative::applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
                chip_,notes,p002Fixture_.sourceState()))return;
-        playingKey_=pitch;
-        p002DiagnosticNoteConsumed_=true;
+        if(first) {
+            playingKey_=pitch;
+            p002DiagnosticNoteConsumed_=true;
+        }else {
+            p002SecondPlayingKey_=pitch;
+            p002DiagnosticSecondNoteConsumed_=true;
+        }
         return;
     }
     // Fixed ROM voice with pitch-tracked IP. Creative velocity and bank
@@ -165,9 +189,15 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     playingKey_=pitch;
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
-    if (active_ && playingKey_==pitch) {
+    if (active_ && (playingKey_==pitch ||
+                       (p002DiagnosticEnabled_ &&
+                        p002SecondPlayingKey_==pitch))) {
         if(p002DiagnosticEnabled_) {
             if(channel!=p002Fixture_.channel)return;
+            const bool second=p002Fixture_.two_note_diagnostic &&
+                p002SecondPlayingKey_==pitch;
+            const auto notes=second?p002Fixture_.secondSelectedVoices():
+                                    p002Fixture_.selectedVoices();
             // P002 private fixture v2: exact original VXD LCOD+0x6072
             // note marker, sustain, encoded release bytes and conditional
             // readback of the genuine chip's CSL/PSST. Version 1 still
@@ -176,14 +206,15 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
                 const auto executed=
                     awe64::creative::applyOriginalSf2MidiNoteOffFromVxdState(
                         chip_,p002Fixture_.original_device_state,
-                        p002Fixture_.selectedVoices(),
+                        notes,
                         static_cast<std::uint8_t>(channel),
                         static_cast<std::uint8_t>(pitch),true);
                 if(!executed)return;
             }
             // Source-original sustain-deferred NoteOff intentionally does
             // not stop playback. CC64 pedal-release state is still OPEN.
-            playingKey_=-1;
+            if(second)p002SecondPlayingKey_=-1;
+            else playingKey_=-1;
             return;
         }
         // On this original chip, bit 0x0080 DISABLES the envelope
@@ -203,9 +234,21 @@ bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
     // deferred note marker low0xFF -> LCOD+0x60E4 envelope release.
     // Uses the already authenticated original assigned physical voice
     // rows; no heap, file access, guessed voice stealing or own DSP.
+    std::array<awe64::creative::OriginalSf2VxdSnapshotVoice,
+               2u*awe64::creative::kOriginalCreativeMaxNoteStartDescriptors>
+        assigned{};
+    std::size_t count=0;
+    for(const auto& note:p002Fixture_.selectedVoices())
+        assigned[count++]=note;
+    if(p002Fixture_.two_note_diagnostic &&
+       p002DiagnosticSecondNoteConsumed_) {
+        for(const auto& note:p002Fixture_.secondSelectedVoices())
+            assigned[count++]=note;
+    }
     return awe64::creative::applyOriginalSf2MidiCc64FromVxdState(
         chip_,p002Fixture_.original_device_state,
-        p002Fixture_.selectedVoices(),p002Fixture_.channel,value,true)
+        std::span<const awe64::creative::OriginalSf2VxdSnapshotVoice>(
+            assigned.data(),count),p002Fixture_.channel,value,true)
         .has_value();
 }
 void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
