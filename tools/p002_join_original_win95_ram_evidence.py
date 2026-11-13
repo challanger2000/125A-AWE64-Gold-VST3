@@ -97,7 +97,11 @@ def analyze_join(private_clone: Path, private_sf2: Path,
             "Original guest bank differs from source trace bank")
     require(source["original_chip_trace_evidence"][
         "direct_pcm16_upload_matches"]==1,
-        "Source sample physical RAM address ambiguous or missing")
+        "Source sample historical physical RAM address ambiguous or missing")
+    require(source["original_chip_trace_evidence"][
+        "final_state_unoverwritten_pcm16_matches"]==1,
+        "Source sample RAM final state overlapped or overwritten: "
+        "no original hardware playback-state evidence")
     payload={
         "status": "P002_PRIVATE_GUEST_AND_SOURCE_RAM_CAPTURE_JOIN_CANDIDATE",
         "original_driver_API_guest_log": guest,
@@ -109,6 +113,8 @@ def analyze_join(private_clone: Path, private_sf2: Path,
         "actual_original_guest_log_fat16_extracted": True,
         "captured_source_sf2_physical_RAM_word_base":
             source["first_matched_captured_emu8000_word_address"],
+        "captured_source_sf2_RAM_final_state_no_overlap_candidate": True,
+        "source_historical_pcm_match_distinguished_from_final_RAM_state": True,
         "guest_original_win95_driver_vxd_provenance":
             "REQUIRES_INDEPENDENT_VALIDATION",
         "source_bank_load_call_vs_EMU8000_clock_correlation":
