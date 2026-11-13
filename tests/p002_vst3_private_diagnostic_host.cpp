@@ -499,7 +499,8 @@ void bankChunk(PrivateBytes& out,std::string_view tag,
 PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false,
                                              unsigned matchingZones=1u,
                                              bool invalidLastZone=false,
-                                             bool secondProgram=false) {
+                                             bool secondProgram=false,
+                                             bool mixedRamAfterRom=false) {
     require(matchingZones>=1u && matchingZones<=7u &&
             (!secondProgram || matchingZones==1u),
             "synthetic SF2 layer count/program test invalid");
@@ -551,6 +552,17 @@ PrivateBytes buildPrivateSyntheticRomSf2Bank(bool ramInsteadOfRom=false,
     bankW32(shdr,44100u);
     shdr.push_back(60u);shdr.push_back(0u);
     bankW16(shdr,0u);bankW16(shdr,ramInsteadOfRom?1u:0x8001u);
+    if(mixedRamAfterRom) {
+        // Original shdr[0]-only guard incorrectly admitted this
+        // mixed source, silently aliasing second RAM word addresses
+        // into the immutable Creative ROM range.
+        bankName(shdr,"RAM-SECOND");
+        bankW32(shdr,0xfeb9u);bankW32(shdr,0x152feu);
+        bankW32(shdr,0x152bbu);bankW32(shdr,0x152fau);
+        bankW32(shdr,44100u);
+        shdr.push_back(60u);shdr.push_back(0u);
+        bankW16(shdr,0u);bankW16(shdr,1u);
+    }
     bankName(shdr,"EOS");
     for(int j=0;j<5;++j)bankW32(shdr,0u);
     shdr.push_back(60u);shdr.push_back(0u);
@@ -806,6 +818,8 @@ int wmain(int argc,wchar_t** argv){
     sf2BankPath+=L".private-rom-sf2";
     auto ramSf2Path=fixture;
     ramSf2Path+=L".private-ram-sf2";
+    auto mixedSf2Path=fixture;
+    mixedSf2Path+=L".private-rom-first-ram-second";
     auto layeredSf2Path=fixture;
     layeredSf2Path+=L".private-three-zone-rom-sf2";
     auto sixZoneSf2Path=fixture;
@@ -840,6 +854,9 @@ int wmain(int argc,wchar_t** argv){
                                  buildPrivateSyntheticRomSf2Bank());
         writePrivateResearchFile(ramSf2Path,
                                  buildPrivateSyntheticRomSf2Bank(true));
+        writePrivateResearchFile(mixedSf2Path,
+                                 buildPrivateSyntheticRomSf2Bank(
+                                     false,1u,false,false,true));
         writePrivateResearchFile(layeredSf2Path,
                                  buildPrivateSyntheticRomSf2Bank(false,3u));
         writePrivateResearchFile(sixZoneSf2Path,
@@ -1048,6 +1065,10 @@ int wmain(int argc,wchar_t** argv){
                            ramSf2Path.c_str())==0,
                 "select RAM-sample source negative control");
         {Instance unsupportedRam(factory,false);}
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           mixedSf2Path.c_str())==0,
+                "select mixed ROM-first RAM-second SoundFont");
+        {Instance mixedBankRejectedBeforeActivation(factory,false);}
         // This fully formed SDTA waveform is not authorized to play
         // from fake ROM: original Win95 RAM sample placement/upload
         // provenance has not been validated. Refuse at activation.
@@ -1151,6 +1172,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::filesystem::remove(sf2BankPath,ec);
         std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(mixedSf2Path,ec);
         std::filesystem::remove(layeredSf2Path,ec);
         std::filesystem::remove(sixZoneSf2Path,ec);
         std::filesystem::remove(sevenZoneSf2Path,ec);
@@ -1187,6 +1209,7 @@ int wmain(int argc,wchar_t** argv){
                  <<" private_VXD_source_identity_mutation_rejected=TRUE"
                  <<" unsupported_RAM_SF2_bank_fail_closed=TRUE"
                  <<" genuine_RAM_SF2_smpl_rejected_at_activation=TRUE"
+                 <<" mixed_ROM_first_RAM_later_rejected_at_activation=TRUE"
                  <<" original_three_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_six_zone_ROM_SF2_vst3_PCM=TRUE"
                  <<" original_seventh_zone_cap_and_bad_third_fail_closed=TRUE"
@@ -1223,6 +1246,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(duplicateExtraVoiceFixture,ec);
         std::filesystem::remove(sf2BankPath,ec);
         std::filesystem::remove(ramSf2Path,ec);
+        std::filesystem::remove(mixedSf2Path,ec);
         std::filesystem::remove(layeredSf2Path,ec);
         std::filesystem::remove(sixZoneSf2Path,ec);
         std::filesystem::remove(sevenZoneSf2Path,ec);
