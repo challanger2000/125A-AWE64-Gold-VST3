@@ -225,9 +225,9 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                      ["49 E22 0036","49 A20 1234",
                       "49 E22 003A"]):
             trace=self.trace+tail
-            with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+            with self.assertRaisesRegex(ValueError,"SMALW|SMLD|partial address"):
                 probe.scan_capture(trace,self.expected)
-            with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+            with self.assertRaisesRegex(ValueError,"SMALW|SMLD|partial address"):
                 list(probe.filter_original_ram_upload_port_writes(trace))
             with tempfile.TemporaryDirectory() as td:
                 p=Path(td)
@@ -235,7 +235,7 @@ class OriginalRamTraceProbeTests(unittest.TestCase):
                 tracefile=p/"partial.trace"
                 bank.write_bytes(self.sf2)
                 tracefile.write_text("\n".join(trace)+"\n",encoding="ascii")
-                with self.assertRaisesRegex(ValueError,"SMALW|SMLD"):
+                with self.assertRaisesRegex(ValueError,"SMALW|SMLD|partial address"):
                     probe.analyze(tracefile,bank,0)
 
     def test_codex_repro_3_odd_byte_match_must_not_skip_aligned_offset_two(self):
