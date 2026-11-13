@@ -55,6 +55,7 @@ on:
       - 'src/card_mixer/OriginalCt1745WavetableMixer.h'
       - 'tests/p002_gold_ct1745_adapter_contract.cpp'
       - 'tests/p002_fork_awe64_wavetable_mixer_path.c'
+      - 'tests/p002_gold_ct1745_fork_differential.cpp'
       - 'tests/p001_vst3_host.cpp'
       - 'tests/p001_vst3_rt_host.cpp'
       - 'tests/p002_native_sbk_layers.cpp'
@@ -88,6 +89,25 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  original_fork_awe64_gold_wavetable_ct1745_differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Compare new AWE64 Gold card mixer against ACTUAL original 86Box snd_sb.c and filters.h
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-gold-source -G Ninja -DCMAKE_BUILD_TYPE=Release -DAWE64_BUILD_P001_VST3=OFF
+          cmake --build build-gold-source --parallel 4 --target awe64_p002_fork_wavetable_mixer_path awe64_p002_gold_ct1745_fork_differential awe64_p002_ct1745_wavetable_contract
+          ctest --test-dir build-gold-source -R 'p002_(pinned_fork_awe64_gold_wavetable_mixer_path|original_fork_ct1745_full_filter_differential|original_awe64_gold_ct1745_post_chip_vectors)' --output-on-failure -V
+          echo 'P002_PINNED_ORIGINAL_86BOX_CT1745_C_VS_VST3_CXX_1TO1_DIFFERENTIAL_PASS'
+      - name: Run three independently reported RAM SMALW/SMLD trace counterexample regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_p002_original_ram_trace_probe.py' -v
+          echo 'P002_ORIGINAL_RAM_TRACE_THREE_RESEARCH_COUNTEREXAMPLES_FIXED_PASS'
   creative-winmm-and-original-driver-oracle-contract:
     runs-on: windows-2022
     timeout-minutes: 20
