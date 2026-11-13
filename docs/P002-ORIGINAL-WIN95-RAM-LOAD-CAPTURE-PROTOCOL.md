@@ -385,6 +385,64 @@ RAM-bank playback, and source-original vs VST3 **sample-exact DRY PCM**
 are **not proved**. No user-facing RAM bank support or final GUI/ASIO
 approval until these gates pass. PR #4 remains DRAFT.
 
+## 2026-11-13 native VST3 activation: captured original RAM bank, research-only
+
+The Windows VST3 has an **explicit opt-in private RAM preload mode**
+separate from the previous ROM-only source bank and the fixed P001
+AWETEST tone. Nothing changes in the SHA-pinned turican0 86Box EMU8000
+core, DSP, ROM or actual Creative driver files.
+
+1. `AWE64_P001_ROM_PATH`: privately held SHA-verified original 1-MiB
+   Creative `awe32.raw` as usual.
+2. `AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2`: private original
+   `Synth 512 Bank.sf2` (**555,754 bytes**; SHA256
+   `d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b`).
+3. `AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS`: original filtered, ordered
+   `EMU8K_TRACE` SMALW/SMLD capture (**9,422,232 bytes**, **523,467
+   actual port events**; SHA256
+   `fd782a9cad8a05dbe1e6e9167d8c77288fc2a24af0c7736a8501dac1afd4f84d`).
+4. `AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16`: the **actual original
+   Creative driver final sample RAM** (**260,921 signed PCM16 words**,
+   **521,842 bytes**, physically at word address `0x200010`);
+   SHA256 `ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470`.
+
+Every original file is independently length- and SHA256-validated with
+Windows BCrypt **before chip mutation**. The native SF2 reader must
+accept all **83 RAM-mono samples**, including the seven
+`loopEnd=sampleEnd+2` records whose two guard words are present and
+zero. The replay parses the **actual captured** port timeline; the
+native independent final-state gate allows the **255 genuinely observed
+sample physical RAM word overwrites**, but **requires every** expected
+final word to have been physically written and exactly match the
+independently measured original final RAM. It rejects missing or
+altered original ports, false source bank identity, a one-bit wrong
+sample, missing full capture/provenance, or invalid port timing **before
+changing the chip**. It then writes those original captured ports to
+the **unmodified** EMU8000 on `setActive()` (not the audio thread)
+and verifies all 260,921 words directly against its physical memory.
+
+The native positive research code is
+`src/creative_compat/CreativeOriginalRamPortReplay.cpp` and
+`src/vst3/P002PrivateOriginalRamCapture.cpp`; C++ negative/positive
+source-shaped port tests live in
+`tests/p002_native_original_ram_port_replay.cpp`.
+
+**Crucial boundary**: This only preloads **authentic original RAM
+contents into the native VST3**, not a playable RAM-SF2 program.
+Until source-verified original Creative RAM **voice NoteOn/Off registers,
+bank selection, envelope/filter, timing and MIDI ownership** are
+reconstructed, the opt-in mode deliberately suppresses P001 ROM
+fallback notes. It does not output a synthetic substitute or claim
+original-vs-native DRY-PCM parity. No ASIO/Studio One test until
+the end with GUI. P002 remains DRAFT.
+
+The complete original three-file private sample/trace pack was
+generated and SHA256-checked locally and **never uploaded into public
+GitHub Actions**. Ordinary CI uses generated synthetic source-shaped
+RAM samples and port traces only. The real Windows VST3 preload of
+these private files requires a separate actual Windows host experiment
+before it can be declared tested.
+
 ## Explicit non-claims
 
 The Win95 binary compilation, 512-MiB FAT16 synthetic clone test, positive original-chip RAM readback using synthetic trace, or any manually asserted provenance flag do NOT establish historical Creative driver RAM placement or original guest PCM parity. No genuine original Win95 RAM/SF2 upload was executed in GitHub Actions. The P002 export still rejects real RAM-SF2 playback until guest-register and PCM equivalence is proven. No new DSP, guessed ROM-bank address, memory allocator or audio-thread I/O has been introduced.
