@@ -45,8 +45,9 @@ bool p003UploadValidatedMonoSf2PoolToOriginalChip(
     }
     const auto b=originalPool->whole_smpl_pcm_le16;
     for(std::size_t i=0;i<n;++i) {
-        const auto unsignedWord=std::uint16_t(b[i*2u]) |
-            (std::uint16_t(b[i*2u+1u])<<8u);
+        const std::uint16_t unsignedWord=static_cast<std::uint16_t>(
+            std::uint16_t(b[i*2u]) |
+            (std::uint16_t(b[i*2u+1u])<<8u));
         words[i]=std::bit_cast<std::int16_t>(unsignedWord);
     }
     if(!chip.uploadRam(base,words)) {
