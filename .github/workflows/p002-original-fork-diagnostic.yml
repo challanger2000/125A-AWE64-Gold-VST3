@@ -20,6 +20,23 @@ jobs:
           printf '%s  %s\n' '5d92ab7bc78ef971acfb776575987ec17c81386d90c3d144e46661a1649ffb6d' '86Box-AWE32-0.93-linux.tar.gz' | sha256sum --check --
           tar -tzf 86Box-AWE32-0.93-linux.tar.gz | head -30
           echo 'P002_PUBLIC_CALIBRATED_FORK_LINUX_BINARY_SHA_VERIFIED; NO_WIN95_OR_CREATIVE_DATA_ON_GITHUB'
+      - name: Bundle public runtime dependencies for isolated original-reference validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get -qq update
+          mkdir -p 86box-public-runtime
+          cd 86box-public-runtime
+          apt-get download libserialport0 libslirp0 librtmidi6
+          ls -lh *.deb
+          sha256sum *.deb > SHA256SUMS
+          echo 'P002_PUBLIC_DEPENDENCIES_ONLY_NO_WIN95_DATA'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-86Box-original-reference-runtime-libs
+          path: 86box-public-runtime/
+          retention-days: 1
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: P002-PUBLIC-calibrated-86Box-Linux-x86_64-only
