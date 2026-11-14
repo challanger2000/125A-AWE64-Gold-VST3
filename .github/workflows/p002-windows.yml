@@ -345,7 +345,9 @@ jobs:
             'tools/p002_verify_original_win95_ram_guest_log.py',
             'tools/p002_attest_private_win95_session.py',
             'tools/p002_extract_original_win95_ram_log_fat16.py',
-            'tools/p002_owner_launch_original_vm.py'
+            'tools/p002_owner_launch_original_vm.py',
+            'tools/p002_extract_original_vxd_sf2_resources.py',
+            'tools/p002_make_private_vst3_rom_bank_resources.py'
           ) -Destination p002-native-evidence-kit/
           Copy-Item docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md -Destination p002-native-evidence-kit/
           Copy-Item tools/START-P002-WIN95-CAPTURE.cmd -Destination p002-native-evidence-kit/
