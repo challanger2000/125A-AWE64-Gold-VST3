@@ -573,8 +573,12 @@ target_link_libraries(awe64_p002_sf2_full_noteon_chip
 # VTFT read -> DCYSUSV/VTFT stop -> next VTFT read, no speculative
 # E22 side effects. This links the actual chip writer to the existing
 # real EMU8000 CTest rather than creating a mock register helper.
-target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
-    PRIVATE awe64_p002_sf2_full_noteon_chip)
+# This CTest exists only in the Windows P001-VST3-enabled build; the
+# source-only original fork CT1745 differential must configure too.
+if(TARGET awe64_p002_sf2_live_vxd_allocator_test)
+    target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
+        PRIVATE awe64_p002_sf2_full_noteon_chip)
+endif()
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_full_noteon_chip)
 # Reconstruct the two remaining source x86 SF2 NoteOn target operands:
