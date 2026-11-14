@@ -122,6 +122,66 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SHA-pinned ORIGINAL"):
             self.run_join(synthetic=False)
 
+    def test_20261113_genuine_original_source_remains_accepted(self):
+        # The historical Creative guest trace/log and 138-second / cropped
+        # original WAV SHA digests were actually verified in PR #4.
+        # Never make a NEW boot mandatory for that SAME exact session.
+        true_sha={
+            self.sf2:combined.ORIGINAL_SF2_SHA256,
+            self.original_trace:combined.ORIGINAL_TRACE_SHA256,
+            self.log:combined.HISTORICAL_GUEST_LOG_SHA256,
+            self.source_wav:combined.HISTORICAL_PRIVATE_CROPPED_WAV_SHA256,
+        }
+        original_sha=combined._sha
+        def dynamic_sha(path):
+            return true_sha.get(path,original_sha(path))
+        source_report={
+            "converted_source_words_mismatched":0,
+            "converted_source_words_bit_equal":260921,
+            "source_window_overwritten_words":255,
+        }
+        with patch.object(combined,"_sha",side_effect=dynamic_sha), (
+            patch.object(combined.transfer,"analyze",
+                         return_value=source_report)), (
+            patch.object(combined,"verify_native_clock_manifest",
+                         return_value={"native_midi_clock_host_attested":True})), (
+            patch.object(combined.ports,"compare_windows",
+                         return_value={"sample_exact_16bit_port_writes":True})
+                         ) as compare_ports, (
+            patch.object(combined.pcm,"compare_pcm16_windows",
+                         return_value={"sample_exact":True})):
+            result=combined.analyze(
+                self.original_trace,self.sf2,self.log,self.source_wav,
+                self.native_ports,self.native_wav,
+                original_port_origin=100,native_port_origin=3,port_frames=2,
+                original_pcm_start=0,native_pcm_start=0,pcm_frames=1024,
+                native_manifest=self.root/"native-host-clock.json")
+            self.assertTrue(result["both_windows_bit_exact"])
+            self.assertEqual(result["original_win95_source_session"]["status"],
+                             "AUTHENTIC_ORIGINAL_WIN95_20261113_SHA_TRIPLE")
+            self.assertEqual(compare_ports.call_args.kwargs[
+                "expected_original_sha256"],combined.ORIGINAL_TRACE_SHA256)
+            self.assertFalse(result["real_Win95_vs_exported_VST3_release_approved"])
+
+    def test_historical_proof_cannot_be_reused_with_new_guest_log(self):
+        true_sha={
+            self.sf2:combined.ORIGINAL_SF2_SHA256,
+            self.original_trace:combined.ORIGINAL_TRACE_SHA256,
+            self.log:"0"*64,
+            self.source_wav:combined.HISTORICAL_PRIVATE_CROPPED_WAV_SHA256,
+        }
+        old_sha=combined._sha
+        with patch.object(combined,"_sha",
+                side_effect=lambda p:true_sha.get(p,old_sha(p))):
+            with self.assertRaisesRegex(ValueError,
+                    "historic capture"):
+                combined.analyze(
+                    self.original_trace,self.sf2,self.log,self.source_wav,
+                    self.native_ports,self.native_wav,
+                    original_port_origin=100,native_port_origin=3,port_frames=2,
+                    original_pcm_start=0,native_pcm_start=0,pcm_frames=1024,
+                    native_manifest=self.root/"native-host-clock.json")
+
     def test_real_source_guest_log_sha_gate_rejects_cross_session_log(self):
         # A real recorded bank/trace/WAV plus a different but seemingly
         # successful guest log may describe TWO different driver sessions.
