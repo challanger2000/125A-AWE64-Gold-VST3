@@ -177,4 +177,51 @@ bool p003UploadExactOriginalWin95ConvertedOwnerBank(
     return true;
 #endif
 }
+std::optional<OriginalSf2RamPhysicalNotePlan>
+p003CandidatePhysicalNoteFromVerifiedRawPool(
+    const awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& upload,const std::uint16_t bank,
+    const std::uint8_t program,const std::uint8_t key,
+    const std::uint8_t velocity) noexcept {
+    // Do not accidentally claim original transformed-owner RAM parity:
+    // that driver-transformed pool is NOT raw SF2 PCM.
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
+       !upload.entire_pool_readback_equal ||
+       upload.original_creative_source_transformation_verified ||
+       upload.source_pool_words==0u ||
+       upload.physical_word_base<awe64::kSampleRamBase+4u ||
+       upload.physical_word_base>=awe64::kFmReservedBase ||
+       upload.source_pool_words>
+           std::size_t(awe64::kFmReservedBase-upload.physical_word_base))
+        return std::nullopt;
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->sample_headers!=upload.sample_headers ||
+       pool->whole_smpl_pcm_le16.size()/2u!=upload.source_pool_words)
+        return std::nullopt;
+    const auto note=candidateOriginalSf2RamPhysicalNotePlan(
+        sf2,bank,program,key,velocity,upload.physical_word_base,
+        upload.source_pool_words,true);
+    const auto* raw=chip.rawForContractTesting();
+    if(!note || !raw || !raw->ram)return std::nullopt;
+    const auto bytes=pool->whole_smpl_pcm_le16;
+    const auto offset=std::size_t(upload.physical_word_base-
+                                  awe64::kSampleRamBase);
+    for(std::size_t voice=0;voice<note->count;++voice) {
+        const auto& v=note->layers[voice];
+        const auto start=std::size_t(v.physical_sample_start-
+                                    upload.physical_word_base);
+        const auto end=std::size_t(v.physical_sample_end-
+                                  upload.physical_word_base);
+        if(start>=end || end>upload.source_pool_words)
+            return std::nullopt;
+        for(std::size_t word=start;word<end;++word) {
+            const std::uint16_t original=static_cast<std::uint16_t>(
+                std::uint16_t(bytes[word*2u]) |
+                (std::uint16_t(bytes[word*2u+1u])<<8u));
+            if(std::bit_cast<std::uint16_t>(raw->ram[offset+word])!=original)
+                return std::nullopt;
+        }
+    }
+    return note;
+}
 } // namespace awe64::creative
