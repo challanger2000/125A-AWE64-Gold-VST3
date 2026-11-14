@@ -31,9 +31,31 @@ def sha(path:Path)->str:
             h.update(block)
     return h.hexdigest()
 
+def _has_original_voice_allocator_start(events:list[tuple[int,int,int]])->bool:
+    """Recognize one genuine LCOD allocator/stop prologue, not IFATN-only.
+
+    Original VXD source emits (E22,60|voice),(E22,A0|voice),
+    (A20,00FF),(E22,60|voice),(620,FFFF), followed by the
+    second half of the 32-bit register and the full note plan.
+    Presence is only a NECESSARY condition; matching OUTs/PCM still
+    cannot authenticate the original driver or clock origin.
+    """
+    for i in range(len(events)-4):
+        _,port,selector=events[i]
+        if port!=0xE22 or selector<0x60 or selector>0x7d:
+            continue
+        voice=selector&0x1f
+        expected=((0xE22,0xA0|voice),(0xA20,0x00ff),
+                  (0xE22,selector),(0x620,0xffff))
+        if all(events[i+j+1][1:] == pair
+               for j,pair in enumerate(expected)):
+            return True
+    return False
+
 def compare_windows(original:Path,native:Path,*,
                     original_origin:int,native_origin:int,
-                    frames:int,require_owner_original:bool=True)->dict:
+                    frames:int,require_owner_original:bool=True,
+                    require_complete_note_start:bool=False)->dict:
     original=original.resolve();native=native.resolve()
     if original==native:
         raise ValueError("Original and native trace must be distinct files")
@@ -81,6 +103,16 @@ def compare_windows(original:Path,native:Path,*,
         if not note_data:
             raise ValueError(f"{label} note window lacks a selected "
                              "non-RAM EMU8000 voice data write")
+    # A single IFATN selector/data pair or arbitrary chip write can
+    # match perfectly while starting ZERO physical voices. A COMPLETE
+    # note differential, unlike a diagnostic subwindow, requires the
+    # original five-write voice allocator/stop prologue on both sides.
+    if require_complete_note_start:
+        for label,events in (("Original",a),("native",b)):
+            if not _has_original_voice_allocator_start(events):
+                raise ValueError(
+                    f"{label} note window lacks complete original "
+                    "Creative physical-voice allocator prologue")
     mismatch=None
     for i in range(max(len(a),len(b))):
         x=a[i] if i<len(a) else None
@@ -98,6 +130,8 @@ def compare_windows(original:Path,native:Path,*,
         "original_trace_sha256":original_sha,
         "native_trace_sha256":native_sha,
         "owner_original_source_sha_required":require_owner_original,
+        "complete_original_voice_allocator_prologue_required":
+            require_complete_note_start,
         "original_origin_frame":original_origin,
         "native_origin_frame":native_origin,
         "window_frames":frames,

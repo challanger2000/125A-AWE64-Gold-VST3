@@ -84,7 +84,8 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
         original_trace,native_ports,
         original_origin=original_port_origin,
         native_origin=native_port_origin,frames=port_frames,
-        require_owner_original=not _synthetic_unit_test_only)
+        require_owner_original=not _synthetic_unit_test_only,
+        require_complete_note_start=not _synthetic_unit_test_only)
     audio=pcm.compare_pcm16_windows(
         original_wav,native_wav,
         original_pcm_start,native_pcm_start,pcm_frames)

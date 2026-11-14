@@ -39,7 +39,8 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
             original_origin=kwargs.get("source",100),
             native_origin=kwargs.get("native",3),
             frames=kwargs.get("frames",2),
-            require_owner_original=kwargs.get("require_sha",False))
+            require_owner_original=kwargs.get("require_sha",False),
+            require_complete_note_start=kwargs.get("require_full_note",False))
 
     def test_exact_write_match_with_read_non_claim(self):
         r=self.compare()
@@ -118,6 +119,36 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
         self.write_native(self.lines+["R 4 E20 0001"])
         with self.assertRaisesRegex(ValueError,"write-only"):
             self.compare()
+
+    def test_full_note_strict_mode_rejects_identical_ifatn_only(self):
+        # The prior equality result was a real IFATN SUBWINDOW, not
+        # proof that either side ever started a physical EMU8000 voice.
+        with self.assertRaisesRegex(ValueError,"allocator prologue"):
+            self.compare(require_full_note=True)
+
+    def test_full_note_requires_original_voice_matched_lcod_prologue(self):
+        source=["100 E22 60","100 E22 A0","100 A20 00FF",
+                "100 E22 60","100 620 FFFF","100 622 0000",
+                "100 E22 0","100 E20 23F8"]
+        native=[line.replace("100 ","3 ") for line in source]
+        self.original.write_bytes(("\n".join(source)+"\n").encode("ascii"))
+        self.write_native(native)
+        good=self.compare(require_full_note=True)
+        self.assertTrue(good["sample_exact_16bit_port_writes"])
+        self.assertTrue(good[
+            "complete_original_voice_allocator_prologue_required"])
+        for index,wrong in ((1,"3 E22 A1"),(2,"3 A20 00FE"),
+                            (3,"3 E22 61"),(4,"3 620 FFFE")):
+            with self.subTest(index=index):
+                corrupted=list(native);corrupted[index]=wrong
+                self.write_native(corrupted)
+                with self.assertRaisesRegex(ValueError,"allocator prologue"):
+                    self.compare(require_full_note=True)
+        self.write_native(native)
+        self.original.write_bytes(("\n".join(
+            source[:2]+source[3:])+"\n").encode("ascii"))
+        with self.assertRaisesRegex(ValueError,"allocator prologue"):
+            self.compare(require_full_note=True)
 
     def test_wrong_original_sha_and_missing_exporter_header_no_go(self):
         with self.assertRaisesRegex(ValueError,"owner verified original"):

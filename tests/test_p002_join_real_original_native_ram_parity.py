@@ -140,6 +140,27 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
                                         "original_guest_log_sha256"):
                 self.run_join(synthetic=False)
 
+    def test_real_join_requires_actual_lcod_voice_start_prologue(self):
+        # Even bit-exact IFATN and unrelated PCM from a separately
+        # selected window cannot be the claimed original RAM NoteOn.
+        with patch.object(combined.transfer,"analyze",return_value={
+            "converted_source_words_mismatched":0,
+            "converted_source_words_bit_equal":260921,
+            "source_window_overwritten_words":255,
+        }), patch.object(combined,"_sha",side_effect=lambda p:{
+            self.original_trace:combined.ORIGINAL_TRACE_SHA256,
+            self.sf2:combined.ORIGINAL_SF2_SHA256,
+            self.source_wav:combined.ORIGINAL_WAV_SHA256,
+            self.log:combined.ORIGINAL_GUEST_LOG_SHA256,
+        }.get(p,"native-diagnostic")):
+            with self.assertRaisesRegex(ValueError,"allocator prologue"):
+                combined.analyze(
+                    self.original_trace,self.sf2,self.log,
+                    self.source_wav,self.native_ports,self.native_wav,
+                    original_port_origin=100,native_port_origin=3,
+                    port_frames=2,original_pcm_start=0,
+                    native_pcm_start=0,pcm_frames=1024)
+
     def test_missing_wrong_or_overflowed_source_ram_proof(self):
         for value in (1,2):
             with self.subTest(value=value):
