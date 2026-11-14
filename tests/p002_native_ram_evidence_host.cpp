@@ -52,13 +52,16 @@ struct Schedule {
     std::array<std::uint64_t,4> when{};
     std::uint64_t total=0;
 };
+bool validSchedule(const Schedule& s) noexcept {
+    return s.when[0]<s.when[1] && s.when[1]<s.when[2] &&
+        s.when[2]<s.when[3] && s.when[3]<s.total &&
+        s.total>=256 && s.total<=kMaxFrames;
+}
 Schedule scheduleFromArgs(wchar_t** argv) {
     Schedule s{{frameNumber(argv[9]),frameNumber(argv[10]),
                 frameNumber(argv[11]),frameNumber(argv[12])},
                frameNumber(argv[13])};
-    check(s.when[0]<s.when[1] && s.when[1]<s.when[2] &&
-          s.when[2]<s.when[3] && s.when[3]<s.total &&
-          s.total>=256 && s.total<=kMaxFrames,
+    check(validSchedule(s),
           "require C4-on < C4-off < D4-on < D4-off < total frames");
     return s;
 }
@@ -163,7 +166,8 @@ void play(IAudioProcessor* processor,const Schedule& s) {
     constexpr std::array<int,4> keys{{60,60,62,62}};
     constexpr std::array<bool,4> on{{true,false,true,false}};
     std::uint64_t position=0;
-    std::size_t next=0,activeAudio=0;
+    std::size_t next=0;
+    std::array<std::size_t,2> noteAudible{};
     while(position<s.total) {
         const auto count=static_cast<int>(
             std::min<std::uint64_t>(kBlock,s.total-position));
@@ -193,15 +197,18 @@ void play(IAudioProcessor* processor,const Schedule& s) {
                   "native VST3 returned non-finite output");
             // Audible signal does not establish source identity; it only
             // prevents a silent fake evidence file from being accepted.
-            if(position+static_cast<std::uint64_t>(i)>=s.when[0] &&
-               (std::abs(left[i])>0.00002f ||
-                std::abs(right[i])>0.00002f))++activeAudio;
+            const auto frame=position+static_cast<std::uint64_t>(i);
+            const int which=(frame>=s.when[0] && frame<s.when[1])?0:
+                            ((frame>=s.when[2] && frame<s.when[3])?1:-1);
+            if(which>=0 && (std::abs(left[i])>0.00002f ||
+                            std::abs(right[i])>0.00002f))
+                ++noteAudible[static_cast<std::size_t>(which)];
         }
         position+=static_cast<std::uint64_t>(count);
     }
     check(next==s.when.size(),"host did not deliver all four MIDI events");
-    check(activeAudio>=64u,
-          "native source bank produced no musical-range audio");
+    check(noteAudible[0]>=64u && noteAudible[1]>=64u,
+          "native C4 or D4 source note produced no audible PCM");
 }
 void validateFiles(wchar_t** argv,const Schedule& s) {
     std::array<fs::path,8> files{
@@ -235,6 +242,20 @@ int wmain(int argc,wchar_t** argv) {
           L"<C4_ON_FRAME> <C4_OFF_FRAME> <D4_ON_FRAME> "
           L"<D4_OFF_FRAME> <TOTAL_FRAMES>\n"
           L"No Win95 clock is inferred. Original/native parity is NOT proven by this host.\n";
+        return 0;
+    }
+    if(argc==2 && std::wcscmp(argv[1],L"--self-test")==0) {
+        const Schedule valid{{137u,17864u,46932u,65098u},88200u};
+        Schedule mutation=valid;
+        if(!validSchedule(valid))return 3;
+        mutation.when[1]=mutation.when[0];
+        if(validSchedule(mutation))return 4;
+        mutation=valid;mutation.when[2]=mutation.when[1];
+        if(validSchedule(mutation))return 5;
+        mutation=valid;mutation.total=kMaxFrames+1u;
+        if(validSchedule(mutation))return 6;
+        std::cout<<"P002_PRIVATE_WINDOWS_NATIVE_HOST_SCHEDULE_SELFTEST_PASS "
+                 <<" original_driver_and_pcm_parity=NOT_TESTED\\n";
         return 0;
     }
     if(argc!=14)return 2;
