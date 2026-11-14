@@ -69,11 +69,19 @@ LOG, register trace, WAV, ROM, SF2, VXD and calibrated fork executable.
 Original vs native host/chip note clock origins still require independent
 measurement; no audio alignment, fake start frame or source data replay.
 
-Use --original-session-manifest PRIVATE_ORIGINAL_SESSION.json alongside
---native-manifest in the final owner-private join. This is required
-in production: an old historical source trace SHA cannot authorize
-a newly captured source session. Even an authenticated source session
-alone does not prove native VST3 PCM parity.
+The owner-private final join accepts **two separately authenticated
+ORIGINAL source choices**, never mixes their hashes: (1) the exact
+2026-11-13 real Creative SHA triple (full original trace 4ec6...,
+original guest LOG 660a..., either original complete 138s WAV eec7...
+or independently supplied source-cropped C4/D4 WAV b4e...), OR
+(2) a NEW calibrated Win95 session verified by the owner-side
+--original-session-manifest PRIVATE_ORIGINAL_SESSION.json.
+
+For a new session, provide that --original-session-manifest alongside
+--native-manifest. Do NOT apply the older fixed source hashes to new
+GetTickCount logs. Both source alternatives still require independently
+measured note/chip clock origins and native VST3 PCM parity; neither
+authorizes product release by itself.
 
 ## Run the real Windows VST3 native RAM evidence host
 
