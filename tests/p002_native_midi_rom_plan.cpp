@@ -736,6 +736,48 @@ int main(){
     CHECK(ramSf2[base+45u]==128u);
     ramSf2[base+45u]=0u; // type ROM mono 0x8001 -> RAM mono 0x0001
     CHECK(!prepareOriginalCreativeRomNote(*on,midi,ramSf2,0,524288));
+    // The C4/D4 voice selector fix is CENTRAL, never keyed to those two
+    // pitches. Exercise the complete MIDI key domain on an all-key
+    // synthetic Format-2 zone through the real native MIDI->descriptor
+    // ->61-OUT compiler. This is NOT proof against 128 original Win95
+    // captures; it rejects accidental note-specific native exceptions.
+    unsigned completeKeyDomain=0u;
+    constexpr std::array<unsigned,5> testedVelocities{{1u,32u,64u,100u,127u}};
+    for(unsigned key=0u;key<128u;++key) {
+        for(const unsigned velocity:testedVelocities) {
+            MidiMessage event{};
+            event.kind=MidiKind::NoteOn;
+            event.channel=2u;
+            event.data1=static_cast<std::uint8_t>(key);
+            event.data2=static_cast<std::uint8_t>(velocity);
+            event.raw_short=0x92u|(key<<8u)|(velocity<<16u);
+            const auto selected=prepareOriginalCreativeRomNote(
+                event,midi,sf2,0u,524288u);
+            CHECK(selected && selected->count==1u &&
+                  selected->layers[0].metadata.key==key &&
+                  selected->layers[0].metadata.velocity==velocity);
+            auto request=conditions;
+            request.midi_key=event.data1;
+            request.midi_velocity=event.data2;
+            const auto actual=candidateOriginalSf2CompileRomBankNote(
+                sf2,event,midi,0u,524288u,verifiedSyntheticResources,
+                request,verifiedSyntheticVxd,allocated,true);
+            CHECK(actual && actual->voice_count==1u &&
+                  actual->typed_original_outs.count==61u &&
+                  actual->assignments[0].assigned_voice.played_midi_key==key);
+            CHECK(actual->vxd_state_after_noteon[row]==key &&
+                  actual->vxd_state_after_noteon[row+1u]==2u);
+            ++completeKeyDomain;
+        }
+    }
+    CHECK(completeKeyDomain==640u);
+    MidiMessage zeroVelocity{};
+    zeroVelocity.kind=MidiKind::NoteOn;
+    zeroVelocity.channel=2u;
+    zeroVelocity.data1=60u;
+    zeroVelocity.data2=0u;
+    CHECK(!prepareOriginalCreativeRomNote(
+        zeroVelocity,midi,sf2,0u,524288u));
     std::cout<<"P002_SYNTHETIC_16CH_MIDI_PROGRAM_TO_ROM_ADDRESS_PASS"
              <<" private_bytes=NONE"
              <<" original_live_idle_three_distinct_bank_noteons=TRUE"
