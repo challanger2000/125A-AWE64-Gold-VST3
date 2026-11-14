@@ -203,7 +203,8 @@ std::vector<std::uint64_t> bases(const std::vector<Region>& r){
 int capture(DWORD pid,const std::string& path){
     HANDLE p=OpenProcess(PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,FALSE,pid);
     if(!p)throw std::runtime_error("READ_ONLY_OPENPROCESS_DENIED");
-    auto rr=regions(p),bb=bases(rr);
+    const auto rr=regions(p);
+    const auto bb=bases(rr);
     std::size_t reads=0,markers=0,valid=0,busy=0;
     std::vector<Hit> matches;
     for(auto base:bb){
