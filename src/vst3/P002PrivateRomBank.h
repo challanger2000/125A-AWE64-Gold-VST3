@@ -58,6 +58,8 @@ public:
         return native_checkpoint_active_;
     }
 private:
+    // Test-only friend has no runtime entry point; uses synthetic state.
+    friend struct P002PrivateRomBankCheckpointProbe;
     std::vector<std::uint8_t> bank_bytes_;
     std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> state_{};
     awe64::creative::OriginalCreativeSf2DriverResources resources_{};
