@@ -423,7 +423,16 @@ bool Minimal::stagePrivateClockedNote(
         return false;
     }
     nativeRamClock_.clear();
+    // Two independent mutable states must be transactional: both the
+    // original EMU8000 chip and the original Creative VXD/voice ledger.
+    // An OUT mismatch previously restored the chip but kept the bank's
+    // voices/key-down markers changed, contaminating the next event.
+    if(!p002RomBank_.beginNativeNoteCheckpoint()) {
+        clockedNativeRamFailed_=true;
+        return false;
+    }
     if(!chip_.beginNativeNoteOutTransaction()) {
+        p002RomBank_.rollbackNativeNoteCheckpoint();
         clockedNativeRamFailed_=true;
         return false;
     }
@@ -439,6 +448,7 @@ bool Minimal::stagePrivateClockedNote(
                              static_cast<std::uint8_t>(velocity));
     const bool restored=chip_.endNativeNoteOutTransaction();
     if(!nativeOk || !restored) {
+        p002RomBank_.rollbackNativeNoteCheckpoint();
         clockedNativeRamFailed_=true;
         return false;
     }
@@ -451,11 +461,14 @@ bool Minimal::stagePrivateClockedNote(
        !nativeRamClock_.stage(
            chip_,std::span<const awe64::creative::SourceClockedPort>(
                native.data(),count))) {
-        // The original chip state has already been restored. Never
-        // emit a partial OUT batch on failed original/native parity.
+        // The original chip state has already been restored. Restore
+        // the original Creative VXD and ownership ledger as well:
+        // otherwise subsequent NoteOff/voice scans see ghost voices.
+        p002RomBank_.rollbackNativeNoteCheckpoint();
         clockedNativeRamFailed_=true;
         return false;
     }
+    p002RomBank_.commitNativeNoteCheckpoint();
     return true;
 }
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
