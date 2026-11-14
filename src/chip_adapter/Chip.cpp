@@ -150,12 +150,17 @@ void Chip::writePort(uint16_t port, uint16_t value) noexcept {
             port==0xe22u || port==0xe20u ||
             port==0xa20u || port==0xa22u ||
             port==0x620u || port==0x622u;
-        const bool dramData=
-            (native_note_selector_==0x36u ||
-             native_note_selector_==0x3au) &&
+        // The pinned original fork maps DATA1 register 1 voices
+        // 20..31 to SMALR/SMARR/SMALW/SMARW/SMLD and hardware
+        // configuration. Any DATA1 access there is forbidden in a
+        // speculative NOTE transaction; legal DATA3 reads/writes on
+        // voice 22/26 must remain supported.
+        const bool dramOrGlobalData=
+            ((native_note_selector_>>5u)==1u) &&
+            ((native_note_selector_&31u)>=20u) &&
             (port==0xa20u || port==0xa22u);
         if(native_note_write_overflow_ || !allowedPort ||
-           (port==0xe22u && value>0xffu) || dramData ||
+           (port==0xe22u && value>0xffu) || dramOrGlobalData ||
            native_note_write_count_>=native_note_writes_.size()) {
             native_note_write_overflow_=true;
             return;
