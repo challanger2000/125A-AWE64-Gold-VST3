@@ -12,6 +12,7 @@ struct SourceClockedPort {
     std::uint32_t relative_frame=0;
     std::uint16_t port=0;
     std::uint16_t value=0;
+    [[nodiscard]] bool operator==(const SourceClockedPort&) const noexcept = default;
 };
 // P002 original-driver owner fixture gate. This validates synthetic
 // test vectors in CI and exactly SHA-attested Win95 note events privately.
