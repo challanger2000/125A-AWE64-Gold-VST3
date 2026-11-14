@@ -519,6 +519,20 @@ target_link_libraries(awe64_p002_sf2_note_start_ports_test
     PRIVATE awe64_p002_sf2_note_start_ports)
 add_test(NAME p002_original_sf2_18_typed_note_start_ports
     COMMAND awe64_p002_sf2_note_start_ports_test)
+# Convert the ACTUAL independently compiled VXD typed NoteOn words to
+# clocked physical EMU8000 16-bit OUTs. Frame coordinates must be supplied
+# by separately authenticated Creative Win95 evidence; no pitch exceptions.
+add_library(awe64_p002_clocked_sf2_note_plan STATIC
+    src/creative_compat/CreativeClockedSf2NotePlan.cpp)
+target_include_directories(awe64_p002_clocked_sf2_note_plan PUBLIC
+    src/creative_compat)
+target_compile_features(awe64_p002_clocked_sf2_note_plan PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_clocked_sf2_note_plan PUBLIC
+    awe64_p002_sf2_full_noteon awe64_p002_sample_clock_ports
+    awe64_p002_real_chip_port_bridge)
+target_link_libraries(awe64_p002_sf2_full_noteon_test PRIVATE
+    awe64_p002_clocked_sf2_note_plan)
+
 # The existing source-pinned chip bridge executes these EXACT 18 typed OUTs.
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_note_start_ports)
