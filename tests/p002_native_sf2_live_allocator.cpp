@@ -37,7 +37,9 @@ int main(){
     awe64::Chip chip{};
     std::array<std::uint8_t,kOriginalVxdMinDeviceImage> state{};
     put32(state,kOriginalVxdRomIdOffset,0x4d474d31u);
-    put16(state,6u,30u);put32(state,0x18u,30u);
+    // Real Win95 Creative VXD: 32 hardware voices but only 30
+    // music allocator rows (the two other physical lanes reserved).
+    put16(state,6u,32u);put32(state,0x18u,32u);
     for(unsigned voice=0;voice<30u;++voice)
         put16(state,kOriginalVxdVoiceRowStart+
                  voice*kOriginalVxdVoiceRowStride,0x0ffeu);
@@ -69,9 +71,14 @@ int main(){
         chip.writePort(0x622u,0x5000u);
         const auto next=candidateOriginalSf2LiveVxdMonoVoice(chip,state,true);
         CHECK(next && next->physical_voice==3u);
-        put16(state,0x06u,31u);
+        for(const auto wrong:{30u,31u,33u}) {
+            put16(state,0x06u,static_cast<std::uint16_t>(wrong));
+            CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
+        }
+        put16(state,0x06u,32u);
+        put32(state,0x18u,30u);
         CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
-        put16(state,0x06u,30u);
+        put32(state,0x18u,32u);
         state[kOriginalVxdRomIdOffset]=0u;
         CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
         state[kOriginalVxdRomIdOffset]=0x31u;
@@ -79,7 +86,7 @@ int main(){
         CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
         put16(state,0x12u,0u);
         std::cout<<"P002_LIVE_SOURCE_VXD_MONO_VOICE_ALLOCATOR_REAL_CHIP_PASS "
-                 <<"source_30_music_voices=TRUE "
+                 <<"original_32_physical_30_music_voices=TRUE "
                  <<"original_3_lane_priority=TRUE "
                  <<"real_chip_VTFT_DCYSUSV_CCCA_reads=TRUE "
                  <<"missing_source_state_FAIL_CLOSED=TRUE "

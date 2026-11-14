@@ -36,11 +36,16 @@ candidateOriginalSf2LiveVxdMonoVoice(
        le32(state,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
        le16(state,0x12u)!=0u)
         return std::nullopt;
-    // The ORIGINAL selector uses the channel/voice allocation count
-    // WORD from device+0x06, *not* the EMU8000's 32 total voices.
-    const auto usable=le16(state,0x06u);
-    if(usable==0u || usable>kOriginalCreativeMusicVoices)return std::nullopt;
+    // VERIFIED from the real 2026-11-14 original Win95 SBAWE.VXD
+    // resident memory: device+0x06 = 32 and device+0x18 = 32 are
+    // the PHYSICAL EMU8000 capacity, NOT the 30-slot music budget.
+    // The unchanged original LCOD music allocator scans rows 0..29;
+    // physical voices 30 and 31 remain reserved. Previous code
+    // wrongly rejected authentic 32-voice VXD state as >30.
+    const auto capacity=le16(state,0x06u);
     const auto mode_count=le32(state,0x18u);
+    if(capacity!=32u || mode_count!=32u)return std::nullopt;
+    constexpr auto usable=kOriginalCreativeMusicVoices;
     std::array<OriginalWin95MonoVoiceSnapshot,
                kOriginalCreativeMusicVoices> voices{};
     // SOURCE VXD LCOD+0x3EA1 three interleaved lanes; reads from
