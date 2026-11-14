@@ -7,6 +7,8 @@
 // One exact original source program (User Bank 1, Program 0), channel 0,
 // C4/D4 velocity 100. NOT a generic bank synthesizer or proven PCM parity.
 #include "Chip.h"
+#include "CreativeSampleClockPorts.h"
+#include <span>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +30,16 @@ public:
     // but never allocates, reads files, grabs locks or generates registers.
     void render(awe64::Chip& chip,std::int32_t* stereo,
                 std::size_t frames) noexcept;
+    // Native-only private differential: compare independently generated
+    // real-VST3 OUT values/ordering against the SHA-pinned Win95 trace.
+    // Return only the measured original sample offsets plus the NATIVE
+    // values. Never emit or replay the source trace's own data.
+    [[nodiscard]] bool verifiedNativeClockPlan(
+        bool note_off,int channel,int pitch,int velocity,
+        std::span<const awe64::ChipPortWrite> independently_generated,
+        std::span<awe64::creative::SourceClockedPort> output,
+        std::size_t& output_count) const noexcept;
+
 private:
     static constexpr std::size_t kMaxSourceEvents=256u;
     struct Event {
