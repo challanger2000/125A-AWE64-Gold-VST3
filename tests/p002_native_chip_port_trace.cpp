@@ -1,6 +1,8 @@
 #include "Chip.h"
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -59,6 +61,44 @@ int main(){
     CHECK(!a.armPortWriteTrace(2));
     CHECK(a.open(rom,err));
     CHECK(a.portWriteTrace().empty() && a.renderedFrames()==0u);
-    b.close();a.close();std::filesystem::remove(rom);
+    // Exercise the real chip state rollback that makes the source-clock
+    // native NoteOn integration possible: authentic allocator writes
+    // are generated and read against hardware, then rolled back
+    // without polluting the independent post-clock recorder.
+    Chip direct;
+    CHECK(direct.open(rom,err));
+    CHECK(a.armNativeNoteOutTransaction());
+    std::vector<std::byte> originalChip(sizeof(emu8k_t));
+    std::memcpy(originalChip.data(),a.rawForContractTesting(),
+                originalChip.size());
+    CHECK(a.beginNativeNoteOutTransaction());
+    CHECK(!a.beginNativeNoteOutTransaction());
+    a.writePort(0xe22u,0x1fu);
+    a.writePort(0xa20u,0x0004u);
+    a.writePort(0xe22u,0x60u);
+    (void)a.readPort(0x620u); // native voice allocator reads genuine chip
+    a.writePort(0x620u,0xffffu);
+    a.writePort(0x622u,0x0000u);
+    CHECK(a.nativeNoteOutTransaction().size()==5u);
+    CHECK(a.nativeNoteOutTransaction()[2].value==0x60u);
+    CHECK(a.renderedFrames()==0u);
+    CHECK(a.endNativeNoteOutTransaction());
+    CHECK(!a.endNativeNoteOutTransaction());
+    CHECK(!a.nativeNoteOutTransactionActive());
+    CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
+                      originalChip.size())==0);
+    // The five native chip port OUTs were NOT sent to the public
+    // write-only recorder; their real execution happens later.
+    CHECK(a.portWriteTrace().empty());
+    for(const auto& p:a.nativeNoteOutTransaction()) {
+        a.writePort(p.port,p.value);
+        direct.writePort(p.port,p.value);
+    }
+    std::array<std::int32_t,2u*64u> actual{},baseline{};
+    a.render(actual.data(),64u);
+    direct.render(baseline.data(),64u);
+    CHECK(actual==baseline);
+    direct.close();
+        b.close();a.close();std::filesystem::remove(rom);
     std::cout<<"P002_NATIVE_CHIP_PORT_TRACE_SAMPLE_CLOCK_AND_NO_DSP_SIDE_EFFECT_PASS\n";
 }
