@@ -125,6 +125,22 @@ target_link_libraries(awe64_p002_native_chip_port_trace_test
     PRIVATE awe64_fork_chip)
 add_test(NAME p002_native_original_chip_passive_port_trace
     COMMAND awe64_p002_native_chip_port_trace_test)
+# Source-clocked hardware OUT execution on the ORIGINAL pinned EMU8000.
+# The executor does not invent driver timing; external measured offsets
+# remain mandatory for any original-Win95 equivalence claim.
+add_library(awe64_p002_sample_clock_ports STATIC
+    src/creative_compat/CreativeSampleClockPorts.cpp)
+target_include_directories(awe64_p002_sample_clock_ports PUBLIC
+    src/creative_compat)
+target_link_libraries(awe64_p002_sample_clock_ports PUBLIC awe64_fork_chip)
+target_compile_features(awe64_p002_sample_clock_ports PUBLIC cxx_std_23)
+add_executable(awe64_p002_sample_clock_ports_test
+    tests/p002_sample_clock_ports.cpp)
+target_link_libraries(awe64_p002_sample_clock_ports_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p002_source_clocked_original_chip_outs_and_pcm
+    COMMAND awe64_p002_sample_clock_ports_test)
+
 # Separate Win32 WAV-byte verifier. It produces a synthetic, locally
 # short-lived PCM fixture only; no original Creative/private data.
 # The same exact RIFF writer is used by the exported VST3 on deactivate.
