@@ -107,16 +107,29 @@ int main(){
               secondTrace[0].value==0x60u &&
               secondTrace[1].port==0xe22u &&
               secondTrace[1].value==0x63u);
-        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*next));
+        // A second SF2 layer in the SAME source NoteOn must skip
+        // already-reserved voice0, so it emits ONLY E22=63 instead
+        // of reading 0 again. Trace-controlled, no fake chip cache.
+        const std::array<std::uint8_t,1> already_reserved{{0u}};
+        CHECK(chip.armPortWriteTrace(256u));
+        const auto nextLayer=candidateOriginalSf2LiveVxdMonoVoice(
+            chip,state,true,already_reserved);
+        CHECK(nextLayer && nextLayer->physical_voice==3u &&
+              nextLayer->reason==OriginalWin95MonoSelectionReason::CompletelyIdle);
+        const auto layeredTrace=chip.portWriteTrace();
+        CHECK(layeredTrace.size()==1u &&
+              layeredTrace[0].port==0xe22u &&
+              layeredTrace[0].value==0x63u);
+        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*nextLayer));
         const auto secondStop=chip.portWriteTrace();
-        CHECK(secondStop.size()==7u);
+        CHECK(secondStop.size()==6u);
         constexpr std::array<std::uint16_t,5> ports3{
             0xe22u,0xa20u,0xe22u,0x620u,0x622u};
         constexpr std::array<std::uint16_t,5> values3{
             0xa3u,0x00ffu,0x63u,0xffffu,0x0000u};
         for(std::size_t i=0;i<5u;++i)
-            CHECK(secondStop[i+2u].port==ports3[i] &&
-                  secondStop[i+2u].value==values3[i]);
+            CHECK(secondStop[i+1u].port==ports3[i] &&
+                  secondStop[i+1u].value==values3[i]);
         for(const auto wrong:{30u,31u,33u}) {
             put16(state,0x06u,static_cast<std::uint16_t>(wrong));
             CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
@@ -135,7 +148,8 @@ int main(){
                  <<"original_32_physical_30_music_voices=TRUE "
                  <<"original_3_lane_priority=TRUE "
                  <<"original_real_VTFT_idle_scan_E22_outs=1_then_2 "
-             <<"original_stop_after_each_selection_C4_6_then_7_OUTS=TRUE "
+             <<"original_stop_after_each_selection_C4_6_then_6_OUTS=TRUE "
+             <<"original_C4_2nd_layer_excludes_VTFT0=TRUE "
                  <<"missing_source_state_FAIL_CLOSED=TRUE "
                  <<"voice_steal_effects_and_Win95_timestamps=NOT_PROVEN\n";
         return 0;

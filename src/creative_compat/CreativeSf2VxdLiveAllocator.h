@@ -23,5 +23,10 @@ namespace awe64::creative {
 candidateOriginalSf2LiveVxdMonoVoice(
     awe64::Chip& chip,
     std::span<const std::uint8_t> verified_vxd_state,
-    bool independently_verified_original_driver_state) noexcept;
+    bool independently_verified_original_driver_state,
+    // Same single MIDI NoteOn can have several instrument layers.
+    // Original source trace skips already RESERVED earlier layers
+    // when scanning subsequent ones; these must not produce a second
+    // E22 read or return a duplicate original physical voice.
+    std::span<const std::uint8_t> already_reserved_this_note={}) noexcept;
 } // namespace awe64::creative

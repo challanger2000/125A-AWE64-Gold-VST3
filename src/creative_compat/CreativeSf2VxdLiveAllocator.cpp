@@ -1,4 +1,5 @@
 #include "CreativeSf2VxdLiveAllocator.h"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -30,7 +31,8 @@ std::optional<OriginalWin95MonoSelection>
 candidateOriginalSf2LiveVxdMonoVoice(
     awe64::Chip& chip,
     const std::span<const std::uint8_t> state,
-    const bool verified) noexcept {
+    const bool verified,
+    const std::span<const std::uint8_t> reserved_this_note) noexcept {
     if(!verified || !chip.ready() ||
        state.size()<kOriginalVxdMinDeviceImage ||
        le32(state,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
@@ -46,6 +48,19 @@ candidateOriginalSf2LiveVxdMonoVoice(
     const auto mode_count=le32(state,0x18u);
     if(capacity!=32u || mode_count!=32u)return std::nullopt;
     constexpr auto usable=kOriginalCreativeMusicVoices;
+    // Original Win95 C4 allocated physical0 then physical3; the
+    // second layer's scan did NOT reissue VTFT0. On D4 after voice6
+    // is reserved, second layer similarly omits VTFT6 while still
+    // inspecting the previously held C4 voices 0 and 3. Exclusions
+    // apply ONLY within this same new NoteOn, not to older MIDI notes.
+    if(reserved_this_note.size()>kOriginalCreativeMaxNoteStartDescriptors)
+        return std::nullopt;
+    std::uint32_t exclusions=0u;
+    for(const auto voice:reserved_this_note) {
+        if(voice>=usable || (exclusions&(1u<<voice))!=0u)
+            return std::nullopt;
+        exclusions|=1u<<voice;
+    }
     // Actual original Creative 1996 VXD LCOD +0x3EA1 early-idle path:
     // before allocating C4 voice 0/3 or D4 voice 6/9 the Win95 trace
     // selects only the VTFT of the candidate voices in source 3-lane
@@ -57,6 +72,7 @@ candidateOriginalSf2LiveVxdMonoVoice(
     // low-mode blocked-voice predicate, before any fallback scoring.
     for(std::size_t lane=0;lane<3u;++lane) {
         for(std::size_t voice=lane;voice<usable;voice+=3u) {
+            if((exclusions&(1u<<voice))!=0u)continue;
             const auto at=kOriginalVxdVoiceRowStart+
                 voice*kOriginalVxdVoiceRowStride;
             if(at+0x20u>state.size())return std::nullopt;
@@ -71,6 +87,10 @@ candidateOriginalSf2LiveVxdMonoVoice(
                     OriginalWin95MonoSelectionReason::CompletelyIdle,0u};
         }
     }
+    // A new layered NoteOn never reclaims a previously assigned voice
+    // from its own current event. The complete no-idle fallback below
+    // remains available only for the old non-layered source calls.
+    if(exclusions!=0u)return std::nullopt;
     // Only when no fully idle original music voice exists, take the
     // existing independently derived source scoring path, requiring
     // all live chip status reads. No proprietary chip DSP is altered.

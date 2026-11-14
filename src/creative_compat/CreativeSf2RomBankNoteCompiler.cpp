@@ -433,8 +433,12 @@ candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
     OriginalSf2ExecutedLiveLayeredBankNote result{};
     std::array<std::uint8_t,kOriginalCreativeMaxNoteStartDescriptors> chosen{};
     for(std::size_t i=0u;i<inventory->count;++i) {
+        // Original 1996 voice assignment walks ahead within the
+        // same new NoteOn without re-reading voices already reserved
+        // for its earlier SF2 sample layer.
         const auto selected=candidateOriginalSf2LiveVxdMonoVoice(
-            chip,scratch,true);
+            chip,scratch,true,
+            std::span<const std::uint8_t>(chosen.data(),i));
         if(!selected ||
            selected->reason!=OriginalWin95MonoSelectionReason::CompletelyIdle ||
            selected->physical_voice>=kOriginalCreativeMusicVoices)
