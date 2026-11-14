@@ -712,6 +712,26 @@ endif()
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
+# Owner-only source-native P002 evidence compiled in the Windows x64
+# pipeline but NEVER executed there: private authentic 1996 Creative VXD
+# tables and owner SoundFont are intentionally absent from GitHub CI.
+# It does not link any new DSP. Independent Linux source-probe execution
+# against the real privately owned SF2/VXD tables has already matched
+# all four C4/D4 (velocity 100) RAM sample82 148-byte descriptors.
+if(WIN32)
+    add_executable(awe64_p002_private_original_ram_descriptor_probe
+        tools/p002_private_real_ram_descriptor_probe.cpp)
+    target_include_directories(
+        awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE src/creative_compat)
+    target_compile_features(awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE cxx_std_23)
+    target_link_libraries(
+        awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE awe64_p002_sf2_voice_descriptor
+                awe64_p002_sf2_ram_pcm_inventory bcrypt)
+endif()
+
 if(AWE64_BUILD_P001_VST3)
     if(NOT WIN32)
         message(FATAL_ERROR "125A AWE64 Gold VST3 targets Windows x64 only")
