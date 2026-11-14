@@ -400,14 +400,16 @@ candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
        source_context.original_state_bytes.size()<kOriginalVxdMinDeviceImage ||
        !std::equal(mutable_state.begin(),
                    mutable_state.begin()+kOriginalVxdMinDeviceImage,
-                   source_context.original_state_bytes.begin()))
+                   source_context.original_state_bytes.begin()) ||
+       // Validate *before* accessing the 16-channel state below:
+       // direct MidiMessage callers are not necessarily WinMM-decoded.
+       midi.kind!=MidiKind::NoteOn || midi.channel>=16u ||
+       midi.data1>127u || midi.data2==0u || midi.data2>127u)
         return std::nullopt;
     const auto inventory=candidateOriginalSf2RamMonoNotePcmPlan(
         bank,bank_number,midi_state.channel(midi.channel).program,
         midi.data1,midi.data2,0xe00000u);
-    if(midi.kind!=MidiKind::NoteOn || midi.channel>=16u ||
-       midi.data1>127u || midi.data2==0u || midi.data2>127u ||
-       !inventory || inventory->count==0u ||
+    if(!inventory || inventory->count==0u ||
        inventory->count>kOriginalCreativeMaxNoteStartDescriptors)
         return std::nullopt;
     const auto placement=candidateOriginalSf2RamPhysicalNotePlan(
