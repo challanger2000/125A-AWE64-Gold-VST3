@@ -13,6 +13,17 @@ struct SourceClockedPort {
     std::uint16_t port=0;
     std::uint16_t value=0;
 };
+// P002 original-driver owner fixture gate. This validates synthetic
+// test vectors in CI and exactly SHA-attested Win95 note events privately.
+// No source values are replayed: returned words are the independently
+// generated native port/value pairs, with only authenticated frame
+// offsets taken from the original driver's capture.
+// Atomic: on any mismatch, no output is modified and count remains zero.
+[[nodiscard]] bool checkedNativePortsAtSourceFrames(
+    std::span<const SourceClockedPort> original,
+    std::span<const awe64::ChipPortWrite> independently_generated,
+    std::span<SourceClockedPort> scheduled,
+    std::size_t& count) noexcept;
 class SourceClockedPortPlayer final {
 public:
     static constexpr std::size_t kMaxEvents=512u;
