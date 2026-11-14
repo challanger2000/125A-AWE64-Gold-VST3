@@ -29,6 +29,12 @@ else:
 
 ORIGINAL_SF2_SHA256="d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b"
 ORIGINAL_TRACE_SHA256=ports.ORIGINAL_OWNER_RAM_TRACE_SHA256
+# REAL, independently measured 2026-11-13 original Creative session,
+# PR #4 comment #6863236325. Keep it VALID; never confuse its
+# fixed SHA with a newly booted corrected-CC0 guest session.
+HISTORICAL_GUEST_LOG_SHA256="660a01264550415d50d2cd071e752e9388ebb63071288acbefe95c0386a07096"
+HISTORICAL_FULL_138S_WAV_SHA256="eec7dbe6dee6ee08766841fedfa9ed636df067ad94e8fdf03f4e0b8988faebbb"
+HISTORICAL_PRIVATE_CROPPED_WAV_SHA256="b4e97086a13cf9c85f20a6e6ec0d9555fb7c708c1d6689fd5f38e0e7c4655dcf"
 # A corrected Win95 C:\P002RAM.LOG contains live GetTickCount() data.
 # The SHA 660a0126... is VERIFIED for the 2026-11-13 source run
 # (PR #4 original 260921-word source trace evidence), but it cannot
@@ -147,19 +153,39 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
             "original_owner_sf2_sha256"]!=ORIGINAL_SF2_SHA256:
         raise ValueError("Not independently SHA-pinned ORIGINAL Win95 Creative "
                          "reference: original_owner_sf2_sha256")
-    if not _synthetic_unit_test_only and original_session_manifest is None:
-        raise ValueError("Production source proof requires the original "
-                         "booted Windows 95 Creative SESSION manifest; "
-                         "the older real guest-log SHA cannot attest a new run")
     if original_session_manifest is not None and (
             original_session_manifest.resolve() in normalized):
         raise ValueError("Original session manifest aliases input evidence")
-    source_attestation=(original_session.verify_manifest(
-        original_session_manifest,original_trace,original_sf2,
-        original_guest_log,original_wav)
-        if original_session_manifest is not None else {
-            "status":"SYNTHETIC_SOURCE_ONLY",
-            "release_approved":False})
+    if _synthetic_unit_test_only:
+        source_attestation={
+            "status":"SYNTHETIC_SOURCE_ONLY","release_approved":False}
+    elif original_session_manifest is not None:
+        source_attestation=original_session.verify_manifest(
+            original_session_manifest,original_trace,original_sf2,
+            original_guest_log,original_wav)
+    else:
+        # Accept the ACTUAL 2026-11-13 original Creative driver run
+        # exactly as attested in PR #4. A freshly booted different VM
+        # must instead supply a same-run FAT16+86Box SHA manifest;
+        # DO NOT silently extrapolate old hashes to a new log/trace.
+        if (checks["original_emu8k_trace_sha256"]!=ORIGINAL_TRACE_SHA256 or
+            checks["original_guest_log_sha256"]!=HISTORICAL_GUEST_LOG_SHA256 or
+            checks["original_win95_precard_wav_sha256"] not in (
+                HISTORICAL_FULL_138S_WAV_SHA256,
+                HISTORICAL_PRIVATE_CROPPED_WAV_SHA256)):
+            raise ValueError(
+                "Original Win95 source not the verified 2026-11-13 "
+                "historic capture: a NEW boot requires its separately "
+                "authenticated original-session manifest")
+        source_attestation={
+            "status":"AUTHENTIC_ORIGINAL_WIN95_20261113_SHA_TRIPLE",
+            "original_emu8k_trace_sha256":ORIGINAL_TRACE_SHA256,
+            "original_guest_log_sha256":HISTORICAL_GUEST_LOG_SHA256,
+            "original_win95_precard_wav_sha256":
+                checks["original_win95_precard_wav_sha256"],
+            "historical_provenance":"PR4_6863236325",
+            "release_approved":False}
+
     if not _synthetic_unit_test_only and native_manifest is None:
         raise ValueError("Production parity requires authentic private native "
                          "host SHA256 and MIDI clock manifest")
