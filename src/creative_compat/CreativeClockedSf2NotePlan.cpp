@@ -71,3 +71,4 @@ std::optional<ClockedSf2NotePlan> candidateClockedSf2TypedOuts(
     result.count=out;
     return result;
 }
+} // namespace awe64::creative
