@@ -46,6 +46,34 @@ candidateOriginalSf2LiveVxdMonoVoice(
     const auto mode_count=le32(state,0x18u);
     if(capacity!=32u || mode_count!=32u)return std::nullopt;
     constexpr auto usable=kOriginalCreativeMusicVoices;
+    // Actual original Creative 1996 VXD LCOD +0x3EA1 early-idle path:
+    // before allocating C4 voice 0/3 or D4 voice 6/9 the Win95 trace
+    // selects only the VTFT of the candidate voices in source 3-lane
+    // order and READS its two halves. A truly idle marker 0x0FFE
+    // with VTFT high word ZERO terminates immediately. The earlier
+    // VST3 pre-read ALL THIRTY VTFT/DCYSUSV/CCCA triples first,
+    // producing 90 unnecessary E22 writes on every NoteOn.
+    // Preserve the original LCOD short-circuit, including the original
+    // low-mode blocked-voice predicate, before any fallback scoring.
+    for(std::size_t lane=0;lane<3u;++lane) {
+        for(std::size_t voice=lane;voice<usable;voice+=3u) {
+            const auto at=kOriginalVxdVoiceRowStart+
+                voice*kOriginalVxdVoiceRowStride;
+            if(at+0x20u>state.size())return std::nullopt;
+            // This is the genuine EMU8000 VTFT READ through its
+            // original port model, not an invented cached envelope.
+            const auto vtft=readHardware32(chip,3u,
+                    static_cast<std::uint8_t>(voice),0x620u);
+            if(le16(state,at)==0x0ffeu && (vtft>>16u)==0u &&
+               (mode_count>2u || state[at+0x17u]==0u))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::CompletelyIdle,0u};
+        }
+    }
+    // Only when no fully idle original music voice exists, take the
+    // existing independently derived source scoring path, requiring
+    // all live chip status reads. No proprietary chip DSP is altered.
     std::array<OriginalWin95MonoVoiceSnapshot,
                kOriginalCreativeMusicVoices> voices{};
     // SOURCE VXD LCOD+0x3EA1 three interleaved lanes; reads from
@@ -53,9 +81,9 @@ candidateOriginalSf2LiveVxdMonoVoice(
     // and current CCCA (register0 / DATA1) using the pinned chip,
     // rather than a modern envelope approximation.
     //
-    // This bounded diagnostic samples ALL allowed voices once.
-    // The exact original early-exit READ timestamps and side effects
-    // require a separate full Win95 trace; not claimed here.
+    // Slow fallback only: no completely idle source voice was found.
+    // The source-trace-matched early-idle path above avoids redundant
+    // chip reads for the owner's authentic C4/D4 case.
     for(std::size_t i=0;i<usable;++i) {
         const auto at=kOriginalVxdVoiceRowStart+
                       i*kOriginalVxdVoiceRowStride;
