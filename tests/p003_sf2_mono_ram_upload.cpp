@@ -54,6 +54,28 @@ Bytes sf2(bool nonMono=false,bool withSm24=false,
            nonMono?0x0004u:0x0001u);
     sample(shdr,"EOS",0,0,0,0,0u);
     Bytes pdta{'p','d','t','a'};
+    // One playable SF2 preset, program 7, instrument 0, sample 0.
+    // This allows an actual MIDI->sample->physical-chip-address test.
+    Bytes phdr,pbag,pgen,inst,ibag,igen;
+    name(phdr,"P003-PRESET");
+    w16(phdr,7u);w16(phdr,0u);w16(phdr,0u);
+    w32(phdr,0u);w32(phdr,0u);w32(phdr,0u);
+    name(phdr,"EOP");w16(phdr,0u);w16(phdr,0u);w16(phdr,1u);
+    w32(phdr,0u);w32(phdr,0u);w32(phdr,0u);
+    w16(pbag,0u);w16(pbag,0u);
+    w16(pbag,1u);w16(pbag,0u);
+    w16(pgen,41u);w16(pgen,0u);
+    name(inst,"P003-INSTRUMENT");w16(inst,0u);
+    name(inst,"EOI");w16(inst,1u);
+    w16(ibag,0u);w16(ibag,0u);
+    w16(ibag,1u);w16(ibag,0u);
+    w16(igen,53u);w16(igen,0u);
+    chunk(pdta,"phdr",phdr);
+    chunk(pdta,"pbag",pbag);
+    chunk(pdta,"pgen",pgen);
+    chunk(pdta,"inst",inst);
+    chunk(pdta,"ibag",ibag);
+    chunk(pdta,"igen",igen);
     chunk(pdta,"shdr",shdr);
     Bytes root{'s','f','b','k'};
     chunk(root,"LIST",info);
@@ -93,6 +115,34 @@ int main() {
     CHECK(outcome.source_pool_words==8u &&
           outcome.sample_headers==2u &&
           outcome.physical_word_base==first);
+    // Physically verify the RAM bytes for the selected SF2 MIDI
+    // NoteOn before exposing CCCA/PSST/CSL chip word addresses.
+    const auto note=p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,outcome,0u,7u,60u,100u);
+    CHECK(note && note->count==1u);
+    CHECK(note->layers[0].sample_id==0u);
+    CHECK(note->layers[0].physical_sample_start==first);
+    CHECK(note->layers[0].physical_sample_end==first+4u);
+    CHECK(note->layers[0].candidate_initial_ccca==first-4u);
+    CHECK(note->layers[0].candidate_initial_psst==first);
+    CHECK(note->layers[0].candidate_initial_csl==first+2u);
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,outcome,0u,6u,60u,100u));
+    auto forged=outcome;
+    forged.entire_pool_readback_equal=false;
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,forged,0u,7u,60u,100u));
+    forged=outcome;
+    forged.original_creative_source_transformation_verified=true;
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,forged,0u,7u,60u,100u));
+    auto damaged=bank;
+    // Same geometry, different PCM source: the memory proof must fail.
+    const auto poolPosition=static_cast<std::size_t>(
+        whole->whole_smpl_pcm_le16.data()-bank.data());
+    damaged[poolPosition]^=1u;
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,damaged,outcome,0u,7u,60u,100u));
     const std::array<std::uint16_t,8> expected{
         0xffffu,0x8000u,0x0000u,0x7fffu,
         0x1234u,0x8001u,0xa55au,0x0000u};
