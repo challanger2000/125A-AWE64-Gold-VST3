@@ -245,6 +245,20 @@ add_test(NAME p002_native_creative_sbk_key_zone_to_ifatn_contract
 
 # P002 raw original Creative 1MGM preset/instrument layering. Does not
 # allocate physical voices or modify the approved P001 chip/VST3.
+# P003 literal SF2/SBK PHDR inventory. Read-only, deterministic,
+# retaining exact bank/program/PHDR positions including sparse 77 presets.
+add_library(awe64_p003_sf2_preset_inventory STATIC
+    src/creative_compat/CreativeSf2PresetInventory.cpp)
+target_include_directories(awe64_p003_sf2_preset_inventory
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p003_sf2_preset_inventory PUBLIC cxx_std_23)
+add_executable(awe64_p003_sf2_preset_inventory_test
+    tests/p003_sf2_preset_inventory.cpp)
+target_link_libraries(awe64_p003_sf2_preset_inventory_test
+    PRIVATE awe64_p003_sf2_preset_inventory)
+add_test(NAME p003_actual_sf2_phdr_sparse_presets_and_negative_mutations
+    COMMAND awe64_p003_sf2_preset_inventory_test)
+
 add_library(awe64_p002_sbk_layers STATIC
     src/creative_compat/CreativeSbkLayers.cpp)
 target_include_directories(awe64_p002_sbk_layers PUBLIC src/creative_compat)
@@ -850,6 +864,7 @@ if(AWE64_BUILD_P001_VST3)
         awe64_p002_sf2_vxd_state_snapshot
         awe64_p002_sf2_source_note_release
         awe64_p002_sf2_ram_pcm_inventory
+        awe64_p003_sf2_preset_inventory
         awe64_p002_sf2_rom_bank_note_compiler
         awe64_p002_original_ram_port_replay
         bcrypt)

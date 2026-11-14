@@ -12,6 +12,7 @@
 // RAM SoundFont upload, voice stealing, retrigger, or Win95 PCM parity.
 #include "CreativeSf2RomBankNoteCompiler.h"
 #include "CreativeMidi.h"
+#include "CreativeSf2PresetInventory.h"
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -43,6 +44,13 @@ public:
     [[nodiscard]] std::uint8_t currentProgram() const noexcept {
         return program_;
     }
+    // Exact PHDR inventory; no 77->128 padding and no invented preset.
+    // Valid from setActive()/loaded bank; stable for browser/Prev/Next.
+    [[nodiscard]] std::size_t presetCount() const noexcept {return presets_.size();}
+    [[nodiscard]] const awe64::creative::Sf2PresetIdentity* presetAt(
+        std::size_t index) const noexcept {
+        return index<presets_.size()?&presets_[index]:nullptr;
+    }
     [[nodiscard]] std::size_t trackedVoices() const noexcept {
         return ownership_.trackedPhysicalVoices();
     }
@@ -61,6 +69,7 @@ private:
     // Test-only friend has no runtime entry point; uses synthetic state.
     friend struct P002PrivateRomBankCheckpointProbe;
     std::vector<std::uint8_t> bank_bytes_;
+    awe64::creative::Sf2PresetInventory presets_{};
     std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> state_{};
     awe64::creative::OriginalCreativeSf2DriverResources resources_{};
     std::array<std::uint16_t,15> negative_{};

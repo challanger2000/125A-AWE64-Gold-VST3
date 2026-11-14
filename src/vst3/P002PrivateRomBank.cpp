@@ -49,6 +49,7 @@ void P002PrivateRomBank::clear() noexcept {
     native_checkpoint_active_=false;
     ready_=false;
     bank_bytes_.clear();
+    presets_.clear();
     state_.fill(0u);
     resources_={};
     negative_.fill(0u);
@@ -225,6 +226,17 @@ bool P002PrivateRomBank::load(
             clear();return false;
         }
     }
+    // Preserve the ACTUAL original SoundFont PHDR inventory, not
+    // an invented MIDI 0..127 browser list. All parsing/allocation is
+    // on activation, never inside a VST3 audio callback.
+    auto exactPresets=inspectOriginalSoundFontPresetInventory(bank_bytes_);
+    if(!exactPresets ||
+       !hasExactSoundFontPreset(*exactPresets,bank_number_,program_)) {
+        error="P003 actual SF2 preset inventory missing/ambiguous or selected "
+              "bank/program absent";
+        clear();return false;
+    }
+    presets_=std::move(*exactPresets);
     MidiMessage program{};
     program.kind=MidiKind::Program;
     program.channel=channel_;
@@ -330,7 +342,9 @@ bool P002PrivateRomBank::noteOn(
 }
 bool P002PrivateRomBank::programChange(
     const std::uint8_t program) noexcept {
-    if(!ready_ || program>127u)return false;
+    if(!ready_ || program>127u ||
+       !hasExactSoundFontPreset(presets_,bank_number_,program))
+        return false; // No state mutation / silent switch to missing preset.
     // This is the existing source-original logical ProgramChange
     // decoder/state stage. No invented chip writes: only subsequent
     // actual bank zones are selected using the new program number.
