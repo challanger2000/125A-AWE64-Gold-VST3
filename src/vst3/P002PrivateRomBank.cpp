@@ -317,6 +317,18 @@ bool P002PrivateRomBank::programChange(
     program_=program;
     return true;
 }
+bool P002PrivateRomBank::controller(
+    const std::uint8_t number,const std::uint8_t value) noexcept {
+    if(!ready_ || value>127u ||
+       (number!=7u && number!=10u && number!=11u))return false;
+    MidiMessage change{};
+    change.kind=MidiKind::Controller;
+    change.channel=channel_;
+    change.data1=number;
+    change.data2=value;
+    midi_.apply(change);
+    return true;
+}
 bool P002PrivateRomBank::noteOff(
     awe64::Chip& chip,const std::uint8_t channel,
     const std::uint8_t key) noexcept {

@@ -36,6 +36,10 @@ public:
     // A source-valid MIDI ProgramChange alters only FUTURE bank zone
     // selection, never existing chip voices or their original releases.
     [[nodiscard]] bool programChange(std::uint8_t program) noexcept;
+    // Original Creative logical MIDI CC state used by NEXT NoteOn only.
+    // Already sounding chip registers are not rewritten speculatively.
+    [[nodiscard]] bool controller(std::uint8_t number,
+                                  std::uint8_t value) noexcept;
     [[nodiscard]] std::uint8_t currentProgram() const noexcept {
         return program_;
     }

@@ -90,10 +90,23 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
-    if((bank && *bank) || nativeRamRequested)
+    if((bank && *bank) || nativeRamRequested) {
         parameters.addParameter(STR16("P002 source SF2 program"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateProgramParam));
+        // These are original MIDI controller STATE (not a hand-tuned
+        // filter, amp or FX send). Actual original VXD source mapping
+        // from CC7/CC11/CC10 happens when the next voice is compiled.
+        parameters.addParameter(STR16("P002 source CC7 volume"),
+            nullptr,127,100./127.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateCc7VolumeParam));
+        parameters.addParameter(STR16("P002 source CC10 pan"),
+            nullptr,127,64./127.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateCc10PanParam));
+        parameters.addParameter(STR16("P002 source CC11 expression"),
+            nullptr,127,1.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateCc11ExpressionParam));
+    }
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::terminate() {
@@ -571,6 +584,12 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     // reproduce source LCOD+0x656D pedal down/up sample accurately.
     IParamValueQueue* sustainQueue=nullptr;
     IParamValueQueue* programQueue=nullptr;
+    constexpr std::array<ParamID,3> controllerIds{
+        kP002PrivateCc7VolumeParam,
+        kP002PrivateCc10PanParam,
+        kP002PrivateCc11ExpressionParam};
+    constexpr std::array<std::uint8_t,3> controllerNumbers{7u,10u,11u};
+    std::array<IParamValueQueue*,3> controllerQueues{};
     if(((p002DiagnosticEnabled_ &&
          p002Fixture_.verified_source_note_release) ||
         p002BankEnabled_) && data.inputParameterChanges) {
@@ -585,12 +604,27 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                       queue->getParameterId()==kP002PrivateProgramParam) {
                 if(programQueue)return kInvalidArgument;
                 programQueue=queue;
+            }else if(queue && p002BankEnabled_) {
+                for(std::size_t c=0;c<controllerIds.size();++c) {
+                    if(queue->getParameterId()!=controllerIds[c])continue;
+                    if(controllerQueues[c])return kInvalidArgument;
+                    controllerQueues[c]=queue;
+                    break;
+                }
             }
         }
     }
     const int32 ccCount=sustainQueue?sustainQueue->getPointCount():0;
     const int32 programCount=programQueue?programQueue->getPointCount():0;
     if(ccCount<0 || programCount<0)return kInvalidArgument;
+    std::array<int32,3> controllerCount{};
+    std::array<int32,3> controllerIndex{};
+    for(std::size_t c=0;c<controllerQueues.size();++c) {
+        if(controllerQueues[c]) {
+            controllerCount[c]=controllerQueues[c]->getPointCount();
+            if(controllerCount[c]<0)return kInvalidArgument;
+        }
+    }
     int32 ccIndex=0;
     int32 programIndex=0;
     int32 midiIndex=0;
@@ -598,7 +632,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     if(events<0)return kInvalidArgument;
     int32 pos=0;
     while(midiIndex<events || ccIndex<ccCount ||
-          programIndex<programCount) {
+          programIndex<programCount ||
+          controllerIndex[0]<controllerCount[0] ||
+          controllerIndex[1]<controllerCount[1] ||
+          controllerIndex[2]<controllerCount[2]) {
         Event e{};
         bool haveMidi=midiIndex<events;
         if(haveMidi && data.inputEvents->getEvent(midiIndex,e)!=kResultOk) {
@@ -628,21 +665,56 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                programNormalized<0. || programNormalized>1.)
                 return kInvalidArgument;
         }
+        int32 controllerOffset=std::numeric_limits<int32>::max();
+        ParamValue controllerNormalized=0.;
+        int controllerChoice=-1;
+        for(std::size_t c=0;c<controllerQueues.size();++c) {
+            if(controllerIndex[c]>=controllerCount[c])continue;
+            int32 nextOffset=0;
+            ParamValue nextNormalized=0.;
+            if(controllerQueues[c]->getPoint(
+                   controllerIndex[c],nextOffset,nextNormalized)!=kResultOk ||
+               nextOffset<0 || nextOffset>data.numSamples ||
+               !std::isfinite(nextNormalized) ||
+               nextNormalized<0. || nextNormalized>1.)
+                return kInvalidArgument;
+            // A simultaneous CC7/CC10/CC11 resolves in canonical
+            // controller-number order, not the host queue insertion order.
+            if(nextOffset<controllerOffset) {
+                controllerOffset=nextOffset;
+                controllerNormalized=nextNormalized;
+                controllerChoice=static_cast<int>(c);
+            }
+        }
         // A simultaneous program change must affect the NEXT NoteOn,
         // but never rewrite active physical voices. Ties are a strict
         // deterministic private diagnostic scheduling rule, not a
         // claim about untraced original WinMM ordering. CC64 precedes
         // NoteOff at the same timestamp, as verified in the prior path.
-        const bool chooseProgram=haveProgram &&
+        const bool chooseController=controllerChoice>=0 &&
+            (!haveMidi || controllerOffset<=midiOffset) &&
+            (!haveCc || controllerOffset<=ccOffset) &&
+            (!haveProgram || controllerOffset<=programOffset);
+        const bool chooseProgram=!chooseController && haveProgram &&
             (!haveMidi || programOffset<=midiOffset) &&
             (!haveCc || programOffset<=ccOffset);
-        const bool chooseCc=!chooseProgram && haveCc &&
+        const bool chooseCc=!chooseController && !chooseProgram && haveCc &&
             (!haveMidi || ccOffset<=midiOffset);
-        const int32 offset=chooseProgram?programOffset:
-            (chooseCc?ccOffset:midiOffset);
+        const int32 offset=chooseController?controllerOffset:
+            (chooseProgram?programOffset:
+            (chooseCc?ccOffset:midiOffset));
         if(offset<pos)return kInvalidArgument;
         render(pos,offset,left,right);
         pos=offset;
+        if(chooseController) {
+            const auto value=static_cast<std::uint8_t>(
+                controllerNormalized*127. + 0.5);
+            if(!p002RomBank_.controller(
+                    controllerNumbers[static_cast<std::size_t>(controllerChoice)],
+                    value))return kInvalidArgument;
+            ++controllerIndex[static_cast<std::size_t>(controllerChoice)];
+            continue;
+        }
         if(chooseProgram) {
             const auto value=static_cast<std::uint8_t>(
                 programNormalized*127. + 0.5);

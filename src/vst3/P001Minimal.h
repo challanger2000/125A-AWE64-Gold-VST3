@@ -17,6 +17,12 @@
 namespace awe64::vst3 {
 inline constexpr Steinberg::Vst::ParamID kP002PrivateDiagnosticCc64Param=0x125A0064u;
 inline constexpr Steinberg::Vst::ParamID kP002PrivateProgramParam=0x125A00C0u;
+// VST3 carries CC input legally through sample-accurate automation,
+// never LegacyMIDICCOutEvent. Only future original-source bank NoteOns
+// observe these MIDI-state values; existing hardware voices are untouched.
+inline constexpr Steinberg::Vst::ParamID kP002PrivateCc7VolumeParam=0x125A0007u;
+inline constexpr Steinberg::Vst::ParamID kP002PrivateCc10PanParam=0x125A000Au;
+inline constexpr Steinberg::Vst::ParamID kP002PrivateCc11ExpressionParam=0x125A000Bu;
 class Minimal final : public Steinberg::Vst::SingleComponentEffect {
 public:
     Minimal() = default;
