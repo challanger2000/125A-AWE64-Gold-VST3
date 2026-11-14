@@ -31,15 +31,35 @@ namespace {
 // No Creative DSP, sample data or guest binary is embedded.
 constexpr std::string_view kOwnerSf2Sha =
     "d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b";
-constexpr std::string_view kOriginalFilteredPortsSha =
-    "fd782a9cad8a05dbe1e6e9167d8c77288fc2a24af0c7736a8501dac1afd4f84d";
+// TWO source-proven genuine Win95 Creative sessions, no private bytes.
+struct ExactSourceRamCapture {
+    std::size_t bytes;
+    std::string_view sha256;
+    std::size_t port_events;
+    std::size_t original_smlD_word_writes;
+};
+constexpr std::array<ExactSourceRamCapture,2> kOriginalCaptures{{
+    // Historical original session recorded and reviewed on 2026-11-13.
+    {9422232u,
+     "fd782a9cad8a05dbe1e6e9167d8c77288fc2a24af0c7736a8501dac1afd4f84d",
+     523467u,261264u},
+    // Repeated ACTUAL original AWEMAN32.DLL/SBAWE.VXD boot 2026-11-14.
+    // Original full TRACE SHA256:
+    // 53f6de54e1d6a487cd7bbb01aeba3538409019a7cebf55afa3cbc02863503ece
+    // Real C:\P002RAM.LOG SHA256:
+    // a29a6b68a17c119d1d4683de2930d842ed75f7520d773e79ff458c7c47b0645a
+    // Actual 44.1kHz pre-card AWE32_WAV SHA256:
+    // 5408731eb4c2781149e4a3904c7f219d4dd7534575f121dea83c3cb514f7af88
+    // Source original RAM upload begins at actual chip frame 4436947.
+    {8894094u,
+     "cbde9d3a7cd40885dbb19008b4fa1551c0a6e74bfa3080317a98fcdfc36101b1",
+     523182u,261207u},
+}};
 constexpr std::string_view kOriginalFinalRamWordsSha =
     "ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470";
 constexpr std::size_t kSourceBankBytes=555754u;
-constexpr std::size_t kFilteredOriginalPortBytes=9422232u;
 constexpr std::size_t kFinalOriginalSampleWords=260921u;
-constexpr std::size_t kOriginalFilteredPortEvents=523467u;
-constexpr std::size_t kOriginalRamDataWrites=261264u;
+constexpr std::size_t kMaxFilteredOriginalPortEvents=523467u;
 constexpr std::uint32_t kSourceObservedWordBase=0x200010u;
 constexpr std::size_t kOriginalMonoSampleHeaders=83u;
 
@@ -105,14 +125,14 @@ bool parseExactOriginalSourcePorts(
     std::span<const std::uint8_t> raw,
     std::vector<awe64::creative::OriginalRamUploadPortWrite>& result) {
     result.clear();
-    result.reserve(kOriginalFilteredPortEvents);
+    result.reserve(kMaxFilteredOriginalPortEvents);
     const std::string originalText(
         reinterpret_cast<const char*>(raw.data()),raw.size());
     std::istringstream input(originalText);
     std::string line{};
     std::size_t physicalLines=0u;
     while(std::getline(input,line)) {
-        if(++physicalLines>kOriginalFilteredPortEvents+16u)
+        if(++physicalLines>kMaxFilteredOriginalPortEvents+16u)
             return false;
         if(line.empty() || line[0]=='#')continue;
         std::istringstream fields(line);
@@ -126,12 +146,12 @@ bool parseExactOriginalSourcePorts(
            frame>44100ull*4ull*3600ull ||
            port>0xffffu || value>0xffffu ||
            (port!=0xe22u && port!=0xa20u && port!=0xa22u) ||
-           result.size()>=kOriginalFilteredPortEvents)
+           result.size()>=kMaxFilteredOriginalPortEvents)
             return false;
         result.push_back({frame,static_cast<std::uint16_t>(port),
                           static_cast<std::uint16_t>(value)});
     }
-    return result.size()==kOriginalFilteredPortEvents;
+    return !result.empty();
 }
 } // namespace
 
@@ -191,10 +211,19 @@ bool preloadOriginalCreativeCapturedRamSource(
             return false;
         }
     }
-    if(!exactPrivateBytes(originalFilteredCapturedRamPorts,
-                          kFilteredOriginalPortBytes,
-                          kOriginalFilteredPortsSha,sourcePorts)) {
-        error="original 86Box/Win95 captured RAM ports SHA256 mismatch";
+    const ExactSourceRamCapture* realSession=nullptr;
+    for(const auto& candidate:kOriginalCaptures) {
+        // STRICT original physical source binding: both exact byte count
+        // and immutable digest are required, NEVER a user-declared pin.
+        if(exactPrivateBytes(originalFilteredCapturedRamPorts,
+                             candidate.bytes,candidate.sha256,sourcePorts)) {
+            realSession=&candidate;
+            break;
+        }
+    }
+    if(!realSession) {
+        error="original 2026-11-13/14 Creative RAM ports original "
+              "session length/SHA256 mismatch";
         return false;
     }
     if(!exactPrivateBytes(observedOriginalFinalBankWordsPcm16,
@@ -209,7 +238,8 @@ bool preloadOriginalCreativeCapturedRamSource(
             static_cast<unsigned>(observedFinalBytes[2u*i])|
             (static_cast<unsigned>(observedFinalBytes[2u*i+1u])<<8u));
     std::vector<awe64::creative::OriginalRamUploadPortWrite> ports;
-    if(!parseExactOriginalSourcePorts(sourcePorts,ports)) {
+    if(!parseExactOriginalSourcePorts(sourcePorts,ports) ||
+       ports.size()!=realSession->port_events) {
         error="original filtered RAM port syntax/length invalid";
         return false;
     }
@@ -224,7 +254,7 @@ bool preloadOriginalCreativeCapturedRamSource(
     if(!verified ||
        verified->original_port_upload.exact_port_writes!=ports.size() ||
        verified->original_port_upload.original_sample_words!=
-           kOriginalRamDataWrites ||
+           realSession->original_smlD_word_writes ||
        verified->independently_verified_final_word_count!=
            kFinalOriginalSampleWords ||
        verified->source_sample_distinct_rewritten_words!=255u) {
