@@ -569,16 +569,6 @@ target_include_directories(awe64_p002_sf2_full_noteon_chip
 target_compile_features(awe64_p002_sf2_full_noteon_chip PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_full_noteon_chip
     PUBLIC awe64_p002_sf2_full_noteon awe64_p002_real_chip_port_bridge)
-# Source-original Win95 C4 layered physical voice0/3 allocation:
-# VTFT read -> DCYSUSV/VTFT stop -> next VTFT read, no speculative
-# E22 side effects. This links the actual chip writer to the existing
-# real EMU8000 CTest rather than creating a mock register helper.
-# This CTest exists only in the Windows P001-VST3-enabled build; the
-# source-only original fork CT1745 differential must configure too.
-if(TARGET awe64_p002_sf2_live_vxd_allocator_test)
-    target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
-        PRIVATE awe64_p002_sf2_full_noteon_chip)
-endif()
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_full_noteon_chip)
 # Reconstruct the two remaining source x86 SF2 NoteOn target operands:
@@ -629,6 +619,11 @@ add_executable(awe64_p002_sf2_live_vxd_allocator_test
     tests/p002_native_sf2_live_allocator.cpp)
 target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
     PRIVATE awe64_p002_sf2_live_vxd_allocator)
+# C4 source-original first voice VTFT -> stop -> next VTFT -> stop.
+# The target has NOW been declared (before this point it did not exist),
+# so its real EMU8000 regression can link the actual chip stop writer.
+target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
+    PRIVATE awe64_p002_sf2_full_noteon_chip)
 add_test(NAME p002_original_sf2_real_chip_live_mono_allocator
     COMMAND awe64_p002_sf2_live_vxd_allocator_test)
 
