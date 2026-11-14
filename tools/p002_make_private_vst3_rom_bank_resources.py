@@ -72,9 +72,17 @@ def build(private_vxd: bytes, state: bytes, *, program: int,
         raise ValueError("Private original driver state must be exactly 0x1592 bytes")
     if (struct.unpack_from("<I", state, 0x158E)[0] != 0x4D474D31 or
             struct.unpack_from("<H", state, 0x12)[0] != 0 or
-            struct.unpack_from("<H", state, 0x06)[0] != 30 or
-            struct.unpack_from("<I", state, 0x18)[0] < 3):
-        raise ValueError("Source snapshot lacks original dry 1MGM / 30-voice state")
+            struct.unpack_from("<H", state, 0x06)[0] != 32 or
+            struct.unpack_from("<I", state, 0x18)[0] != 32):
+        # ACTUAL original 2026-11-14 Windows95 SBAWE.VXD memory snapshot,
+        # read from independent guest virtual address C11809F0 after
+        # the Creative driver ran: physical voice capacity is 32,
+        # while the source mono-music allocator owns only voices 0..29.
+        # The former synthetic pack's 30-at-+06 and +18 was our mistake.
+        raise ValueError("Source snapshot lacks original dry 1MGM / "
+                         "32-physical-voice state (30 music slots)")
+    # SBAWE.VXD has 32 physical EMU8000 voices; original Win95
+    # music allocator uses 0..29, leaving voices 30/31 for chip use.
     # A VXD voice previously owned by another note cannot be treated as
     # independently authenticated merely because this new pack loads.
     for slot in range(30):

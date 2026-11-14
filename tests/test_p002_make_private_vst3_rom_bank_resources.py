@@ -13,8 +13,8 @@ import hashlib
 def idle_state():
     state=bytearray(0x1592)
     struct.pack_into("<I",state,0x158e,0x4d474d31)
-    struct.pack_into("<H",state,0x06,30)
-    struct.pack_into("<I",state,0x18,30)
+    struct.pack_into("<H",state,0x06,32)
+    struct.pack_into("<I",state,0x18,32)
     for slot in range(30):
         struct.pack_into("<H",state,0x42+slot*0x20,0x0ffe)
     return state
@@ -79,8 +79,16 @@ class OriginalRomBankPackTest(unittest.TestCase):
         s=idle_state();s[0x42]=60
         with self.assertRaisesRegex(ValueError,"not idle"):
             self.make(s)
-        s=idle_state();s[0x06]=31
-        with self.assertRaisesRegex(ValueError,"30-voice"):
+        # Former synthetic 30-voice capacity was not the original
+        # SBAWE.VXD snapshot: 32 physical vs 30 music. Reject it
+        # even though all 30 music voice rows appear idle.
+        for wrong in (30,31,33):
+            s=idle_state();s[0x06]=wrong
+            with self.subTest(capacity=wrong):
+                with self.assertRaisesRegex(ValueError,"32-physical-voice"):
+                    self.make(s)
+        s=idle_state();struct.pack_into("<I",s,0x18,30)
+        with self.assertRaisesRegex(ValueError,"32-physical-voice"):
             self.make(s)
         with self.assertRaisesRegex(ValueError,"0x1592"):
             self.make(s[:-1])

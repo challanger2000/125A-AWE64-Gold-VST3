@@ -624,7 +624,9 @@ PrivateBytes buildPrivateSyntheticVxdResourcePack() {
     PrivateBytes state(0x1592u,0u);
     state[0x158eu]=0x31u;state[0x158fu]=0x4du;
     state[0x1590u]=0x47u;state[0x1591u]=0x4du;
-    state[0x06u]=30u;state[0x18u]=30u;
+    // Source-original Win95 VXD header counts ALL 32 EMU8000
+    // hardware voices; the bank allocator limits music to first 30.
+    state[0x06u]=32u;state[0x18u]=32u;
     for(std::size_t v=0;v<30u;++v) {
         const auto off=0x42u+v*0x20u;
         state[off]=0xfeu;state[off+1u]=0x0fu;

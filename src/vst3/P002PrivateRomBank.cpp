@@ -96,9 +96,13 @@ bool P002PrivateRomBank::load(
     offset+=state_.size();
     if(u32(state_,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
        u16(state_,0x12u)!=0u ||
-       u16(state_,0x06u)!=30u ||
-       u32(state_,0x18u)<3u) {
-        error="P002 private original dry VXD voice state unsupported";
+       u16(state_,0x06u)!=32u ||
+       u32(state_,0x18u)!=32u) {
+        // A real 1996 Win95 SBAWE.VXD memory read established
+        // 32 PHYSICAL chip voices at both state+06 and state+18;
+        // the Creative music allocator still owns only 0..29.
+        // Never invent a 30-physical-voice source state.
+        error="P002 original dry VXD 32-physical-voice state unsupported";
         clear();return false;
     }
     // The source-proven 30-slot allocator cannot be initialized from
