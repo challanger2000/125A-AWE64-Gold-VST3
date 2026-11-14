@@ -119,7 +119,7 @@ int main(){
     std::size_t physicalWords=0u;
     for(std::size_t i=0u;i<two->count;++i)
         physicalWords+=two->out[i].access_width_bits==32u?2u:1u;
-    CHECK(physicalWords>two->count &&
+    CHECK(physicalWords==152u && // genuine 2x76 physical OUT baseline (C4)
           physicalWords<=SourceClockedPortPlayer::kMaxEvents);
     std::array<std::uint32_t,SourceClockedPortPlayer::kMaxEvents> fakeClock{};
     for(std::size_t i=0u;i<physicalWords;++i)
