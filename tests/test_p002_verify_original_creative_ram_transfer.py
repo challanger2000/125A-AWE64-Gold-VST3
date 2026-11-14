@@ -6,6 +6,8 @@ The model does NOT qualify RAM SoundFont VST3 production playback.
 from __future__ import annotations
 
 import struct
+import hashlib
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,6 +91,57 @@ class OriginalCreativeSourceRamTransferTests(unittest.TestCase):
         # Source word is never guessed from an absent final physical write.
         with self.assertRaisesRegex(ValueError,"lacks one or more"):
             self.replay(self.trace[:-1])
+
+    def test_exact_private_original_guest_log_bytes_equal_file_without_copy(self):
+        # Owner's FAT16 extractor returns the actual guest P002RAM.LOG as
+        # in-memory bytes. The transfer proof must use those SAME bytes
+        # and SHA as its file-based counterpart, with no private temp file.
+        guest=b"ORIGINAL WIN95 SYNTHETIC GUEST LOG\\r\\n"
+        with tempfile.TemporaryDirectory(prefix="p002-original-guest-") as td:
+            root=Path(td)
+            fake_trace=root/"synthetic.trace"
+            fake_bank=root/"synthetic.sf2"
+            guest_file=root/"synthetic.log"
+            fake_trace.write_bytes(b"TRACE")
+            fake_bank.write_bytes(b"SF2")
+            guest_file.write_bytes(guest)
+            expected_word_count=len(self.source)+16
+            original_samples=original.predicted_creative_source_words(
+                self.source)
+            def validate_guest(data,bank):
+                self.assertEqual(data,guest)
+                self.assertEqual(bank,b"SF2")
+                return {"original_driver_ram_allocated_words":
+                        expected_word_count}
+            def fake_replay(lines,base,count):
+                self.assertEqual(base,self.base)
+                self.assertEqual(count,len(self.source))
+                return {
+                    "source_ram_words":list(original_samples),
+                    "source_window_overwritten_words":255,
+                    "observed_source_window_writes":len(self.source)+255,
+                }
+            with (patch.object(original,"audit",side_effect=validate_guest),
+                  patch.object(original,"source_smpl",return_value=self.source),
+                  patch.object(original,"observed_final_ram_words",
+                               side_effect=fake_replay)):
+                from_file=original.analyze(
+                    fake_trace,fake_bank,guest_file,self.base)
+                from_bytes=original.analyze(
+                    fake_trace,fake_bank,guest,self.base)
+                self.assertEqual(from_file,from_bytes)
+                self.assertEqual(
+                    from_bytes["original_guest_log_sha256"],
+                    hashlib.sha256(guest).hexdigest())
+                self.assertEqual(
+                    from_bytes["source_window_overwritten_words"],255)
+                with self.assertRaisesRegex(ValueError,
+                                            "guest log missing or oversized"):
+                    original.analyze(
+                        fake_trace,fake_bank,b"A"*131073,self.base)
+                with self.assertRaisesRegex(ValueError,
+                                            "guest log missing or oversized"):
+                    original.analyze(fake_trace,fake_bank,b"",self.base)
 
     def test_source_guard_checks_and_zero_rule_not_universal(self):
         for source in (
