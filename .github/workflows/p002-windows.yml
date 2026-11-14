@@ -213,7 +213,7 @@ jobs:
           $nativeCaptureA = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-a.wav'
           $nativeCaptureB = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-b.wav'
           try {
-            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host awe64_p001_vst3_host awe64_p001_vst3_rt_host
+            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host awe64_p001_vst3_host awe64_p001_vst3_rt_host awe64_p002_native_ram_evidence_host
             if ($LASTEXITCODE -ne 0) { throw 'Actual P002/P001 VST3, separate CT1745 card oracle and MinHook RT host build failed' }
             $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' |
                 Where-Object { $_.DirectoryName -match 'x86_64-win' } |
@@ -291,6 +291,34 @@ jobs:
             Remove-Item "$nativeCaptureA" -Force -ErrorAction SilentlyContinue
             Remove-Item "$nativeCaptureB" -Force -ErrorAction SilentlyContinue
           }
+      - name: Smoke-test source-only independent Windows native RAM evidence runner
+        shell: pwsh
+        run: |
+          $hostExe = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p002_native_ram_evidence_host.exe' | Where-Object { $_.DirectoryName -match 'Release' })
+          if ($hostExe.Count -ne 1) { throw 'Independent owner-side real P002 RAM evidence host not compiled' }
+          & $hostExe[0].FullName --help
+          if ($LASTEXITCODE -ne 0) { throw 'P002 real native RAM host CLI validation failed' }
+          # Owner RAM, Creative VXD, exact Win95 and full source trace are
+          # private. CI MUST NOT manufacture these files or claim parity.
+          Write-Host 'P002_NATIVE_RAM_EVIDENCE_HOST_WINDOWS_X64_BUILT_AND_CLI_SMOKE_PASS; REAL_PRIVATE_INPUTS_NOT_IN_CI'
+      - name: Package private-owner native evidence capture executable (NO owner input bytes)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force p002-native-evidence-kit | Out-Null
+          $exe = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p002_native_ram_evidence_host.exe' | Where-Object { $_.DirectoryName -match 'Release' })
+          $dll = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'AWE64_Gold_P001.vst3' | Where-Object { $_.DirectoryName -match 'x86_64-win' })
+          if ($exe.Count -ne 1 -or $dll.Count -ne 1) { throw 'Native P002 evidence runner or exact VST3 DLL missing' }
+          Copy-Item -LiteralPath $exe[0].FullName -Destination p002-native-evidence-kit/
+          Copy-Item -LiteralPath $dll[0].FullName -Destination p002-native-evidence-kit/
+          Copy-Item tools/p002_compare_original_native_ram_note_ports.py, tools/p002_compare_original_dry_pcm.py, tools/p002_register_oracle.py -Destination p002-native-evidence-kit/
+          Copy-Item docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md -Destination p002-native-evidence-kit/
+          Write-Host 'P002_OWNER_EVIDENCE_WINDOWS_KIT_ONLY_PUBLIC_CODE: NO ROM/SF2/VXD/TRACE/WAV'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-Windows-Private-Owner-Native-RAM-DRY-Evidence-Runner
+          path: p002-native-evidence-kit/
+          if-no-files-found: error
+          retention-days: 3
       - name: Fetch exact existing 125A Plugin Test Lab P74/P73
         shell: pwsh
         run: |

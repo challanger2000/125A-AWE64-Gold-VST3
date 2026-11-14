@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <cstdlib>
 #include <cwchar>
 #include <filesystem>
 #include <iostream>
@@ -38,7 +40,7 @@ void check(bool condition,const char* why) {
     if(!condition)throw std::runtime_error(why);
 }
 std::uint64_t frameNumber(const wchar_t* arg) {
-    check(arg && *arg,L""[0]==0?"invalid frame":"invalid frame");
+    check(arg && *arg,"invalid frame");
     wchar_t* end=nullptr;
     if(*arg==L'-' || *arg==L'+')throw std::runtime_error("frame must be unsigned");
     const auto n=std::wcstoull(arg,&end,10);
