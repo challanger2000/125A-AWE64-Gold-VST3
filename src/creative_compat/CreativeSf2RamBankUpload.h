@@ -34,4 +34,15 @@ struct P003RamUploadResult {
     std::span<const std::uint8_t> authentic_original_ram_pcm16le,
     P003RamUploadResult& result,std::string& error);
 
+// Resolve a MIDI note against the ACTUAL just-uploaded raw PCM16 pool.
+// This binds the caller's SF2 to physical memory by comparing ALL words
+// in every selected source sample before returning chip voice addresses.
+// It does not authorize original Creative 1996 address allocation or
+// the unverified native 61-register NoteOn sequence.
+[[nodiscard]] std::optional<OriginalSf2RamPhysicalNotePlan>
+p003CandidatePhysicalNoteFromVerifiedRawPool(
+    const awe64::Chip& chip,std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& upload,std::uint16_t bank,
+    std::uint8_t program,std::uint8_t key,std::uint8_t velocity) noexcept;
+
 } // namespace awe64::creative
