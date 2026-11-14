@@ -1,0 +1,28 @@
+name: P002 internal fetch of public calibrated original 86Box reference
+on:
+  push:
+    branches:
+      - diagnostic/p002-original-source-linux
+    paths:
+      - .github/workflows/p002-original-fork-diagnostic.yml
+permissions:
+  contents: read
+jobs:
+  public-calibrated-reference-only:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - name: Download exact released public original-calibrated 86Box Linux binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLSs --retry 3 --connect-timeout 15 -o 86Box-AWE32-0.93-linux.tar.gz 'https://github.com/turican0/86Box-AWE32/releases/download/v6.0-AWE32-0.93/86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz'
+          printf '%s  %s\n' '5d92ab7bc78ef971acfb776575987ec17c81386d90c3d144e46661a1649ffb6d' '86Box-AWE32-0.93-linux.tar.gz' | sha256sum --check --
+          tar -tzf 86Box-AWE32-0.93-linux.tar.gz | head -30
+          echo 'P002_PUBLIC_CALIBRATED_FORK_LINUX_BINARY_SHA_VERIFIED; NO_WIN95_OR_CREATIVE_DATA_ON_GITHUB'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-calibrated-86Box-Linux-x86_64-only
+          path: 86Box-AWE32-0.93-linux.tar.gz
+          retention-days: 1
+          if-no-files-found: error
