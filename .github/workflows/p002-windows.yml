@@ -312,7 +312,18 @@ jobs:
           if ($exe.Count -ne 1 -or $dll.Count -ne 1) { throw 'Native P002 evidence runner or exact VST3 DLL missing' }
           Copy-Item -LiteralPath $exe[0].FullName -Destination p002-native-evidence-kit/
           Copy-Item -LiteralPath $dll[0].FullName -Destination p002-native-evidence-kit/
-          Copy-Item tools/p002_compare_original_native_ram_note_ports.py, tools/p002_compare_original_dry_pcm.py, tools/p002_register_oracle.py -Destination p002-native-evidence-kit/
+          # This is a COMPLETE public-code owner kit: both strict
+          # comparators and the FULL original Win95 RAM + native PCM join,
+          # including its parser dependencies. No private source data.
+          Copy-Item @(
+            'tools/p002_compare_original_native_ram_note_ports.py',
+            'tools/p002_compare_original_dry_pcm.py',
+            'tools/p002_join_real_original_native_ram_parity.py',
+            'tools/p002_register_oracle.py',
+            'tools/p002_original_ram_trace_probe.py',
+            'tools/p002_verify_original_creative_ram_transfer.py',
+            'tools/p002_verify_original_win95_ram_guest_log.py'
+          ) -Destination p002-native-evidence-kit/
           Copy-Item docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md -Destination p002-native-evidence-kit/
           Write-Host 'P002_OWNER_EVIDENCE_WINDOWS_KIT_ONLY_PUBLIC_CODE: NO ROM/SF2/VXD/TRACE/WAV'
       - uses: actions/upload-artifact@v4

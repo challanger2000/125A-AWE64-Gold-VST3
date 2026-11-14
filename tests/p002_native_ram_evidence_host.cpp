@@ -348,6 +348,31 @@ int wmain(int argc,wchar_t** argv) {
         if(validSchedule(mutation))return 5;
         mutation=valid;mutation.total=kMaxFrames+1u;
         if(validSchedule(mutation))return 6;
+        // Native owner evidence SHA256 is computed off-RT through
+        // Windows CNG. Exercise the exact file-hash implementation,
+        // not a copied digest literal in Python alone.
+        wchar_t tmpDir[MAX_PATH]{},tmpFile[MAX_PATH]{};
+        const DWORD tempLen=GetTempPathW(MAX_PATH,tmpDir);
+        if(tempLen==0 || tempLen>=MAX_PATH ||
+           !GetTempFileNameW(tmpDir,L"P2H",0,tmpFile))return 7;
+        const HANDLE temp=CreateFileW(tmpFile,GENERIC_WRITE,0,nullptr,
+                                      TRUNCATE_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+        if(temp==INVALID_HANDLE_VALUE) {
+            DeleteFileW(tmpFile);return 8;
+        }
+        DWORD wrote=0;
+        const bool created=WriteFile(temp,"abc",3,&wrote,nullptr)!=0 &&
+                           wrote==3 && FlushFileBuffers(temp)!=0;
+        CloseHandle(temp);
+        bool verified=false;
+        if(created) {
+            try {
+                verified=hashFileSha256(fs::path(tmpFile))==
+                    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+            }catch(const std::exception&) {verified=false;}
+        }
+        DeleteFileW(tmpFile);
+        if(!verified)return 9;
         std::cout<<"P002_PRIVATE_WINDOWS_NATIVE_HOST_SCHEDULE_SELFTEST_PASS "
                  <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
