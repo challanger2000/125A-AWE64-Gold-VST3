@@ -181,6 +181,41 @@ bool P002PrivateOriginalRamNotes::load(
     return true;
 }
 
+bool P002PrivateOriginalRamNotes::verifiedNativeClockPlan(
+    const bool note_off,const int channel,const int pitch,
+    const int velocity,
+    const std::span<const awe64::ChipPortWrite> generated,
+    const std::span<awe64::creative::SourceClockedPort> output,
+    std::size_t& output_count) const noexcept {
+    output_count=0u;
+    // Only the owner-verified RAM-SF2 C4/D4 session is eligible.
+    if(!ready_ || channel!=0 || (pitch!=60 && pitch!=62) ||
+       (!note_off && velocity!=100))
+        return false;
+    const auto& group=notes_[pitch==60?0u:1u];
+    const auto& source=note_off?group.off:group.on;
+    if(source.count==0u || generated.size()!=source.count ||
+       output.size()<source.count)return false;
+    // ALL words must agree before even the first native write can be
+    // scheduled: no partial source replay, offset guessing or sorting.
+    for(std::size_t i=0u;i<source.count;++i) {
+        const auto& original=source.events[i];
+        if(generated[i].port!=original.port ||
+           generated[i].value!=original.value ||
+           (i>0u &&
+            original.relative_chip_frame<
+                source.events[i-1u].relative_chip_frame))
+            return false;
+    }
+    for(std::size_t i=0u;i<source.count;++i) {
+        const auto& original=source.events[i];
+        const auto& native=generated[i];
+        output[i]={original.relative_chip_frame,native.port,native.value};
+    }
+    output_count=source.count;
+    return true;
+}
+
 void P002PrivateOriginalRamNotes::executeFrame(
     awe64::Chip& chip,Group& g) noexcept {
     while(g.next_on<g.on.count &&
