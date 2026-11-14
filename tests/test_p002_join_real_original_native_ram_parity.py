@@ -166,7 +166,7 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             self.run_join(original_port_origin=-1)
         self.write_wav(self.source_wav,zero=True)
         self.write_wav(self.native_wav,zero=True)
-        with self.assertRaisesRegex(ValueError,"silent|nonzero"):
+        with self.assertRaisesRegex(ValueError,"silence|silent|nonzero"):
             self.run_join()
 
     def test_bad_native_recorder_header_no_go(self):
