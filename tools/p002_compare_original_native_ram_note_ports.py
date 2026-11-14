@@ -55,7 +55,8 @@ def _has_original_voice_allocator_start(events:list[tuple[int,int,int]])->bool:
 def compare_windows(original:Path,native:Path,*,
                     original_origin:int,native_origin:int,
                     frames:int,require_owner_original:bool=True,
-                    require_complete_note_start:bool=False)->dict:
+                    require_complete_note_start:bool=False,
+                    expected_original_sha256:str|None=None)->dict:
     original=original.resolve();native=native.resolve()
     if original==native:
         raise ValueError("Original and native trace must be distinct files")
@@ -67,9 +68,13 @@ def compare_windows(original:Path,native:Path,*,
         if f.readline()!=HEADER or f.readline()!=CLOCK_HEADER:
             raise ValueError("Missing authentic native VST3 port-write recorder header")
     original_sha=sha(original);native_sha=sha(native)
+    expected=expected_original_sha256 or ORIGINAL_OWNER_RAM_TRACE_SHA256
     if (require_owner_original and
-        original_sha!=ORIGINAL_OWNER_RAM_TRACE_SHA256):
-        raise ValueError("Source trace not the owner verified original Creative RAM trace")
+        (len(expected)!=64 or
+         any(c not in "0123456789abcdef" for c in expected) or
+         original_sha!=expected)):
+        raise ValueError("Source trace not the independently verified "
+                         "original Creative RAM capture/session SHA256")
     def window(path,origin,*,native_write_only=False):
         events=[]
         for frame,direction,port,value in read_trace(path):
@@ -130,6 +135,8 @@ def compare_windows(original:Path,native:Path,*,
         "original_trace_sha256":original_sha,
         "native_trace_sha256":native_sha,
         "owner_original_source_sha_required":require_owner_original,
+        "original_session_supplied_sha256_verified":
+            require_owner_original and expected_original_sha256 is not None,
         "complete_original_voice_allocator_prologue_required":
             require_complete_note_start,
         "original_origin_frame":original_origin,

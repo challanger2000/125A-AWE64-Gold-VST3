@@ -20,18 +20,22 @@ if __package__:
     from . import p002_verify_original_creative_ram_transfer as transfer
     from . import p002_compare_original_native_ram_note_ports as ports
     from . import p002_compare_original_dry_pcm as pcm
+    from . import p002_attest_private_win95_session as original_session
 else:
     import p002_verify_original_creative_ram_transfer as transfer
     import p002_compare_original_native_ram_note_ports as ports
     import p002_compare_original_dry_pcm as pcm
+    import p002_attest_private_win95_session as original_session
 
 ORIGINAL_SF2_SHA256="d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b"
 ORIGINAL_TRACE_SHA256=ports.ORIGINAL_OWNER_RAM_TRACE_SHA256
-# The exact original guest API log must describe the SAME observed Win95
-# driver run as the full source trace and cropped pre-card dry WAV.
-# A merely valid/simulated success log from another run is not evidence.
-ORIGINAL_GUEST_LOG_SHA256="660a01264550415d50d2cd071e752e9388ebb63071288acbefe95c0386a07096"
-ORIGINAL_WAV_SHA256="b4e97086a13cf9c85f20a6e6ec0d9555fb7c708c1d6689fd5f38e0e7c4655dcf"
+# A corrected Win95 C:\P002RAM.LOG contains live GetTickCount() data.
+# A hard-coded SHA from an *unrelated* historical session can NEVER
+# validate a newly booted guest. Use owner-side FAT16+driver+86Box
+# attested ORIGINAL SESSION manifest; source trace/WAV/log SHA are
+# bound to that exact run, not an unverified fabricated constant.
+# The previous static source trace/WAV remain historical diagnostic
+# references, NOT universal SHA pins for a different VM capture.
 ORIGINAL_PHYSICAL_RAM_SAMPLE_BASE=0x200010
 ORIGINAL_ROM_SHA256="4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e"
 NATIVE_CLOCK_SCHEMA="P002_NATIVE_REAL_VST3_HOST_CLOCKS_V1"
@@ -121,7 +125,8 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
             port_frames:int, original_pcm_start:int,
             native_pcm_start:int, pcm_frames:int,
             _synthetic_unit_test_only:bool=False,
-            native_manifest:Path|None=None,native_note:str="C4")->dict:
+            native_manifest:Path|None=None,native_note:str="C4",
+            original_session_manifest:Path|None=None)->dict:
     source_paths=[original_trace,original_sf2,original_guest_log,
                   original_wav,native_ports,native_wav]
     normalized=[p.resolve() for p in source_paths]
@@ -137,21 +142,31 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
         "native_precard_wav_sha256":_sha(native_wav),
         "original_guest_log_sha256":_sha(original_guest_log),
     }
-    if not _synthetic_unit_test_only:
-        for key,expected in (
-            ("original_emu8k_trace_sha256",ORIGINAL_TRACE_SHA256),
-            ("original_owner_sf2_sha256",ORIGINAL_SF2_SHA256),
-            ("original_win95_precard_wav_sha256",ORIGINAL_WAV_SHA256),
-            ("original_guest_log_sha256",ORIGINAL_GUEST_LOG_SHA256)):
-            if checks[key]!=expected:
-                raise ValueError(
-                    "Not independently SHA-pinned ORIGINAL Win95 Creative "
-                    "reference: "+key)
+    if not _synthetic_unit_test_only and checks[
+            "original_owner_sf2_sha256"]!=ORIGINAL_SF2_SHA256:
+        raise ValueError("Not independently SHA-pinned ORIGINAL Win95 Creative "
+                         "reference: original_owner_sf2_sha256")
+    if not _synthetic_unit_test_only and original_session_manifest is None:
+        raise ValueError("Production source proof requires the original "
+                         "booted Windows 95 Creative SESSION manifest; "
+                         "a historical/fabricated fixed guest-log SHA is invalid")
+    if original_session_manifest is not None and (
+            original_session_manifest.resolve() in normalized):
+        raise ValueError("Original session manifest aliases input evidence")
+    source_attestation=(original_session.verify_manifest(
+        original_session_manifest,original_trace,original_sf2,
+        original_guest_log,original_wav)
+        if original_session_manifest is not None else {
+            "status":"SYNTHETIC_SOURCE_ONLY",
+            "release_approved":False})
     if not _synthetic_unit_test_only and native_manifest is None:
         raise ValueError("Production parity requires authentic private native "
                          "host SHA256 and MIDI clock manifest")
     if native_manifest is not None and native_manifest.resolve() in normalized:
         raise ValueError("Native host manifest aliases original or native input")
+    if (native_manifest is not None and original_session_manifest is not None
+            and native_manifest.resolve()==original_session_manifest.resolve()):
+        raise ValueError("Source Win95 and native VST3 manifests must be independent")
     native_clock=(verify_native_clock_manifest(
         native_manifest,native_ports,native_wav,original_sf2,
         note=native_note,native_port_origin=native_port_origin,
@@ -176,7 +191,10 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
         original_origin=original_port_origin,
         native_origin=native_port_origin,frames=port_frames,
         require_owner_original=not _synthetic_unit_test_only,
-        require_complete_note_start=not _synthetic_unit_test_only)
+        require_complete_note_start=not _synthetic_unit_test_only,
+        expected_original_sha256=(
+            source_attestation["original_emu8k_trace_sha256"]
+            if not _synthetic_unit_test_only else None))
     audio=pcm.compare_pcm16_windows(
         original_wav,native_wav,
         original_pcm_start,native_pcm_start,pcm_frames)
@@ -186,6 +204,7 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
                   if both else "P002_ORIGINAL_VS_NATIVE_RAM_NOTE_MISMATCH"),
         "source":source,
         "source_file_sha256":checks,
+        "original_win95_source_session":source_attestation,
         "native_host_clock_and_sha256":native_clock,
         "native_original_ram_ports":native,
         "native_original_dry_pcm":audio,
@@ -207,6 +226,7 @@ def main(argv=None)->int:
     for name in ("original-port-origin","native-port-origin","port-frames",
                  "original-pcm-start","native-pcm-start","pcm-frames"):
         parser.add_argument("--"+name,required=True,type=int)
+    parser.add_argument("--original-session-manifest",required=True,type=Path)
     parser.add_argument("--native-manifest",required=True,type=Path)
     parser.add_argument("--native-note",required=True,choices=("C4","D4"))
     a=parser.parse_args(argv)
@@ -214,7 +234,7 @@ def main(argv=None)->int:
     root=Path(__file__).resolve().parents[1]
     sources=[a.original_trace,a.original_sf2,a.original_guest_log,
              a.original_wav,a.native_ports,a.native_wav,
-             a.native_manifest]
+             a.original_session_manifest,a.native_manifest]
     if out.exists() or out in [x.resolve() for x in sources] or (
             out==root or root in out.parents):
         parser.error("Private report must be NEW, outside Git and original/native inputs")
@@ -227,7 +247,8 @@ def main(argv=None)->int:
                    native_pcm_start=a.native_pcm_start,
                    pcm_frames=a.pcm_frames,
                    native_manifest=a.native_manifest,
-                   native_note=a.native_note)
+                   native_note=a.native_note,
+                   original_session_manifest=a.original_session_manifest)
     out.parent.mkdir(parents=True,exist_ok=True)
     with out.open("x",encoding="utf-8") as f:
         json.dump(result,f,indent=2,sort_keys=True)
