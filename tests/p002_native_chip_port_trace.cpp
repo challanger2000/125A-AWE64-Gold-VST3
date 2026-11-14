@@ -137,6 +137,30 @@ int main(){
     CHECK(a.nativeNoteOutTransactionOverflow());
     CHECK(a.nativeNoteOutTransaction().empty());
     CHECK(!a.endNativeNoteOutTransaction());
+
+    // Original fork E22 reads mutate static random_helper outside the
+    // chip C struct. This is forbidden during snapshot speculation.
+    std::memcpy(originalChip.data(),a.rawForContractTesting(),
+                originalChip.size());
+    CHECK(a.beginNativeNoteOutTransaction());
+    CHECK(a.readPort(0xe22u)==0xffffu);
+    CHECK(a.nativeNoteOutTransactionOverflow());
+    CHECK(!a.endNativeNoteOutTransaction());
+    CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
+                      originalChip.size())==0);
+
+    // The original fork's DMA flag/read cursor registers also have
+    // non-snapshotted side effects. The real allocator needs only VTFT.
+    std::memcpy(originalChip.data(),a.rawForContractTesting(),
+                originalChip.size());
+    CHECK(a.beginNativeNoteOutTransaction());
+    a.writePort(0xe22u,0x36u);
+    CHECK(a.readPort(0xa20u)==0xffffu);
+    CHECK(a.nativeNoteOutTransactionOverflow());
+    CHECK(!a.endNativeNoteOutTransaction());
+    CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
+                      originalChip.size())==0);
+    CHECK(a.rawForContractTesting()->ram[16]==beforeValue);
     direct.close();
     b.close();a.close();std::filesystem::remove(rom);
     std::cout<<"P002_NATIVE_CHIP_PORT_TRACE_SAMPLE_CLOCK_AND_NO_DSP_SIDE_EFFECT_PASS\n";
