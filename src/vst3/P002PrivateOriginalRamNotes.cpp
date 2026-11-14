@@ -27,17 +27,26 @@ namespace {
 constexpr std::string_view kOriginalNotePortSha =
     "3e967768c248c89e67802a14235c2e986d0b091e61cf1024931658384faed484";
 constexpr std::size_t kOriginalNotePortBytes=5741u;
+constexpr std::size_t kNewOwnerNotePortBytes=5683u;
+constexpr std::string_view kNewOwnerNotePortSha =
+    "5ea597cb377bbbca659e8b750fecfe748fc021abf748a48c044936d75ff70595";
 constexpr std::array<std::size_t,4> kExactSourceCounts{{152u,8u,156u,8u}};
 constexpr std::array<std::uint32_t,4> kSourceFirstFrames{{
     3154566u,3172293u,3201361u,3219527u
+}};
+constexpr std::array<std::uint32_t,4> kNewOwnerSourceFirstFrames{{
+    1758037u,1775737u,1804806u,1822988u
 }};
 constexpr std::array<std::string_view,4> kSourceSections{{
     "# C4_ON","# C4_OFF","# D4_ON","# D4_OFF"
 }};
 
 bool hasExactNoteSourceSha(
-    const std::span<const std::uint8_t> data) noexcept {
-    if(data.size()!=kOriginalNotePortBytes)return false;
+    const std::span<const std::uint8_t> data,
+    bool& newOwnerSession) noexcept {
+    newOwnerSession=false;
+    if(data.size()!=kOriginalNotePortBytes &&
+       data.size()!=kNewOwnerNotePortBytes)return false;
     BCRYPT_ALG_HANDLE algorithm=nullptr;
     BCRYPT_HASH_HANDLE state=nullptr;
     std::array<UCHAR,32> hash{};
@@ -52,11 +61,18 @@ bool hasExactNoteSourceSha(
                                 static_cast<ULONG>(hash.size()),0)==0) {
                 constexpr char digits[]="0123456789abcdef";
                 accepted=true;
+                bool oldSha=data.size()==kOriginalNotePortBytes;
+                bool newSha=data.size()==kNewOwnerNotePortBytes;
                 for(std::size_t i=0;i<hash.size();++i) {
-                    if(kOriginalNotePortSha[2*i]!=digits[hash[i]>>4] ||
-                       kOriginalNotePortSha[2*i+1]!=digits[hash[i]&15])
-                        accepted=false;
+                    const char high=digits[hash[i]>>4];
+                    const char low=digits[hash[i]&15];
+                    oldSha=oldSha && kOriginalNotePortSha[2*i]==high &&
+                                      kOriginalNotePortSha[2*i+1]==low;
+                    newSha=newSha && kNewOwnerNotePortSha[2*i]==high &&
+                                      kNewOwnerNotePortSha[2*i+1]==low;
                 }
+                newOwnerSession=newSha;
+                accepted=oldSha || newSha;
             }
             BCryptDestroyHash(state);
         }
@@ -87,19 +103,26 @@ bool P002PrivateOriginalRamNotes::load(
     error.clear();
     std::ifstream file(path,std::ios::binary|std::ios::ate);
     if(!file ||
-       file.tellg()!=static_cast<std::streamoff>(kOriginalNotePortBytes)) {
+       (file.tellg()!=static_cast<std::streamoff>(kOriginalNotePortBytes) &&
+        file.tellg()!=static_cast<std::streamoff>(kNewOwnerNotePortBytes))) {
         error="Real original Creative C4/D4 note fixture length invalid";
         return false;
     }
+    const auto dataSize=static_cast<std::size_t>(file.tellg());
     file.seekg(0,std::ios::beg);
     std::array<std::uint8_t,kOriginalNotePortBytes> bytes{};
-    if(!file.read(reinterpret_cast<char*>(bytes.data()),bytes.size()) ||
-       !hasExactNoteSourceSha(bytes)) {
+    bool newOwnerSession=false;
+    if(!file.read(reinterpret_cast<char*>(bytes.data()),dataSize) ||
+       !hasExactNoteSourceSha(
+           std::span<const std::uint8_t>(bytes.data(),dataSize),
+           newOwnerSession)) {
         error="Real original Creative C4/D4 note fixture SHA256 invalid";
         return false;
     }
     const std::string text(reinterpret_cast<const char*>(bytes.data()),
-                           bytes.size());
+                           dataSize);
+    const auto& firstFrames=newOwnerSession?
+        kNewOwnerSourceFirstFrames:kSourceFirstFrames;
     std::istringstream lines(text);
     std::string line;
     std::size_t section=0u,section_count=0u;
@@ -139,8 +162,10 @@ bool P002PrivateOriginalRamNotes::load(
         std::uint32_t frame=0u,port=0u,value=0u;
         if(!number(f,10,frame) || !number(p,16,port) ||
            !number(v,16,value) ||
-           frame<kSourceFirstFrames[section] ||
-           frame-kSourceFirstFrames[section]>(section%2u==0u?2u:0u) ||
+           frame<firstFrames[section] ||
+           frame-firstFrames[section]>(
+                newOwnerSession ? (section==0u?3u:(section==2u?4u:0u)):
+                                  (section%2u==0u?2u:0u)) ||
            port>0xffffu || value>0xffffu ||
            (port!=0xe22u && port!=0xe20u &&
             port!=0xa20u && port!=0xa22u &&
@@ -149,7 +174,7 @@ bool P002PrivateOriginalRamNotes::load(
             clear();return false;
         }
         const Event event{static_cast<std::uint16_t>(
-                              frame-kSourceFirstFrames[section]),
+                              frame-firstFrames[section]),
                           static_cast<std::uint16_t>(port),
                           static_cast<std::uint16_t>(value)};
         auto& group=notes_[section/2u];

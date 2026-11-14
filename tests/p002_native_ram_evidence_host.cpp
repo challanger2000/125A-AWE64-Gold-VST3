@@ -391,7 +391,8 @@ int wmain(int argc,wchar_t** argv) {
             const fs::path sourceClock(argv[15]);
             check(sourceClock.is_absolute() &&
                   fs::is_regular_file(sourceClock) &&
-                  fs::file_size(sourceClock)==5741u,
+                  (fs::file_size(sourceClock)==5741u ||
+                    fs::file_size(sourceClock)==5683u),
                   "clocked native input requires original SHA-pinned note source");
             for(int i=1;i<=14;++i)
                 check(sourceClock.lexically_normal()!=

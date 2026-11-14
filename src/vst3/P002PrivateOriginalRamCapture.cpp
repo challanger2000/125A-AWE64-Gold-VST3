@@ -38,7 +38,7 @@ struct ExactSourceRamCapture {
     std::size_t port_events;
     std::size_t original_smlD_word_writes;
 };
-constexpr std::array<ExactSourceRamCapture,2> kOriginalCaptures{{
+constexpr std::array<ExactSourceRamCapture,3> kOriginalCaptures{{
     // Historical original session recorded and reviewed on 2026-11-13.
     {9422232u,
      "fd782a9cad8a05dbe1e6e9167d8c77288fc2a24af0c7736a8501dac1afd4f84d",
@@ -54,6 +54,11 @@ constexpr std::array<ExactSourceRamCapture,2> kOriginalCaptures{{
     {8894094u,
      "cbde9d3a7cd40885dbb19008b4fa1551c0a6e74bfa3080317a98fcdfc36101b1",
      523182u,261207u},
+    // Independently SHA-attested calibrated Win95 CC0=1 owner reboot,
+    // session 2026-11-14T18:09:37Z. Source bytes stay private.
+    {9422232u,
+     "6674b2034dfa59c6ff6e69bdb4f4cdfbb9202294fc7f8ac5e1a3dd0f8d183805",
+     523467u,261264u},
 }};
 constexpr std::string_view kOriginalFinalRamWordsSha =
     "ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470";
