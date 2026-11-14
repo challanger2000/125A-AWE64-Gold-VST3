@@ -1,4 +1,5 @@
 #include "P001Minimal.h"
+#include "P002OriginalWin95ChipPrelude.h"
 #include "P002PrivateDryPcmCapture.h"
 #include "pluginterfaces/base/ibstream.h"
 #include "P002PrivateOriginalRamCapture.h"
@@ -219,6 +220,13 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS");
     const char* originalRamFinal=
         std::getenv("AWE64_P002_PRIVATE_ORIGINAL_RAM_FINAL_PCM16");
+    // Exact SHA-pinned original Win95 physical chip-prelude experiment.
+    // ONLY the initialization and original RAM transfer are source-driven;
+    // the actual C4/D4 note register compiler remains independent MIDI.
+    const char* originalPreludeTrace=
+        std::getenv("AWE64_P002_PRIVATE_ORIGINAL_CHIP_PRELUDE_TRACE");
+    const bool originalPreludeRequested=
+        originalPreludeTrace && *originalPreludeTrace;
     // These are actual 1996 original driver NoteOn/NoteOff physical
     // port writes from THE SAME independently verified Win95 RAM bank.
     // Optional: no captured note file means authenticated RAM-only
@@ -268,7 +276,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
        (clockEnv && *clockEnv && !clockedRamRequested) ||
        (clockedRamRequested && !nativeRamRequested) ||
        ((traceRequested || dryWavRequested) && !nativeRamRequested) ||
-       modeConflict) {
+       modeConflict || (originalPreludeRequested && !nativeRamRequested)) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
         chip_.close();return kResultFalse;
@@ -298,6 +306,39 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             chip_.close();return kResultFalse;
         }
         p002PrivateRamPreloaded_=true;
+        if(originalPreludeRequested) {
+            // First original RAM attestation has already passed. Recreate
+            // the ORIGINAL clean 86Box chip, then execute its complete
+            // authenticated Win95 pre-note history with physical time.
+            // No note-clip or source values are used for native MIDI notes.
+            chip_.close();
+            std::string reopen;
+            if(!chip_.open(std::filesystem::path(path),reopen)) {
+                std::fprintf(stderr,"P002 original chip reinitialize failed: %s\n",
+                             reopen.c_str());return kResultFalse;
+            }
+            OriginalChipPreludeResult result;
+            std::string preludeError;
+            if(!replayPrivateOriginalWin95ChipPrelude(
+                   chip_,std::filesystem::path(originalPreludeTrace),
+                   std::filesystem::path(originalRamFinal),137u,
+                   result,preludeError)) {
+                std::fprintf(stderr,"P002 original chip prelude refused: %s\n",
+                             preludeError.c_str());
+                chip_.close();return kResultFalse;
+            }
+            std::fprintf(stderr,
+                "P002_WIN95_ORIGINAL_PRELUDE_REPLAYED "
+                "writes=%u reads=%u INIT=%u HWCF=%u "
+                "read_differences=%u source_clock_at_native_activation=%llu "
+                "real_original_vs_native_audio=NOT_YET_COMPARED\n",
+                result.physical_writes,result.physical_reads,
+                result.source_init_writes,
+                result.source_hardware_config_writes,
+                result.read_disagreements,
+                static_cast<unsigned long long>(
+                    result.source_chip_clock_at_activation));
+        }
         // This explicitly does NOT route NoteOn through the P001 ROM
         // voice or guess the Creative source VXD RAM voice descriptors.
         // Authentic source RAM is physically loaded; actual RAM
@@ -324,8 +365,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                 why.c_str());
             chip_.close();return kResultFalse;
         }
-        chip_.writePort(0xe22u,(1u<<5u)|31u);
-        chip_.writePort(0xa20u,0x0004u);
+        if(!originalPreludeRequested) {
+            chip_.writePort(0xe22u,(1u<<5u)|31u);
+            chip_.writePort(0xa20u,0x0004u);
+        }
         p002BankEnabled_=true;
         if(clockedRamRequested) {
             // Snapshot reservation is on setActive, never in process().

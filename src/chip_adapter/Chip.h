@@ -59,6 +59,9 @@ public:
     [[nodiscard]] std::uint64_t renderedFrames() const noexcept {
         return rendered_frames_;
     }
+    // Research-only: after exact original Win95 prelude at activation,
+    // rebase only the host-evidence clock, never the pinned EMU8000 state.
+    [[nodiscard]] bool rebaseDiagnosticFrameClock() noexcept;
 
     // Private P002 native MIDI->OUT evidence path ONLY. Arm off the audio
     // thread; one speculative NoteOn runs the ORIGINAL driver-derived

@@ -192,6 +192,23 @@ add_test(NAME p001_direct_fork_pcm_and_negative_controls
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.
 
+
+# P002 owner-private original Win95 hardware-register prelude has a
+# strict negative gate even on public Windows CI with NO licensed ROM.
+if(WIN32)
+    add_executable(awe64_p002_win95_chip_prelude_negative
+        tests/p002_original_win95_prelude_negative.cpp
+        src/vst3/P002OriginalWin95ChipPrelude.cpp)
+    target_include_directories(awe64_p002_win95_chip_prelude_negative
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p002_win95_chip_prelude_negative
+        PRIVATE awe64_fork_chip bcrypt)
+    target_compile_features(awe64_p002_win95_chip_prelude_negative
+        PRIVATE cxx_std_23)
+    add_test(NAME p002_original_win95_chip_prelude_absent_source_no_go
+        COMMAND awe64_p002_win95_chip_prelude_negative)
+endif()
+
 # P002: Creative 1996 public API factual identifiers and byte-level WinMM
 # staging. No claim of original driver register/acoustic equivalence until
 # independently captured original Creative traces are compared.
@@ -821,6 +838,7 @@ if(AWE64_BUILD_P001_VST3)
         src/vst3/P002PrivateOriginalRamCapture.cpp
         src/vst3/P002PrivateOriginalRamNotes.h
         src/vst3/P002PrivateOriginalRamNotes.cpp
+        src/vst3/P002OriginalWin95ChipPrelude.cpp
         src/vst3/P001Factory.cpp
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")

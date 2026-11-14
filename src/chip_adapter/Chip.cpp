@@ -76,6 +76,12 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     error.clear();
     return true;
 }
+bool Chip::rebaseDiagnosticFrameClock() noexcept {
+    if(!device_ || trace_armed_ || trace_count_!=0u ||
+       native_note_capture_active_)return false;
+    rendered_frames_=0u;
+    return true;
+}
 bool Chip::armNativeNoteOutTransaction() noexcept {
     if(!device_ || native_note_capture_active_)return false;
     try {

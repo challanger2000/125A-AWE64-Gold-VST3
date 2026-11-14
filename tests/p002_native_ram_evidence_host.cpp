@@ -109,7 +109,7 @@ std::string hashFileSha256(const fs::path& path) {
 }
 void saveClockManifest(const fs::path& path,const Schedule& schedule,
                        const std::array<std::size_t,2>& audible,
-                       wchar_t** argv) {
+                       wchar_t** argv,const wchar_t* prelude) {
     const std::array<const char*,8> keys{{
         "exported_vst3_sha256","original_rom_sha256",
         "original_owner_sf2_sha256","original_ram_ports_sha256",
@@ -131,6 +131,8 @@ void saveClockManifest(const fs::path& path,const Schedule& schedule,
     for(std::size_t i=0;i<keys.size();++i)
         json<<"  \""<<keys[i]<<"\": \""<<hashFileSha256(fs::path(argv[i+1]))
             <<"\""<<","<<"\n";
+    json<<"  \"original_win95_prelude_source_sha256\": \""
+        <<(prelude?hashFileSha256(fs::path(prelude)):"NOT_RUN")<<"\",\n";
     json<<"  \"original_win95_vs_native_pcm_parity\": \"NOT_COMPARED\",\n"
         <<"  \"original_creative_driver_provenance\": \"NOT_PROVEN_BY_HOST\"\n}\n";
     const std::string bytes=json.str();
@@ -336,7 +338,10 @@ int wmain(int argc,wchar_t** argv) {
           L"<C4_ON_FRAME> <C4_OFF_FRAME> <D4_ON_FRAME> "
           L"<D4_OFF_FRAME> <TOTAL_FRAMES> [NEW_CLOCK_MANIFEST]\n"
           L"Optional clocked native source mode: append <ORIGINAL_C4_D4_NOTE_PORTS> "
-          L"after the NEW_CLOCK_MANIFEST. Authentic source values VERIFY "
+          L"after the NEW_CLOCK_MANIFEST. Optional --original-prelude=<FULL_WIN95_TRACE> "
+          L"may follow any run with a clock manifest to privately replay "
+          L"original pre-note chip initialization ONLY. "
+          L"Authentic source values VERIFY "
           L"native OUTs; only original sample offsets schedule native writes.\n"
           L"No Win95 clock is inferred. Original/native parity is NOT proven by this host.\n";
         return 0;
@@ -380,12 +385,18 @@ int wmain(int argc,wchar_t** argv) {
                  <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
     }
-    if(argc!=14 && argc!=15 && argc!=16)return 2;
+    if(argc!=14 && argc!=15 && argc!=16 && argc!=17)return 2;
+    constexpr wchar_t kPreludeArg[]=L"--original-prelude=";
+    constexpr std::size_t kPreludeLength=(sizeof(kPreludeArg)/sizeof(wchar_t))-1u;
+    const bool originalPrelude=(argc>=16 &&
+        std::wcsncmp(argv[argc-1],kPreludeArg,kPreludeLength)==0);
+    const bool clockedNotes=argc==17 || (argc==16 && !originalPrelude);
+    if(argc==17 && !originalPrelude)return 2;
     bool outputPathsVerifiedNew=false;
     try {
         const Schedule sch=scheduleFromArgs(argv);
         validateFiles(argv,sch);
-        if(argc==16) {
+        if(clockedNotes) {
             // A real source capture is an additional readonly input;
             // never confuse it with newly emitted independent native OUTs.
             const fs::path sourceClock(argv[15]);
@@ -399,6 +410,22 @@ int wmain(int argc,wchar_t** argv) {
                       fs::path(argv[i]).lexically_normal(),
                       "clocked native source cannot alias any input/output");
         }
+        std::wstring originalPreludePath;
+        if(originalPrelude) {
+            originalPreludePath=argv[argc-1]+kPreludeLength;
+            const fs::path input(originalPreludePath);
+            check(input.is_absolute() && fs::is_regular_file(input) &&
+                  fs::file_size(input)==12506118u,
+                  "source boot-prelude requires original Win95 trace");
+            for(int i=1;i<=14;++i)
+                check(input.lexically_normal()!=fs::path(argv[i]).lexically_normal(),
+                      "original trace aliases host input/output");
+            if(clockedNotes)
+                check(input.lexically_normal()!=fs::path(argv[15]).lexically_normal(),
+                      "original trace aliases source-note fixture");
+            check(sch.when[0]==137u,
+                  "private Win95 source-prelude only supports 137-frame native C4");
+        }
         outputPathsVerifiedNew=true;
         setEnv(L"AWE64_P001_ROM_PATH",argv[2]);
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",argv[3]);
@@ -410,10 +437,12 @@ int wmain(int argc,wchar_t** argv) {
         setEnv(L"AWE64_P002_NATIVE_DRY_PCM_WAV_PATH",argv[8]);
         setEnv(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",L"");
         setEnv(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"");
+        setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_CHIP_PRELUDE_TRACE",
+               originalPrelude?originalPreludePath.c_str():L"");
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",
-               argc==16?argv[15]:L"");
+               clockedNotes?argv[15]:L"");
         setEnv(L"AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM",
-               argc==16?L"1":L"");
+               clockedNotes?L"1":L"");
         Instance vst(argv[1]);
         const auto audible=play(vst.processor,sch);
         vst.stop();
@@ -426,7 +455,8 @@ int wmain(int argc,wchar_t** argv) {
               fs::file_size(nativeTrace)>120u,
               "native VST3 original RAM note port trace missing/empty");
         if(argc>=15)
-            saveClockManifest(fs::path(argv[14]),sch,audible,argv);
+            saveClockManifest(fs::path(argv[14]),sch,audible,argv,
+                              originalPrelude?originalPreludePath.c_str():nullptr);
         std::cout<<"P002_REAL_EXPORTED_NATIVE_RAM_EVIDENCE_CAPTURED"
                  <<" C4_D4_velocity=100"
                  <<" original_chip_DSP=UNCHANGED"
@@ -436,8 +466,10 @@ int wmain(int argc,wchar_t** argv) {
                  <<" D4_audible_samples="<<audible[1]
                  <<" private_clock_sha_manifest="<<(argc>=15?"WRITTEN":"NOT_REQUESTED")
                  <<" native_original_port_parity="
-                 <<(argc==16?"ALL_C4_D4_WRITES_MATCHED_SOURCE":
+                 <<(clockedNotes?"ALL_C4_D4_WRITES_MATCHED_SOURCE":
                                "NOT_COMPARED")
+                 <<" original_prelude_replayed="
+                 <<(originalPrelude?"YES":"NO")
                  <<" Win95_vs_native_dry_pcm=NOT_COMPARED"
                  <<" release_approved=FALSE\n";
         return 0;
