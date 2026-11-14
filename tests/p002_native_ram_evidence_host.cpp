@@ -378,9 +378,11 @@ int wmain(int argc,wchar_t** argv) {
         return 0;
     }
     if(argc!=14 && argc!=15)return 2;
+    bool outputPathsVerifiedNew=false;
     try {
         const Schedule sch=scheduleFromArgs(argv);
         validateFiles(argv,sch);
+        outputPathsVerifiedNew=true;
         setEnv(L"AWE64_P001_ROM_PATH",argv[2]);
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",argv[3]);
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_PORTS",argv[4]);
@@ -418,6 +420,21 @@ int wmain(int argc,wchar_t** argv) {
                  <<" release_approved=FALSE\n";
         return 0;
     }catch(const std::exception& err) {
+        // A failed actual MIDI render may still call VST3 setActive(false)
+        // during unwinding and emit an incomplete, apparently plausible
+        // OUT/WAV pair. Never leave that partial evidence on disk.
+        // Do NOT remove anything if validation refused an existing
+        // file or malformed source path before arming the capture.
+        if(outputPathsVerifiedNew) {
+            std::error_code ignore;
+            fs::remove(fs::path(argv[7]),ignore);
+            ignore.clear();
+            fs::remove(fs::path(argv[8]),ignore);
+            if(argc==15) {
+                ignore.clear();
+                fs::remove(fs::path(argv[14]),ignore);
+            }
+        }
         std::cerr<<"P002_NATIVE_RAM_EVIDENCE_NO_GO "<<err.what()<<"\n";
         return 1;
     }
