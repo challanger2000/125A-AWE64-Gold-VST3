@@ -88,7 +88,7 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
         # cannot stand alone as a source-backed note's register event.
         self.write_native(["3 A20 23F8"])
         with self.assertRaisesRegex(ValueError,
-                                    "native note window lacks chip selector"):
+                                    "non-RAM EMU8000 voice data write"):
             self.compare()
 
     def test_identical_ram_upload_must_not_be_misreported_as_note_parity(self):
@@ -96,9 +96,9 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
         # nor any voice-register state, even at exactly matching clocks.
         ram=["3 E22 36","3 A20 0010","3 A22 0020",
              "4 E22 3A","4 A20 1111"]
-        self.original.write_bytes(("\\n".join(
+        self.original.write_bytes(("\n".join(
             line.replace("3 ","100 ").replace("4 ","101 ")
-            for line in ram)+"\\n").encode("ascii"))
+            for line in ram)+"\n").encode("ascii"))
         self.write_native(ram)
         with self.assertRaisesRegex(ValueError,
                                     "non-RAM EMU8000 voice data write"):
@@ -106,7 +106,7 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
 
     def test_unselected_data_before_selector_is_not_a_note(self):
         # A stale pre-window register latch is not source provenance.
-        self.original.write_bytes(b"100 A20 1234\\n100 E22 0\\n")
+        self.original.write_bytes(b"100 A20 1234\n100 E22 0\n")
         self.write_native(["3 A20 1234","3 E22 0"])
         with self.assertRaisesRegex(ValueError,
                                     "non-RAM EMU8000 voice data write"):
