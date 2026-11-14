@@ -24,6 +24,10 @@ Chip::~Chip() = default;
 void Chip::close() noexcept {
     device_.reset();
     trace_armed_=false;
+    native_note_capture_active_=false;
+    native_note_chip_snapshot_.clear();
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
 }
 
 bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
@@ -72,8 +76,43 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     error.clear();
     return true;
 }
+bool Chip::armNativeNoteOutTransaction() noexcept {
+    if(!device_ || native_note_capture_active_)return false;
+    try {
+        native_note_chip_snapshot_.resize(sizeof(emu8k_t));
+    }catch (...) {
+        native_note_chip_snapshot_.clear();
+        return false;
+    }
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
+    return true;
+}
+bool Chip::beginNativeNoteOutTransaction() noexcept {
+    if(!device_ || native_note_capture_active_ ||
+       native_note_chip_snapshot_.size()!=sizeof(emu8k_t))
+        return false;
+    std::memcpy(native_note_chip_snapshot_.data(),device_.get(),
+                sizeof(emu8k_t));
+    native_note_old_wavetable_pos_=wavetable_pos_global;
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
+    native_note_capture_active_=true;
+    return true;
+}
+bool Chip::endNativeNoteOutTransaction() noexcept {
+    if(!device_ || !native_note_capture_active_)return false;
+    // The original ROM/RAM pointers are not replaced, just the C
+    // struct's register/voice/channel state. This path only permits
+    // NOTE register writes; the sample ROM/RAM was never modified.
+    std::memcpy(device_.get(),native_note_chip_snapshot_.data(),
+                sizeof(emu8k_t));
+    wavetable_pos_global=native_note_old_wavetable_pos_;
+    native_note_capture_active_=false;
+    return !native_note_write_overflow_;
+}
 bool Chip::uploadRam(uint32_t address, std::span<const int16_t> samples) noexcept {
-    if (!device_) return false;
+    if (!device_ || native_note_capture_active_) return false;
     if (address < kSampleRamBase || address >= kFmReservedBase) return false;
     if (samples.size() > static_cast<std::size_t>(kFmReservedBase - address)) return false;
     if (!samples.empty())
@@ -97,7 +136,13 @@ bool Chip::armPortWriteTrace(std::size_t maxWrites) noexcept {
 }
 void Chip::writePort(uint16_t port, uint16_t value) noexcept {
     if (!device_) return;
-    if(trace_armed_) {
+    if(native_note_capture_active_) {
+        if(native_note_write_count_<native_note_writes_.size())
+            native_note_writes_[native_note_write_count_++]={
+                rendered_frames_,port,value};
+        else
+            native_note_write_overflow_=true;
+    }else if(trace_armed_) {
         if(trace_count_<trace_buffer_.size())
             trace_buffer_[trace_count_++]={rendered_frames_,port,value};
         else
@@ -110,7 +155,7 @@ uint16_t Chip::readPort(uint16_t port) noexcept {
     return device_ ? emu8k_inw(port, device_.get()) : 0xffffu;
 }
 void Chip::render(int32_t* dest, std::size_t frames) noexcept {
-    if (!device_ || !dest) return;
+    if (!device_ || !dest || native_note_capture_active_) return;
     while (frames) {
         const auto n = std::min<std::size_t>(frames, WTBUFLEN);
         emu8k_reset_buffer(device_.get());
