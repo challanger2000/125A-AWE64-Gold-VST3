@@ -130,6 +130,33 @@ int main(){
         for(std::size_t i=0;i<5u;++i)
             CHECK(secondStop[i+1u].port==ports3[i] &&
                   secondStop[i+1u].value==values3[i]);
+        // Exercise EVERY source allocator lane and physical music voice.
+        // The early-idle decision must stop after the selected VTFT;
+        // a blanket 30-voice pre-read would add spurious E22 writes.
+        constexpr std::array<unsigned,30> original_scan_order{{
+            0,3,6,9,12,15,18,21,24,27,
+            1,4,7,10,13,16,19,22,25,28,
+            2,5,8,11,14,17,20,23,26,29}};
+        for(std::size_t selected=0;selected<original_scan_order.size();++selected) {
+            for(unsigned physical=0;physical<30u;++physical)
+                put16(state,kOriginalVxdVoiceRowStart+
+                      physical*kOriginalVxdVoiceRowStride,0x003cu);
+            const auto target=original_scan_order[selected];
+            put16(state,kOriginalVxdVoiceRowStart+
+                  target*kOriginalVxdVoiceRowStride,0x0ffeu);
+            CHECK(chip.armPortWriteTrace(256u));
+            const auto chosen=candidateOriginalSf2LiveVxdMonoVoice(
+                chip,state,true);
+            CHECK(chosen && chosen->physical_voice==target &&
+                  chosen->reason==OriginalWin95MonoSelectionReason::CompletelyIdle);
+            const auto writes=chip.portWriteTrace();
+            CHECK(writes.size()==selected+1u);
+            for(std::size_t preceding=0;preceding<=selected;++preceding) {
+                CHECK(writes[preceding].port==0xe22u);
+                CHECK(writes[preceding].value==
+                    static_cast<std::uint16_t>(0x60u|original_scan_order[preceding]));
+            }
+        }
         for(const auto wrong:{30u,31u,33u}) {
             put16(state,0x06u,static_cast<std::uint16_t>(wrong));
             CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
