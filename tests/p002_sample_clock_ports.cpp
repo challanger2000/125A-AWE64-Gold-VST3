@@ -125,6 +125,22 @@ int main(){
           referenceTrace[3].frame==3u &&
           referenceTrace[5].frame==4u);
     a.clear();CHECK(a.pending()==0u);
+    // Adversarial source timing: another caller moved the chip forward.
+    // Never silently execute the old frame-0 commands at a later frame.
+    Chip late;
+    CHECK(late.open(path,err));
+    CHECK(late.armPortWriteTrace(32u));
+    SourceClockedPortPlayer stale;
+    CHECK(stale.stage(late,events));
+    std::array<std::int32_t,16u> staleAudio{};
+    late.render(staleAudio.data(),1u);
+    stale.render(late,staleAudio.data()+2u,7u);
+    CHECK(stale.missedDeadline());
+    CHECK(!stale.finished() && stale.pending()==events.size());
+    CHECK(late.portWriteTrace().empty());
+    stale.clear();
+    CHECK(!stale.missedDeadline() && stale.pending()==0u);
+    late.close();
     expected.close();clocked.close();chunked.close();
 
     // Actual audible chip regression: source-observed C4 register timing
