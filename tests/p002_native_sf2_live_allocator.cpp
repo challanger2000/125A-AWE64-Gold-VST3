@@ -138,9 +138,18 @@ int main(){
             1,4,7,10,13,16,19,22,25,28,
             2,5,8,11,14,17,20,23,26,29}};
         for(std::size_t selected=0;selected<original_scan_order.size();++selected) {
-            for(unsigned physical=0;physical<30u;++physical)
+            for(unsigned physical=0;physical<30u;++physical) {
                 put16(state,kOriginalVxdVoiceRowStart+
                       physical*kOriginalVxdVoiceRowStride,0x003cu);
+                // Restore the actual chip VTFT status too. The preceding
+                // two-layer test left physical voice 3 non-idle (0x5000).
+                // Changing only the VXD memory marker does not make the
+                // genuine hardware read return the original idle value.
+                chip.writePort(0xe22u,static_cast<std::uint16_t>(
+                    0x60u|physical));
+                chip.writePort(0x620u,0u);
+                chip.writePort(0x622u,0u);
+            }
             const auto target=original_scan_order[selected];
             put16(state,kOriginalVxdVoiceRowStart+
                   target*kOriginalVxdVoiceRowStride,0x0ffeu);
