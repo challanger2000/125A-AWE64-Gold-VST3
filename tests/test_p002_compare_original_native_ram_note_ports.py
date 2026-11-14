@@ -78,11 +78,11 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
         self.original.write_bytes(b"100 E22 0\n")
         self.write_native(["3 E22 0"])
         with self.assertRaisesRegex(ValueError,
-                                    "Original note window lacks chip selector"):
+                                    "Original note window lacks a selected"):
             self.compare()
         self.original.write_bytes(b"100 E22 0\n100 A20 23F8\n")
         with self.assertRaisesRegex(ValueError,
-                                    "native note window lacks chip selector"):
+                                    "native note window lacks a selected"):
             self.compare()
         # Conversely, a raw data-port write without the chip selector
         # cannot stand alone as a source-backed note's register event.
