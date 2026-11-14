@@ -130,7 +130,15 @@ class PrivateFat16Reader:
         fat1 = self._read(self.first_fat, self.fat_size)
         fat2 = self._read(self.first_fat + self.fat_size, self.fat_size)
         require(fat1 == fat2, "Private Win95 FAT1 and FAT2 disagree")
-        require(fat1[:4] == b"\xF8\xFF\xFF\xFF",
+        # The actually executed Windows 95 VM has FAT16 entry-1
+        # clean-shutdown bit 15 CLEAR after 86Box's normal Exit:
+        # F8 FF FF 7F on BOTH FAT copies. This is the FAT16 dirty
+        # volume flag, not a damaged source/Creative bank. The
+        # original unbooted image has F8 FF FF FF.
+        # Keep other reserved bits and the mirrored FAT byte-for-byte
+        # verification strict. No rewrite of either private disk.
+        require(fat1[:2] == b"\xF8\xFF" and
+                fat1[2:4] in (b"\xFF\xFF", b"\xFF\x7F"),
                 "Private FAT16 reserved/media words invalid")
         self.fat = fat1
         self.root = self._read(self.root_start, self.root_bytes)

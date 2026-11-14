@@ -131,6 +131,33 @@ class OriginalWin95RamLogReadbackTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"FAT1 and FAT2 disagree"):
                 tool.PrivateFat16Reader(clone)
 
+    def test_real_win95_fat16_dirty_shutdown_is_valid_not_corruption(self):
+        # A REAL 86Box Windows 95 exit changes the clean-shutdown bit
+        # of reserved FAT16 entry 1 on both mirrored FATs:
+        # F8 FF FF FF -> F8 FF FF 7F. Our previous reader erroneously
+        # rejected actual guest recordings after successful execution.
+        # Unrelated corruption or a mismatched mirror stays NO-GO.
+        with tempfile.TemporaryDirectory(prefix="p002-real-fat-dirty-") as dirname:
+            root=Path(dirname)
+            _,clone,_=new_guest(root)
+            content=b"real-source-test-dirty-bit"
+            add_original_guest_log(clone,content)
+            with clone.open("r+b") as disk:
+                for copy in (0,1):
+                    disk.seek(FAT_START+copy*FAT_BYTES+3)
+                    disk.write(b"\x7F")
+            with tool.PrivateFat16Reader(clone) as volume:
+                self.assertEqual(volume.read_root_file(
+                    tool.RAM_LOG_NAME,tool.MAX_LOG),content)
+            for invalid in (b"\x00",b"\x3F",b"\xBF"):
+                with clone.open("r+b") as disk:
+                    for copy in (0,1):
+                        disk.seek(FAT_START+copy*FAT_BYTES+3)
+                        disk.write(invalid)
+                with self.subTest(reserved_high_byte=invalid):
+                    with self.assertRaisesRegex(ValueError,"reserved/media"):
+                        tool.PrivateFat16Reader(clone)
+
     def test_missing_log_is_not_a_pass_and_name_collision_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix="p002-no-log-") as dirname:
             root=Path(dirname)
