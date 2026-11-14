@@ -119,6 +119,27 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"SHA-pinned ORIGINAL"):
             self.run_join(synthetic=False)
 
+    def test_real_source_guest_log_sha_gate_rejects_cross_session_log(self):
+        # A real recorded bank/trace/WAV plus a different but seemingly
+        # successful guest log may describe TWO different driver sessions.
+        # Production hash attestation must fail before translating notes.
+        real_hashes={
+            "original_emu8k_trace_sha256":combined.ORIGINAL_TRACE_SHA256,
+            "original_owner_sf2_sha256":combined.ORIGINAL_SF2_SHA256,
+            "original_win95_precard_wav_sha256":combined.ORIGINAL_WAV_SHA256,
+            "original_guest_log_sha256":combined.ORIGINAL_GUEST_LOG_SHA256,
+        }
+        original_sha=combined._sha
+        def pinned_except_guest(path):
+            if path==self.original_trace:return real_hashes["original_emu8k_trace_sha256"]
+            if path==self.sf2:return real_hashes["original_owner_sf2_sha256"]
+            if path==self.source_wav:return real_hashes["original_win95_precard_wav_sha256"]
+            return original_sha(path)
+        with patch.object(combined,"_sha",side_effect=pinned_except_guest):
+            with self.assertRaisesRegex(ValueError,
+                                        "original_guest_log_sha256"):
+                self.run_join(synthetic=False)
+
     def test_missing_wrong_or_overflowed_source_ram_proof(self):
         for value in (1,2):
             with self.subTest(value=value):

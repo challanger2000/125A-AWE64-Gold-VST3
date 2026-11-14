@@ -27,6 +27,10 @@ else:
 
 ORIGINAL_SF2_SHA256="d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b"
 ORIGINAL_TRACE_SHA256=ports.ORIGINAL_OWNER_RAM_TRACE_SHA256
+# The exact original guest API log must describe the SAME observed Win95
+# driver run as the full source trace and cropped pre-card dry WAV.
+# A merely valid/simulated success log from another run is not evidence.
+ORIGINAL_GUEST_LOG_SHA256="660a01264550415d50d2cd071e752e9388ebb63071288acbefe95c0386a07096"
 ORIGINAL_WAV_SHA256="b4e97086a13cf9c85f20a6e6ec0d9555fb7c708c1d6689fd5f38e0e7c4655dcf"
 ORIGINAL_PHYSICAL_RAM_SAMPLE_BASE=0x200010
 
@@ -58,7 +62,8 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
         for key,expected in (
             ("original_emu8k_trace_sha256",ORIGINAL_TRACE_SHA256),
             ("original_owner_sf2_sha256",ORIGINAL_SF2_SHA256),
-            ("original_win95_precard_wav_sha256",ORIGINAL_WAV_SHA256)):
+            ("original_win95_precard_wav_sha256",ORIGINAL_WAV_SHA256),
+            ("original_guest_log_sha256",ORIGINAL_GUEST_LOG_SHA256)):
             if checks[key]!=expected:
                 raise ValueError(
                     "Not independently SHA-pinned ORIGINAL Win95 Creative "
