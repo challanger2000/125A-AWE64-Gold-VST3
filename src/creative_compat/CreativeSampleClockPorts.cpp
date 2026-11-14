@@ -22,17 +22,27 @@ bool SourceClockedPortPlayer::stage(
     next_=0u;
     first_frame_=chip.renderedFrames();
     started_=true;
+    timing_error_=false;
     return true;
 }
 void SourceClockedPortPlayer::render(
     awe64::Chip& chip,std::int32_t* stereo,const std::size_t frames) noexcept {
     if(!stereo || !chip.ready() || frames==0u)return;
+    if(timing_error_) {chip.render(stereo,frames);return;}
     std::size_t done=0u;
     while(done<frames) {
         const auto now=chip.renderedFrames();
         if(started_ && next_<count_) {
             const auto due=first_frame_+events_[next_].relative_frame;
-            if(due<=now) {
+            if(due<now) {
+                // A caller who rendered past an original command deadline
+                // cannot silently shift that command into a later frame.
+                // Never execute a late source OUT or report parity success.
+                timing_error_=true;
+                chip.render(stereo+2u*done,frames-done);
+                return;
+            }
+            if(due==now) {
                 // Keep original same-frame OUT ordering, without sorting.
                 do {
                     chip.writePort(events_[next_].port,events_[next_].value);
