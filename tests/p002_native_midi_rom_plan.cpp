@@ -412,6 +412,41 @@ int main(){
         sourceRamPhysicalBase,64u,verifiedRamResources,
         conditions,realRamContext,false));
     CHECK(realRamState==ramStateBefore);
+    // The native compiler is also called from C++ rather than only
+    // validated WinMM. Reject channel 16/255 before indexing a 16-slot
+    // MidiState; neither chip OUTs nor VXD bytes may change.
+    CHECK(ramChip.armPortWriteTrace(256u));
+    for(const std::uint8_t badChannel : {std::uint8_t{16},
+                                         std::uint8_t{255}}) {
+        auto badMidi=*on;
+        badMidi.channel=badChannel;
+        CHECK(!candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+            ramChip,realRamState,sourceTwo,badMidi,midi,0u,
+            sourceRamPhysicalBase,64u,verifiedRamResources,
+            conditions,realRamContext,true));
+    }
+    for(const std::uint8_t badPitch : {std::uint8_t{128},
+                                       std::uint8_t{255}}) {
+        auto badMidi=*on;
+        badMidi.data1=badPitch;
+        CHECK(!candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+            ramChip,realRamState,sourceTwo,badMidi,midi,0u,
+            sourceRamPhysicalBase,64u,verifiedRamResources,
+            conditions,realRamContext,true));
+    }
+    for(const std::uint8_t badVelocity : {std::uint8_t{0},
+                                          std::uint8_t{128},
+                                          std::uint8_t{255}}) {
+        auto badMidi=*on;
+        badMidi.data2=badVelocity;
+        CHECK(!candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
+            ramChip,realRamState,sourceTwo,badMidi,midi,0u,
+            sourceRamPhysicalBase,64u,verifiedRamResources,
+            conditions,realRamContext,true));
+    }
+    CHECK(realRamState==ramStateBefore);
+    CHECK(ramChip.portWriteTrace().empty());
+    CHECK(!ramChip.portWriteTraceOverflow());
     const auto realRamStarted=
         candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
             ramChip,realRamState,sourceTwo,*on,midi,0u,
