@@ -170,10 +170,17 @@ bool replayPrivateOriginalWin95ChipPrelude(
                      (selector>>5u)==3u) {
                 ++report.source_init_writes;
             }
-            if(port==0xa20u && (selector>>5u)==1u) {
+            if((port==0xa20u || port==0xa22u) &&
+               (selector>>5u)==1u) {
                 const unsigned v=selector&31u;
-                if(v==9u||v==10u||v==13u||v==14u||
-                   v==29u||v==30u||v==31u)
+                // HWCF4..7 are 32-bit A20/A22 writes. HWCF1..3
+                // are 16-bit A20 writes; counting only A20 loses
+                // eight original high halves (14 instead of 22).
+                const bool fullConfig=(v==9u||v==10u||
+                                       v==13u||v==14u);
+                const bool shortConfig=(port==0xa20u &&
+                                         (v==29u||v==30u||v==31u));
+                if(fullConfig || shortConfig)
                     ++report.source_hardware_config_writes;
             }
             chip.writePort(static_cast<std::uint16_t>(port),
