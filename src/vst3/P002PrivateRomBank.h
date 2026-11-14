@@ -46,6 +46,17 @@ public:
     [[nodiscard]] std::size_t trackedVoices() const noexcept {
         return ownership_.trackedPhysicalVoices();
     }
+    // Opt-in C4/D4 differential only. The hardware chip is rolled back
+    // separately after speculative NoteOn/Off, but the original VXD
+    // voice table, source ownership ledger and key-held map also change.
+    // Capture these mutable bytes without heap allocation in process().
+    // A mismatch MUST restore both chip and original VXD MIDI state.
+    [[nodiscard]] bool beginNativeNoteCheckpoint() noexcept;
+    void commitNativeNoteCheckpoint() noexcept;
+    void rollbackNativeNoteCheckpoint() noexcept;
+    [[nodiscard]] bool nativeNoteCheckpointActive() const noexcept {
+        return native_checkpoint_active_;
+    }
 private:
     std::vector<std::uint8_t> bank_bytes_;
     std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> state_{};
@@ -55,6 +66,14 @@ private:
     awe64::creative::OriginalSf2RomBankVoiceOwnership ownership_{};
     awe64::creative::MidiState midi_{};
     std::array<bool,128> held_keys_{};
+    struct NativeNoteCheckpoint {
+        std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> state{};
+        awe64::creative::OriginalSf2RomBankVoiceOwnership ownership{};
+        std::array<bool,128> held_keys{};
+        bool ready=false;
+    };
+    NativeNoteCheckpoint native_checkpoint_{};
+    bool native_checkpoint_active_=false;
     std::uint16_t bank_number_=0;
     std::uint8_t channel_=0, program_=0;
     bool ready_=false;
