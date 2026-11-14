@@ -1,0 +1,33 @@
+name: P002 isolated public-only Wine runtime and source utilities
+on:
+  push:
+    branches: [diagnostic/p002-original-source-linux]
+    paths: [.github/workflows/p002-public-wine-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  wine-and-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Download Debian Trixie public Wine x64 runtime and its shared dependencies only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p002-public-wine
+          docker run --rm -v "$PWD/p002-public-wine:/out" debian:trixie-slim bash -c '
+            set -e
+            apt-get update -qq
+            apt-get install -y --no-install-recommends --download-only wine64
+            cp -v /var/cache/apt/archives/*.deb /out/
+            cd /out
+            sha256sum *.deb > SHA256SUMS
+            du -sh .
+          '
+          echo 'PUBLIC_WINE_ONLY; NO_CREATIVE_ROM_SF2_VM_TRACE_OR_PRIVATE_EVIDENCE'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-Debian13-Wine64-Runtime
+          path: p002-public-wine/
+          retention-days: 1
+          if-no-files-found: error
