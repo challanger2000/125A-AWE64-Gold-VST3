@@ -67,6 +67,24 @@ def compare_windows(original:Path,native:Path,*,
         if not (selector and payload):
             raise ValueError(
                 f"{label} note window lacks chip selector and data writes")
+    # A source RAM-upload sequence may be byte-identical on both sides
+    # without ever starting a physical voice. This is a NOTE differential,
+    # so neither selector-only nor SMALW/SMLD-only traffic qualifies.
+    # Observe selection in this same explicit window, then a voice data
+    # write; pre-window chip register latches are not inferred.
+    for label, events in (("Original",a),("native",b)):
+        selected=None
+        note_data=False
+        for _,port,_value in events:
+            if port==0xE22:
+                selected=_value
+            elif port in (0xE20,0xA20,0xA22,0x620,0x622):
+                if selected is not None and selected not in (0x36,0x3A):
+                    note_data=True
+                    break
+        if not note_data:
+            raise ValueError(f"{label} note window lacks a selected "
+                             "non-RAM EMU8000 voice data write")
     mismatch=None
     for i in range(max(len(a),len(b))):
         x=a[i] if i<len(a) else None
