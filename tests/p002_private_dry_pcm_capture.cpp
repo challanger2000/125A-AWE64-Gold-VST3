@@ -74,6 +74,11 @@ int main() {
     // Native evidence is immutable, even when the caller retries.
     CHECK(!savePrivateNativeDryWav(path,test,false));
     CHECK(std::filesystem::file_size(path)==44u+bytes);
+    // Win32 std::ifstream keeps a share-deny-delete handle open.
+    // Closing is mandatory before removing the synthetic test file;
+    // Linux unlink-while-open semantics do not apply on Windows.
+    stream.close();
+    CHECK(!stream.is_open());
     std::filesystem::remove(path);
     CHECK(!std::filesystem::exists(path));
     // No file for oversized 30-second buffer or an unwritable target.
