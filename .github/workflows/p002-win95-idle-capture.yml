@@ -1,0 +1,82 @@
+name: P002 private original Win95 idle VXD capture tools
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - 'src/win95/p002_original_creative_idle_guest.c'
+      - 'tools/p002_vxd_dynamic_capture.cpp'
+      - '.github/workflows/p002-win95-idle-capture.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: p002-win95-idle-capture
+  cancel-in-progress: true
+jobs:
+  win95_original_creative_idle_loader:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pentium-compatible Win95 i586 compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Compile original Creative 1996 AWE API guest, NO MIDI notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p idle-guest
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o idle-guest/P002RAM.EXE \
+            src/win95/p002_original_creative_idle_guest.c -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p idle-guest/P002RAM.EXE > idle-guest/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' idle-guest/pe-headers.txt
+          if grep -Ei 'DLL Name:' idle-guest/pe-headers.txt | grep -Eiv 'KERNEL32'; then
+            echo 'Win95 incompatible guest import'; exit 1
+          fi
+          grep -Eq 'MajorSubsystemVersion[[:space:]]+0*4([[:space:]]|$)' idle-guest/pe-headers.txt
+          test "$(stat -c%s idle-guest/P002RAM.EXE)" -le 17631
+          i686-w64-mingw32-objdump -d idle-guest/P002RAM.EXE > idle-guest/disassembly.txt
+          if grep -Eiq '[[:space:]](cmov[a-z]*|movaps|movups|sysenter)[[:space:]]' idle-guest/disassembly.txt; then
+            echo 'Unsupported CPU instruction'; exit 1
+          fi
+          sha256sum idle-guest/P002RAM.EXE > idle-guest/P002RAM.sha256
+          echo 'ORIGINAL_CREATIVE_WIN95_IDLE_LOADER_PE32_COMPILED_PASS; ORIGINAL_DRIVER_RUNTIME=NOT_RUN'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-Creative-Win95-Idle-Guest-PE32
+          path: |
+            idle-guest/P002RAM.EXE
+            idle-guest/P002RAM.sha256
+            idle-guest/pe-headers.txt
+  windows_readonly_vxd_capture:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile 64-bit read-only original guest memory scanner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path idle-host | Out-Null
+          $vs=& 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe' -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs) { throw 'Visual Studio C++ toolset unavailable' }
+          $vcvars=Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c """$vcvars"" >nul && cl /nologo /std:c++17 /O2 /EHsc /W4 /Fe:idle-host\p002_vxd_dynamic_capture.exe tools\p002_vxd_dynamic_capture.cpp"
+          if($LASTEXITCODE -ne 0){throw "Windows host C++ build failed $LASTEXITCODE"}
+          & idle-host\p002_vxd_dynamic_capture.exe --self-test | Tee-Object -FilePath idle-host\self-test.log
+          if($LASTEXITCODE -ne 0){throw "Windows host adversarial self-test failed $LASTEXITCODE"}
+          Get-FileHash idle-host\p002_vxd_dynamic_capture.exe -Algorithm SHA256 |
+            Format-List | Out-File idle-host\binary-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-ReadOnly-Dynamic-VXD-Scanner-Windows-x64
+          path: |
+            idle-host/p002_vxd_dynamic_capture.exe
+            idle-host/self-test.log
+            idle-host/binary-sha256.txt
