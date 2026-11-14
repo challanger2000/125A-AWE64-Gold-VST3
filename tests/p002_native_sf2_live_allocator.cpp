@@ -166,6 +166,42 @@ int main(){
                     static_cast<std::uint16_t>(0x60u|original_scan_order[preceding]));
             }
         }
+        // The source D4 event starts while C4's physical voices 0/3
+        // are already held. Exact source VXD low-lane search:
+        // first D4 layer probes 0,3,6; second probes 0,3,9 and
+        // skips voice6 reserved within this new NoteOn. The four
+        // additional E22 probes explain the measured 156 vs 152
+        // port writes without a MIDI-key-specific workaround.
+        for(unsigned physical=0u;physical<30u;++physical)
+            put16(state,kOriginalVxdVoiceRowStart+
+                  physical*kOriginalVxdVoiceRowStride,0x003cu);
+        for(const auto idle:{6u,9u})
+            put16(state,kOriginalVxdVoiceRowStart+
+                  idle*kOriginalVxdVoiceRowStride,0x0ffeu);
+        CHECK(chip.armPortWriteTrace(256u));
+        const auto firstD4=candidateOriginalSf2LiveVxdMonoVoice(
+            chip,state,true);
+        CHECK(firstD4 && firstD4->physical_voice==6u);
+        auto d4Trace=chip.portWriteTrace();
+        CHECK(d4Trace.size()==3u);
+        CHECK(d4Trace[0].value==0x60u &&
+              d4Trace[1].value==0x63u &&
+              d4Trace[2].value==0x66u);
+        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*firstD4));
+        const std::array<std::uint8_t,1> reservedFirstD4{{6u}};
+        const auto secondD4=candidateOriginalSf2LiveVxdMonoVoice(
+            chip,state,true,reservedFirstD4);
+        CHECK(secondD4 && secondD4->physical_voice==9u);
+        d4Trace=chip.portWriteTrace();
+        CHECK(d4Trace.size()==11u); // 3 reads +5 stop +3 reads
+        CHECK(d4Trace[8].port==0xe22u && d4Trace[8].value==0x60u &&
+              d4Trace[9].port==0xe22u && d4Trace[9].value==0x63u &&
+              d4Trace[10].port==0xe22u && d4Trace[10].value==0x69u);
+        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*secondD4));
+        CHECK(chip.portWriteTrace().size()==16u);
+        // Two VXD voice starts are 152 physical source-shaped writes
+        // plus the FOUR extra held-C4 selector reads above = 156.
+        CHECK((3u+3u)-(1u+1u)==4u);
         for(const auto wrong:{30u,31u,33u}) {
             put16(state,0x06u,static_cast<std::uint16_t>(wrong));
             CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
