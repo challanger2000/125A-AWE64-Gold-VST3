@@ -11,6 +11,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <bcrypt.h>
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,10 @@
 #include <cstdlib>
 #include <cwchar>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
+#include <vector>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -67,6 +72,83 @@ Schedule scheduleFromArgs(wchar_t** argv) {
 }
 void setEnv(const wchar_t* name,const wchar_t* value) {
     check(_wputenv_s(name,value)==0,"unable to set a private source path");
+}
+std::string hashFileSha256(const fs::path& path) {
+    // Called ONLY after native processing has stopped. Do not use a
+    // host-side hash in any audio callback or transfer proprietary
+    // source bytes into the compiled plugin or GitHub CI.
+    std::ifstream in(path,std::ios::binary|std::ios::ate);
+    check(in.good(),"cannot SHA-attest a private evidence file");
+    const auto size=in.tellg();
+    check(size>=0 && size<=64ll*1024ll*1024ll,
+          "private evidence file exceeds bounded host SHA size");
+    in.seekg(0);
+    std::vector<unsigned char> bytes(static_cast<std::size_t>(size));
+    if(!bytes.empty())
+        check(static_cast<bool>(in.read(
+            reinterpret_cast<char*>(bytes.data()),size)),
+              "private evidence input truncated while hashing");
+    BCRYPT_ALG_HANDLE algorithm=nullptr;
+    check(BCryptOpenAlgorithmProvider(
+        &algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0)>=0,
+        "Windows SHA256 provider unavailable");
+    std::array<unsigned char,32> digest{};
+    const auto status=BCryptHash(algorithm,nullptr,0,
+        bytes.empty()?nullptr:bytes.data(),
+        static_cast<ULONG>(bytes.size()),digest.data(),
+        static_cast<ULONG>(digest.size()));
+    BCryptCloseAlgorithmProvider(algorithm,0);
+    check(status>=0,"Windows SHA256 evidence hash failed");
+    constexpr char hex[]="0123456789abcdef";
+    std::string out;
+    out.reserve(digest.size()*2u);
+    for(unsigned char byte:digest) {
+        out.push_back(hex[byte>>4u]);out.push_back(hex[byte&15u]);
+    }
+    return out;
+}
+void saveClockManifest(const fs::path& path,const Schedule& schedule,
+                       const std::array<std::size_t,2>& audible,
+                       wchar_t** argv) {
+    const std::array<const char*,8> keys{{
+        "exported_vst3_sha256","original_rom_sha256",
+        "original_owner_sf2_sha256","original_ram_ports_sha256",
+        "original_final_ram_pcm_sha256","original_vxd_pack_sha256",
+        "native_chip_out_trace_sha256","native_precard_wav_sha256"}};
+    std::ostringstream json;
+    json<<"{\\n  \"schema\": \"P002_NATIVE_REAL_VST3_HOST_CLOCKS_V1\",\\n"
+        <<"  \"sample_rate\": 44100,\\n"
+        <<"  \"host_activation_origin_frame\": 0,\\n"
+        <<"  \"note_c4_on_frame\": "<<schedule.when[0]<<",\\n"
+        <<"  \"note_c4_off_frame\": "<<schedule.when[1]<<",\\n"
+        <<"  \"note_d4_on_frame\": "<<schedule.when[2]<<",\\n"
+        <<"  \"note_d4_off_frame\": "<<schedule.when[3]<<",\\n"
+        <<"  \"pcm_frames\": "<<schedule.total<<",\\n"
+        <<"  \"midi_channel\": 0,\\n"
+        <<"  \"midi_velocity\": 100,\\n"
+        <<"  \"audible_c4_on_frames\": "<<audible[0]<<",\\n"
+        <<"  \"audible_d4_on_frames\": "<<audible[1]<<",\\n";
+    for(std::size_t i=0;i<keys.size();++i)
+        json<<"  \""<<keys[i]<<"\": \""<<hashFileSha256(fs::path(argv[i+1]))
+            <<"\""<<(i+1<keys.size()?",":"")<<"\\n";
+    json<<"  ,\"original_win95_vs_native_pcm_parity\": \"NOT_COMPARED\",\\n"
+        <<"  \"original_creative_driver_provenance\": \"NOT_PROVEN_BY_HOST\"\\n}\\n";
+    const std::string bytes=json.str();
+    check(bytes.size()<=65536u,"native evidence JSON unexpectedly large");
+    const HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,
+                                 CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    check(file!=INVALID_HANDLE_VALUE,
+          "refuse overwrite/missing parent for private clock manifest");
+    DWORD done=0;
+    const bool saved=WriteFile(file,bytes.data(),
+                               static_cast<DWORD>(bytes.size()),&done,
+                               nullptr)!=0 &&
+                     done==bytes.size() && FlushFileBuffers(file)!=0;
+    CloseHandle(file);
+    if(!saved) {
+        DeleteFileW(path.c_str());
+        throw std::runtime_error("private native clock manifest write failed");
+    }
 }
 struct Instance {
     HMODULE dll=nullptr;
@@ -159,7 +241,7 @@ void noteEvent(EventList& list,int key,bool on,int offset) {
     }
     check(list.addEvent(e)==kResultOk,"host MIDI event enqueue failed");
 }
-void play(IAudioProcessor* processor,const Schedule& s) {
+std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
     // Four explicitly timed actions matching the OWNER's Win95 C4/D4
     // MIDI experiment. The native clock starts at VST3 activation:
     // no guess about original VM boot silence or an original audio offset.
@@ -209,6 +291,7 @@ void play(IAudioProcessor* processor,const Schedule& s) {
     check(next==s.when.size(),"host did not deliver all four MIDI events");
     check(noteAudible[0]>=64u && noteAudible[1]>=64u,
           "native C4 or D4 source note produced no audible PCM");
+    return noteAudible;
 }
 void validateFiles(wchar_t** argv,const Schedule& s) {
     std::array<fs::path,8> files{
@@ -230,6 +313,17 @@ void validateFiles(wchar_t** argv,const Schedule& s) {
         }
     }
     check(s.total<=kMaxFrames,"PCM capture exceeds 30 seconds");
+    // Optional third host-origin private file. The source and two chip
+    // captures must never be overwritten, even on repeated executions.
+    if(argv[14]) {
+        const fs::path manifest(argv[14]);
+        check(manifest.is_absolute() && !fs::exists(manifest) &&
+              fs::is_directory(manifest.parent_path()),
+              "clock manifest must be NEW absolute private file");
+        for(const auto& original:files)
+            check(original.lexically_normal()!=manifest.lexically_normal(),
+                  "clock manifest path aliases an original/native input");
+    }
 }
 }
 int wmain(int argc,wchar_t** argv) {
@@ -258,7 +352,7 @@ int wmain(int argc,wchar_t** argv) {
                  <<" original_driver_and_pcm_parity=NOT_TESTED\\n";
         return 0;
     }
-    if(argc!=14)return 2;
+    if(argc!=14 && argc!=15)return 2;
     try {
         const Schedule sch=scheduleFromArgs(argv);
         validateFiles(argv,sch);
@@ -274,7 +368,7 @@ int wmain(int argc,wchar_t** argv) {
         setEnv(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"");
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",L"");
         Instance vst(argv[1]);
-        play(vst.processor,sch);
+        const auto audible=play(vst.processor,sch);
         vst.stop();
         const auto nativeWav=fs::path(argv[8]);
         const auto nativeTrace=fs::path(argv[7]);
@@ -284,11 +378,16 @@ int wmain(int argc,wchar_t** argv) {
         check(fs::is_regular_file(nativeTrace) &&
               fs::file_size(nativeTrace)>120u,
               "native VST3 original RAM note port trace missing/empty");
+        if(argc==15)
+            saveClockManifest(fs::path(argv[14]),sch,audible,argv);
         std::cout<<"P002_REAL_EXPORTED_NATIVE_RAM_EVIDENCE_CAPTURED"
                  <<" C4_D4_velocity=100"
                  <<" original_chip_DSP=UNCHANGED"
                  <<" dry_pcm_rate=44100"
                  <<" frames="<<sch.total
+                 <<" C4_audible_samples="<<audible[0]
+                 <<" D4_audible_samples="<<audible[1]
+                 <<" private_clock_sha_manifest="<<(argc==15?"WRITTEN":"NOT_REQUESTED")
                  <<" native_original_port_parity=NOT_COMPARED"
                  <<" Win95_vs_native_dry_pcm=NOT_COMPARED"
                  <<" release_approved=FALSE\n";

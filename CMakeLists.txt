@@ -802,7 +802,7 @@ if(AWE64_BUILD_P001_VST3)
     target_include_directories(awe64_p002_native_ram_evidence_host
         PRIVATE "${AWE64_VST3_SDK_ROOT}")
     target_link_libraries(awe64_p002_native_ram_evidence_host
-        PRIVATE sdk sdk_hosting)
+        PRIVATE sdk sdk_hosting bcrypt)
     target_compile_features(awe64_p002_native_ram_evidence_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p002_native_ram_evidence_host AWE64_Gold_P001)
 
