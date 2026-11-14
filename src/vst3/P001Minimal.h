@@ -5,6 +5,7 @@
 #include "P002PrivateNoteFixture.h"
 #include "P002PrivateRomBank.h"
 #include "P002PrivateOriginalRamNotes.h"
+#include "CreativeSampleClockPorts.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "OriginalCt1745WavetableMixer.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
@@ -81,6 +82,11 @@ private:
     // capture, only alongside the separately authenticated RAM preload.
     // Captured at C4(60) and D4(62), velocity 100, User Bank 1.
     P002PrivateOriginalRamNotes p002OriginalRamNotes_{};
+    // Private source-clock differential uses fresh native MIDI-derived
+    // register values, not the captured-original note replay mechanism.
+    awe64::creative::SourceClockedPortPlayer nativeRamClock_{};
+    bool clockedNativeRam_=false;
+    bool clockedNativeRamFailed_=false;
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     // Eight independently source-verified note groups. No runtime
     // physical voice stealing/retrigger; each pre-authenticated group
