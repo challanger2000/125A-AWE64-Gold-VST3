@@ -23,6 +23,19 @@ struct P002PrivateRomBankCheckpointProbe {
         bank.held_keys_[60]=true;
         bank.held_keys_[62]=false;
     }
+    static void seedSyntheticSparsePresetState(P002PrivateRomBank& bank) {
+        bank.clear();
+        bank.ready_=true;
+        bank.bank_number_=0u;
+        bank.program_=0u;
+        awe64::creative::Sf2PresetIdentity first{};
+        first.bank=0u;first.program=0u;first.original_phdr_row=0u;
+        awe64::creative::Sf2PresetIdentity second{};
+        second.bank=0u;second.program=77u;second.original_phdr_row=76u;
+        awe64::creative::Sf2PresetIdentity drum{};
+        drum.bank=128u;drum.program=2u;drum.original_phdr_row=77u;
+        bank.presets_={first,second,drum};
+    }
     static bool original(const P002PrivateRomBank& bank) {
         return bank.ready_ &&
                bank.state_[0x42u]==0xfeu &&
@@ -130,6 +143,33 @@ int main() {
     CHECK(ledger.trackedVoices()==0u && !ledger.ready());
     ledger.rollbackNativeNoteCheckpoint();
     CHECK(ledger.trackedVoices()==0u); // cannot resurrect committed voices
+
+    // Actual production P002PrivateRomBank::programChange must be
+    // transactional: the original 77-preset owner's bank does NOT have
+    // MIDI program 63. An absent patch must never silently select it,
+    // nor may the separate drum bank alias ordinary bank zero.
+    P002PrivateRomBank sparseBank;
+    Probe::seedSyntheticSparsePresetState(sparseBank);
+    CHECK(sparseBank.presetCount()==3u);
+    CHECK(sparseBank.presetAt(0)!=nullptr);
+    CHECK(sparseBank.presetAt(1)->program==77u);
+    CHECK(sparseBank.presetAt(1)->original_phdr_row==76u);
+    CHECK(sparseBank.presetAt(2)->bank==128u);
+    CHECK(sparseBank.presetAt(3)==nullptr);
+    CHECK(sparseBank.programChange(77u));
+    CHECK(sparseBank.currentProgram()==77u);
+    CHECK(!sparseBank.programChange(63u));
+    CHECK(sparseBank.currentProgram()==77u);
+    CHECK(!sparseBank.programChange(2u));
+    CHECK(sparseBank.currentProgram()==77u);
+    CHECK(!sparseBank.programChange(128u));
+    CHECK(sparseBank.currentProgram()==77u);
+    CHECK(sparseBank.programChange(0u));
+    CHECK(sparseBank.currentProgram()==0u);
+    sparseBank.clear();
+    CHECK(sparseBank.presetCount()==0u);
+    CHECK(!sparseBank.programChange(77u));
+    CHECK(sparseBank.currentProgram()==0u);
 
     bank.clear();
     CHECK(!bank.ready());
