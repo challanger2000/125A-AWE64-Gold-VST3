@@ -153,6 +153,8 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             self.source_wav:combined.ORIGINAL_WAV_SHA256,
             self.log:combined.ORIGINAL_GUEST_LOG_SHA256,
         }.get(p,"native-diagnostic")), patch.object(
+            combined,"verify_native_clock_manifest",
+            return_value={"native_midi_clock_host_attested":True}), patch.object(
             combined.ports,"compare_windows",
             side_effect=ValueError("allocator prologue")) as compare_call:
             with self.assertRaisesRegex(ValueError,"allocator prologue"):
@@ -161,7 +163,8 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
                     self.source_wav,self.native_ports,self.native_wav,
                     original_port_origin=100,native_port_origin=3,
                     port_frames=2,original_pcm_start=0,
-                    native_pcm_start=0,pcm_frames=1024)
+                    native_pcm_start=0,pcm_frames=1024,
+                    native_manifest=self.root/"private-host-clock.json")
             self.assertTrue(compare_call.call_args.kwargs[
                 "require_complete_note_start"])
 
