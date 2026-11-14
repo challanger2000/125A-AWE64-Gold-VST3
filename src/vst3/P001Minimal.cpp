@@ -575,6 +575,12 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
     }
 }
 bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
+    // This exact owner capture contains four MIDI note events only;
+    // any additional controller would change register provenance.
+    if(clockedNativeRam_) {
+        clockedNativeRamFailed_=true;
+        return false;
+    }
     if(p002BankEnabled_)return p002RomBank_.sustain(chip_,value);
     if(!p002DiagnosticEnabled_ ||
        !p002Fixture_.verified_source_note_release || value>127u)
@@ -794,6 +800,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         render(pos,offset,left,right);
         pos=offset;
         if(chooseController) {
+            if(clockedNativeRam_) {
+                clockedNativeRamFailed_=true;
+                return kInvalidArgument;
+            }
             const auto value=static_cast<std::uint8_t>(
                 controllerNormalized*127. + 0.5);
             if(!p002RomBank_.controller(
@@ -803,6 +813,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             continue;
         }
         if(chooseProgram) {
+            if(clockedNativeRam_) {
+                clockedNativeRamFailed_=true;
+                return kInvalidArgument;
+            }
             const auto value=static_cast<std::uint8_t>(
                 programNormalized*127. + 0.5);
             if(!p002RomBank_.programChange(value))return kInvalidArgument;
@@ -810,6 +824,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             continue;
         }
         if(chooseCc) {
+            if(clockedNativeRam_) {
+                clockedNativeRamFailed_=true;
+                return kInvalidArgument;
+            }
             const auto value=static_cast<std::uint8_t>(
                 ccNormalized*127. + 0.5);
             if(!privateSustainCc64(value))return kInvalidArgument;
