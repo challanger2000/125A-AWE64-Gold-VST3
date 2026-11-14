@@ -180,14 +180,28 @@ def predicted_creative_source_words(source: tuple[int,...]) -> tuple[int,...]:
     return tuple(result)
 
 
-def analyze(trace: Path, sf2_path: Path, guest_log: Path,
+def analyze(trace: Path, sf2_path: Path, guest_log: Path | bytes,
             observed_source_word_base: int) -> dict:
+    """Accept either original guest log file or its exact FAT16-extracted bytes.
+
+    Avoid writing proprietary Creative guest evidence to a temporary file
+    while joining existing source assets. Both paths use the SAME strict
+    original Win95 log auditor and SHA, not a relaxed private shortcut.
+    """
     for p,limit in ((trace,MAX_TRACE_BYTES),
-                    (sf2_path,MAX_BANK_BYTES),(guest_log,128*1024)):
+                    (sf2_path,MAX_BANK_BYTES)):
         if not p.is_file() or not 1<=p.stat().st_size<=limit:
-            raise ValueError("Private original source trace/SF2/guest log missing or oversized")
+            raise ValueError("Private original source trace/SF2 missing or oversized")
+    if isinstance(guest_log,bytes):
+        guest_bytes=guest_log
+    else:
+        if not guest_log.is_file() or not 1<=guest_log.stat().st_size<=128*1024:
+            raise ValueError("Private original Win95 guest log missing or oversized")
+        guest_bytes=guest_log.read_bytes()
+    if not 1<=len(guest_bytes)<=128*1024:
+        raise ValueError("Private original Win95 guest log missing or oversized")
     original_sf2=sf2_path.read_bytes()
-    guest=audit(guest_log.read_bytes(),original_sf2)
+    guest=audit(guest_bytes,original_sf2)
     sample=source_smpl(original_sf2)
     # For THIS owner bank the historical source upload has 16 words
     # reserved before the contiguous converted SF2 smpl payload.
@@ -207,7 +221,7 @@ def analyze(trace: Path, sf2_path: Path, guest_log: Path,
             f"words, first offset {errors[0]}: NO ORIGINAL TRANSFER PARITY")
     return {
         "status":"P002_ACTUAL_ORIGINAL_WIN95_SINGLE_SF2_BANK_RAM_WORD_PARITY",
-        "original_guest_log_sha256":sha256_file(guest_log),
+        "original_guest_log_sha256":hashlib.sha256(guest_bytes).hexdigest(),
         "original_fork_emu8k_trace_sha256":sha256_file(trace),
         "private_original_sf2_sha256":sha256_file(sf2_path),
         "original_physical_ram_sample_base_hex":f"0x{observed_source_word_base:08X}",
