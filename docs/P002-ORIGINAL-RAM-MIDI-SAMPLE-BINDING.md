@@ -75,6 +75,52 @@ owner's real private bank reported **4/4 source MIDI-layer RAM
 address matches** for C4/D4. No source SF2/ROM/Windows/trace binary data
 were committed or uploaded to Actions.
 
+## 2026-11-14 — Genuine owner SF2 + original source VXD through native PCOD descriptor compiler
+
+A **separate local source-only private execution** used the actual
+owner-owned `Synth 512 Bank.sf2` (555,754 bytes; SHA256
+`d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b`)
+and the actual original Creative `SBAWE.VXD` (77,370 bytes; SHA256
+`d343f2428ab3e593c9e42a668cf521b7801e1239792eaf7f2b11b5f179bc7c9a`).
+The LE loader extracted exactly the original 820 bytes of original
+PCOD/LCOD/PDAT tables, separately SHA256-checked as
+`0703643c6df3a8af8aa3ee94a272b40ff349462245f6e2491c27dc3344a1761a`.
+No Creative or owner binary bytes were committed.
+
+The native C++ source bank parser and driver converter independently
+generated all **four genuine-bank 148-byte RAM voice descriptor candidates**,
+using the actually observed physical sample pool at `0x200010`. Both
+C4 and D4 select two physical source layers using **sample 82**. Start
+`0x23F8CF`, loop start `0x23F8D8` and loop end `0x23FA69`
+match the previously independently recorded original port geometry.
+With *explicit neutral synthetic channel-state inputs only*
+(CC7=100, CC11=127, pan=64, tuning=0), the native converted IP words
+were as follows:
+
+| Original SF2 MIDI input | Selected layer | Native PCOD candidate IP |
+| --- | --- | --- |
+| C4, velocity 100 | 0 | `0xE411` |
+| C4, velocity 100 | 1 | `0xE3EF` |
+| D4, velocity 100 | 0 | `0xE6BC` |
+| D4, velocity 100 | 1 | `0xE699` |
+
+**These are source-derived candidate descriptors, NOT independently
+confirmed Creative-driver IP words or real DRY PCM!** The authentic
+original 0x1592 Win95 VXD channel/device snapshot has not been
+supplied to this particular offline test; using default channel state
+is only a native compiler diagnostic. It must never silently become
+a P002 completion or acoustic equivalence claim.
+
+To reproduce without committing owner assets, the new
+`tools/p002_make_private_original_vxd_ram_descriptor_tables.py`
+strictly SHA-verifies the original user VXD and creates a NEW private
+820-byte table file. The Windows x64 target
+`awe64_p002_private_original_ram_descriptor_probe` independently
+checks both authentic file SHAs before compiling the four native
+descriptors. Windows CI **builds** the source-only executable and
+tests six corrupt-source/geometry cases; it does not execute private
+sources on a public runner.
+
 ## Still mandatory before closing P002
 
 The original Creative driver's independently generated **full**
