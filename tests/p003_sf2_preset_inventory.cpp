@@ -55,6 +55,25 @@ Sample make(){
     return {total,phdrStart,pbagStart};
 }
 }
+Sample makeSparse77(){
+    Bytes phdr,pbag,pdta,root;
+    std::uint16_t row=0;
+    for(std::uint16_t program=0;program<=77;++program){
+        if(program==63u)continue;
+        header(phdr,"SYNTH-PRESET",program,0u,row++);
+    }
+    header(phdr,"EOP",255u,255u,row);
+    for(std::uint16_t n=0;n<=row;++n){put16(pbag,n);put16(pbag,0);}
+    pdta.insert(pdta.end(),{'p','d','t','a'});
+    chunk(pdta,"phdr",phdr);
+    chunk(pdta,"pbag",pbag);
+    root.insert(root.end(),{'s','f','b','k'});
+    chunk(root,"LIST",pdta);
+    Bytes riff{'R','I','F','F'};
+    put32(riff,static_cast<std::uint32_t>(root.size()));
+    riff.insert(riff.end(),root.begin(),root.end());
+    return {riff,32u,32u+phdr.size()+8u};
+}
 int main(){
     auto f=make();
     const auto good=inspectOriginalSoundFontPresetInventory(f.data);
@@ -72,6 +91,20 @@ int main(){
     CHECK(!hasExactSoundFontPreset(*good,128,77));
     CHECK(!hasExactSoundFontPreset(*good,0,127));
     CHECK(!hasExactSoundFontPreset(*good,1,0));
+    // Exact owner-observed *shape*: 77 real presets, MIDI program 63
+    // missing, 64 directly after 62. Synthetic names/sample data only.
+    const auto seventySeven=makeSparse77();
+    const auto sparse=inspectOriginalSoundFontPresetInventory(
+        seventySeven.data);
+    CHECK(sparse && sparse->size()==77u);
+    CHECK((*sparse)[62].program==62u &&
+          (*sparse)[62].original_phdr_row==62u);
+    CHECK((*sparse)[63].program==64u &&
+          (*sparse)[63].original_phdr_row==63u);
+    CHECK((*sparse)[76].program==77u);
+    CHECK(!hasExactSoundFontPreset(*sparse,0,63));
+    CHECK(!hasExactSoundFontPreset(*sparse,0,78));
+    CHECK(hasExactSoundFontPreset(*sparse,0,77));
     unsigned mutations=0;
     auto bad=f.data;
     bad[0]^=1u;
