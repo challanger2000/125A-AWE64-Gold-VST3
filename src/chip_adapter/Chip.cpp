@@ -97,6 +97,7 @@ bool Chip::beginNativeNoteOutTransaction() noexcept {
     native_note_old_wavetable_pos_=wavetable_pos_global;
     native_note_write_count_=0u;
     native_note_write_overflow_=false;
+    native_note_selector_=0u;
     native_note_capture_active_=true;
     return true;
 }
@@ -137,11 +138,31 @@ bool Chip::armPortWriteTrace(std::size_t maxWrites) noexcept {
 void Chip::writePort(uint16_t port, uint16_t value) noexcept {
     if (!device_) return;
     if(native_note_capture_active_) {
-        if(native_note_write_count_<native_note_writes_.size())
-            native_note_writes_[native_note_write_count_++]={
-                rendered_frames_,port,value};
-        else
+        // Fail closed BEFORE touching the original chip if this note
+        // tries to issue a DRAM upload. SMALW/SMLD use E22 index
+        // 0x36/0x3a with DATA1 A20/A22. The snapshot copies register
+        // struct only, NOT 28 MiB sample RAM; permitting these writes
+        // would silently corrupt already authenticated original samples.
+        //
+        // E22 0x36/0x3a remain legal selectors for DATA3 on ordinary
+        // music voices 22/26; only the DRAM DATA1 combination is banned.
+        const bool allowedPort=
+            port==0xe22u || port==0xe20u ||
+            port==0xa20u || port==0xa22u ||
+            port==0x620u || port==0x622u;
+        const bool dramData=
+            (native_note_selector_==0x36u ||
+             native_note_selector_==0x3au) &&
+            (port==0xa20u || port==0xa22u);
+        if(native_note_write_overflow_ || !allowedPort ||
+           (port==0xe22u && value>0xffu) || dramData ||
+           native_note_write_count_>=native_note_writes_.size()) {
             native_note_write_overflow_=true;
+            return;
+        }
+        if(port==0xe22u)native_note_selector_=value;
+        native_note_writes_[native_note_write_count_++]={
+            rendered_frames_,port,value};
     }else if(trace_armed_) {
         if(trace_count_<trace_buffer_.size())
             trace_buffer_[trace_count_++]={rendered_frames_,port,value};
