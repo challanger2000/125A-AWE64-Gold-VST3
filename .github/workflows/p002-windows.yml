@@ -106,7 +106,9 @@ on:
 # Prevent each intermediate developer commit from consuming a full set
 # of Windows runner minutes. Only the newest P002 revision is validated.
 concurrency:
-  group: p002-windows-${{ github.ref }}
+  # Include the requested source SHA: delayed webhook delivery from an
+  # older commit must never cancel a newer HEAD verification run.
+  group: p002-windows-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 permissions:
   contents: read
