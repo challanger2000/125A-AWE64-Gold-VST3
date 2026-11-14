@@ -56,6 +56,17 @@ def compare_windows(original:Path,native:Path,*,
     b=window(native,native_origin)
     if not a or not b:
         raise ValueError("The requested note window has no source/native writes")
+    # A matching frame containing only E22 register-selector writes is
+    # not evidence of a programmed Creative note. Require an actual
+    # source/native 16-bit chip data write within BOTH explicit windows.
+    # This is a necessary structural gate, NOT provenance or audio proof.
+    for label, events in (("Original",a),("native",b)):
+        selector=any(port==0xE22 for _,port,_ in events)
+        payload=any(port in (0xE20,0xA20,0xA22,0x620,0x622)
+                    for _,port,_ in events)
+        if not (selector and payload):
+            raise ValueError(
+                f"{label} note window lacks chip selector and data writes")
     mismatch=None
     for i in range(max(len(a),len(b))):
         x=a[i] if i<len(a) else None
