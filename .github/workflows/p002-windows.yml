@@ -9,6 +9,7 @@ on:
       - 'src/chip_adapter/Chip.h'
       - 'src/chip_adapter/Chip.cpp'
       - 'tests/p002_native_chip_port_trace.cpp'
+      - 'tests/p002_sample_clock_ports.cpp'
       - 'tests/p002_native_ram_evidence_host.cpp'
       - 'tools/p002_compare_original_native_ram_note_ports.py'
       - 'tests/test_p002_compare_original_native_ram_note_ports.py'
