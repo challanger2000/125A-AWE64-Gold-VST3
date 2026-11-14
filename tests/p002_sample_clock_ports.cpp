@@ -82,6 +82,57 @@ int main(){
         {1,0xe22,0x60},{3,0x620,0xffff},
         {3,0x622,0},{4,0xe22,0xa0}
     }};
+    // Exercise the SAME strict source/native frame gate used by the
+    // exported VST3, with entirely synthetic values in public CI.
+    // Source time offsets and independently generated OUT values must
+    // agree in count, order, port and data before output is modified.
+    std::array<awe64::ChipPortWrite,events.size()> nativeEvents{};
+    for(std::size_t i=0u;i<events.size();++i)
+        nativeEvents[i]={77u,events[i].port,events[i].value};
+    std::array<SourceClockedPort,events.size()> approved{};
+    std::size_t approvedCount=999u;
+    CHECK(checkedNativePortsAtSourceFrames(
+        events,nativeEvents,approved,approvedCount));
+    CHECK(approvedCount==events.size());
+    for(std::size_t i=0;i<events.size();++i) {
+        CHECK(approved[i].relative_frame==events[i].relative_frame);
+        CHECK(approved[i].port==nativeEvents[i].port);
+        CHECK(approved[i].value==nativeEvents[i].value);
+    }
+    const auto intact=approved;
+    auto badNative=nativeEvents;
+    badNative[2].port=0xa22u;
+    CHECK(!checkedNativePortsAtSourceFrames(
+        events,badNative,approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    badNative=nativeEvents;
+    badNative[4].value^=1u;
+    CHECK(!checkedNativePortsAtSourceFrames(
+        events,badNative,approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    CHECK(!checkedNativePortsAtSourceFrames(
+        events,std::span<const awe64::ChipPortWrite>(
+            nativeEvents.data(),nativeEvents.size()-1u),
+        approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    CHECK(!checkedNativePortsAtSourceFrames(
+        events,nativeEvents,
+        std::span<SourceClockedPort>(approved.data(),approved.size()-1u),
+        approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    auto badSource=events;
+    badSource[3].relative_frame=0u; // original source clock moved back
+    CHECK(!checkedNativePortsAtSourceFrames(
+        badSource,nativeEvents,approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    badSource=events;
+    badSource[0].relative_frame=1u; // missing exact onset
+    CHECK(!checkedNativePortsAtSourceFrames(
+        badSource,nativeEvents,approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
+    CHECK(!checkedNativePortsAtSourceFrames(
+        {},nativeEvents,approved,approvedCount));
+    CHECK(approvedCount==0u && approved==intact);
     SourceClockedPortPlayer a,b;
     CHECK(!a.stage(clocked,{}));
     constexpr std::array<SourceClockedPort,2> reverse{{
