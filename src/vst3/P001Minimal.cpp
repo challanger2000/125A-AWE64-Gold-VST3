@@ -91,11 +91,12 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
     const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
                                    clockEnv[1]=='\0';
-    if((diag && *diag) || (bank && *bank) || nativeRamRequested)
+    if(!clockedRamRequested &&
+       ((diag && *diag) || (bank && *bank) || nativeRamRequested))
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
-    if((bank && *bank) || nativeRamRequested) {
+    if(!clockedRamRequested && ((bank && *bank) || nativeRamRequested)) {
         parameters.addParameter(STR16("P002 source SF2 program"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateProgramParam));
