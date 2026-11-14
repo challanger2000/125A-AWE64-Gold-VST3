@@ -102,8 +102,13 @@ int main() {
     // A new successful load at exactly the last eight permitted words
     // may not alter the thirty-two reserved FM words 0xffffe0..ffffff.
     constexpr std::uint32_t lastAllowed=awe64::kFmReservedBase-8u;
-    const auto reservedBefore=original->ram[
-        awe64::kFmReservedBase-awe64::kSampleRamBase];
+    // Preserve and compare the ENTIRE reserved FM tail, not only its
+    // first word: an out-of-bounds transfer can corrupt a later word.
+    constexpr std::size_t fmTailWords=32u;
+    std::array<std::int16_t,fmTailWords> reservedBefore{};
+    for(std::size_t i=0;i<fmTailWords;++i)
+        reservedBefore[i]=original->ram[
+            awe64::kFmReservedBase-awe64::kSampleRamBase+i];
     CHECK(p003UploadValidatedMonoSf2PoolToOriginalChip(
         chip,bank,lastAllowed,outcome,error));
     CHECK(outcome.source_pool_words==8u &&
@@ -111,8 +116,10 @@ int main() {
     for(std::size_t i=0;i<8u;++i)
         CHECK(static_cast<std::uint16_t>(
             original->ram[lastAllowed-awe64::kSampleRamBase+i])==expected[i]);
-    CHECK(original->ram[awe64::kFmReservedBase-awe64::kSampleRamBase]==
-          reservedBefore);
+    for(std::size_t i=0;i<fmTailWords;++i)
+        CHECK(original->ram[
+            awe64::kFmReservedBase-awe64::kSampleRamBase+i]==
+            reservedBefore[i]);
     // A synthetic, unauthenticated bank can NEVER activate the
     // source-attested Creative 1996 transform+upload path.
     P003RamUploadResult fakeOriginal{};
@@ -121,16 +128,33 @@ int main() {
         chip,bank,forgedRam,fakeOriginal,error));
     CHECK(!error.empty() && !fakeOriginal.entire_pool_readback_equal &&
           !fakeOriginal.original_creative_source_transformation_verified);
-    const auto before=original->ram[at];
+    // Every rejected input must leave BOTH earlier valid sample
+    // destinations AND the protected tail untouched. Checking just the
+    // first sample word would miss partial corruptions after it.
+    std::array<std::int16_t,8> firstBefore{},lastBefore{};
+    for(std::size_t i=0;i<8u;++i) {
+        firstBefore[i]=original->ram[at+i];
+        lastBefore[i]=original->ram[
+            lastAllowed-awe64::kSampleRamBase+i];
+    }
     auto reject=[&](std::span<const std::uint8_t> broken,
                     std::uint32_t physicalBase) {
         P003RamUploadResult bad{123u,7u,1u,true};
         error.clear();
         const bool accepted=p003UploadValidatedMonoSf2PoolToOriginalChip(
             chip,broken,physicalBase,bad,error);
-        return !accepted && !error.empty() &&
-               !bad.entire_pool_readback_equal &&
-               original->ram[at]==before;
+        if(accepted || error.empty() || bad.entire_pool_readback_equal)
+            return false;
+        for(std::size_t i=0;i<8u;++i)
+            if(original->ram[at+i]!=firstBefore[i] ||
+               original->ram[lastAllowed-awe64::kSampleRamBase+i]!=lastBefore[i])
+                return false;
+        for(std::size_t i=0;i<fmTailWords;++i)
+            if(original->ram[
+                  awe64::kFmReservedBase-awe64::kSampleRamBase+i]!=
+               reservedBefore[i])
+                return false;
+        return true;
     };
     unsigned rejected=0u;
     CHECK(reject(sf2(true),first));++rejected;
