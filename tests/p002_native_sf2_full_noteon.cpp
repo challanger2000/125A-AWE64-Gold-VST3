@@ -1,4 +1,5 @@
 #include "CreativeSf2FullNoteOnPorts.h"
+#include "CreativeClockedSf2NotePlan.h"
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -109,6 +110,45 @@ int main(){
     CHECK(two->out[66+34+21].value==0x0009u);
     CHECK(two->out[10+14+1].value==0xbe3bu);
     CHECK(two->out[66+14+1].value==0xb2b5u);
+
+    // Original 1996 source-shaped 122 typed OUTs become physical 16-bit
+    // chip words (OUT EAX has TWO physical writes), with supplied
+    // per-write 44.1-kHz clocks. This tests the REAL typed->clock
+    // bridge, not just an unrelated synthetic port player. Frame values
+    // here are deliberately SYNTHETIC test inputs, not Win95 evidence.
+    std::size_t physicalWords=0u;
+    for(std::size_t i=0u;i<two->count;++i)
+        physicalWords+=two->out[i].access_width_bits==32u?2u:1u;
+    CHECK(physicalWords>two->count &&
+          physicalWords<=SourceClockedPortPlayer::kMaxEvents);
+    std::array<std::uint32_t,SourceClockedPortPlayer::kMaxEvents> fakeClock{};
+    for(std::size_t i=0u;i<physicalWords;++i)
+        fakeClock[i]=static_cast<std::uint32_t>((i*5u)/physicalWords);
+    const auto clocked=candidateClockedSf2TypedOuts(
+        *two,std::span<const std::uint32_t>(fakeClock.data(),physicalWords));
+    CHECK(clocked && clocked->count==physicalWords &&
+          clocked->events().size()==physicalWords);
+    CHECK(clocked->words[0].port==0xe22u &&
+          clocked->words[0].value==0x60u &&
+          clocked->words[1].value==0xa0u &&
+          clocked->words[2].port==0xa20u &&
+          clocked->words[2].value==0x00ffu &&
+          clocked->words[5].port==0x622u &&
+          clocked->words[6].port==0xe22u &&
+          clocked->words[6].value==0x63u);
+    CHECK(!candidateClockedSf2TypedOuts(
+        *two,std::span<const std::uint32_t>(
+            fakeClock.data(),physicalWords-1u)));
+    fakeClock[physicalWords-1u]=0u; // real source clock cannot run backwards
+    CHECK(!candidateClockedSf2TypedOuts(
+        *two,std::span<const std::uint32_t>(
+            fakeClock.data(),physicalWords)));
+    fakeClock[physicalWords-1u]=4u;
+    auto corruptedNative=*two;
+    corruptedNative.out[0].value=0x1fu; // forged voice pointer
+    CHECK(!candidateClockedSf2TypedOuts(
+        corruptedNative,std::span<const std::uint32_t>(
+            fakeClock.data(),physicalWords)));
 
     // Invalid source identity/voicing must fail before ANY emitted plan;
     // two voices are not allowed to collide on the physical chip channel.
