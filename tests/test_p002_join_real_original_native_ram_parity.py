@@ -165,6 +165,64 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             self.assertTrue(compare_call.call_args.kwargs[
                 "require_complete_note_start"])
 
+    def test_owner_clock_manifest_attests_actual_native_file_bytes_and_midi(self):
+        manifest=self.root/"native-host-clock.json"
+        item={
+            "schema":combined.NATIVE_CLOCK_SCHEMA,
+            "sample_rate":44100,
+            "host_activation_origin_frame":0,
+            "note_c4_on_frame":3,
+            "note_c4_off_frame":400,
+            "note_d4_on_frame":500,
+            "note_d4_off_frame":900,
+            "pcm_frames":1024,
+            "midi_channel":0,
+            "midi_velocity":100,
+            "audible_c4_on_frames":200,
+            "audible_d4_on_frames":230,
+            "original_win95_vs_native_pcm_parity":"NOT_COMPARED",
+            "original_creative_driver_provenance":"NOT_PROVEN_BY_HOST",
+            "native_chip_out_trace_sha256":ports.sha(self.native_ports),
+            "native_precard_wav_sha256":ports.sha(self.native_wav),
+            "original_owner_sf2_sha256":ports.sha(self.sf2),
+            "original_rom_sha256":combined.ORIGINAL_ROM_SHA256,
+            "exported_vst3_sha256":"a"*64,
+            "original_ram_ports_sha256":"b"*64,
+            "original_final_ram_pcm_sha256":"c"*64,
+            "original_vxd_pack_sha256":"d"*64,
+        }
+        def verify(**override):
+            manifest.write_text(json.dumps(item|override),encoding="utf-8")
+            return combined.verify_native_clock_manifest(
+                manifest,self.native_ports,self.native_wav,self.sf2,
+                note="C4",native_port_origin=3,native_pcm_start=3)
+        good=verify()
+        self.assertTrue(good["native_midi_clock_host_attested"])
+        self.assertEqual(good["host_note_on_frame"],3)
+        for mutation in (
+            {"native_chip_out_trace_sha256":"a"*64},
+            {"native_precard_wav_sha256":"a"*64},
+            {"original_owner_sf2_sha256":"a"*64},
+            {"note_c4_on_frame":4},
+            {"note_d4_off_frame":1024},
+            {"midi_velocity":99},
+            {"midi_channel":1},
+            {"audible_d4_on_frames":0},
+            {"pcm_frames":1025},
+            {"sample_rate":48000},
+            {"host_activation_origin_frame":1},
+            {"original_win95_vs_native_pcm_parity":"PASSED"},
+            {"exported_vst3_sha256":"not-a-sha"},
+        ):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(ValueError):verify(**mutation)
+        verify()
+        self.native_ports.write_bytes(self.native_ports.read_bytes()+b"\n")
+        with self.assertRaisesRegex(ValueError,"SHA256 mismatch"):
+            combined.verify_native_clock_manifest(
+                manifest,self.native_ports,self.native_wav,self.sf2,
+                note="C4",native_port_origin=3,native_pcm_start=3)
+
     def test_missing_wrong_or_overflowed_source_ram_proof(self):
         for value in (1,2):
             with self.subTest(value=value):

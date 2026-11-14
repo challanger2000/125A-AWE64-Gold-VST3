@@ -33,6 +33,84 @@ ORIGINAL_TRACE_SHA256=ports.ORIGINAL_OWNER_RAM_TRACE_SHA256
 ORIGINAL_GUEST_LOG_SHA256="660a01264550415d50d2cd071e752e9388ebb63071288acbefe95c0386a07096"
 ORIGINAL_WAV_SHA256="b4e97086a13cf9c85f20a6e6ec0d9555fb7c708c1d6689fd5f38e0e7c4655dcf"
 ORIGINAL_PHYSICAL_RAM_SAMPLE_BASE=0x200010
+ORIGINAL_ROM_SHA256="4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e"
+NATIVE_CLOCK_SCHEMA="P002_NATIVE_REAL_VST3_HOST_CLOCKS_V1"
+
+def verify_native_clock_manifest(manifest:Path, native_ports:Path,
+                                 native_wav:Path, owner_sf2:Path,
+                                 *, note:str,
+                                 native_port_origin:int,
+                                 native_pcm_start:int)->dict:
+    """Owner-side host attestation; does NOT claim Win95 clock origin."""
+    if note not in ("C4","D4"):
+        raise ValueError("Explicit native C4 or D4 evidence note is required")
+    if not manifest.is_file():
+        raise ValueError("Native private VST3 host clock manifest missing")
+    if manifest.stat().st_size>65536:
+        raise ValueError("Native VST3 host manifest exceeds bounded JSON size")
+    try:
+        meta=json.loads(manifest.read_text(encoding="utf-8"))
+    except (UnicodeError,json.JSONDecodeError) as exc:
+        raise ValueError("Invalid private VST3 host clock manifest JSON") from exc
+    if not isinstance(meta,dict) or meta.get("schema")!=NATIVE_CLOCK_SCHEMA:
+        raise ValueError("Unexpected native VST3 host clock schema")
+    # JSON booleans are integers in Python, but cannot attest an actual
+    # render count, MIDI velocity, or 44.1kHz sample frame.
+    def integer(name:str)->int:
+        value=meta.get(name)
+        if type(value) is not int:
+            raise ValueError("Invalid host MIDI clock field: "+name)
+        return value
+    if (integer("sample_rate")!=44100 or
+        integer("host_activation_origin_frame")!=0 or
+        integer("midi_channel")!=0 or
+        integer("midi_velocity")!=100):
+        raise ValueError("Native host sample clock, MIDI channel or velocity mismatch")
+    c4=integer("note_c4_on_frame")
+    c4_off=integer("note_c4_off_frame")
+    d4=integer("note_d4_on_frame")
+    d4_off=integer("note_d4_off_frame")
+    total=integer("pcm_frames")
+    if not 0<=c4<c4_off<d4<d4_off<total<=44100*30:
+        raise ValueError("Native C4/D4 MIDI host clock order/length invalid")
+    if (integer("audible_c4_on_frames")<64 or
+        integer("audible_d4_on_frames")<64):
+        raise ValueError("Native host does not attest both audible source notes")
+    selected=c4 if note=="C4" else d4
+    if native_port_origin!=selected or native_pcm_start!=selected:
+        raise ValueError(
+            "Native register/PCM window must start at the independently "
+            "recorded real host MIDI NoteOn sample clock")
+    if (meta.get("original_win95_vs_native_pcm_parity")!="NOT_COMPARED" or
+        meta.get("original_creative_driver_provenance")!="NOT_PROVEN_BY_HOST"):
+        raise ValueError("Native host cannot declare original Win95 Creative parity")
+    for field,actual in (
+        ("native_chip_out_trace_sha256",ports.sha(native_ports)),
+        ("native_precard_wav_sha256",ports.sha(native_wav)),
+        ("original_owner_sf2_sha256",ports.sha(owner_sf2)),
+        ("original_rom_sha256",ORIGINAL_ROM_SHA256)):
+        if meta.get(field)!=actual:
+            raise ValueError("Native VST3 host file SHA256 mismatch: "+field)
+    for field in ("exported_vst3_sha256","original_ram_ports_sha256",
+                  "original_final_ram_pcm_sha256","original_vxd_pack_sha256"):
+        value=meta.get(field)
+        if (not isinstance(value,str) or len(value)!=64 or
+            any(c not in "0123456789abcdef" for c in value)):
+            raise ValueError("Malformed native host source identity: "+field)
+    with wave.open(str(native_wav),"rb") as wav:
+        if (wav.getnchannels()!=2 or wav.getsampwidth()!=2 or
+            wav.getframerate()!=44100 or wav.getnframes()!=total):
+            raise ValueError("Native PCM WAV and host timeline contradict")
+    return {
+        "schema":NATIVE_CLOCK_SCHEMA,
+        "host_note":note,
+        "host_note_on_frame":selected,
+        "native_port_and_pcm_sha256_checked":True,
+        "original_sf2_sha256_checked":True,
+        "native_midi_clock_host_attested":True,
+        "win95_to_host_clock_correlation":"NOT_ESTABLISHED",
+        "original_driver_parity":"NOT_PROVEN",
+    }
 
 def _sha(path:Path)->str:
     return ports.sha(path)
@@ -42,7 +120,8 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
             *, original_port_origin:int, native_port_origin:int,
             port_frames:int, original_pcm_start:int,
             native_pcm_start:int, pcm_frames:int,
-            _synthetic_unit_test_only:bool=False)->dict:
+            _synthetic_unit_test_only:bool=False,
+            native_manifest:Path|None=None,native_note:str="C4")->dict:
     source_paths=[original_trace,original_sf2,original_guest_log,
                   original_wav,native_ports,native_wav]
     normalized=[p.resolve() for p in source_paths]
@@ -68,6 +147,18 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
                 raise ValueError(
                     "Not independently SHA-pinned ORIGINAL Win95 Creative "
                     "reference: "+key)
+    if not _synthetic_unit_test_only and native_manifest is None:
+        raise ValueError("Production parity requires authentic private native "
+                         "host SHA256 and MIDI clock manifest")
+    if native_manifest is not None and native_manifest.resolve() in normalized:
+        raise ValueError("Native host manifest aliases original or native input")
+    native_clock=(verify_native_clock_manifest(
+        native_manifest,native_ports,native_wav,original_sf2,
+        note=native_note,native_port_origin=native_port_origin,
+        native_pcm_start=native_pcm_start)
+        if native_manifest is not None else {
+            "native_midi_clock_host_attested":False,
+            "original_driver_parity":"NOT_PROVEN_TEST_ONLY"})
     # Authentic original RAM sample upload: include the genuine 255
     # repeated physical sample-word writes. Do NOT use the obsolete
     # first-match/no-overlap candidate in p002_original_ram_trace_probe.
@@ -95,6 +186,7 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
                   if both else "P002_ORIGINAL_VS_NATIVE_RAM_NOTE_MISMATCH"),
         "source":source,
         "source_file_sha256":checks,
+        "native_host_clock_and_sha256":native_clock,
         "native_original_ram_ports":native,
         "native_original_dry_pcm":audio,
         "both_windows_bit_exact":bool(both),
@@ -115,11 +207,14 @@ def main(argv=None)->int:
     for name in ("original-port-origin","native-port-origin","port-frames",
                  "original-pcm-start","native-pcm-start","pcm-frames"):
         parser.add_argument("--"+name,required=True,type=int)
+    parser.add_argument("--native-manifest",required=True,type=Path)
+    parser.add_argument("--native-note",required=True,choices=("C4","D4"))
     a=parser.parse_args(argv)
     out=a.private_report.resolve()
     root=Path(__file__).resolve().parents[1]
     sources=[a.original_trace,a.original_sf2,a.original_guest_log,
-             a.original_wav,a.native_ports,a.native_wav]
+             a.original_wav,a.native_ports,a.native_wav,
+             a.native_manifest]
     if out.exists() or out in [x.resolve() for x in sources] or (
             out==root or root in out.parents):
         parser.error("Private report must be NEW, outside Git and original/native inputs")
@@ -130,7 +225,9 @@ def main(argv=None)->int:
                    port_frames=a.port_frames,
                    original_pcm_start=a.original_pcm_start,
                    native_pcm_start=a.native_pcm_start,
-                   pcm_frames=a.pcm_frames)
+                   pcm_frames=a.pcm_frames,
+                   native_manifest=a.native_manifest,
+                   native_note=a.native_note)
     out.parent.mkdir(parents=True,exist_ok=True)
     with out.open("x",encoding="utf-8") as f:
         json.dump(result,f,indent=2,sort_keys=True)
