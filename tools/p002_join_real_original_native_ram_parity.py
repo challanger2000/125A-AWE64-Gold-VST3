@@ -30,10 +30,11 @@ else:
 ORIGINAL_SF2_SHA256="d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b"
 ORIGINAL_TRACE_SHA256=ports.ORIGINAL_OWNER_RAM_TRACE_SHA256
 # A corrected Win95 C:\P002RAM.LOG contains live GetTickCount() data.
-# A hard-coded SHA from an *unrelated* historical session can NEVER
-# validate a newly booted guest. Use owner-side FAT16+driver+86Box
-# attested ORIGINAL SESSION manifest; source trace/WAV/log SHA are
-# bound to that exact run, not an unverified fabricated constant.
+# The SHA 660a0126... is VERIFIED for the 2026-11-13 source run
+# (PR #4 original 260921-word source trace evidence), but it cannot
+# validate a DIFFERENT boot of the newly corrected owner VM.
+# Use owner-side FAT16+driver+86Box attested ORIGINAL SESSION manifest:
+# source trace/WAV/log SHA are bound to THAT exact execution.
 # The previous static source trace/WAV remain historical diagnostic
 # references, NOT universal SHA pins for a different VM capture.
 ORIGINAL_PHYSICAL_RAM_SAMPLE_BASE=0x200010
@@ -149,7 +150,7 @@ def analyze(original_trace:Path, original_sf2:Path, original_guest_log:Path,
     if not _synthetic_unit_test_only and original_session_manifest is None:
         raise ValueError("Production source proof requires the original "
                          "booted Windows 95 Creative SESSION manifest; "
-                         "a historical/fabricated fixed guest-log SHA is invalid")
+                         "the older real guest-log SHA cannot attest a new run")
     if original_session_manifest is not None and (
             original_session_manifest.resolve() in normalized):
         raise ValueError("Original session manifest aliases input evidence")

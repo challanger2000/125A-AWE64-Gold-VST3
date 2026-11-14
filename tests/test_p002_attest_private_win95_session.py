@@ -63,7 +63,7 @@ class SourceManifestTests(unittest.TestCase):
                 self.files["source.sf2"],self.files["guest.log"],
                 self.files["original.wav"])
 
-    def test_real_session_dynamic_log_sha_not_fabricated_fixed_hash(self):
+    def test_real_session_dynamic_log_sha_not_confused_with_historic_hash(self):
         manifest=self._manifest()
         result=self.verify(manifest)
         self.assertEqual(result["status"],

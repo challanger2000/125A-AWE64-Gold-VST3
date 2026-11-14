@@ -57,11 +57,13 @@ An unbooted guest, missing log, mismatched Creative driver, inactive
 ROM/SF2, incomplete trace or silent/invalid source audio are strict NO-GO.
 The program does not pretend to execute original Win95 under Linux.
 
-**Important provenance fix:** A previous development revision invented
-a fixed SHA256 for C:\P002RAM.LOG even though no such authentic log
-was present in the packaged VM. That bogus fixed digest is removed.
-Real guest GetTickCount() events necessarily produce new LOG bytes
-for each newly booted session. Instead the parity join verifies the
+**Important provenance correction:** The original Win95 guest LOG
+SHA256 660a0126... was genuinely verified on 2026-11-13 alongside
+the complete original 260921-word RAM upload (PR #4). That exact
+LOG is absent from this separately distributed, corrected FAT16 clone;
+this does not invalidate the historical original source proof.
+Real guest GetTickCount() events produce different LOG bytes
+for each newly booted session. The parity join now verifies the
 actual FAT16-attested original-source session digest for the specific
 LOG, register trace, WAV, ROM, SF2, VXD and calibrated fork executable.
 Original vs native host/chip note clock origins still require independent

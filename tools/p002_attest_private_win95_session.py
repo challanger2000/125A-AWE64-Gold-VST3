@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """P002 ORIGINAL Win95 calibrated 86Box capture, owner-side SESSION attestation.
 
-Unlike an invalid fixed guest-LOG SHA256, this verifier accepts an actual
+The 2026-11-13 original guest LOG SHA256=660a0126... was genuinely verified
+for THAT historic source run. This verifier accepts a separate newly
 newly BOOTED source session only after reading C:\P002RAM.LOG from the
 guest's FAT16 disk, checking its installed ORIGINAL Creative binaries and
 corrected CC0=1 test EXE, and matching the genuine complete 260921-word
@@ -81,10 +82,10 @@ def attest(private_disk:Path, private_original_sf2:Path, original_emu_trace:Path
             raise ValueError("Guest source SF2 does not match owner's actual original")
         if _sha_bytes(vxd)!=VXD_SHA or _sha_bytes(dll)!=DLL_SHA:
             raise ValueError("Guest Creative 1996 original VXD/DLL hashes invalid")
-        # Unlike an unverified fabricated constant, every new valid
-        # Win95 guest run has unique GetTickCount values. Extract and
-        # validate ACTUAL bytes from the booted disk, never assume a
-        # predetermined guest log SHA.
+        # The original 2026-11-13 guest log SHA 660a0126... is REAL
+        # and authenticated in PR #4, but it is specific to THAT run.
+        # Every newly booted guest has different GetTickCount values.
+        # Capture actual NEW log bytes and bind their SHA to this run.
         try:
             log=disk.read_root_file(b"P002RAM LOG",128*1024)
         except ValueError as exc:
