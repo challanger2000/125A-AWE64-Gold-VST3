@@ -147,12 +147,14 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             "converted_source_words_mismatched":0,
             "converted_source_words_bit_equal":260921,
             "source_window_overwritten_words":255,
-        }), patch.object(combined.ports,"sha",side_effect=lambda p:{
+        }), patch.object(combined,"_sha",side_effect=lambda p:{
             self.original_trace:combined.ORIGINAL_TRACE_SHA256,
             self.sf2:combined.ORIGINAL_SF2_SHA256,
             self.source_wav:combined.ORIGINAL_WAV_SHA256,
             self.log:combined.ORIGINAL_GUEST_LOG_SHA256,
-        }.get(p,"native-diagnostic")):
+        }.get(p,"native-diagnostic")), patch.object(
+            combined.ports,"compare_windows",
+            side_effect=ValueError("allocator prologue")) as compare_call:
             with self.assertRaisesRegex(ValueError,"allocator prologue"):
                 combined.analyze(
                     self.original_trace,self.sf2,self.log,
@@ -160,6 +162,8 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
                     original_port_origin=100,native_port_origin=3,
                     port_frames=2,original_pcm_start=0,
                     native_pcm_start=0,pcm_frames=1024)
+            self.assertTrue(compare_call.call_args.kwargs[
+                "require_complete_note_start"])
 
     def test_missing_wrong_or_overflowed_source_ram_proof(self):
         for value in (1,2):
