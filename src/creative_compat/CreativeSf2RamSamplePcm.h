@@ -108,4 +108,15 @@ candidateOriginalSf2RamPhysicalNotePlan(
     std::size_t independently_observed_source_pcm_words,
     bool original_creative_driver_physical_ram_upload_verified) noexcept;
 
+// P003 structural preload gate for an entire STANDARD SF2 sdta/smpl pool.
+// The view aliases caller-owned SF2 bytes; no new allocation/DSP or
+// unverified Creative sample placement is performed here.
+struct OriginalSf2WholeMonoRamPool {
+    std::span<const std::uint8_t> whole_smpl_pcm_le16{};
+    std::size_t sample_headers=0u;
+};
+[[nodiscard]] std::optional<OriginalSf2WholeMonoRamPool>
+candidateStandardSf2WholeMonoRamPool(
+    std::span<const std::uint8_t> sf2) noexcept;
+
 } // namespace awe64::creative

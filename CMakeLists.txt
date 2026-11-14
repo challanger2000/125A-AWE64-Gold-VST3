@@ -286,6 +286,23 @@ target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
 add_test(NAME p002_native_soundfont_RAM_PCM_boundaries
          COMMAND awe64_p002_sf2_ram_pcm_inventory_test)
 
+# P003 guarded STANDARD SoundFont mono sample pool -> actual pinned EMU8000
+# DRAM word transfer with complete physical readback. Research-only:
+# neither 1996 Creative allocation nor arbitrary-bank audio is asserted.
+add_library(awe64_p003_sf2_mono_ram_preload STATIC
+    src/creative_compat/CreativeSf2RamBankUpload.cpp)
+target_include_directories(awe64_p003_sf2_mono_ram_preload
+    PUBLIC src/creative_compat)
+target_link_libraries(awe64_p003_sf2_mono_ram_preload
+    PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory)
+target_compile_features(awe64_p003_sf2_mono_ram_preload PUBLIC cxx_std_23)
+add_executable(awe64_p003_sf2_mono_ram_preload_test
+    tests/p003_sf2_mono_ram_upload.cpp)
+target_link_libraries(awe64_p003_sf2_mono_ram_preload_test
+    PRIVATE awe64_p003_sf2_mono_ram_preload)
+add_test(NAME p003_real_original_emu8000_mono_ram_upload_full_readback
+    COMMAND awe64_p003_sf2_mono_ram_preload_test)
+
 # Preserve the original Creative guest's captured SMALW/SMLD OUT order.
 # This replay is NOT independently generated Win95 driver RAM allocation.
 # The 86Box chip core remains exactly pinned and unmodified.

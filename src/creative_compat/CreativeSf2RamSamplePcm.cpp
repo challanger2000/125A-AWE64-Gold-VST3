@@ -332,4 +332,51 @@ candidateOriginalSf2RamPhysicalNotePlan(
     }
     return result;
 }
+std::optional<OriginalSf2WholeMonoRamPool>
+candidateStandardSf2WholeMonoRamPool(const Bytes sf2) noexcept {
+    const auto inventory=candidateOriginalSf2InventoryAllSampleTypes(sf2);
+    if(!inventory || inventory->sample_headers==0u ||
+       inventory->sample_headers>4096u ||
+       inventory->rom_mono!=0u || inventory->unsupported!=0u ||
+       inventory->ram_mono!=inventory->sample_headers)
+        return std::nullopt;
+    Chunk sdta{};
+    if(!visit(sf2,12u,sf2.size(),[&](std::size_t pos,Chunk item) noexcept {
+        if(!textAt(sf2,pos,"LIST"))return true;
+        if(item.size<4u)return false;
+        if(textAt(sf2,item.start,"sdta")) {
+            if(sdta.present)return false;
+            sdta=item;
+        }
+        return true;
+    }) || !sdta.present)return std::nullopt;
+    Chunk smpl{};
+    bool sm24=false;
+    if(!visit(sf2,sdta.start+4u,sdta.start+sdta.size,
+        [&](std::size_t pos,Chunk item) noexcept {
+            if(textAt(sf2,pos,"smpl")) {
+                if(smpl.present)return false;
+                smpl=item;
+            }else if(textAt(sf2,pos,"sm24")) {
+                sm24=true;
+            }
+            return true;
+        }) || !smpl.present || sm24 ||
+       smpl.size==0u || smpl.size%2u!=0u ||
+       smpl.size/2u>0xe00000u)
+        return std::nullopt;
+    // Validate every shdr against its real pool word coordinates,
+    // including the already source-proven <=2 ZERO guard-word case.
+    // Do not validate only shdr[0] or assume unused bytes are silence.
+    for(std::size_t index=0;index<inventory->sample_headers;++index) {
+        if(!candidateOriginalSf2ReadRamMonoSamplePcm(
+               sf2,static_cast<std::uint16_t>(index),0xe00000u))
+            return std::nullopt;
+    }
+    return OriginalSf2WholeMonoRamPool{
+        sf2.subspan(smpl.start,smpl.size),
+        inventory->sample_headers
+    };
+}
+
 } // namespace awe64::creative
