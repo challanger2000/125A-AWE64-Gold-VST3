@@ -298,6 +298,8 @@ jobs:
           if ($hostExe.Count -ne 1) { throw 'Independent owner-side real P002 RAM evidence host not compiled' }
           & $hostExe[0].FullName --help
           if ($LASTEXITCODE -ne 0) { throw 'P002 real native RAM host CLI validation failed' }
+          & $hostExe[0].FullName --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'P002 native MIDI frame/order selftest failed' }
           # Owner RAM, Creative VXD, exact Win95 and full source trace are
           # private. CI MUST NOT manufacture these files or claim parity.
           Write-Host 'P002_NATIVE_RAM_EVIDENCE_HOST_WINDOWS_X64_BUILT_AND_CLI_SMOKE_PASS; REAL_PRIVATE_INPUTS_NOT_IN_CI'
