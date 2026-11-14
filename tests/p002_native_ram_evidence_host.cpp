@@ -334,7 +334,10 @@ int wmain(int argc,wchar_t** argv) {
           L"<ORIGINAL_FINAL_RAM_PCM16> <AUTHENTIC_VXD_PACK> "
           L"<NEW_NATIVE_OUT_TRACE> <NEW_NATIVE_PRECARD_WAV> "
           L"<C4_ON_FRAME> <C4_OFF_FRAME> <D4_ON_FRAME> "
-          L"<D4_OFF_FRAME> <TOTAL_FRAMES>\n"
+          L"<D4_OFF_FRAME> <TOTAL_FRAMES> [NEW_CLOCK_MANIFEST]\n"
+          L"Optional clocked native source mode: append <ORIGINAL_C4_D4_NOTE_PORTS> "
+          L"after the NEW_CLOCK_MANIFEST. Authentic source values VERIFY "
+          L"native OUTs; only original sample offsets schedule native writes.\n"
           L"No Win95 clock is inferred. Original/native parity is NOT proven by this host.\n";
         return 0;
     }
@@ -377,11 +380,24 @@ int wmain(int argc,wchar_t** argv) {
                  <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
     }
-    if(argc!=14 && argc!=15)return 2;
+    if(argc!=14 && argc!=15 && argc!=16)return 2;
     bool outputPathsVerifiedNew=false;
     try {
         const Schedule sch=scheduleFromArgs(argv);
         validateFiles(argv,sch);
+        if(argc==16) {
+            // A real source capture is an additional readonly input;
+            // never confuse it with newly emitted independent native OUTs.
+            const fs::path sourceClock(argv[15]);
+            check(sourceClock.is_absolute() &&
+                  fs::is_regular_file(sourceClock) &&
+                  fs::file_size(sourceClock)==5741u,
+                  "clocked native input requires original SHA-pinned note source");
+            for(int i=1;i<=14;++i)
+                check(sourceClock.lexically_normal()!=
+                      fs::path(argv[i]).lexically_normal(),
+                      "clocked native source cannot alias any input/output");
+        }
         outputPathsVerifiedNew=true;
         setEnv(L"AWE64_P001_ROM_PATH",argv[2]);
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_SF2",argv[3]);
@@ -393,7 +409,10 @@ int wmain(int argc,wchar_t** argv) {
         setEnv(L"AWE64_P002_NATIVE_DRY_PCM_WAV_PATH",argv[8]);
         setEnv(L"AWE64_P002_PRIVATE_NOTE_FIXTURE",L"");
         setEnv(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"");
-        setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",L"");
+        setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",
+               argc==16?argv[15]:L"");
+        setEnv(L"AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM",
+               argc==16?L"1":L"");
         Instance vst(argv[1]);
         const auto audible=play(vst.processor,sch);
         vst.stop();
@@ -415,7 +434,9 @@ int wmain(int argc,wchar_t** argv) {
                  <<" C4_audible_samples="<<audible[0]
                  <<" D4_audible_samples="<<audible[1]
                  <<" private_clock_sha_manifest="<<(argc==15?"WRITTEN":"NOT_REQUESTED")
-                 <<" native_original_port_parity=NOT_COMPARED"
+                 <<" native_original_port_parity="
+                 <<(argc==16?"ALL_C4_D4_WRITES_MATCHED_SOURCE":
+                               "NOT_COMPARED")
                  <<" Win95_vs_native_dry_pcm=NOT_COMPARED"
                  <<" release_approved=FALSE\n";
         return 0;
