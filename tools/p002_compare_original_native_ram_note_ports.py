@@ -48,12 +48,19 @@ def compare_windows(original:Path,native:Path,*,
     if (require_owner_original and
         original_sha!=ORIGINAL_OWNER_RAM_TRACE_SHA256):
         raise ValueError("Source trace not the owner verified original Creative RAM trace")
-    def window(path,origin):
-        return [(frame-origin,port,value)
-                for frame,direction,port,value in read_trace(path)
-                if direction=="WRITE" and origin<=frame<origin+frames]
+    def window(path,origin,*,native_write_only=False):
+        events=[]
+        for frame,direction,port,value in read_trace(path):
+            # The real VST3's OUT recorder never emits READ records.
+            # Silently filtering fake native READs could accept a
+            # forged trace whose WRITE subsequence happens to match.
+            if native_write_only and direction!="WRITE":
+                raise ValueError("Native VST3 OUT trace must be write-only")
+            if direction=="WRITE" and origin<=frame<origin+frames:
+                events.append((frame-origin,port,value))
+        return events
     a=window(original,original_origin)
-    b=window(native,native_origin)
+    b=window(native,native_origin,native_write_only=True)
     if not a or not b:
         raise ValueError("The requested note window has no source/native writes")
     # A source RAM-upload sequence may be byte-identical on both sides

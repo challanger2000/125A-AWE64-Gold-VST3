@@ -112,6 +112,13 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
                                     "non-RAM EMU8000 voice data write"):
             self.compare()
 
+    def test_native_read_events_cannot_be_hidden_by_write_filter(self):
+        # The genuine exported VST3 OUT recorder emits no READ lines.
+        # Identical OUT subsequences with an extra forged READ are NO-GO.
+        self.write_native(self.lines+["R 4 E20 0001"])
+        with self.assertRaisesRegex(ValueError,"write-only"):
+            self.compare()
+
     def test_wrong_original_sha_and_missing_exporter_header_no_go(self):
         with self.assertRaisesRegex(ValueError,"owner verified original"):
             self.compare(require_sha=True)
