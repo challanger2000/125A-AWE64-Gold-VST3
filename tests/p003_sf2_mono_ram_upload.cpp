@@ -113,6 +113,14 @@ int main() {
             original->ram[lastAllowed-awe64::kSampleRamBase+i])==expected[i]);
     CHECK(original->ram[awe64::kFmReservedBase-awe64::kSampleRamBase]==
           reservedBefore);
+    // A synthetic, unauthenticated bank can NEVER activate the
+    // source-attested Creative 1996 transform+upload path.
+    P003RamUploadResult fakeOriginal{};
+    const std::array<std::uint8_t,8> forgedRam{};
+    CHECK(!p003UploadExactOriginalWin95ConvertedOwnerBank(
+        chip,bank,forgedRam,fakeOriginal,error));
+    CHECK(!error.empty() && !fakeOriginal.entire_pool_readback_equal &&
+          !fakeOriginal.original_creative_source_transformation_verified);
     const auto before=original->ram[at];
     auto reject=[&](std::span<const std::uint8_t> broken,
                     std::uint32_t physicalBase) {

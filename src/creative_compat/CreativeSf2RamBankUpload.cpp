@@ -1,5 +1,16 @@
 #include "CreativeSf2RamBankUpload.h"
+#include "CreativeOriginalSmplThreeTap.h"
 #include <bit>
+#include <array>
+#include <string_view>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <bcrypt.h>
+#endif
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -65,5 +76,105 @@ bool p003UploadValidatedMonoSf2PoolToOriginalChip(
     result.sample_headers=originalPool->sample_headers;
     result.entire_pool_readback_equal=true;
     return true;
+}
+#ifdef _WIN32
+namespace {
+bool matchesSourceSha256(
+    const std::span<const std::uint8_t> bytes,
+    const std::string_view expected_hex) noexcept {
+    if(expected_hex.size()!=64u || bytes.size()>0xffffffffu)return false;
+    BCRYPT_ALG_HANDLE algorithm=nullptr;
+    BCRYPT_HASH_HANDLE handle=nullptr;
+    bool ok=false;
+    std::array<UCHAR,32> hash{};
+    if(BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,
+                                   nullptr,0)==0) {
+        if(BCryptCreateHash(algorithm,&handle,nullptr,0,nullptr,0,0)==0) {
+            if(BCryptHashData(handle,
+                const_cast<PUCHAR>(
+                    reinterpret_cast<const UCHAR*>(bytes.data())),
+                static_cast<ULONG>(bytes.size()),0)==0 &&
+               BCryptFinishHash(handle,hash.data(),
+                                static_cast<ULONG>(hash.size()),0)==0) {
+                constexpr char hex[]="0123456789abcdef";
+                ok=true;
+                for(std::size_t i=0;i<hash.size();++i)
+                    if(expected_hex[i*2u]!=hex[hash[i]>>4u] ||
+                       expected_hex[i*2u+1u]!=hex[hash[i]&15u])
+                        ok=false;
+            }
+            BCryptDestroyHash(handle);
+        }
+        BCryptCloseAlgorithmProvider(algorithm,0);
+    }
+    return ok;
+}
+}
+#endif
+bool p003UploadExactOriginalWin95ConvertedOwnerBank(
+    awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
+    const std::span<const std::uint8_t> attested_ram,
+    P003RamUploadResult& result,std::string& error) {
+    result={};
+    error.clear();
+#ifndef _WIN32
+    (void)chip;(void)sf2;(void)attested_ram;
+    error="P003 original Creative source SHA profile requires Windows BCrypt";
+    return false;
+#else
+    constexpr std::uint32_t base=0x200010u; // actual Win95 1996 VXD trace
+    constexpr std::size_t n=260921u; // actual original VXD/SF2 RAM payload
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
+       sf2.size()!=555754u || attested_ram.size()!=n*2u ||
+       !matchesSourceSha256(sf2,
+         "d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b") ||
+       !matchesSourceSha256(attested_ram,
+         "ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470")) {
+        error="P003 owner SF2/Win95 original RAM SHA provenance invalid";
+        return false;
+    }
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->sample_headers!=83u ||
+       pool->whole_smpl_pcm_le16.size()!=n*2u ||
+       n>std::size_t(awe64::kFmReservedBase-base)) {
+        error="P003 original owner bank sample structure or RAM bounds invalid";
+        return false;
+    }
+    // Original Win95 2026-11-14 RAM oracle: floor((6*c-p-n)/8),
+    // except >=3 consecutive zero runs; never use for arbitrary SF2s.
+    const auto translated=p003PredictOwnerObservedThreeTapRamWords(
+        pool->whole_smpl_pcm_le16);
+    if(!translated || translated->size()!=n) {
+        error="P003 original owner 3-tap driver model refused source bank";
+        return false;
+    }
+    for(std::size_t i=0;i<n;++i) {
+        const auto expectedWord=static_cast<std::uint16_t>(
+            std::uint16_t(attested_ram[2u*i]) |
+            (std::uint16_t(attested_ram[2u*i+1u])<<8u));
+        if(std::bit_cast<std::uint16_t>((*translated)[i])!=expectedWord) {
+            error="P003 converted source differs from genuine original RAM "
+                  "BEFORE any physical chip write";
+            return false;
+        }
+    }
+    const auto* raw=chip.rawForContractTesting();
+    if(!raw || !raw->ram || !chip.uploadRam(base,*translated)) {
+        error="P003 exact observed driver bank physical RAM upload failed";
+        return false;
+    }
+    const auto offset=std::size_t(base-awe64::kSampleRamBase);
+    for(std::size_t i=0;i<n;++i)
+        if(raw->ram[offset+i]!=(*translated)[i]) {
+            error="P003 uploaded converted bank differs from original core RAM";
+            return false;
+        }
+    result.physical_word_base=base;
+    result.source_pool_words=n;
+    result.sample_headers=pool->sample_headers;
+    result.entire_pool_readback_equal=true;
+    result.original_creative_source_transformation_verified=true;
+    return true;
+#endif
 }
 } // namespace awe64::creative

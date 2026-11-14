@@ -286,6 +286,20 @@ target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
 add_test(NAME p002_native_soundfont_RAM_PCM_boundaries
          COMMAND awe64_p002_sf2_ram_pcm_inventory_test)
 
+# P003 empirically recovered original Creative Win95 sample pre-emphasis,
+# scoped to one SHA-attested owner session. Pure DSP-free converter.
+add_library(awe64_p003_observed_three_tap STATIC
+    src/creative_compat/CreativeOriginalSmplThreeTap.cpp)
+target_include_directories(awe64_p003_observed_three_tap
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p003_observed_three_tap PUBLIC cxx_std_23)
+add_executable(awe64_p003_observed_three_tap_test
+    tests/p003_original_owner_three_tap.cpp)
+target_link_libraries(awe64_p003_observed_three_tap_test
+    PRIVATE awe64_p003_observed_three_tap)
+add_test(NAME p003_1996_creative_original_source_smpla_three_tap_oracle
+    COMMAND awe64_p003_observed_three_tap_test)
+
 # P003 guarded STANDARD SoundFont mono sample pool -> actual pinned EMU8000
 # DRAM word transfer with complete physical readback. Research-only:
 # neither 1996 Creative allocation nor arbitrary-bank audio is asserted.
@@ -294,7 +308,11 @@ add_library(awe64_p003_sf2_mono_ram_preload STATIC
 target_include_directories(awe64_p003_sf2_mono_ram_preload
     PUBLIC src/creative_compat)
 target_link_libraries(awe64_p003_sf2_mono_ram_preload
-    PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory)
+    PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory
+           awe64_p003_observed_three_tap)
+if(WIN32)
+    target_link_libraries(awe64_p003_sf2_mono_ram_preload PRIVATE bcrypt)
+endif()
 target_compile_features(awe64_p003_sf2_mono_ram_preload PUBLIC cxx_std_23)
 add_executable(awe64_p003_sf2_mono_ram_preload_test
     tests/p003_sf2_mono_ram_upload.cpp)
