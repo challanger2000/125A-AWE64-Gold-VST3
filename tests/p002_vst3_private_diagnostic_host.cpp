@@ -1170,8 +1170,10 @@ int wmain(int argc,wchar_t** argv){
                 "same-sample VST3 program selection was not applied before MIDI");
         require(noSecondNoSwitch.hash==noSecondButSwitch.hash,
                 "program change incorrectly modified sounding original voice");
-        require(nonexistentProgram0.hash!=defaultProgram7.hash,
-                "unselected SF2 program unexpectedly played old preset");
+        require(nonexistentProgram0.hash==defaultProgram7.hash &&
+                nonexistentProgram0.nonzero==defaultProgram7.nonzero,
+                "missing SF2 Program Change must retain prior playable preset "
+                "without aborting the VST3 audio callback");
         // CC7/CC10/CC11 are ORIGINAL MIDI channel state fed to
         // the source VXD descriptor compiler for the NEXT note.
         // They must not rewrite a pre-existing chip voice, be ignored,

@@ -954,7 +954,14 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             }
             const auto value=static_cast<std::uint8_t>(
                 programNormalized*127. + 0.5);
-            if(!p002RomBank_.programChange(value))return kInvalidArgument;
+            // Missing SoundFont programs are NOT physical MIDI notes.
+            // The bank rejects this change atomically; preserve its last
+            // valid selection and continue rendering active voices.
+            // Do not fail the whole DAW audio callback just because the
+            // requested SF2 bank/program has no actual PHDR entry.
+            // Exact Creative 1996 missing-preset policy remains unproved.
+            if(!p002RomBank_.ready())return kInvalidArgument;
+            (void)p002RomBank_.programChange(value);
             ++programIndex;
             continue;
         }
