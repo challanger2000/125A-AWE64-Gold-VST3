@@ -178,7 +178,26 @@ void Chip::writePort(uint16_t port, uint16_t value) noexcept {
     emu8k_outw(port, value, device_.get());
 }
 uint16_t Chip::readPort(uint16_t port) noexcept {
-    return device_ ? emu8k_inw(port, device_.get()) : 0xffffu;
+    if(!device_)return 0xffffu;
+    if(native_note_capture_active_) {
+        // In the pinned original fork, reading E22 advances a GLOBAL
+        // random_helper outside emu8k_t; DATA1 global RAM-register
+        // reads can mutate the GLOBAL DMA flags/read cursor. None of
+        // these effects can be reverted by the C-struct snapshot.
+        // Original VXD idle allocator reads 620 (VTFT) only.
+        const bool globalRamRead=
+            ((native_note_selector_>>5u)==1u) &&
+            ((native_note_selector_&31u)>=20u) &&
+            (port==0xa20u || port==0xa22u);
+        const bool allowedRead=
+            port==0xe20u || port==0xa20u || port==0xa22u ||
+            port==0x620u || port==0x622u;
+        if(port==0xe22u || globalRamRead || !allowedRead) {
+            native_note_write_overflow_=true;
+            return 0xffffu;
+        }
+    }
+    return emu8k_inw(port,device_.get());
 }
 void Chip::render(int32_t* dest, std::size_t frames) noexcept {
     if (!device_ || !dest || native_note_capture_active_) return;
