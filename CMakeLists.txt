@@ -141,6 +141,29 @@ target_link_libraries(awe64_p002_sample_clock_ports_test
 add_test(NAME p002_source_clocked_original_chip_outs_and_pcm
     COMMAND awe64_p002_sample_clock_ports_test)
 
+# Adversarial test for the *actual* private Creative VST3 bank state
+# checkpoint. The source is the same one exported by the real VST3;
+# synthetic in-memory voice/key flags only, no private Win95 media.
+if(WIN32)
+    add_executable(awe64_p002_private_vxd_checkpoint_test
+        tests/p002_private_vxd_checkpoint.cpp
+        src/vst3/P002PrivateRomBank.cpp
+        src/vst3/P002PrivateOriginalRamCapture.cpp)
+    target_include_directories(awe64_p002_private_vxd_checkpoint_test
+        PRIVATE src/vst3 src/creative_compat)
+    target_link_libraries(awe64_p002_private_vxd_checkpoint_test PRIVATE
+        awe64_fork_chip
+        awe64_p002_midi_contract
+        awe64_p002_sf2_rom_bank_note_compiler
+        awe64_p002_sf2_ram_pcm_inventory
+        awe64_p002_original_ram_port_replay
+        bcrypt)
+    target_compile_features(awe64_p002_private_vxd_checkpoint_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p002_native_private_vxd_state_atomic_rollback
+        COMMAND awe64_p002_private_vxd_checkpoint_test)
+endif()
+
 # Separate Win32 WAV-byte verifier. It produces a synthetic, locally
 # short-lived PCM fixture only; no original Creative/private data.
 # The same exact RIFF writer is used by the exported VST3 on deactivate.
