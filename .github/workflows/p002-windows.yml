@@ -309,6 +309,20 @@ jobs:
           # Owner RAM, Creative VXD, exact Win95 and full source trace are
           # private. CI MUST NOT manufacture these files or claim parity.
           Write-Host 'P002_NATIVE_RAM_EVIDENCE_HOST_WINDOWS_X64_BUILT_AND_CLI_SMOKE_PASS; REAL_PRIVATE_INPUTS_NOT_IN_CI'
+      - name: Build self-contained private-owner original Win95 capture starter (public code only)
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check 'pyinstaller==6.22.3'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Windows owner launcher build dependency unavailable' }
+          python -m PyInstaller --noconfirm --clean --onefile --console --name p002_original_win95_capture --distpath p002-windows-owner-dist --workpath p002-windows-owner-build --specpath p002-windows-owner-build tools/p002_owner_launch_original_vm.py
+          if ($LASTEXITCODE -ne 0) { throw 'Independent one-click original Win95 collector EXE compile failed' }
+          $owner = (Resolve-Path p002-windows-owner-dist/p002_original_win95_capture.exe).Path
+          & $owner --help
+          if ($LASTEXITCODE -ne 0) { throw 'Self-contained original Win95 collector cannot print usage' }
+          & $owner --private-original-archive 'C:\P002\nonexistent-private-owner.zip' --archive-preflight-only
+          if ($LASTEXITCODE -eq 0) { throw 'Owner Win95 collector accepted absent private VM as source proof' }
+          $global:LASTEXITCODE = 0
+          Write-Host 'P002_OWNER_WINDOWS_ORIGINAL_VM_ONECLICK_EXE_BUILT_AND_NEGATIVE_SMOKE_PASS; PRIVATE_VM_NOT_UPLOADED'
       - name: Package private-owner native evidence capture executable (NO owner input bytes)
         shell: pwsh
         run: |
@@ -335,6 +349,7 @@ jobs:
           ) -Destination p002-native-evidence-kit/
           Copy-Item docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md -Destination p002-native-evidence-kit/
           Copy-Item tools/START-P002-WIN95-CAPTURE.cmd -Destination p002-native-evidence-kit/
+          Copy-Item p002-windows-owner-dist/p002_original_win95_capture.exe -Destination p002-native-evidence-kit/
           Write-Host 'P002_OWNER_EVIDENCE_WINDOWS_KIT_ONLY_PUBLIC_CODE: NO ROM/SF2/VXD/TRACE/WAV'
       - uses: actions/upload-artifact@v4
         with:
