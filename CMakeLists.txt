@@ -153,7 +153,7 @@ if(WIN32)
         PRIVATE src/vst3 src/creative_compat)
     target_link_libraries(awe64_p002_private_vxd_checkpoint_test PRIVATE
         awe64_fork_chip
-        awe64_p002_midi_contract
+        awe64_creative_midi
         awe64_p002_sf2_rom_bank_note_compiler
         awe64_p002_sf2_ram_pcm_inventory
         awe64_p002_original_ram_port_replay
