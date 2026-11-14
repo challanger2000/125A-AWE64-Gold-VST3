@@ -73,8 +73,8 @@ def compare_windows(original:Path,native:Path,*,
         (len(expected)!=64 or
          any(c not in "0123456789abcdef" for c in expected) or
          original_sha!=expected)):
-        raise ValueError("Source trace not the independently verified "
-                         "original Creative RAM capture/session SHA256")
+        raise ValueError("Source trace not the owner verified original "
+                         "Creative RAM capture/session SHA256")
     def window(path,origin,*,native_write_only=False):
         events=[]
         for frame,direction,port,value in read_trace(path):

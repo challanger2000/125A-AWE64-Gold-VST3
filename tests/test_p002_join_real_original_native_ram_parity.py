@@ -80,7 +80,10 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
                 original_pcm_start=kwargs.get("original_pcm_start",0),
                 native_pcm_start=kwargs.get("native_pcm_start",0),
                 pcm_frames=kwargs.get("pcm_frames",1024),
-                _synthetic_unit_test_only=kwargs.get("synthetic",True))
+                _synthetic_unit_test_only=kwargs.get("synthetic",True),
+                original_session_manifest=kwargs.get(
+                    "original_manifest",None),
+                native_manifest=kwargs.get("native_manifest",None))
             called.assert_called_once()
             self.assertEqual(called.call_args.args[-1],0x200010)
             return result
@@ -123,22 +126,21 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
         # A real recorded bank/trace/WAV plus a different but seemingly
         # successful guest log may describe TWO different driver sessions.
         # Production hash attestation must fail before translating notes.
-        real_hashes={
-            "original_emu8k_trace_sha256":combined.ORIGINAL_TRACE_SHA256,
-            "original_owner_sf2_sha256":combined.ORIGINAL_SF2_SHA256,
-            "original_win95_precard_wav_sha256":combined.ORIGINAL_WAV_SHA256,
-            "original_guest_log_sha256":combined.ORIGINAL_GUEST_LOG_SHA256,
-        }
-        original_sha=combined._sha
-        def pinned_except_guest(path):
-            if path==self.original_trace:return real_hashes["original_emu8k_trace_sha256"]
-            if path==self.sf2:return real_hashes["original_owner_sf2_sha256"]
-            if path==self.source_wav:return real_hashes["original_win95_precard_wav_sha256"]
-            return original_sha(path)
-        with patch.object(combined,"_sha",side_effect=pinned_except_guest):
+        actual_sha=combined._sha
+        def pinned_sf2(path):
+            return (combined.ORIGINAL_SF2_SHA256 if path==self.sf2
+                    else actual_sha(path))
+        with patch.object(combined,"_sha",side_effect=pinned_sf2), (
+                patch.object(combined.original_session,
+                    "verify_manifest",
+                    side_effect=ValueError(
+                        "Original Win95 capture session identity mismatch: "
+                        "original_guest_log_sha256"))):
             with self.assertRaisesRegex(ValueError,
                                         "original_guest_log_sha256"):
-                self.run_join(synthetic=False)
+                self.run_join(
+                    synthetic=False,
+                    original_manifest=self.root/"original-session.json")
 
     def test_real_join_requires_actual_lcod_voice_start_prologue(self):
         # Even bit-exact IFATN and unrelated PCM from a separately
@@ -147,12 +149,15 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             "converted_source_words_mismatched":0,
             "converted_source_words_bit_equal":260921,
             "source_window_overwritten_words":255,
-        }), patch.object(combined,"_sha",side_effect=lambda p:{
-            self.original_trace:combined.ORIGINAL_TRACE_SHA256,
-            self.sf2:combined.ORIGINAL_SF2_SHA256,
-            self.source_wav:combined.ORIGINAL_WAV_SHA256,
-            self.log:combined.ORIGINAL_GUEST_LOG_SHA256,
-        }.get(p,"native-diagnostic")), patch.object(
+        }), patch.object(combined,"_sha",side_effect=lambda p:(
+            combined.ORIGINAL_SF2_SHA256 if p==self.sf2
+            else combined.ports.sha(p))), patch.object(
+            combined.original_session,"verify_manifest",
+            return_value={
+                "original_emu8k_trace_sha256":combined.ports.sha(
+                    self.original_trace),
+                "status":"ORIGINAL_WIN95_REAL_SESSION_SOURCE_HASHES_VALID",
+            }), patch.object(
             combined,"verify_native_clock_manifest",
             return_value={"native_midi_clock_host_attested":True}), patch.object(
             combined.ports,"compare_windows",
@@ -164,9 +169,13 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
                     original_port_origin=100,native_port_origin=3,
                     port_frames=2,original_pcm_start=0,
                     native_pcm_start=0,pcm_frames=1024,
-                    native_manifest=self.root/"private-host-clock.json")
+                    native_manifest=self.root/"private-host-clock.json",
+                    original_session_manifest=self.root/"original-session.json")
             self.assertTrue(compare_call.call_args.kwargs[
                 "require_complete_note_start"])
+            self.assertEqual(compare_call.call_args.kwargs[
+                "expected_original_sha256"],
+                combined.ports.sha(self.original_trace))
 
     def test_owner_clock_manifest_attests_actual_native_file_bytes_and_midi(self):
         manifest=self.root/"native-host-clock.json"
