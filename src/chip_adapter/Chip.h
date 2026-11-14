@@ -100,6 +100,9 @@ private:
     std::vector<std::byte> native_note_chip_snapshot_{};
     std::array<ChipPortWrite,512u> native_note_writes_{};
     std::size_t native_note_write_count_=0u;
+    // E22 selector is required to reject speculative SMALW/SMLD DRAM
+    // writes: restoring emu8k_t alone cannot undo external sample RAM.
+    std::uint16_t native_note_selector_=0u;
     int native_note_old_wavetable_pos_=0;
     bool native_note_capture_active_=false;
     bool native_note_write_overflow_=false;
