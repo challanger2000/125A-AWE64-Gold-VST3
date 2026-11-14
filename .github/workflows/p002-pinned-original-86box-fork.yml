@@ -1,0 +1,34 @@
+name: P002 pinned 86Box-AWE32 0.93 public reference executable
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - '.github/workflows/p002-pinned-original-86box-fork.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fetch_pinned_calibrated_original_86box_fork:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - name: Download original turican0 calibrated 86Box source-release Win64 and verify immutable asset SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 3 --connect-timeout 25 --max-time 240 \
+            'https://github.com/turican0/86Box-AWE32/releases/download/v6.0-AWE32-0.93/86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip' \
+            --output 86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip
+          echo 'cefd28b691bfe1149719d26f54729356af91f9c3f713cfa6bab747aa0fa16b09  86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip' | sha256sum --check
+          unzip -t 86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip
+          unzip -l 86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip > pinned-86box-file-list.txt
+          echo 'P002_ORIGINAL_CALIBRATED_TURICAN0_86BOX_0_93_RELEASE_ASSET_SHA256_PASS'
+      - name: Upload exact publicly released calibrated emulator only - NO Win95/Creative/ROM/SF2 assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: P002-PINNED-TURICAN0-86BOX-0.93-WINDOWS-x64-PUBLIC
+          path: |
+            86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip
+            pinned-86box-file-list.txt
+          retention-days: 3
+          if-no-files-found: error

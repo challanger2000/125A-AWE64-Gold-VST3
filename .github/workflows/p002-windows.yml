@@ -1,0 +1,396 @@
+name: P002 Creative primary API and register oracle
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - 'src/creative_compat/**'
+      - 'tests/p002_midi_contract.cpp'
+      - 'tests/test_p002_register_oracle.py'
+      - 'src/chip_adapter/Chip.h'
+      - 'src/chip_adapter/Chip.cpp'
+      - 'tests/p002_native_chip_port_trace.cpp'
+      - 'tests/p002_sample_clock_ports.cpp'
+      - 'tests/p002_private_vxd_checkpoint.cpp'
+      - 'tests/p002_native_ram_evidence_host.cpp'
+      - 'tools/p002_compare_original_native_ram_note_ports.py'
+      - 'tests/test_p002_compare_original_native_ram_note_ports.py'
+      - 'tools/p002_join_real_original_native_ram_parity.py'
+      - 'tools/p002_attest_private_win95_session.py'
+      - 'tests/test_p002_attest_private_win95_session.py'
+      - 'tools/p002_owner_launch_original_vm.py'
+      - 'tests/test_p002_owner_launch_original_vm.py'
+      - 'tools/START-P002-WIN95-CAPTURE.cmd'
+      - 'tests/test_p002_join_real_original_native_ram_parity.py'
+      - 'tools/p002_private_real_ram_descriptor_probe.cpp'
+      - 'tools/p002_make_private_original_vxd_ram_descriptor_tables.py'
+      - 'tests/test_p002_make_private_original_vxd_ram_descriptor_tables.py'
+      - 'tools/p002_verify_original_creative_ram_transfer.py'
+      - 'tests/test_p002_verify_original_creative_ram_transfer.py'
+      - 'tools/p002_register_oracle.py'
+      - 'tools/p002_voice_register_audit.py'
+      - 'tools/p002_original_matrix_audit.py'
+      - 'tests/test_p002_original_matrix_audit.py'
+      - 'tests/test_p002_voice_register_audit.py'
+      - 'tools/p002_sbk_descriptor_probe.py'
+      - 'tests/test_p002_sbk_descriptor_probe.py'
+      - 'tools/p002_verify_velocity_candidate.py'
+      - 'tests/test_p002_velocity_candidate.py'
+      - 'tests/p002_native_sbk_zone.cpp'
+      - 'tests/p002_candidate_register_test.cpp'
+      - 'tests/p002_native_sf2_voice_descriptor.cpp'
+      - 'tests/p002_native_sf2_note_start_ports.cpp'
+      - 'tests/p002_native_sf2_note_continuation_ports.cpp'
+      - 'tests/p002_native_sf2_note_final_ports.cpp'
+      - 'tests/p002_native_sf2_full_noteon.cpp'
+      - 'tests/p002_native_sf2_original_targets.cpp'
+      - 'tests/p002_native_sf2_vxd_state_snapshot.cpp'
+      - 'tests/p002_native_sf2_live_allocator.cpp'
+      - 'src/creative_compat/CreativeSf2RomBankNoteCompiler.cpp'
+      - 'tests/p002_native_sf2_source_release.cpp'
+      - 'tests/p002_native_sf2_dry_pcm.cpp'
+      - 'tests/p002_vst3_private_diagnostic_host.cpp'
+      - 'tests/p002_sf2_note_start_prefix_oracle.cpp'
+      - 'tests/p002_private_sf2_note_start_prefix_differential.py'
+      - 'tests/test_p002_private_sf2_note_start_prefix_differential.py'
+      - 'tests/p002_sf2_descriptor_oracle.cpp'
+      - 'tests/p002_private_sf2_descriptor_differential.py'
+      - 'tests/test_p002_private_sf2_descriptor_differential.py'
+      - 'tests/test_p002_extract_original_vxd_sf2_resources.py'
+      - 'tests/p002_private_sf2_bank_builder_differential.py'
+      - 'tests/test_p002_private_sf2_bank_builder_differential.py'
+      - 'tests/p002_private_sf2_pitch_matrix_differential.py'
+      - 'tests/test_p002_private_sf2_pitch_matrix_differential.py'
+      - 'tools/p002_extract_original_vxd_sf2_resources.py'
+      - 'tools/p002_make_private_vst3_note_fixture.py'
+      - 'tests/test_p002_private_vst3_note_release_fixture.py'
+      - 'src/vst3/P002PrivateNoteFixture.h'
+      - 'src/vst3/P002PrivateNoteFixture.cpp'
+      - 'src/vst3/P002PrivateRomBank.h'
+      - 'src/vst3/P002PrivateRomBank.cpp'
+      - 'src/vst3/P002PrivateOriginalRamCapture.h'
+      - 'src/vst3/P002PrivateOriginalRamCapture.cpp'
+      - 'src/vst3/P002PrivateOriginalRamNotes.h'
+      - 'src/vst3/P002PrivateOriginalRamNotes.cpp'
+      - 'tools/p002_make_private_vst3_rom_bank_resources.py'
+      - 'tests/test_p002_make_private_vst3_rom_bank_resources.py'
+      - 'src/vst3/P001Minimal.cpp'
+      - 'src/vst3/P002PrivateDryPcmCapture.cpp'
+      - 'src/vst3/P002PrivateDryPcmCapture.h'
+      - 'tests/p002_private_dry_pcm_capture.cpp'
+      - 'src/vst3/P001Minimal.h'
+      - 'src/card_mixer/OriginalCt1745WavetableMixer.cpp'
+      - 'src/card_mixer/OriginalCt1745WavetableMixer.h'
+      - 'tests/p002_gold_ct1745_adapter_contract.cpp'
+      - 'tests/p002_fork_awe64_wavetable_mixer_path.c'
+      - 'tests/p002_gold_ct1745_fork_differential.cpp'
+      - 'tests/p001_vst3_host.cpp'
+      - 'tests/p001_vst3_rt_host.cpp'
+      - 'tools/p002_verify_real_vst3_pcm_capture.py'
+      - 'tests/test_p002_verify_real_vst3_pcm_capture.py'
+      - 'tests/p002_native_sbk_layers.cpp'
+      - 'tests/p002_native_sf2_ram_pcm_inventory.cpp'
+      - 'src/creative_compat/CreativeOriginalRamPortReplay.h'
+      - 'src/creative_compat/CreativeOriginalRamPortReplay.cpp'
+      - 'tests/p002_native_original_ram_port_replay.cpp'
+      - 'tools/p002_private_ram_capture_cli.cpp'
+      - 'tools/p002_make_synthetic_ram_capture_fixture.py'
+      - 'tools/p002_original_ram_trace_probe.py'
+      - 'tests/test_p002_original_ram_trace_probe.py'
+      - 'tools/p002_verify_original_ram_note_geometry.py'
+      - 'tests/test_p002_verify_original_ram_note_geometry.py'
+      - 'tests/p002_native_midi_rom_plan.cpp'
+      - 'tests/p002_native_pitch_candidate.cpp'
+      - 'tests/p002_native_controller_volume.cpp'
+      - 'tests/p002_native_bound_voice_controller.cpp'
+      - 'tests/p002_native_idle_voice_allocator.cpp'
+      - 'tests/p002_native_vxd_mono_ranking.cpp'
+      - 'tests/p002_native_vxd_voice_termination.cpp'
+      - 'tests/p002_native_real_chip_port_bridge.cpp'
+      - 'tests/p002_native_vxd_sample_address.cpp'
+      - 'tests/p002_native_vxd_note_release.cpp'
+      - 'tests/p002_native_vxd_voice_envelope_prelude.cpp'
+      - 'CMakeLists.txt'
+      - '.github/workflows/p002-windows.yml'
+  workflow_dispatch:
+# Prevent each intermediate developer commit from consuming a full set
+# of Windows runner minutes. Only the newest P002 revision is validated.
+concurrency:
+  # Include the requested source SHA: delayed webhook delivery from an
+  # older commit must never cancel a newer HEAD verification run.
+  group: p002-windows-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  original_fork_awe64_gold_wavetable_ct1745_differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Compare new AWE64 Gold card mixer against ACTUAL original 86Box snd_sb.c and filters.h
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-gold-source -G Ninja -DCMAKE_BUILD_TYPE=Release -DAWE64_BUILD_P001_VST3=OFF
+          cmake --build build-gold-source --parallel 4 --target awe64_p002_fork_wavetable_mixer_path awe64_p002_gold_ct1745_fork_differential awe64_p002_ct1745_wavetable_contract
+          ctest --test-dir build-gold-source -R 'p002_(pinned_fork_awe64_gold_wavetable_mixer_path|original_fork_ct1745_full_filter_differential|original_awe64_gold_ct1745_post_chip_vectors)' --output-on-failure -V
+          echo 'P002_PINNED_ORIGINAL_86BOX_CT1745_C_VS_VST3_CXX_1TO1_DIFFERENTIAL_PASS'
+      - name: Run three independently reported RAM SMALW/SMLD trace counterexample regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_p002_original_ram_trace_probe.py' -v
+          echo 'P002_ORIGINAL_RAM_TRACE_THREE_RESEARCH_COUNTEREXAMPLES_FIXED_PASS'
+  creative-winmm-and-original-driver-oracle-contract:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Source-built Creative API and WinMM contract, original DSP hash lock
+        shell: pwsh
+        run: |
+          cmake -S . -B build-p002 -G 'Visual Studio 17 2022' -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'P002 configure or pinned original DSP verification failed' }
+          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p002_sf2_ram_pcm_inventory_test awe64_p002_original_ram_port_replay_test awe64_p002_ct1745_wavetable_contract awe64_p002_private_ram_capture_cli awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_p002_vxd_voice_termination_test awe64_p002_real_chip_port_bridge_test awe64_p002_vxd_sample_address_test awe64_p002_vxd_note_release_test awe64_p002_vxd_voice_envelope_prelude_test awe64_p002_sf2_voice_descriptor_test awe64_p002_sf2_note_start_ports_test awe64_p002_sf2_note_continuation_test awe64_p002_sf2_final_note_ports_test awe64_p002_sf2_full_noteon_test awe64_p002_sf2_original_targets_test awe64_p002_sf2_vxd_state_snapshot_test awe64_p002_sf2_live_vxd_allocator_test awe64_p002_sf2_source_note_release_test awe64_p002_original_sf2_dry_pcm_test awe64_p002_sf2_note_start_prefix_oracle awe64_p002_sf2_descriptor_oracle awe64_chip_contract awe64_p002_native_chip_port_trace_test awe64_p002_sample_clock_ports_test awe64_p002_private_vxd_checkpoint_test awe64_p002_native_dry_pcm_writer_test awe64_p002_private_original_ram_descriptor_probe awe64_direct_fork_fixture awe64_replay
+          if ($LASTEXITCODE -ne 0) { throw 'P002 actual Windows x64 test binaries failed to compile' }
+          ctest --test-dir build-p002 -C Release --output-on-failure -V
+          if ($LASTEXITCODE -ne 0) { throw 'P001 regression or P002 WinMM contract failed' }
+      - name: Strict negative controls for register timing, direction, port, bits, order, and missing events
+        shell: pwsh
+        run: |
+          python -m py_compile tools/p002_register_oracle.py tools/p002_voice_register_audit.py tests/test_p002_register_oracle.py tests/test_p002_voice_register_audit.py tools/p002_original_matrix_audit.py tests/test_p002_original_matrix_audit.py tools/p002_verify_velocity_candidate.py tests/test_p002_velocity_candidate.py tools/p002_sbk_descriptor_probe.py tests/test_p002_sbk_descriptor_probe.py tools/p002_extract_original_vxd_sf2_resources.py tests/test_p002_extract_original_vxd_sf2_resources.py tools/p002_make_private_vst3_rom_bank_resources.py tests/test_p002_make_private_vst3_rom_bank_resources.py tools/p002_original_ram_trace_probe.py tests/test_p002_original_ram_trace_probe.py tests/p002_private_sf2_bank_builder_differential.py tests/test_p002_private_sf2_bank_builder_differential.py tests/p002_private_sf2_pitch_matrix_differential.py tests/test_p002_private_sf2_pitch_matrix_differential.py tests/p002_private_sf2_note_start_prefix_differential.py tests/test_p002_private_sf2_note_start_prefix_differential.py
+          if ($LASTEXITCODE -ne 0) { throw 'P002 strict oracle Python syntax invalid' }
+          python -m unittest discover -s tests -p 'test_p002_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
+          Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
+
+      - name: Export tested public-only private-run auditor sources (no Creative bytes)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P002-Private-Original-Win95-Creative-Matrix-Audit-Tools
+          path: |
+            tools/p002_original_matrix_audit.py
+            tools/p002_register_oracle.py
+            tools/p002_original_ram_trace_probe.py
+            build-p002/Release/awe64_p002_private_ram_capture_cli.exe
+          retention-days: 3
+          if-no-files-found: error
+  real_125a_test_lab_headless_inventory:
+    needs: creative-winmm-and-original-driver-oracle-contract
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Fetch exact known Steinberg and MinHook test sources
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.8.1_build_84 --recurse-submodules https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned VST3 SDK checkout failed' }
+          if ((git -C external/vst3sdk rev-parse HEAD).Trim() -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96') { throw 'Unexpected Steinberg SDK revision' }
+          git clone --depth 1 --branch v1.3.4 https://github.com/TsudaKageyu/minhook.git external/minhook
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned MinHook test-only checkout failed' }
+          if ((git -C external/minhook rev-parse HEAD).Trim() -ne 'c3fcafdc10146beb5919319d0683e44e3c30d537') { throw 'Unexpected test-only MinHook revision' }
+      - name: Build actual headless original-EMU8000 VST3 with pinned SDK
+        shell: pwsh
+        run: |
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DSMTG_RUN_VST_VALIDATOR=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'Original EMU8000 VST3 configure failed' }
+          cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
+          if ($LASTEXITCODE -ne 0) { throw 'Real original-core VST3 build failed' }
+          $vst = @(Get-ChildItem build-vst3 -Recurse -Directory -Filter 'AWE64_Gold_P001.vst3')
+          if ($vst.Count -ne 1) { throw "Expected exactly one real VST3 bundle, got $($vst.Count)" }
+          Write-Host "P002_REAL_HEADLESS_VST3_BUNDLE $($vst[0].FullName)"
+      - name: Check actual exported P002 VST3 MIDI-to-real-ROM digital PCM
+        shell: pwsh
+        run: |
+          # The identical original AWE32 ROM is already pinned in P001.
+          # It is downloaded only to ephemeral Windows CI, never uploaded.
+          $rom = Join-Path $env:RUNNER_TEMP 'P002-private-awe32.raw'
+          $url = 'https://raw.githubusercontent.com/86Box/roms/8cbb1acc575418e8afe9741a656dfd1c657574d1/sound/creative/awe32.raw'
+          & curl.exe -fLsS --retry 3 --retry-delay 2 --max-time 120 --output "$rom" "$url"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned original AWE32 ROM download failed' }
+          if ((Get-Item "$rom").Length -ne 1048576 -or
+              (Get-FileHash "$rom" -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+              '4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e') {
+            throw 'Pinned genuine 1-MiB Creative ROM SHA mismatch'
+          }
+          $nativeCaptureA = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-a.wav'
+          $nativeCaptureB = Join-Path $env:RUNNER_TEMP 'p002-real-exported-vst3-precard-b.wav'
+          try {
+            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_diagnostic_vst3_host awe64_p001_vst3_host awe64_p001_vst3_rt_host awe64_p002_native_ram_evidence_host
+            if ($LASTEXITCODE -ne 0) { throw 'Actual P002/P001 VST3, separate CT1745 card oracle and MinHook RT host build failed' }
+            $dll = Get-ChildItem build-vst3 -File -Recurse -Filter 'AWE64_Gold_P001.vst3' |
+                Where-Object { $_.DirectoryName -match 'x86_64-win' } |
+                Select-Object -First 1
+            $hostExe = Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p002_diagnostic_vst3_host.exe' |
+                Where-Object { $_.DirectoryName -match 'Release' } |
+                Select-Object -First 1
+            if (-not $dll -or -not $hostExe) { throw 'Actual exported VST3 or independent diagnostic host DLL missing' }
+            & $hostExe.FullName $dll.FullName $rom
+            if ($LASTEXITCODE -ne 0) { throw 'Actual VST3 P002 original-ROM MIDI PCM or negative controls failed' }
+            # P002's historical PCM tap is NOT the actual card output.
+            # Independently run the real exported DLL in BOTH modes:
+            # source AWE32_WAV-equivalent PCM16 and post-CT1745 float.
+            $dualHost = @(Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p001_vst3_host.exe' |
+               Where-Object { $_.DirectoryName -match 'Release' })
+            $rtHost = @(Get-ChildItem build-vst3 -File -Recurse -Filter 'awe64_p001_vst3_rt_host.exe' |
+               Where-Object { $_.DirectoryName -match 'Release' })
+            if ($dualHost.Count -ne 1 -or $rtHost.Count -ne 1) {
+               throw 'Original CT1745 actual-VST3 dual output and RT MinHook hosts absent'
+            }
+            # Render two independent exported VST3 instances and
+            # write host-side only pre-card stereo signed PCM16 WAV.
+            # These CI files remain ephemeral, never as artifacts.
+            & $dualHost[0].FullName $dll.FullName $rom $nativeCaptureA
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real exported VST3 failed first exact pre-card PCM WAV render'
+            }
+            & $dualHost[0].FullName $dll.FullName $rom $nativeCaptureB
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real exported VST3 failed repeat pre-card PCM WAV render'
+            }
+            python tools/p002_verify_real_vst3_pcm_capture.py --capture-a $nativeCaptureA --capture-b $nativeCaptureB
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real VST3 stereo PCM16 header/NoteOn/repeatability check failed'
+            }
+            Write-Host 'P002_ACTUAL_EXPORTED_VST3_PRECARD_STEREO_PCM16_WAV_TWO_RUNS_PASS; ORIGINAL_WIN95_RAM_SF2_PARITY_NOT_PROVEN'
+            & $rtHost[0].FullName $dll.FullName $rom
+            if ($LASTEXITCODE -ne 0) {
+               throw 'Real VST3 per-output 1200 callback MinHook 0-heap positive-controlled verification failed'
+            }
+            Write-Host 'P002_ACTUAL_EXPORTED_WINDOWS_VST3_ORIGINAL_CT1745_FLOAT_AND_PRECARD_PCM16_ORACLES_BOTH_PASS'
+            Write-Host 'P002_ACTUAL_EXPORTED_WINDOWS_VST3_ORIGINAL_CT1745_AND_PCM16_1200_BLOCK_HEAP_AUDIT_BOTH_PASS'
+            # Source RAM replay uses a REAL hash-pinned EMU8000 and
+            # independently parsed external RIFF/PCM. Synthetic
+            # generator is public and is NOT an original Win95 capture.
+            cmake --build build-vst3 --config Release --parallel 2 --target awe64_p002_private_ram_capture_cli
+            if ($LASTEXITCODE -ne 0) { throw 'Real original-chip RAM replay CLI build failed' }
+            python tools/p002_make_synthetic_ram_capture_fixture.py --out p002-cli-synthetic
+            if ($LASTEXITCODE -ne 0) { throw 'Synthetic private RAM source gate fixtures failed' }
+            $cli = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p002_private_ram_capture_cli.exe' |
+              Where-Object { $_.DirectoryName -match 'Release' } |
+              Select-Object -First 1)
+            if ($cli.Count -ne 1) { throw 'Private RAM source replay CLI not built' }
+            $synthetic = (Resolve-Path p002-cli-synthetic/synthetic.sf2).Path
+            $source = (Resolve-Path p002-cli-synthetic/source-filtered-ram.trace).Path
+            $wrongWord = (Resolve-Path p002-cli-synthetic/changed-word.trace).Path
+            $wrongAddress = (Resolve-Path p002-cli-synthetic/wrong-word-address.trace).Path
+            $wrongSample = (Resolve-Path p002-cli-synthetic/wrong-sample.sf2).Path
+            $sourceFlag = '--original-guest-source-independently-reviewed'
+            & $cli[0].FullName $rom $synthetic 0 0x200010 $source $sourceFlag
+            if ($LASTEXITCODE -ne 0) { throw 'Independent original pinned ROM RAM upload+chip readback test failed' }
+            & $cli[0].FullName $rom $synthetic 0 0x200010 $wrongWord $sourceFlag
+            if ($LASTEXITCODE -eq 0) { throw 'Changed final RAM PCM word accepted' }
+            & $cli[0].FullName $rom $synthetic 0 0x200010 $wrongAddress $sourceFlag
+            if ($LASTEXITCODE -eq 0) { throw 'Wrong source original RAM address accepted' }
+            & $cli[0].FullName $rom $wrongSample 0 0x200010 $source $sourceFlag
+            if ($LASTEXITCODE -eq 0) { throw 'Wrong bank SF2 original RAM PCM accepted' }
+            # Every expected negative exit code was checked explicitly.
+            # PowerShell otherwise propagates the final intentional
+            # exit=1 as a FALSE workflow failure even after PASS.
+            $global:LASTEXITCODE = 0
+            Write-Host 'P002_ORIGINAL_HASH_LOCKED_CHIP_REAL_WINDOWS_RAM_CLI_SYNTHETIC_ONLY_PASS'
+          } finally {
+            Remove-Item "$rom" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$nativeCaptureA" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$nativeCaptureB" -Force -ErrorAction SilentlyContinue
+          }
+      - name: Smoke-test source-only independent Windows native RAM evidence runner
+        shell: pwsh
+        run: |
+          $hostExe = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p002_native_ram_evidence_host.exe' | Where-Object { $_.DirectoryName -match 'Release' })
+          if ($hostExe.Count -ne 1) { throw 'Independent owner-side real P002 RAM evidence host not compiled' }
+          & $hostExe[0].FullName --help
+          if ($LASTEXITCODE -ne 0) { throw 'P002 real native RAM host CLI validation failed' }
+          & $hostExe[0].FullName --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'P002 native MIDI frame/order selftest failed' }
+          # Owner RAM, Creative VXD, exact Win95 and full source trace are
+          # private. CI MUST NOT manufacture these files or claim parity.
+          Write-Host 'P002_NATIVE_RAM_EVIDENCE_HOST_WINDOWS_X64_BUILT_AND_CLI_SMOKE_PASS; REAL_PRIVATE_INPUTS_NOT_IN_CI'
+      - name: Build self-contained private-owner original Win95 capture starter (public code only)
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check 'pyinstaller==6.22.3'
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Windows owner launcher build dependency unavailable' }
+          python -m PyInstaller --noconfirm --clean --onefile --console --name p002_original_win95_capture --distpath p002-windows-owner-dist --workpath p002-windows-owner-build --specpath p002-windows-owner-build tools/p002_owner_launch_original_vm.py
+          if ($LASTEXITCODE -ne 0) { throw 'Independent one-click original Win95 collector EXE compile failed' }
+          $owner = (Resolve-Path p002-windows-owner-dist/p002_original_win95_capture.exe).Path
+          & $owner --help
+          if ($LASTEXITCODE -ne 0) { throw 'Self-contained original Win95 collector cannot print usage' }
+          & $owner --private-original-archive 'C:\P002\nonexistent-private-owner.zip' --archive-preflight-only
+          if ($LASTEXITCODE -eq 0) { throw 'Owner Win95 collector accepted absent private VM as source proof' }
+          $global:LASTEXITCODE = 0
+          Write-Host 'P002_OWNER_WINDOWS_ORIGINAL_VM_ONECLICK_EXE_BUILT_AND_NEGATIVE_SMOKE_PASS; PRIVATE_VM_NOT_UPLOADED'
+      - name: Package private-owner native evidence capture executable (NO owner input bytes)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force p002-native-evidence-kit | Out-Null
+          $exe = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'awe64_p002_native_ram_evidence_host.exe' | Where-Object { $_.DirectoryName -match 'Release' })
+          $dll = @(Get-ChildItem build-vst3 -Recurse -File -Filter 'AWE64_Gold_P001.vst3' | Where-Object { $_.DirectoryName -match 'x86_64-win' })
+          if ($exe.Count -ne 1 -or $dll.Count -ne 1) { throw 'Native P002 evidence runner or exact VST3 DLL missing' }
+          Copy-Item -LiteralPath $exe[0].FullName -Destination p002-native-evidence-kit/
+          Copy-Item -LiteralPath $dll[0].FullName -Destination p002-native-evidence-kit/
+          # This is a COMPLETE public-code owner kit: both strict
+          # comparators and the FULL original Win95 RAM + native PCM join,
+          # including its parser dependencies. No private source data.
+          Copy-Item @(
+            'tools/p002_compare_original_native_ram_note_ports.py',
+            'tools/p002_compare_original_dry_pcm.py',
+            'tools/p002_join_real_original_native_ram_parity.py',
+            'tools/p002_register_oracle.py',
+            'tools/p002_original_ram_trace_probe.py',
+            'tools/p002_verify_original_creative_ram_transfer.py',
+            'tools/p002_verify_original_win95_ram_guest_log.py',
+            'tools/p002_attest_private_win95_session.py',
+            'tools/p002_extract_original_win95_ram_log_fat16.py',
+            'tools/p002_owner_launch_original_vm.py',
+            'tools/p002_extract_original_vxd_sf2_resources.py',
+            'tools/p002_make_private_vst3_rom_bank_resources.py'
+          ) -Destination p002-native-evidence-kit/
+          Copy-Item docs/P002-NATIVE-ORIGINAL-RAM-REGISTER-AND-DRY-PCM-GATE.md -Destination p002-native-evidence-kit/
+          Copy-Item tools/START-P002-WIN95-CAPTURE.cmd -Destination p002-native-evidence-kit/
+          Copy-Item p002-windows-owner-dist/p002_original_win95_capture.exe -Destination p002-native-evidence-kit/
+          Write-Host 'P002_OWNER_EVIDENCE_WINDOWS_KIT_ONLY_PUBLIC_CODE: NO ROM/SF2/VXD/TRACE/WAV'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-Windows-Private-Owner-Native-RAM-DRY-Evidence-Runner
+          path: p002-native-evidence-kit/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fetch exact existing 125A Plugin Test Lab P74/P73
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/challanger2000/125A-Plugin-Test-Lab.git lab
+          if ($LASTEXITCODE -ne 0) { throw 'Existing shared Test Lab source checkout failed' }
+          git -C lab checkout --detach 7213fe1f81f4036f74431cb5b2d7dbd09b73ee5c
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned existing Test Lab revision unavailable' }
+          if ((git -C lab rev-parse HEAD).Trim() -ne '7213fe1f81f4036f74431cb5b2d7dbd09b73ee5c') { throw 'Existing 125A Test Lab pin mismatch' }
+          $sdk = (Resolve-Path external/vst3sdk).Path
+          cmake -S lab -B lab-build -G 'Visual Studio 17 2022' -A x64 "-DFETCHCONTENT_SOURCE_DIR_VST3SDK=$sdk"
+          if ($LASTEXITCODE -ne 0) { throw 'Real Test Lab configure failed' }
+          cmake --build lab-build --config Release --parallel 2 --target TestLabGUI
+          if ($LASTEXITCODE -ne 0) { throw 'Real shared Test Lab P74 host build failed' }
+      - name: Run actual shared Test Lab P74 read-only inventory against our P002 instrument basis
+        shell: pwsh
+        run: |
+          $vst = @(Get-ChildItem build-vst3 -Recurse -Directory -Filter 'AWE64_Gold_P001.vst3')
+          $gui = @(Get-ChildItem lab-build -Recurse -File -Filter '125A_Test_Lab_GUI.exe')
+          if ($vst.Count -ne 1 -or $gui.Count -ne 1) { throw 'Actual VST3 or independent Lab GUI host missing' }
+          python lab/tests/run_universal_qa.py --plugin "$($vst[0].FullName)" --gui-host "$($gui[0].FullName)" --out p002-lab-inventory
+          if ($LASTEXITCODE -ne 0) { throw 'Real 125A Plugin Test Lab read-only P74 inventory failed' }
+          $report = Get-Content p002-lab-inventory/UNIVERSAL-QA-RESULT.json -Raw | ConvertFrom-Json
+          if ($report.status -ne 'INVENTORY_COMPLETE' -or $report.discovery -ne 'PASS' -or $report.gui_clicks_automatically_authorized -ne 0 -or $report.release_approved -ne $false -or $report.commercial_daw_session -ne 'NOT RUN') {
+            throw 'Test Lab false functional/ASIO/release approval or incomplete real ABI inventory'
+          }
+          Write-Host 'P002_125A_TEST_LAB_P74_REAL_HEADLESS_INVENTORY_PASS; NATIVE_CREATIVE_MIDI_REGISTER_TRANSLATION_NOT_RUN'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: P002-125A-Plugin-Test-Lab-P74-readonly-ABI-inventory
+          path: p002-lab-inventory/
+          if-no-files-found: warn
+          retention-days: 3

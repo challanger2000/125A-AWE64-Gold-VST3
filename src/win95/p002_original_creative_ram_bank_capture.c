@@ -1,0 +1,467 @@
+/*
+ * P002: capture REAL Creative Win95 SoundFont user-bank RAM loading.
+ * 1996 Creative WINAWE32.C from the published AWE32 Developer Package:
+ * AWEMAN32.DLL / AWEManager; AWE_OPEN=101, AWE_LOAD_USER_BANK=204,
+ * AWE_CLOSE=102, user bank #1, CBufferObject OPER_FILE=0.
+ * Uses ORIGINAL installed Creative AWEMAN32.DLL & SBAWE.VXD, NOT a
+ * replacement software RAM uploader or arbitrary EMU8000 port writes.
+ *
+ * Separate 86Box calibrated fork EMU8K_TRACE and AWE32_WAV must be
+ * captured around this executable. This program writes P002RAM.LOG;
+ * successful API return alone DOES NOT prove actual hardware upload.
+ * Private C:\P002RAM.SF2 must be staged outside Git along with the
+ * original 512MiB Windows95 disk image. No ROM/SF2/VXD is embedded.
+ *
+ * Source API: qb40/sound-blaster-awe32, WINDOWS/INCLUDE/{AWE_API.H,
+ * INDICES.H,AWE_DLL.H}, WINDOWS/SAMPLE/AWEDEMO/WINAWE32.C
+ * (original Creative Technology Ltd 1994–1996 developer examples).
+ *
+ * Pentium P54C Win95 PE32, no C runtime, only kernel32/winmm.
+ */
+#define WINVER 0x0400
+#define _WIN32_WINNT 0x0400
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <mmsystem.h>
+#include <stddef.h>
+
+#define ORIGINAL_AWE_OPEN 101u
+#define ORIGINAL_AWE_CLOSE 102u
+#define ORIGINAL_AWE_LOAD_USER_BANK 204u
+#define ORIGINAL_AWE_CLEAR_USER_BANK 205u
+#define ORIGINAL_AWE_QUERY_DRAM_SIZE 308u
+#define ORIGINAL_AWE_GET_SYN_BANK 305u /* Creative AWE_API.H BASE_QUERY+5 */
+#define ORIGINAL_AWE_SEND_MIDI 401u /* Creative 1996 API BASE_MIDI+1 */
+#define ORIGINAL_AWE_NO_ERR 0L
+#define ORIGINAL_OPER_FILE 0u
+#define ORIGINAL_USER_BANK_NUMBER 1u
+/* Construct WinMM MIDI short messages from their actual MIDI bytes:
+   status=B0 (channel 1), controller=0, value=1. Never hand-write
+   packed DWORDs: 0x000001B0 silently selects CC1 instead of CC0. */
+#define ORIGINAL_MIDI_CC(channel,controller,value) \
+    ((DWORD)(0xB0u | ((DWORD)(channel)&15u)) | \
+     ((DWORD)(controller)<<8u) | ((DWORD)(value)<<16u))
+typedef char original_cc0_bank1_byte_order_assert[
+    (ORIGINAL_MIDI_CC(0u,0u,1u)==0x000100B0u) ? 1 : -1];
+typedef char original_cc1_not_bank_select_assert[
+    (ORIGINAL_MIDI_CC(0u,1u,0u)==0x000001B0u) ? 1 : -1];
+
+typedef LONG (WINAPI *CREATIVE_AWEMANAGER)(
+    DWORD original_handle,UINT original_api,
+    LPARAM original_argument1,LPARAM original_argument2);
+/* EXACT Creative 1994-96 WINDOWS/INCLUDE/INDICES.H Win32 ABI:
+ * #ifdef _WIN32
+ * #pragma pack(2)
+ * #endif
+ * typedef struct { DWORD m_Size; LPSTR m_Buffer; DWORD m_SizeUsed;
+ *                  WORD m_Flag; } CBufferObject;
+ * #pragma pack()
+ *
+ * On the original Win95 PE32 ABI: sizeof(CBufferObject) == 14,
+ * offsets (0, 4, 8, 12). The previous 16-byte default packing in
+ * our GUEST TEST HARNESS was our own ABI mistake, not an unknown
+ * Creative driver inconsistency. The original source dictates 14.
+ */
+#pragma pack(push, 2)
+typedef struct original_creative_buffer {
+    DWORD m_Size;
+    LPSTR m_Buffer;
+    DWORD m_SizeUsed;
+    WORD m_Flag;
+} ORIGINAL_CREATIVE_BUFFER;
+#pragma pack(pop)
+typedef char p002_original_creative_cbuffer_layout_must_match[
+    sizeof(ORIGINAL_CREATIVE_BUFFER)==14u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Size)==0u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Buffer)==4u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_SizeUsed)==8u &&
+    offsetof(ORIGINAL_CREATIVE_BUFFER,m_Flag)==12u ? 1 : -1
+];
+
+static HANDLE log_file=INVALID_HANDLE_VALUE;
+static const char hexchars[]="0123456789ABCDEF";
+static const char sample_path[]="C:\\P002RAM.SF2";
+static const char log_path[]="C:\\P002RAM.LOG";
+static DWORD t0=0u;
+
+static void emit(const char*s) {
+    DWORD size=0u,written=0u;
+    if(log_file==INVALID_HANDLE_VALUE)return;
+    while(s[size])++size;
+    if(size && (!WriteFile(log_file,s,size,&written,0) ||
+                written!=size))ExitProcess(87);
+}
+static void hex32(DWORD value) {
+    char string[]="0x00000000";
+    unsigned i;
+    for(i=0u;i<8u;++i)
+        string[2u+i]=hexchars[(value>>(28u-i*4u))&15u];
+    emit(string);
+}
+static void report(const char*name,DWORD value) {
+    unsigned n=0u;
+    while(name[n])++n;
+    emit(name);
+    /* Our original guest source sent some names without '='. The
+       previous helper concatenated NAME + 0xVALUE, producing an invalid
+       key despite a SUCCESSFUL original AWE_SEND_MIDI / WinMM call.
+       Fix the LOG FORMAT in the test harness; never modify driver. */
+    if(n==0u || name[n-1u]!='=')emit("=");
+    hex32(value);emit("\r\n");
+}
+static int contains(const char*hay,const char*needle) {
+    unsigned i,j;
+    for(i=0u;hay[i];++i) {
+        for(j=0u;needle[j]&&hay[i+j];++j) {
+            char a=hay[i+j],b=needle[j];
+            if(a>='a' && a<='z')a=(char)(a-'a'+'A');
+            if(a!=b)break;
+        }
+        if(!needle[j])return 1;
+    }
+    return 0;
+}
+static int original_synth_device(HMIDIOUT*device) {
+    const UINT n=midiOutGetNumDevs();
+    UINT match=0u,index=0u,i;
+    report("WIN95_ORIGINAL_MIDI_ENDPOINTS=",n);
+    for(i=0u;i<n;++i) {
+        MIDIOUTCAPSA caps;
+        MMRESULT rc;
+        DWORD j;
+        for(j=0u;j<sizeof(caps);++j)
+            ((BYTE*)&caps)[j]=0u;
+        rc=midiOutGetDevCapsA(i,&caps,sizeof(caps));
+        if(rc!=MMSYSERR_NOERROR)continue;
+        emit("WIN95_MIDI_DEVICE=");
+        hex32(i);emit(" NAME=");emit(caps.szPname);emit("\r\n");
+        if(contains(caps.szPname,"AWE") &&
+           contains(caps.szPname,"SYNTH")) {
+            ++match;index=i;
+        }
+    }
+    report("CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT=",match);
+    if(match!=1u)return 0;
+    {
+        const MMRESULT rc=midiOutOpen(device,index,0,0,CALLBACK_NULL);
+        report("ORIGINAL_CREATIVE_MIDIOUT_OPEN_RESULT=",rc);
+        return rc==MMSYSERR_NOERROR;
+    }
+}
+static int send_midi(HMIDIOUT device,DWORD msg,const char*name) {
+    const MMRESULT rc=midiOutShortMsg(device,msg);
+    report(name,rc);
+    return rc==MMSYSERR_NOERROR;
+}
+static int original_send_midi(CREATIVE_AWEMANAGER manager,
+                              DWORD handle,DWORD packed_message,
+                              const char*label) {
+    /* Original WINAWE32.C calls AWEManager(h,AWE_SEND_MIDI,
+       packed_32bit_MIDI_short_message,0); not own driver synthesis. */
+    const LONG rc=manager(handle,ORIGINAL_AWE_SEND_MIDI,
+                          (LPARAM)packed_message,0);
+    report(label,(DWORD)rc);
+    return rc==ORIGINAL_AWE_NO_ERR;
+}
+/* Original WINAWE32.C ID_QUERY_SYNTH uses AWE_GET_SYN_BANK and
+ * CBufferObject.m_Flag to read current enum SBANK. This is only a
+ * READ-ONLY observation; it does not select or map any MIDI bank.
+ * enum SBANK (INDICES.H): GM=0, GS=1, MT32=2, USER_CUSTOM=3.
+ */
+static int original_query_synth_bank(CREATIVE_AWEMANAGER manager,
+                                     DWORD handle,const char*label) {
+    ORIGINAL_CREATIVE_BUFFER buffer;
+    char marker=0;
+    LONG result;
+    buffer.m_Size=sizeof(marker);
+    buffer.m_Buffer=&marker;
+    buffer.m_SizeUsed=0u;
+    buffer.m_Flag=0xFFFFu;
+    result=manager(handle,ORIGINAL_AWE_GET_SYN_BANK,
+                   (LPARAM)&buffer,0);
+    emit(label);emit("_RESULT=");hex32((DWORD)result);emit("\r\n");
+    if(result!=ORIGINAL_AWE_NO_ERR) {
+        /* Original Creative read-only mode query failed in a genuine
+           86Box/Win95 test with result 0x000000CB. Our OWN prior
+           harness wrongly treated this extra diagnostic as mandatory,
+           and prevented the AWE_LOAD_USER_BANK call from happening.
+           Record an explicit unavailable sentinel, then continue the
+           ACTUAL source load/MIDI experiment without inventing mode. */
+        emit(label);emit("_MODE_ID=0xFFFFFFFF\r\n");
+        return 1;
+    }
+    emit(label);emit("_MODE_ID=");hex32((DWORD)buffer.m_Flag);emit("\r\n");
+    if(buffer.m_Flag>3u) {
+        emit("ORIGINAL_CREATIVE_SYNTH_BANK_ENUM_INVALID\r\n");
+        return 0;
+    }
+    return 1;
+}
+static int original_query_dram(CREATIVE_AWEMANAGER manager,
+                               DWORD handle,const char*label,
+                               DWORD*total_words,DWORD*available_words) {
+    /* Exact original 1994–96 Creative WINAWE32.C query ABI:
+       AWEManager(h, AWE_QUERY_DRAM_SIZE, &max, &available).
+       Both values are in ORIGINAL EMU8000 16-bit WORDS, not bytes.
+       No guessed RAM allocator or post-hoc unit conversion. */
+    DWORD total=0u,available=0u;
+    const LONG rc=manager(handle,ORIGINAL_AWE_QUERY_DRAM_SIZE,
+                          (LPARAM)&total,(LPARAM)&available);
+    emit(label);emit("_RESULT=");hex32((DWORD)rc);emit("\r\n");
+    if(rc!=ORIGINAL_AWE_NO_ERR) {
+        /* Diagnostic readout is NOT a prerequisite of the original
+           AWE_LOAD_USER_BANK API; keep exact error and explicit unknown
+           capacity. NEVER infer driver allocation from this sentinel. */
+        *total_words=0xFFFFFFFFu;
+        *available_words=0xFFFFFFFFu;
+        emit(label);emit("_TOTAL_16BIT_WORDS=0xFFFFFFFF\r\n");
+        emit(label);emit("_FREE_16BIT_WORDS=0xFFFFFFFF\r\n");
+        return 1;
+    }
+    emit(label);emit("_TOTAL_16BIT_WORDS=");hex32(total);emit("\r\n");
+    emit(label);emit("_FREE_16BIT_WORDS=");hex32(available);emit("\r\n");
+    *total_words=total;
+    *available_words=available;
+    return 1;
+}
+/* Unkeyed FNV-1a32 is only a source-identity cross-check, NOT
+   cryptographic proof of sample authenticity. The offline auditor
+   also SHA256-locks the private SF2 file and genuine guest trace. */
+static BYTE bank_hash_buffer[4096];
+static int sample_identity(DWORD*byte_count,DWORD*bank_fnv32) {
+    HANDLE f;
+    DWORD result=0u;
+    BYTE head[12];
+    DWORD read=0u,total=0u,i;
+    DWORD fnv=2166136261u;
+    DWORD riff_size=0u;
+    f=CreateFileA(sample_path,GENERIC_READ,FILE_SHARE_READ,
+                  0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
+    if(f==INVALID_HANDLE_VALUE)return 0;
+    result=GetFileSize(f,0);
+    if(result<96u || result>32u*1024u*1024u ||
+       !ReadFile(f,head,12u,&read,0) || read!=12u ||
+       head[0]!='R'||head[1]!='I'||head[2]!='F'||head[3]!='F'||
+       head[8]!='s'||head[9]!='f'||head[10]!='b'||head[11]!='k') {
+        CloseHandle(f);return 0;
+    }
+    riff_size=((DWORD)head[4])|((DWORD)head[5]<<8u)|
+              ((DWORD)head[6]<<16u)|((DWORD)head[7]<<24u);
+    if(riff_size!=result-8u ||
+       SetFilePointer(f,0,0,FILE_BEGIN)!=0u) {
+        CloseHandle(f);return 0;
+    }
+    for(;;) {
+        read=0u;
+        if(!ReadFile(f,bank_hash_buffer,sizeof(bank_hash_buffer),
+                     &read,0) || read>result-total) {
+            CloseHandle(f);return 0;
+        }
+        if(read==0u)break;
+        total+=read;
+        for(i=0u;i<read;++i) {
+            fnv^=(DWORD)bank_hash_buffer[i];
+            fnv*=16777619u;
+        }
+    }
+    CloseHandle(f);
+    if(total!=result)return 0;
+    *byte_count=result;
+    *bank_fnv32=fnv;
+    return 1;
+}
+void WINAPI p002_ram_entry(void) {
+    HMODULE dll=0;
+    CREATIVE_AWEMANAGER manager=0;
+    DWORD handle=0u,sample_bytes=0u,sample_fnv32=0u;
+    DWORD max_before=0u,free_before=0u;
+    DWORD max_after=0u,free_after=0u;
+    LONG rc;
+    HMIDIOUT midi=0;
+    ORIGINAL_CREATIVE_BUFFER buffer;
+    char userbank_file_buffer[128]="C:\\P002RAM.SF2";
+    char dllpath[260];
+    DWORD p=0u;
+    int opened=0,loaded=0,haveMidi=0,success=0;
+    log_file=CreateFileA(log_path,GENERIC_WRITE,FILE_SHARE_READ,0,
+                         CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,0);
+    if(log_file==INVALID_HANDLE_VALUE)ExitProcess(29);
+    t0=GetTickCount();
+    emit("P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START\r\n");
+    /* Both size and offsets are independently locked at compile time.
+     * Keep the guest log's ABI provenance visible to the private
+     * source auditor; do not assert a default-packed 16-byte struct. */
+    if(sizeof(ORIGINAL_CREATIVE_BUFFER)!=14u ||
+       offsetof(ORIGINAL_CREATIVE_BUFFER,m_Flag)!=12u) {
+        emit("ORIGINAL_AWEMAN32_CBUFFER_ABI_UNEXPECTED\r\n");
+        goto done;
+    }
+    report("ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=",
+           (DWORD)sizeof(ORIGINAL_CREATIVE_BUFFER));
+    if(!sample_identity(&sample_bytes,&sample_fnv32)) {
+        emit("PRIVATE_SAMPLE_MISSING_INVALID_RIFF_OR_UNREADABLE\r\n");
+        goto done;
+    }
+    report("PRIVATE_WIN95_SF2_SIZE=",sample_bytes);
+    report("PRIVATE_WIN95_SF2_FNV1A32=",sample_fnv32);
+    /* Do not silently load AWEMAN.DLL fallback, OpenAL or non-original
+       Windows synthesizer. Win95 installed Creative AWEMAN32 mandatory. */
+    dll=LoadLibraryA("AWEMAN32.DLL");
+    if(!dll) {
+        report("ORIGINAL_AWEMAN32_LOAD_ERROR=",GetLastError());
+        goto done;
+    }
+    for(p=0u;p<sizeof(dllpath);++p)dllpath[p]=0;
+    if(GetModuleFileNameA(dll,dllpath,sizeof(dllpath))==0u) {
+        emit("ORIGINAL_AWEMAN32_PATH_UNKNOWN\r\n");goto done;
+    }
+    emit("LOADED_CREATIVE_MODULE_PATH=");emit(dllpath);emit("\r\n");
+    manager=(CREATIVE_AWEMANAGER)
+        GetProcAddress(dll,"AWEManager");
+    if(!manager) {
+        emit("ORIGINAL_AWEMAN32_EXPORT_AWEMANAGER_MISSING\r\n");goto done;
+    }
+    rc=manager(0u,ORIGINAL_AWE_OPEN,(LPARAM)&handle,0);
+    report("ORIGINAL_AWEMAN32_AWE_OPEN_RC=",(DWORD)rc);
+    if(rc!=ORIGINAL_AWE_NO_ERR || handle==0u)goto done;
+    opened=1;
+    if(!original_synth_device(&midi))goto done;
+    haveMidi=1;
+    /* Read the ORIGINAL installed driver's synth-bank MODE before
+       loading. This does not assert that CC0=1 maps to user bank #1. */
+    if(!original_query_synth_bank(manager,handle,"PRE_LOAD_SYNTH_BANK"))
+        goto done;
+    /* Original source API 308: inspect driver-reported DRAM before
+       letting Creative allocate/upload the private SoundFont. */
+    if(!original_query_dram(manager,handle,"PRE_LOAD",
+                            &max_before,&free_before))
+        goto done;
+    if(max_before!=0xFFFFFFFFu &&
+       (max_before==0u || free_before>max_before)) {
+        emit("ORIGINAL_DRIVER_PRELOAD_RAM_QUERY_UNUSABLE\r\n");goto done;
+    }
+    /* Exact original 1996 Creative example CBufferObject and
+       AWEManager(user, AWE_LOAD_USER_BANK, USER_BANK_NUM, &buffer).
+       No sample placement, conversion or RAM allocation occurs here;
+       ALL of it is performed by the original installed Creative driver. */
+    /* The original Creative WINAWE32 sample uses a *mutable 128-byte*
+       filename buffer and m_Size=128, not a string literal pointer. */
+    buffer.m_Size=sizeof(userbank_file_buffer);
+    buffer.m_Buffer=userbank_file_buffer;
+    buffer.m_SizeUsed=0u;
+    buffer.m_Flag=ORIGINAL_OPER_FILE;
+    report("ORIGINAL_API_LOAD_BEGIN_TICK_MS=",GetTickCount()-t0);
+    emit("ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_BEGIN\r\n");
+    rc=manager(handle,ORIGINAL_AWE_LOAD_USER_BANK,
+               (LPARAM)ORIGINAL_USER_BANK_NUMBER,(LPARAM)&buffer);
+    report("ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=",(DWORD)rc);
+    report("ORIGINAL_API_LOAD_END_TICK_MS=",GetTickCount()-t0);
+    emit("ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END\r\n");
+    if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
+    loaded=1;
+    if(!original_query_synth_bank(manager,handle,"POST_LOAD_SYNTH_BANK"))
+        goto done;
+    if(!original_query_dram(manager,handle,"POST_LOAD",
+                            &max_after,&free_after))
+        goto done;
+    if(max_before!=0xFFFFFFFFu && max_after!=0xFFFFFFFFu) {
+        if(max_after!=max_before || free_after>free_before) {
+            emit("ORIGINAL_DRIVER_DRAM_SIZE_INCONSISTENT\r\n");
+            goto done;
+        }
+        report("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=",
+               free_before-free_after);
+    } else {
+        emit("CREATIVE_DRIVER_ALLOCATED_WORD_DELTA=0xFFFFFFFF\r\n");
+        emit("CREATIVE_DRIVER_DRAM_DELTA_UNKNOWN_NOT_PROVEN\r\n");
+    }
+    emit("GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF\r\n");
+    /* Creative AWE32 FAQ F.6: for a user bank loaded into index 1,
+       MIDI CC0 controller number ZERO, value ONE, then PROGRAM 0.
+       Prior guest test had wrong byte ordering:
+         0x000001B0 = CC1, value 0 (mod wheel) -- WRONG
+         0x000100B0 = CC0, value 1 (bank select) -- CORRECT.
+       The extra AWE_SELECT_SYN_BANK=203 selection was also wrong:
+       that selects a *synth emulation* (not User Bank 1) and the
+       actual original Win95 driver rejected value 3 with 0x6B.
+       Fix BOTH WinMM and AWE_SEND_MIDI. Only a register capture
+       with CCCA/PSST/CSL in RAM >=0x200000 proves RAM playback.
+    */
+    emit("ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6\r\n");
+    /* The bank-load phase above is the authoritative DRAM-upload
+       measurement. The following MIDI-only phase is separate and
+       cannot prove selection of a specific bank without register/PCM
+       evidence. Bank Select 1 is a controlled PROBE, not a claimed
+       original driver program bank mapping formula. */
+    Sleep(200);
+    if(!send_midi(midi,0x000079B0u,"ORIGINAL_RESET_CONTROLLERS_RC"))goto done;
+    if(!send_midi(midi,ORIGINAL_MIDI_CC(0u,0u,1u),
+                  "ORIGINAL_BANK_SELECT_MSB1_RC"))goto done;
+    if(!send_midi(midi,0x000000C0u,"ORIGINAL_PROGRAM0_RC"))goto done;
+    /* DRY comparison first. Original MIDI controllers 91/93 = 0:
+       zero requested reverb/chorus send, not a claim that Creative's
+       master/mixer FX or unverified DRY PCM are automatically identical. */
+    if(!send_midi(midi,0x00005BB0u,"ORIGINAL_CC91_REVERB_SEND_ZERO_RC"))goto done;
+    if(!send_midi(midi,0x00005DB0u,"ORIGINAL_CC93_CHORUS_SEND_ZERO_RC"))goto done;
+    Sleep(150);
+    /* GetTickCount timestamps are guest-OS submission anchors only.
+       They are NOT interchangeable with original EMU8000 chip frames;
+       chip register timing/PCM must be independently captured. */
+    report("ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS=",GetTickCount()-t0);
+    if(!send_midi(midi,0x00643C90u,"ORIGINAL_MIDI_C4_VEL100_RC"))goto done;
+    Sleep(400);
+    report("ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS=",GetTickCount()-t0);
+    if(!send_midi(midi,0x00003C80u,"ORIGINAL_MIDI_C4_OFF_RC"))goto done;
+    Sleep(500);
+    /* Additional independent ORIGINAL CREATIVE 1996 API route rather
+       than assuming WinMM and AWEManager send exactly the same VXD
+       sequence. D4 distinguishes the API route in the register and
+       DRY PCM traces; C4 was WinMM above. Original driver alone
+       performs all register translations and voice ownership. */
+    emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN\r\n");
+    /* Use the SAME controlled bank-select probe on both source MIDI
+       routes. Without this, WinMM C4 and AWE_SEND_MIDI D4 may use
+       DIFFERENT bank state and cannot isolate the routing difference.
+       Bank MSB=1 remains a PROBE, not proof of a RAM-bank mapping. */
+    if(!original_send_midi(manager,handle,ORIGINAL_MIDI_CC(0u,0u,1u),
+                           "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC"))
+        goto done;
+    if(!original_send_midi(manager,handle,0x000000C0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC"))goto done;
+    if(!original_send_midi(manager,handle,0x00005BB0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC"))goto done;
+    if(!original_send_midi(manager,handle,0x00005DB0u,
+                           "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC"))goto done;
+    Sleep(150);
+    report("ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS=",GetTickCount()-t0);
+    if(!original_send_midi(manager,handle,0x00643E90u,
+                           "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC"))goto done;
+    Sleep(400);
+    report("ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS=",GetTickCount()-t0);
+    if(!original_send_midi(manager,handle,0x00003E80u,
+                           "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"))goto done;
+    Sleep(500);
+    emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n");
+    success=1;
+done:
+    if(haveMidi) {
+        midiOutReset(midi);
+        midiOutClose(midi);
+    }
+    if(loaded) {
+        rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,
+                   (LPARAM)ORIGINAL_USER_BANK_NUMBER,0);
+        report("ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC=",(DWORD)rc);
+    }
+    if(opened) {
+        rc=manager(handle,ORIGINAL_AWE_CLOSE,0,0);
+        report("ORIGINAL_AWEMAN32_AWE_CLOSE_RC=",(DWORD)rc);
+    }
+    if(dll)FreeLibrary(dll);
+    emit(success?"P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK\r\n":
+                 "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_FAILED\r\n");
+    emit("GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API\r\n");
+    FlushFileBuffers(log_file);
+    CloseHandle(log_file);
+    ExitProcess(success?0u:19u);
+}

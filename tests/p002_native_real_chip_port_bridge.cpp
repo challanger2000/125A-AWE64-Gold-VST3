@@ -1,0 +1,675 @@
+#include "CreativeChipPortBridge.h"
+#include "CreativePitchCandidate.h"
+#include "CreativeControllerVolume.h"
+#include "CreativeVxdSampleAddress.h"
+#include "CreativeVxdNoteRelease.h"
+#include "CreativeVxdVoiceEnvelopePrelude.h"
+#include "CreativeSf2VoiceDescriptor.h"
+#include "CreativeSf2NoteStartPorts.h"
+#include "CreativeSf2NoteContinuationPorts.h"
+#include "CreativeSf2NoteFinalPorts.h"
+#include "CreativeSf2FullNoteOnChip.h"
+#include "CreativeSf2VxdStateSnapshot.h"
+#include <86box/snd_emu8k.h>
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+using namespace awe64;
+using namespace awe64::creative;
+#define CHECK(expr) do{if(!(expr)){std::cerr<<"P002_REAL_CHIP_PORT_BRIDGE_FAIL line="<<__LINE__<<" "<<#expr<<"\n";return 1;}}while(0)
+int main(){
+    // Completely synthetic ROM. The chip itself is the actual locked
+    // original 86Box-AWE32 source, not a synthesized test mock.
+    const auto rom=std::filesystem::temp_directory_path()/
+        "p002-noncreative-synthetic-chip-port-test.raw";
+    {
+        std::ofstream out(rom,std::ios::binary|std::ios::trunc);
+        CHECK(bool(out));
+        const std::array<char,4096> zero{};
+        for(int i=0;i<256;++i)out.write(zero.data(),zero.size());
+        CHECK(bool(out));
+    }
+    Chip chip;
+    std::string err;
+    CHECK(chip.open(rom,err));
+    CHECK(chip.ready());
+    CHECK(chip.rawForContractTesting()->ram_end_addr==0x1000000u);
+    const auto selected=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{
+            3,OriginalWin95MonoSelectionReason::CompletelyIdle,0});
+    const auto vtft=candidateOriginalWin95AssignedVoiceVtftWrites(3);
+    CHECK(selected && vtft);
+    std::array<OriginalWin95VxdPortWrite,4> start{
+        (*selected)[0],(*selected)[1],(*vtft)[0],(*vtft)[1]};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,start));
+    const auto* real=chip.rawForContractTesting();
+    CHECK(real->voice[3].dcysusv==0x00ffu);
+    CHECK(real->voice[3].vtft==0x0000ffffu);
+    // Real Windows95 VXD +0x5BE4..+0x5CA4 first seven NOTE START
+    // register writes; already encoded original 0x94-byte source fields.
+    OriginalVxdEncodedVoiceEnvelopePrelude envelope{};
+    envelope.from_actual_original_driver_record=true;
+    envelope.attack_hold_volume_low_byte_word=0x0080u;
+    envelope.attack_hold_volume_high_word=0x56;
+    envelope.lfo1_delay_word=static_cast<std::int16_t>(0x8000u);
+    envelope.attack_hold_mod_low_byte_word=0x0080u;
+    envelope.attack_hold_mod_high_word=0x34;
+    envelope.decay_sustain_mod_low_byte=0x12;
+    envelope.decay_sustain_mod_high_word=0x45;
+    envelope.lfo2_delay_word=static_cast<std::int16_t>(0x8010u);
+    const auto startEnvelope=candidateOriginalVxdVoiceEnvelopePrelude(3,envelope);
+    CHECK(startEnvelope && startEnvelope->size()==14);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startEnvelope));
+    CHECK(real->voice[3].vtft==0x0000ffffu);
+    CHECK(real->voice[3].cvcf==0x0000ffffu);
+    CHECK(real->voice[3].atkhldv==0x567fu);
+    CHECK(real->voice[3].lfo1val==0x8000u);
+    CHECK(real->voice[3].atkhld==0x347fu);
+    CHECK(real->voice[3].dcysus==0x4512u);
+    CHECK(real->voice[3].lfo2val==0x8010u);
+    // Ensure no other physical voice was changed by the original prelude.
+    CHECK(real->voice[4].dcysusv!=0x00ffu ||
+          real->voice[4].vtft!=0x0000ffffu);
+    // A private guest's real VXD 4AB5 group stop has 16-bit IFATN
+    // then 16-bit DCYSUSV release phase; actual pin-locked chip must
+    // reflect those register words, not merely an array equality test.
+    const auto stop=candidateOriginalWin95VxdGroupChokeWrites(
+        3,OriginalVxdGroupChokeEvidence{true,false,false});
+    CHECK(stop && stop->count==4);
+    CHECK(applyOriginalCreativeVxdVoicePorts(
+        chip,std::span<const OriginalWin95VxdPortWrite>(
+            stop->writes.data(),stop->count)));
+    CHECK(real->voice[3].ifatn==0x00ffu);
+    CHECK(real->voice[3].dcysusv==0x807fu);
+    const auto stereo=candidateOriginalWin95VxdGroupChokeWrites(
+        6,OriginalVxdGroupChokeEvidence{true,true,true});
+    CHECK(stereo && stereo->count==8);
+    CHECK(applyOriginalCreativeVxdVoicePorts(
+        chip,std::span<const OriginalWin95VxdPortWrite>(
+            stereo->writes.data(),stereo->count)));
+    CHECK(real->voice[6].ifatn==0xffu && real->voice[7].ifatn==0xffu);
+    CHECK(real->voice[6].dcysusv==0x807fu &&
+          real->voice[7].dcysusv==0x807fu);
+    // Live original WinMM note program/key + original 1MGM pitch field
+    // + decoded Creative Win95 encoded volume/controller rules are now
+    // actually written into the pinned original EMU8000 chip.
+    CreativeRomNotePlan piano{};
+    piano.channel=0;piano.program=0;piano.key=60;piano.velocity=96;
+    piano.original_sbk_bank=0;piano.count=1;
+    piano.layers[0].metadata.key=60;
+    piano.layers[0].metadata.velocity=96;
+    piano.layers[0].metadata.program=0;
+    piano.layers[0].metadata.bank=0;
+    piano.layers[0].metadata.instrument_local.raw[55]=7696;
+    piano.layers[0].metadata.instrument_global.raw[8]=110;
+    piano.layers[0].metadata.instrument_local.raw[8]=89;
+    MidiState state;
+    OriginalCreativeIfatnTerms encoded{};
+    encoded.bank=0; encoded.initial_cutoff=12; // poisoned caller cutoff
+    encoded.encoded_volume_attack_rate=125;
+    encoded.volume={100,127,16,0,true};
+    const auto cutoffFromOriginalBank=
+        piano.layers[0].metadata.candidateOriginal1MgmInstrumentCutoff();
+    CHECK(cutoffFromOriginalBank && *cutoffFromOriginalBank==178);
+    auto bankTerms=encoded;
+    bankTerms.initial_cutoff=*cutoffFromOriginalBank;
+    const auto message=decodeWinMmShort(0x00603c90u);
+    CHECK(message && message->kind==MidiKind::NoteOn);
+    const auto ip=candidateOriginalRomIpWrites(piano,0,3,state);
+    const auto ifatn=candidateOriginalCreativeIfatnWrites(
+        *message,3,state,bankTerms);
+    CHECK(ip && ifatn);
+    const std::array<OriginalWin95VxdPortWrite,4> noteParameters{{
+        {(*ip)[0].port,(*ip)[0].value,8},
+        {(*ip)[1].port,(*ip)[1].value,16},
+        {(*ifatn)[0].port,(*ifatn)[0].value,8},
+        {(*ifatn)[1].port,(*ifatn)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,noteParameters));
+    CHECK(real->voice[3].ip==0xC962);
+    const auto expected=candidateOriginalCreativeIfatn(96,bankTerms);
+    CHECK(expected && real->voice[3].ifatn==expected->word);
+    CHECK(real->voice[3].ifatn_init_filter==178);
+    // Real live CC7 WinMM -> independent VXD lookup -> actual chip IFATN.
+    const auto vol20=decodeWinMmShort(0x001407b0u);
+    CHECK(vol20);state.apply(*vol20);
+    const auto updated=candidateOriginalCreativeIfatnWrites(
+        *message,3,state,bankTerms);
+    CHECK(updated && (*updated)[1].value==0xB285);
+    const std::array<OriginalWin95VxdPortWrite,2> liveVolume{{
+        {(*updated)[0].port,(*updated)[0].value,8},
+        {(*updated)[1].port,(*updated)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,liveVolume));
+    CHECK(real->voice[3].ifatn==0xB285);
+    // Actual chip pitch update from live WinMM pitchbend maximum.
+    const auto bend=decodeWinMmShort(0x007f7fe0u);
+    CHECK(bend);state.apply(*bend);
+    const auto livePitch=candidateOriginalRomIpWrites(piano,0,3,state);
+    CHECK(livePitch && (*livePitch)[1].value==0xCC0C);
+    const std::array<OriginalWin95VxdPortWrite,2> pitchUpdate{{
+        {(*livePitch)[0].port,(*livePitch)[0].value,8},
+        {(*livePitch)[1].port,(*livePitch)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,pitchUpdate));
+    CHECK(real->voice[3].ip==0xCC0C);
+    // On the actual pinned chip: driver case5/case6 ROM address rewrite.
+    // Establish the prior PSST high byte with a real chip write.
+    const std::array<OriginalWin95VxdPortWrite,2> previousPsst{{
+       {0xE22u,0xC3u,8u},{0x620u,0x47000055u,32u}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,previousPsst));
+    CHECK(real->voice[3].psst==0x47000055u);
+    const SbkRomAddress sample3{3,0xFEB9u,0x152FEu,0x152BAu,0x152F8u};
+    const auto looped=candidateOriginalVxdSampleAddressUpdate(
+        sample3,3,OriginalVxdSampleAddressCase::DriverCase5,real->voice[3].psst);
+    CHECK(looped && applyOriginalCreativeVxdVoicePorts(chip,*looped));
+    CHECK(real->voice[3].csl==0x000152F9u);
+    CHECK(real->voice[3].psst==0x470152BAu);
+    const auto noLoop=candidateOriginalVxdSampleAddressUpdate(
+        sample3,3,OriginalVxdSampleAddressCase::DriverCase6,real->voice[3].psst);
+    CHECK(noLoop && applyOriginalCreativeVxdVoicePorts(chip,*noLoop));
+    CHECK(real->voice[3].csl==0x00015306u);
+    CHECK(real->voice[3].psst==0x47015302u);
+    // The verified *ordinary* VXD NoteOff is different from group choke:
+    // 0x8000|previously ENCODED rate for both envelope generators.
+    // It can also rewrite CSL/PSST if an original stored sample end exists.
+    OriginalVxdNoteReleaseEvidence evidence{};
+    evidence.original_key_channel_match=true;
+    evidence.original_voice_record_verified=true;
+    evidence.current_chip_registers_verified=true;
+    evidence.encoded_volume_release=0x20;
+    evidence.encoded_mod_release=0x45;
+    evidence.stored_end_word=sample3.end_word;
+    evidence.observed_chip_csl=real->voice[3].csl;
+    evidence.observed_chip_psst=real->voice[3].psst;
+    evidence.original_sustain_held=true;
+    const auto deferred=candidateOriginalVxdMidiNoteRelease(3,evidence);
+    CHECK(deferred && deferred->deferred_by_sustain && deferred->count==0);
+    CHECK(real->voice[3].dcysusv==0x807fu); // no HW write when held!
+    evidence.original_sustain_held=false;
+    const auto release=candidateOriginalVxdMidiNoteRelease(3,evidence);
+    CHECK(release && !release->deferred_by_sustain && release->count==8);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,
+         std::span<const OriginalWin95VxdPortWrite>(
+             release->writes.data(),release->count)));
+    CHECK(real->voice[3].dcysusv==0x8020u);
+    CHECK(real->voice[3].dcysus==0x8045u);
+    CHECK(real->voice[3].csl==0x00015302u);
+    CHECK(real->voice[3].psst==0x470152FEu);
+    // First actual note-start CCCA is source start minus four.
+    // Later original VXD writes *another* CCCA value with filter-Q bits.
+    const auto startNoQ=candidateOriginalVxdRomCccaStart(
+        sample3,3,5,true,OriginalVxdCccaStartPhase::StartWithoutFilterQ);
+    const auto startWithQ=candidateOriginalVxdRomCccaStart(
+        sample3,3,5,true,OriginalVxdCccaStartPhase::StartWithEncodedFilterQ);
+    CHECK(startNoQ && startWithQ);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startNoQ));
+    CHECK(real->voice[3].ccca==0x0000FEB5u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*startWithQ));
+    CHECK(real->voice[3].ccca==0x5000FEB5u);
+    // Original NoteOn voice geometry is a different VXD branch
+    // from the earlier case5/6 sample-update paths.
+    OriginalVxdRomNoteStartMode loopMode{};
+    loopMode.original_driver_mode_verified=true;
+    loopMode.encoded_mode_flags=3;
+    loopMode.original_pan_byte=0x47;
+    loopMode.original_chorus_send_byte=0x53;
+    const auto initialGeometry=candidateOriginalVxdInitialRomNoteGeometry(
+        sample3,3,loopMode);
+    CHECK(initialGeometry &&
+          initialGeometry->driver_retained_release_end==0x15302u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(
+        chip,initialGeometry->loop_address_ports));
+    CHECK(real->voice[3].psst==0x470152B9u);
+    CHECK(real->voice[3].csl==0x530152F7u);
+    loopMode.encoded_mode_flags=0;
+    const auto oneShotGeometry=candidateOriginalVxdInitialRomNoteGeometry(
+        sample3,3,loopMode);
+    CHECK(oneShotGeometry &&
+          applyOriginalCreativeVxdVoicePorts(chip,
+              oneShotGeometry->loop_address_ports));
+    CHECK(real->voice[3].psst==0x47015302u);
+    CHECK(real->voice[3].csl==0x53015306u);
+    // Actual original GM40 Violin instrument zone:
+    // gen8=105 -> cutoff210, gen34=10 -> attack115. At velocity90
+    // original hardware cutoff=148. Use a fresh centered MIDI pitch
+    // state; the earlier test explicitly pitchbent channel0 to max.
+    CreativeRomNotePlan violin{};
+    violin.channel=0;violin.program=40;
+    violin.key=60;violin.velocity=90;
+    violin.original_sbk_bank=0;violin.count=1;
+    auto& vl=violin.layers[0].metadata;
+    vl.bank=0;vl.program=40;vl.key=60;vl.velocity=90;
+    vl.rom_sample_selector=55;
+    violin.layers[0].address={
+        55,0x3765bu,0x37d1eu,0x37cf5u,0x37d18u};
+    vl.instrument_global.raw[8]=105;
+    vl.instrument_global.raw[34]=10;
+    vl.instrument_local.raw[55]=8670;
+    const auto rawAttack=vl.instrumentRawAttackVolEnv();
+    CHECK(rawAttack && *rawAttack==10);
+    const auto convertedAttack=candidateOriginalCreative1MgmGeneratorEnvelopeRate(
+        34u,*rawAttack);
+    CHECK(convertedAttack && *convertedAttack==115);
+    const auto originalCut=vl.candidateOriginal1MgmInstrumentCutoff();
+    CHECK(originalCut && *originalCut==210);
+    auto violinTerms=bankTerms;
+    violinTerms.initial_cutoff=*originalCut;
+    violinTerms.encoded_volume_attack_rate=*convertedAttack;
+    violinTerms.volume.device_state_additive_attenuation=8;
+    const auto violinOn=decodeWinMmShort(0x005a3c90u);
+    CHECK(violinOn);
+    MidiState violinMidi{}; // centered pitchbend, original C4
+    const auto vip=candidateOriginalRomIpWrites(
+        violin,0,9,violinMidi);
+    const auto vif=candidateOriginalCreativeIfatnWrites(
+        *violinOn,9,violinMidi,violinTerms);
+    CHECK(vip && vif && (*vip)[1].value==0xBC66 &&
+          ((*vif)[1].value>>8)==148);
+    const std::array<OriginalWin95VxdPortWrite,4> writesViolin{{
+        {(*vip)[0].port,(*vip)[0].value,8},
+        {(*vip)[1].port,(*vip)[1].value,16},
+        {(*vif)[0].port,(*vif)[0].value,8},
+        {(*vif)[1].port,(*vif)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,writesViolin));
+    CHECK(real->voice[9].ip==0xBC66);
+    CHECK(real->voice[9].ifatn_init_filter==148);
+    // Actual independently executed original Creative SF2 reference bank:
+    // GM100 key60 vel90 layer1/layer2 produces attackEnv2=128,
+    // IFATN=0xFF2A for the explicitly supplied Win95 synthetic
+    // device state (CC7=100, CC11=127, device attenuation=0,
+    // instVol=0, 1MGM ROM). No 46-byte SF2 parser is asserted here.
+    OriginalCreativeIfatnTerms gm100{};
+    gm100.volume={100,127,0,0,true};
+    gm100.bank=0;
+    gm100.initial_cutoff=255;
+    gm100.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-11958);
+    CHECK(gm100.encoded_volume_attack_rate==128);
+    const auto gm100Candidate=candidateOriginalCreativeIfatn(90,gm100);
+    CHECK(gm100Candidate && gm100Candidate->word==0xFF2Au &&
+          gm100Candidate->cutoff==255);
+    OriginalVxdEncodedVoiceEnvelopePrelude gm100Envelope{};
+    gm100Envelope.from_actual_original_driver_record=true;
+    gm100Envelope.attack_hold_volume_low_byte_word=128;
+    gm100Envelope.attack_hold_volume_high_word=0x7f;
+    const auto gm100Prelude=candidateOriginalVxdVoiceEnvelopePrelude(
+        12,gm100Envelope);
+    CHECK(gm100Prelude && (*gm100Prelude)[5].value==0x7f7fu);
+    CHECK(gm100Envelope.attack_hold_volume_low_byte_word==128);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm100Prelude));
+    CHECK(real->voice[12].atkhldv==0x7f7fu);
+    const auto gm100Midi=decodeWinMmShort(0x005a3c90u);
+    CHECK(gm100Midi && gm100Midi->kind==MidiKind::NoteOn);
+    MidiState gm100State{};
+    const auto gm100Ifatn=candidateOriginalCreativeIfatnWrites(
+        *gm100Midi,12,gm100State,gm100);
+    CHECK(gm100Ifatn && (*gm100Ifatn)[1].value==0xFF2Au);
+    const std::array<OriginalWin95VxdPortWrite,2> gm100Typed{{
+        {(*gm100Ifatn)[0].port,(*gm100Ifatn)[0].value,8},
+        {(*gm100Ifatn)[1].port,(*gm100Ifatn)[1].value,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,gm100Typed));
+    CHECK(real->voice[12].ifatn==0xFF2Au);
+    // Two additional original 46-byte-SF2 source-bank handoff cases,
+    // measured against actual executed 1990s original VXD x86. We do
+    // NOT call this native SF2 bank import; it remains format2-only
+    // numeric generator conversion with explicitly proven defaults.
+    const auto pianoSf2Cut=candidateOriginalSf2InstrumentLoadGenerator(
+        8,9617);
+    const auto violinSf2Cut=candidateOriginalSf2InstrumentLoadGenerator(
+        8,10561);
+    CHECK(pianoSf2Cut && *pianoSf2Cut==179);
+    CHECK(violinSf2Cut && *violinSf2Cut==211);
+    SbkLayer sf2Piano{};
+    sf2Piano.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    sf2Piano.instrument_global.raw[48]=150;
+    SbkLayer sf2Violin{};
+    sf2Violin.source_format=OriginalCreativeBankFormat::Format2Sf2;
+    sf2Violin.instrument_global.raw[48]=82;
+    // Zero preset term is expressly the actual GM0/40 handoff
+    // descriptor template for these two cases; not a general default.
+    const auto pianoSf2Vol=candidateOriginalSf2InstVolFromExplicitScopes(
+        sf2Piano,0);
+    const auto violinSf2Vol=candidateOriginalSf2InstVolFromExplicitScopes(
+        sf2Violin,0);
+    CHECK(pianoSf2Vol && *pianoSf2Vol==150);
+    CHECK(violinSf2Vol && *violinSf2Vol==82);
+    OriginalCreativeIfatnTerms pianoSf2{};
+    pianoSf2.bank=0;
+    pianoSf2.initial_cutoff=static_cast<std::uint8_t>(*pianoSf2Cut);
+    pianoSf2.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-8800);
+    pianoSf2.volume={100,127,0,*pianoSf2Vol,true};
+    OriginalCreativeIfatnTerms violinSf2=pianoSf2;
+    violinSf2.initial_cutoff=static_cast<std::uint8_t>(*violinSf2Cut);
+    violinSf2.encoded_volume_attack_rate=
+        originalCreativeSf2VoiceAttackRate(-7972);
+    violinSf2.volume.encoded_voice_amplitude=*violinSf2Vol;
+    const auto pianoSf2Result=candidateOriginalCreativeIfatn(90,pianoSf2);
+    const auto violinSf2Result=candidateOriginalCreativeIfatn(90,violinSf2);
+    CHECK(pianoSf2Result && pianoSf2Result->word==0xB33Au);
+    CHECK(violinSf2Result && violinSf2Result->word==0x9532u);
+    const std::array<OriginalWin95VxdPortWrite,2> pianoSf2Ports{{
+        {0xE22u,0x2Fu,8},{0xE20u,pianoSf2Result->word,16}
+    }};
+    const std::array<OriginalWin95VxdPortWrite,2> violinSf2Ports{{
+        {0xE22u,0x32u,8},{0xE20u,violinSf2Result->word,16}
+    }};
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,pianoSf2Ports));
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,violinSf2Ports));
+    CHECK(real->voice[15].ifatn==0xB33Au);
+    CHECK(real->voice[18].ifatn==0x9532u);
+    // Native original FORMAT-2 SF2 note-start pitch, verified by the
+    // independently executed Creative SBAWE.VXD GM0, GM40 and GM100 x2.
+    // The original sample-rate→dwPitch stage remains an explicitly
+    // verified input (44100 Hz => 0x00E00000), not an approximate LUT.
+    struct ActualOriginalSf2Ip {std::int16_t root,fine;std::uint16_t ip;};
+    constexpr std::array<ActualOriginalSf2Ip,4> sf2Cases{{
+        {77,4,0xc961u},{87,30,0xbc64u},
+        {85,-32,0xbe3bu},{94,4,0xb2b5u}
+    }};
+    for(std::size_t i=0;i<sf2Cases.size();++i) {
+        const auto& v=sf2Cases[i];
+        CreativeSf2VoiceDescriptorBytes encodedSf2{};
+        encodedSf2[0x88u]=0xe0u; // dwPitch, independently verified
+        encodedSf2[0x8au]=60u;   // SF2 original sample root key
+        const auto setWord=[&](const unsigned op,const std::int16_t val) {
+            const auto w=static_cast<std::uint16_t>(val);
+            encodedSf2[op*2u]=static_cast<std::uint8_t>(w);
+            encodedSf2[op*2u+1u]=static_cast<std::uint8_t>(w>>8u);
+        };
+        setWord(58u,v.root);
+        setWord(52u,v.fine);
+        setWord(56u,100);
+        const auto physical=static_cast<std::uint8_t>(i==3u?3u:0u);
+        const auto writes=candidateOriginalSf2InitialIpWritesFromDescriptor(
+            encodedSf2,60u,physical,0,0);
+        CHECK(writes && (*writes)[0].value==physical &&
+              (*writes)[1].value==v.ip);
+        const std::array<OriginalWin95VxdPortWrite,2> typed{{
+            {(*writes)[0].port,(*writes)[0].value,8u},
+            {(*writes)[1].port,(*writes)[1].value,16u}
+        }};
+        CHECK(applyOriginalCreativeVxdVoicePorts(chip,typed));
+        CHECK(real->voice[physical].ip==v.ip);
+        CHECK(!candidateOriginalSf2InitialIpWritesFromDescriptor(
+            encodedSf2,60u,30u,0,0));
+    }
+    // CONTIGUOUS real VXD SF2 voice-start register slice: 18 typed
+    // E22/(620|A22|A20|E20) OUTs, now derived from the encoded 148-byte
+    // source record and actually executed through the pinned chip core.
+    // GM0's independently observed x86 values, not private ROM bytes.
+    CreativeSf2VoiceDescriptorBytes realSf2GM0{};
+    const auto fillSf2=[&](CreativeSf2VoiceDescriptorBytes& b,
+                           unsigned op,std::int16_t val) {
+        const auto w=static_cast<std::uint16_t>(val);
+        b[op*2u]=static_cast<std::uint8_t>(w);
+        b[op*2u+1u]=static_cast<std::uint8_t>(w>>8u);
+    };
+    realSf2GM0[0x88u]=0xe0u;
+    realSf2GM0[0x8au]=60u;
+    realSf2GM0[0x8cu]=1u; // actual post-note-start descriptor
+    fillSf2(realSf2GM0,58u,77);fillSf2(realSf2GM0,56u,100);
+    fillSf2(realSf2GM0,52u,4);
+    fillSf2(realSf2GM0,8u,179);fillSf2(realSf2GM0,19u,58);
+    fillSf2(realSf2GM0,34u,125);fillSf2(realSf2GM0,35u,120);
+    fillSf2(realSf2GM0,21u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,26u,125);fillSf2(realSf2GM0,27u,127);
+    fillSf2(realSf2GM0,28u,127);fillSf2(realSf2GM0,29u,0);
+    fillSf2(realSf2GM0,23u,static_cast<std::int16_t>(0x8000u));
+    const auto gm0Prefix=candidateOriginalSf2NoteStartRegisterPrefix(
+        realSf2GM0,60u,0u,true,0,0);
+    CHECK(gm0Prefix && gm0Prefix->size()==18u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0Prefix));
+    // Important pinned-original-chip behavior: the prelude does reset
+    // VTFT to 0000FFFF, but the FINAL IFATN register write also sets
+    // the two VTFT target halves. Therefore checking for FFFF AFTER all
+    // 18 VXD OUTs was wrong. Do not weaken the test: check the exact
+    // resulting original EMU8000 chip target arithmetic instead.
+    const auto originalGm0FilterTarget=static_cast<std::uint16_t>(
+        ((static_cast<std::uint32_t>(0xb3u)<<21u)/0xffu)>>5u);
+    CHECK(real->voice[0].vtft_filter_target==originalGm0FilterTarget);
+    CHECK(real->voice[0].vtft_filter_target==0xb3b3u);
+    CHECK(real->voice[0].vtft_vol_target==0x14eeu);
+    CHECK(real->voice[0].vtft==0x14eeb3b3u);
+    CHECK(real->voice[0].cvcf==0x0000ffffu);
+    CHECK(real->voice[0].atkhldv==0x787du);
+    CHECK(real->voice[0].lfo1val==0x8000u);
+    CHECK(real->voice[0].atkhld==0x7f7du);
+    CHECK(real->voice[0].dcysus==0x007fu);
+    CHECK(real->voice[0].lfo2val==0x8000u);
+    CHECK(real->voice[0].ip==0xc961u && real->voice[0].ifatn==0xb33au);
+    // Original GM100 second layer physical voice3 uses attack=128,
+    // encoded as hardware 127 ONLY in the register writer.
+    auto gm100Descriptor=realSf2GM0;
+    fillSf2(gm100Descriptor,58u,94);fillSf2(gm100Descriptor,8u,255);
+    fillSf2(gm100Descriptor,19u,42);fillSf2(gm100Descriptor,34u,128);
+    fillSf2(gm100Descriptor,35u,127);
+    const auto gm100Prefix=candidateOriginalSf2NoteStartRegisterPrefix(
+        gm100Descriptor,60u,3u,true,0,0);
+    CHECK(gm100Prefix && applyOriginalCreativeVxdVoicePorts(chip,*gm100Prefix));
+    CHECK(real->voice[3].atkhldv==0x7f7fu);
+    CHECK(real->voice[3].ifatn==0xff2au);
+    CHECK(real->voice[3].ip==0xb2b5u);
+    // Original x86 NOTE START continues with 16 MORE typed OUTs.
+    // On actual pinned EMU8000, verify per-register side effects from
+    // the SAME source-encoded SF2 records and their physical voices.
+    fillSf2(realSf2GM0,25u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,33u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(realSf2GM0,22u,128);
+    const OriginalSf2VerifiedLfoChannelAmounts realSf2Device{true,0,0};
+    const auto gm0Following=candidateOriginalSf2AfterPitchRegisters(
+        realSf2GM0,0u,realSf2Device);
+    CHECK(gm0Following && gm0Following->size()==16u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0Following));
+    CHECK(real->voice[0].pefe==0u && real->voice[0].fmmod==0u);
+    CHECK(real->voice[0].tremfrq==0x0080u);
+    CHECK(real->voice[0].fm2frq2==0u);
+    CHECK(real->voice[0].envval==0x8000u);
+    CHECK(real->voice[0].envvol==0x8000u);
+    CHECK(real->voice[0].ptrx==0u && real->voice[0].cpf==0u);
+    fillSf2(gm100Descriptor,25u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(gm100Descriptor,33u,static_cast<std::int16_t>(0x8000u));
+    fillSf2(gm100Descriptor,22u,128);
+    const auto gm100Following=candidateOriginalSf2AfterPitchRegisters(
+        gm100Descriptor,3u,realSf2Device);
+    CHECK(gm100Following && applyOriginalCreativeVxdVoicePorts(
+        chip,*gm100Following));
+    CHECK(real->voice[3].envval==0x8000u);
+    CHECK(real->voice[3].envvol==0xbfffu); // actual original ATTACK128
+    CHECK(real->voice[3].tremfrq==0x0080u);
+    CHECK(real->voice[3].ptrx==0u && real->voice[3].cpf==0u);
+    // Complete the final 22 ORIGINAL x86 SF2 NOTE START OUTs on the
+    // SAME physical pinned EMU8000, immediately after the previous
+    // 18+16 writes; source-true 60-operation note start (not the five
+    // separate source voice allocator/prologue operations).
+    const auto setSf2Dword=[](CreativeSf2VoiceDescriptorBytes& b,
+                              const unsigned at,std::uint32_t value) {
+        for(unsigned n=0;n<4u;++n)
+            b[at+n]=static_cast<std::uint8_t>(value>>(8u*n));
+    };
+    setSf2Dword(realSf2GM0,0x76u,0xfeb9u);
+    setSf2Dword(realSf2GM0,0x7au,0x152feu);
+    setSf2Dword(realSf2GM0,0x7eu,0x152bbu);
+    setSf2Dword(realSf2GM0,0x82u,0x152fau);
+    fillSf2(realSf2GM0,54u,1); // source loop mode
+    fillSf2(realSf2GM0,17u,127);fillSf2(realSf2GM0,15u,0);
+    fillSf2(realSf2GM0,16u,27);fillSf2(realSf2GM0,18u,129);
+    fillSf2(realSf2GM0,36u,3);fillSf2(realSf2GM0,37u,0);
+    const auto gm0End=candidateOriginalSf2FinalNoteStartPorts(
+        realSf2GM0,0u,{true,0u,0x1c48u});
+    CHECK(gm0End && gm0End->size()==22u);
+    CHECK(applyOriginalCreativeVxdVoicePorts(chip,*gm0End));
+    CHECK(real->voice[0].psst==0x7f0152bau);
+    CHECK(real->voice[0].csl==0x000152f9u);
+    CHECK(real->voice[0].ccca==0x0000feb5u);
+    CHECK(real->voice[0].z1==0u && real->voice[0].z2==0u);
+    CHECK(real->voice[0].vtft==0x0000b300u &&
+          real->voice[0].cvcf==0x0000b300u);
+    CHECK(real->voice[0].ptrx==0x1c481b81u);
+    CHECK(real->voice[0].cpf==0x1c480000u);
+    CHECK(real->voice[0].dcysusv==0x0003u);
+    setSf2Dword(gm100Descriptor,0x76u,0x34116u);
+    setSf2Dword(gm100Descriptor,0x7au,0x36804u);
+    setSf2Dword(gm100Descriptor,0x7eu,0x3460eu);
+    setSf2Dword(gm100Descriptor,0x82u,0x36800u);
+    fillSf2(gm100Descriptor,54u,1);
+    fillSf2(gm100Descriptor,17u,127);fillSf2(gm100Descriptor,15u,122);
+    fillSf2(gm100Descriptor,16u,27);fillSf2(gm100Descriptor,18u,129);
+    fillSf2(gm100Descriptor,36u,9);fillSf2(gm100Descriptor,37u,0);
+    const auto gm100End=candidateOriginalSf2FinalNoteStartPorts(
+        gm100Descriptor,3u,{true,0x260cu,0x0ae7u});
+    CHECK(gm100End && applyOriginalCreativeVxdVoicePorts(chip,*gm100End));
+    CHECK(real->voice[3].psst==0x7f03460du);
+    CHECK(real->voice[3].csl==0x7a0367ffu);
+    CHECK(real->voice[3].ccca==0x00034112u);
+    CHECK(real->voice[3].z1==0u && real->voice[3].z2==0u);
+    CHECK(real->voice[3].vtft==0x260cff00u &&
+          real->voice[3].cvcf==0x260cff00u);
+    CHECK(real->voice[3].ptrx==0x0ae71b81u);
+    CHECK(real->voice[3].cpf==0x0ae70000u);
+    CHECK(real->voice[3].dcysusv==0x0009u);
+    // SOURCE x86 original GM100 has two physical voices 0 and 3.
+    // It performs 5+5 allocation OUTs BEFORE 56+56 note-start OUTs,
+    // not one fake 61-OUT-per-voice replay. Execute the complete
+    // source-order batch on unchanged real pinned EMU8000.
+    auto gm100First=gm100Descriptor;
+    fillSf2(gm100First,58u,85); // layer0 root, original IP=BE3B
+    fillSf2(gm100First,52u,-32);
+    fillSf2(gm100First,15u,118);
+    fillSf2(gm100First,22u,254);
+    fillSf2(gm100First,5u,7);
+    setSf2Dword(gm100First,0x76u,0x74a48u);
+    setSf2Dword(gm100First,0x7au,0x76dd5u);
+    setSf2Dword(gm100First,0x7eu,0x74a6bu);
+    setSf2Dword(gm100First,0x82u,0x76dd1u);
+    std::array<OriginalSf2FullNoteOnVoice,2> completeGM100{};
+    completeGM100[0].verified_after_start_record=gm100First;
+    completeGM100[0].played_midi_key=60u;
+    completeGM100[0].physical_voice=0u;
+    completeGM100[0].source_original_voice_verified=true;
+    completeGM100[0].lfo={true,0,0};
+    completeGM100[0].target={true,0x260cu,0x1254u};
+    completeGM100[1].verified_after_start_record=gm100Descriptor;
+    completeGM100[1].played_midi_key=60u;
+    completeGM100[1].physical_voice=3u;
+    completeGM100[1].source_original_voice_verified=true;
+    completeGM100[1].lfo={true,0,0};
+    completeGM100[1].target={true,0x260cu,0x0ae7u};
+    const auto fullOriginal=candidateOriginalSf2FullNoteOnPorts(
+        completeGM100);
+    CHECK(fullOriginal && fullOriginal->count==122u);
+    CHECK(fullOriginal->out[0].value==0x60u &&
+          fullOriginal->out[5].value==0x63u &&
+          fullOriginal->out[10].value==0x60u &&
+          fullOriginal->out[66].value==0x63u);
+    CHECK(applyOriginalCreativeSf2FullNoteOnPorts(chip,completeGM100));
+    CHECK(real->voice[0].ip==0xbe3bu &&
+          real->voice[0].ifatn==0xff2au);
+    CHECK(real->voice[3].ip==0xb2b5u &&
+          real->voice[3].ifatn==0xff2au);
+    CHECK(real->voice[0].psst==0x7f074a6au &&
+          real->voice[0].csl==0x76076dd0u);
+    CHECK(real->voice[3].psst==0x7f03460du &&
+          real->voice[3].csl==0x7a0367ffu);
+    CHECK(real->voice[0].ccca==0x00074a44u &&
+          real->voice[3].ccca==0x00034112u);
+    CHECK(real->voice[0].vtft==0x260cff00u &&
+          real->voice[3].vtft==0x260cff00u);
+    CHECK(real->voice[0].dcysusv==9u &&
+          real->voice[3].dcysusv==9u);
+    // Now repeat the SAME original GM100 full 122-OUT NoteOn through
+    // the source-backed VXD channel/voice memory image adapter. The
+    // per-physical-voice IP at +0x0E is generated by the actual 1996
+    // LCOD+0x574F source formula, NOT passed as a guessed target word.
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> sourceState{};
+    const auto st32=[&sourceState](const std::size_t at,
+                                  const std::uint32_t value) {
+        for(unsigned k=0;k<4u;++k)
+            sourceState[at+k]=static_cast<std::uint8_t>(value>>(k*8u));
+    };
+    st32(kOriginalVxdRomIdOffset,0x4d474d31u); // real 1MGM ID
+    std::array<OriginalSf2VxdSnapshotVoice,2> stateBound{};
+    stateBound[0].assigned_voice=completeGM100[0];
+    stateBound[1].assigned_voice=completeGM100[1];
+    stateBound[0].original_midi_channel=0u;
+    stateBound[1].original_midi_channel=0u;
+    OriginalSf2VerifiedVxdDeviceSnapshot sourceView{};
+    sourceView.original_state_bytes=sourceState;
+    sourceView.independently_verified_original_vxd_snapshot=true;
+    sourceView.original_lcod_31word_table_verified=true;
+    sourceView.source_positive_16word_table[10]=0x9830u;
+    CHECK(candidateOriginalSf2WriteInitialIpToVxdState(
+        sourceState,true,stateBound));
+    const auto snapshotGM100=candidateOriginalSf2FullNoteOnFromVxdSnapshot(
+        stateBound,sourceView);
+    CHECK(snapshotGM100 && snapshotGM100->count==122u);
+    for(std::size_t k=0;k<122u;++k) {
+        CHECK(snapshotGM100->out[k].port==fullOriginal->out[k].port);
+        CHECK(snapshotGM100->out[k].access_width_bits==
+              fullOriginal->out[k].access_width_bits);
+        CHECK(snapshotGM100->out[k].value==fullOriginal->out[k].value);
+    }
+    CHECK(applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
+        chip,stateBound,sourceView));
+    CHECK(real->voice[0].ip==0xbe3bu && real->voice[3].ip==0xb2b5u);
+    CHECK(real->voice[0].ptrx==0x12541b81u &&
+          real->voice[3].ptrx==0x0ae71b81u);
+    CHECK(real->voice[0].vtft==0x260cff00u &&
+          real->voice[3].vtft==0x260cff00u);
+    auto invalidFull=completeGM100;
+    invalidFull[1].physical_voice=0u; // physical collision
+    const auto originalIp=real->voice[0].ip;
+    CHECK(!applyOriginalCreativeSf2FullNoteOnPorts(chip,invalidFull));
+    CHECK(real->voice[0].ip==originalIp);
+    invalidFull=completeGM100;
+    invalidFull[1].verified_after_start_record[0x8du]=0x80u;
+    CHECK(!applyOriginalCreativeSf2FullNoteOnPorts(chip,invalidFull));
+    CHECK(real->voice[0].ip==originalIp);
+    const auto oldIfatn=real->voice[3].ifatn;
+    // Malformed sequences must be rejected transactionally before writes.
+    auto invalid=start;
+    invalid[0].access_width_bits=16;
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,invalid));
+    invalid=start;invalid[3].port=0xA20;
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,invalid));
+    invalid=start;invalid[2].value=0x7eu; // voice30 reserved
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,invalid));
+    invalid=start;invalid[1].value=0x10000u;
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,invalid));
+    invalid=start;invalid[3].access_width_bits=8;
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,invalid));
+    CHECK(real->voice[3].ifatn==oldIfatn);
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,{}));
+    chip.close();
+    CHECK(!applyOriginalCreativeVxdVoicePorts(chip,start));
+    std::filesystem::remove(rom);
+    std::cout<<"P002_ORIGINAL_VXD_PORTS_EXECUTED_ON_PINNED_EMU8000_PASS"
+             <<" DCYSUSV=00FF VTFT=0000FFFF group_stop=807F"
+             <<" original_GM0_ip=C962 live_CC7_ifatn=B285 bend_ip=CC0C"
+             <<" sample_CSL=15306 PSST=47015302 mode5_6=TRUE"
+             <<" original_note_start_envelope7_actual_chip=TRUE"
+             <<" original_CCCA_source_minus4_Q_actual_chip=TRUE"
+             <<" original_NoteOn_PSST_CSL_geometry_chip=TRUE"
+             <<" selected_original_SBK_gen8_to_REAL_chip_cutoff178=TRUE"
+             <<" original_GM40_gen8_105_gen34_10_REAL_chip_cutoff148=TRUE"
+             <<" actual_SF2_GM100_attack128_hw127_IFATN_FF2A=TRUE"
+             <<" real_SF2_GM0_IFATN_B33A_GM40_IFATN_9532=TRUE"
+             <<" actual_SF2_GM0_GM40_GM100_IP_ON_PINNED_CHIP=4_4"
+             <<" original_SF2_18_OUT_GM0_GM100_REAL_CHIP=TRUE"
+             <<" original_SF2_NEXT16_OUT_REAL_CHIP=TRUE"
+             <<" original_SF2_FINAL22_OUT_REAL_CHIP=TRUE"
+             <<" original_SF2_COMPLETE_122_TWO_VOICE_REAL_CHIP=TRUE"
+             <<" original_SF2_VXD_STATE_DERIVED_122_REAL_CHIP=TRUE"
+             <<" ordinary_noteoff_DCYSUSV=8020_DCYSUS=8045"
+             <<" release_CSL=15302_PSST_preserved=TRUE"
+             <<" stereo=TRUE zero_Creative_bytes=TRUE"
+             <<" original_driver_PCM_parity=NOT_PROVEN\n";
+    return 0;
+}

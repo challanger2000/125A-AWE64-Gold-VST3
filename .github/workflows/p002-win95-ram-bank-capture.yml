@@ -1,0 +1,110 @@
+name: P002 original Win95 Creative RAM-bank guest upload probe PE32
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - src/win95/p002_original_creative_ram_bank_capture.c
+      - tools/p002_stage_original_win95_ram_probe.py
+      - tests/test_p002_win95_ram_stage.py
+      - tools/p002_verify_original_win95_ram_guest_log.py
+      - tests/test_p002_win95_ram_guest_log.py
+      - tools/p002_extract_original_win95_ram_log_fat16.py
+      - tests/test_p002_extract_win95_ram_log_fat16.py
+      - tools/p002_attest_private_win95_creative_driver_fat16.py
+      - tests/test_p002_attest_private_win95_creative_driver_fat16.py
+      - tools/p002_arm_private_win95_autorun.py
+      - tests/test_p002_arm_private_win95_autorun.py
+      - tools/p002_join_original_win95_ram_evidence.py
+      - tests/test_p002_join_win95_ram_evidence.py
+      - tools/p002_compare_original_dry_pcm.py
+      - tests/test_p002_compare_original_dry_pcm.py
+      - tools/p002_verify_original_creative_ram_transfer.py
+      - tests/test_p002_verify_original_creative_ram_transfer.py
+      - tools/p002_verify_original_ram_note_geometry.py
+      - tests/test_p002_verify_original_ram_note_geometry.py
+      - tools/p002_original_bank_transform_evidence.py
+      - tests/test_p002_original_bank_transform_evidence.py
+      - .github/workflows/p002-win95-ram-bank-capture.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile_original_creative_ram_bank_guest_probe:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify disposable FAT16 Win95 source preservation and private SF2 guest staging
+        run: |
+          python3 -m unittest discover -s tests -p 'test_p002_win95_ram_stage.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_win95_ram_guest_log.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_extract_win95_ram_log_fat16.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_attest_private_win95_creative_driver_fat16.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_arm_private_win95_autorun.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_join_win95_ram_evidence.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_compare_original_dry_pcm.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_verify_original_creative_ram_transfer.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_verify_original_ram_note_geometry.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_original_bank_transform_evidence.py' -v
+          echo 'P002_REAL_SOURCE_THREE_TAP_ZERO_RUN_CREATIVE_RAM_TRANSFER_SYNTHETIC_NEGATIVE_CONTROLS_PASS'
+          echo 'P002_ORIGINAL_CREATIVE_AND_VST3_STRICT_DRY_PCM16_COMPARATOR_SYNTHETIC_NEGATIVES_PASS'
+          echo 'P002_PRIVATE_WIN95_ORIGINAL_DRIVER_RAM_GUEST_FAT16_STAGING_SYNTHETIC_PASS'
+      - name: Install original Win95-compatible i586 compiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Compile original AWEMAN32 AWE_LOAD_USER_BANK guest probe PE32
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p win95-ram
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o win95-ram/P002RAM.EXE \
+            src/win95/p002_original_creative_ram_bank_capture.c \
+            -lwinmm -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p win95-ram/P002RAM.EXE \
+            > win95-ram/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' \
+            win95-ram/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' \
+            win95-ram/pe-headers.txt
+          if grep -Ei 'DLL Name:' win95-ram/pe-headers.txt | \
+             grep -Eiv 'KERNEL32|WINMM'; then
+            echo 'FAIL: unsupported Win95 PE32 import'; exit 1
+          fi
+          grep -Eq 'MajorSubsystemVersion[[:space:]]+0*4([[:space:]]|$)' \
+            win95-ram/pe-headers.txt
+          grep -Eq 'MinorSubsystemVersion[[:space:]]+0+([[:space:]]|$)' \
+            win95-ram/pe-headers.txt
+          i686-w64-mingw32-objdump -d win95-ram/P002RAM.EXE \
+            > win95-ram/disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' \
+            win95-ram/disassembly.txt; then
+            echo 'FAIL: Pentium Pro-only CMOV'; exit 1
+          fi
+          if grep -Eiq '[[:space:]](movaps|movups|sysenter|pavg[bw]|pmulhw)[[:space:]]' \
+            win95-ram/disassembly.txt; then
+            echo 'FAIL: Pentium Pro/SSE instruction'; exit 1
+          fi
+          sha256sum win95-ram/P002RAM.EXE > win95-ram/P002RAM.sha256
+          echo 'P002_WIN95_ORIGINAL_CREATIVE_AWEMAN32_RAM_GUEST_PROBE_PE32_PASS'
+          echo 'RAM_SF2_LOAD_VIA_ORIGINAL_WIN95_DRIVER_IN_86BOX=NOT_YET_EXECUTED'
+      - name: Upload private guest-staging executable (NO SF2/ROM/VXD/Windows disk)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P002-Win95-Original-Creative-RAM-Bank-Capture-Guest-EXE
+          path: |
+            win95-ram/P002RAM.EXE
+            win95-ram/P002RAM.sha256
+            win95-ram/pe-headers.txt
+            tools/p002_arm_private_win95_autorun.py
+            tools/p002_stage_original_win95_ram_probe.py
+            tools/p002_extract_original_win95_ram_log_fat16.py
+            tools/p002_verify_original_win95_ram_guest_log.py
+          retention-days: 3
+          if-no-files-found: error

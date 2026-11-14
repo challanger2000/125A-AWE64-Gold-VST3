@@ -132,11 +132,15 @@ void midiEvent(EventList& list, bool on, int offset) {
 }
 }
 int wmain(int argc, wchar_t** argv) {
+    // Preserve the independent pre-CT1745 AWE32_WAV PCM16 tap for
+    // all historical original-chip reference and RT heap regressions.
+    // Normal VST3 instances without this private flag use full CT1745.
+    if(_wputenv_s(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"1")!=0)return 87;
     if (argc != 3) return 2;
     HMODULE module=nullptr;
     IPluginFactory* factory=nullptr;
     try {
-        require(SetEnvironmentVariableW(L"AWE64_P001_ROM_PATH",argv[2])!=0,
+        require(_wputenv_s(L"AWE64_P001_ROM_PATH",argv[2])==0,
                 "Cannot configure original private ROM");
         // Assert original fork's EMU8K_STATE_DUMP cannot fprintf from DAW thread.
         wchar_t temp[MAX_PATH]={};
@@ -162,7 +166,16 @@ int wmain(int argc, wchar_t** argv) {
         require(getter!=nullptr,"VST3 GetPluginFactory export missing");
         factory=getter();
         require(factory!=nullptr,"Null VST3 factory");
-        {
+        for(int outputMode=0;outputMode<2;++outputMode) {
+            // Two SEPARATE actual VST3 instances, with the same
+            // positive-verified RtlAllocateHeap interceptor:
+            // 0: historical original pre-card PCM16 AWE32_WAV tap
+            // 1: new real CT1745 reset-card float wavetable output
+            // Use _wputenv_s, not SetEnvironmentVariableW alone:
+            // std::getenv() inside the exported VST3 uses the UCRT.
+            require(_wputenv_s(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",
+                    outputMode==0?L"1":L"")==0,
+                    "Cannot select original CT1745 vs pre-card PCM tap");
             Instance plugin(factory);
             HeapMonitor trace;  // installs instrumentation OUTSIDE audio callback
             constexpr int kBlocks=1200;
@@ -228,10 +241,15 @@ int wmain(int argc, wchar_t** argv) {
                      <<" allocation_bytes="<<totalBytes
                      <<" worst_process_us_on_shared_CI="<<worstUs
                      <<" fork_state_dump_bytes=0"
+                     <<" audio_output_path="<<
+                       (outputMode==0?"pre_card_AWE32_WAV_PCM16":
+                                      "original_AWE64_Gold_CT1745_float")
                      <<"\n";
             // Shared CI is not a real ASIO device: observed wall time is NOT
             // a scheduler deadline guarantee and this is NOT DAW certification.
         }
+        require(_wputenv_s(L"AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC",L"")==0,
+                "Cannot restore private historical pre-card mode");
         factory->release(); factory=nullptr;
         FreeLibrary(module); module=nullptr;
         _wputenv_s(L"EMU8K_STATE_DUMP",L"");

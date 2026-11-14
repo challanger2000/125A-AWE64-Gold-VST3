@@ -1,0 +1,232 @@
+#include "CreativeSf2VxdSourceRelease.h"
+#include "Chip.h"
+#include <array>
+#include <cstdint>
+#include <iostream>
+#include <span>
+using namespace awe64::creative;
+#define CHECK(x) do {if(!(x)){std::cerr<<"P002_SOURCE_NOTEOFF_FAIL line="<<__LINE__<<" "<<#x<<"\n";return 1;}}while(0)
+namespace {
+void set16(std::array<std::uint8_t,kOriginalVxdMinDeviceImage>& s,
+           std::size_t p,std::uint16_t w){
+    s[p]=static_cast<std::uint8_t>(w);
+    s[p+1u]=static_cast<std::uint8_t>(w>>8u);
+}
+void set32(std::array<std::uint8_t,kOriginalVxdMinDeviceImage>& s,
+           std::size_t p,std::uint32_t w){
+    for(unsigned i=0;i<4u;++i)s[p+i]=static_cast<std::uint8_t>(w>>(i*8u));
+}
+OriginalSf2VxdSnapshotVoice layer(std::uint8_t id){
+    OriginalSf2VxdSnapshotVoice result{};
+    result.original_midi_channel=0;
+    result.assigned_voice.physical_voice=id;
+    result.assigned_voice.played_midi_key=60;
+    result.assigned_voice.source_original_voice_verified=true;
+    return result;
+}
+}
+int main(){
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> state{};
+    set32(state,kOriginalVxdRomIdOffset,0x4d474d31u);
+    constexpr std::size_t v0=kOriginalVxdVoiceRowStart;
+    constexpr std::size_t v3=kOriginalVxdVoiceRowStart+
+                             3u*kOriginalVxdVoiceRowStride;
+    for(const auto p:{v0,v3}){
+        set16(state,p,60u);
+        state[p+0x16u]=92u; // source-record volume release
+        state[p+0x15u]=45u; // source-record modulation release
+    }
+    auto notes=std::array<OriginalSf2VxdSnapshotVoice,2>{{layer(0),layer(3)}};
+    for(auto& n:notes) {
+        n.assigned_voice.verified_after_start_record[0x8cu]=1u;
+        n.assigned_voice.verified_after_start_record[0x3cu]=127u;
+        n.assigned_voice.verified_after_start_record[0x4cu]=41u;
+    }
+    CHECK(candidateOriginalSf2StoreNoteOnSourceReleaseState(state,true,notes));
+    CHECK(state[v0]==60u && state[v3]==60u &&
+          state[v0+0x15u]==127u && state[v3+0x15u]==127u &&
+          state[v0+0x16u]==41u && state[v3+0x16u]==41u);
+    // The same authenticated ORIGINAL NoteOn generator30/38 bytes must
+    // be used for BOTH NoteOff and CC64 pedal-up. These tests are purely
+    // read-only: no private ROM or audio device is needed to catch a
+    // stale/corrupt original voice row before any chip I/O.
+    const auto v0row=std::span<const std::uint8_t>(state).subspan(
+        v0,kOriginalVxdVoiceRowStride);
+    const auto rates=candidateOriginalSf2VerifiedReleaseRates(v0row,notes[0]);
+    CHECK(rates && rates->modulation==127u && rates->volume==41u);
+    const auto beforeRateFault=state;
+    state[v0+0x15u]^=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        std::span<const std::uint8_t>(state).subspan(
+            v0,kOriginalVxdVoiceRowStride),notes[0]));
+    state=beforeRateFault;
+    state[v0+0x16u]^=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        std::span<const std::uint8_t>(state).subspan(
+            v0,kOriginalVxdVoiceRowStride),notes[0]));
+    state=beforeRateFault;
+    auto changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.verified_after_start_record[0x3du]=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.verified_after_start_record[0x4du]=1u;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    changedDescriptor=notes[0];
+    changedDescriptor.assigned_voice.source_original_voice_verified=false;
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(v0row,changedDescriptor));
+    CHECK(!candidateOriginalSf2VerifiedReleaseRates(
+        v0row.first(kOriginalVxdVoiceRowStride-1u),notes[0]));
+    CHECK(state==beforeRateFault);
+    // Reject entire batch before mutating any note marker when a
+    // later layer has a corrupt encoded rate or duplicate voice.
+    auto bad=notes;
+    bad[1].assigned_voice.verified_after_start_record[0x4cu]=128u;
+    const auto unchanged=state;
+    CHECK(!candidateOriginalSf2StoreNoteOnSourceReleaseState(state,true,bad));
+    CHECK(state==unchanged);
+    // Source original sustain = CHANNEL+4. Voice+4 stores a separate
+    // instrument amplitude term and MUST NOT gate NoteOff.
+    const auto ch=kOriginalVxdChannelRowStart;
+    state[v0+4u]=1u;
+    state[v3+4u]=1u;
+    state[ch+4u]=0u;
+    const auto wrongKey=state;
+    awe64::Chip unopened{};
+    CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
+        unopened,state,notes,0u,60u,true));
+    CHECK(state==wrongKey); // no mutation when no actual source chip
+    // The genuine pinned chip ROM must be opened for I/O: additionally
+    // covered with a real ROM in exported Windows VST3 diagnostic host.
+    CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
+        unopened,state,notes,0u,61u,true));
+    CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
+        unopened,state,notes,16u,60u,true));
+    CHECK(!applyOriginalSf2MidiNoteOffFromVxdState(
+        unopened,state,notes,0u,60u,false));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,0u,127u,true));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,0u,0u,true));
+    CHECK(!applyOriginalSf2MidiCc64FromVxdState(
+        unopened,state,notes,16u,0u,true));
+    // Source-verified original CC64 pedal release must scan the FULL
+    // thirty original physical slots, not just one recent NoteOn's
+    // six-descriptor selection, and never release an unknown voice.
+    // This preflight is independently testable WITHOUT opening a ROM;
+    // the actual hardware execution is tested by the real VST3 host.
+    std::array<std::uint8_t,kOriginalVxdMinDeviceImage> poly{};
+    set32(poly,kOriginalVxdRomIdOffset,0x4d474d31u);
+    std::array<OriginalSf2VxdSnapshotVoice,kOriginalCreativeMusicVoices>
+        tracked{};
+    for(unsigned i=0;i<kOriginalCreativeMusicVoices;++i) {
+        tracked[i]=layer(static_cast<std::uint8_t>(i));
+        tracked[i].assigned_voice.played_midi_key=
+            static_cast<std::uint8_t>(48u+i);
+        tracked[i].original_midi_channel=(i==11u)?1u:0u;
+        auto& d=tracked[i].assigned_voice.verified_after_start_record;
+        d[0x8cu]=1u;
+        d[0x3cu]=static_cast<std::uint8_t>(20u+i);
+        d[0x4cu]=static_cast<std::uint8_t>(35u+i);
+        const auto row=kOriginalVxdVoiceRowStart+
+            i*kOriginalVxdVoiceRowStride;
+        set16(poly,row,static_cast<std::uint16_t>(
+            (static_cast<unsigned>(tracked[i].original_midi_channel)<<8u)|
+            tracked[i].assigned_voice.played_midi_key));
+        poly[row+0x15u]=d[0x3cu];
+        poly[row+0x16u]=d[0x4cu];
+    }
+    auto scan=candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,127u,true);
+    CHECK(scan && scan->count==0u); // pedal down, thirty assigned
+    auto empty=std::span<const OriginalSf2VxdSnapshotVoice>{};
+    CHECK(candidateOriginalSf2Cc64DeferredScan(
+        poly,empty,0u,0u,true)); // zero active voices is valid when no deferred
+    // Exercise 15 different source NoteOn lifetimes at once. Physical
+    // voice 11 belongs to MIDI channel 1 and must remain untouched.
+    for(unsigned i=0;i<kOriginalCreativeMusicVoices;++i) {
+        if(i%2u==0u && i!=11u) {
+            const auto row=kOriginalVxdVoiceRowStart+
+                i*kOriginalVxdVoiceRowStride;
+            poly[row]=0xffu; // original sustain-deferred key marker
+        }
+    }
+    const auto originalPoly=poly;
+    scan=candidateOriginalSf2Cc64DeferredScan(poly,tracked,0u,0u,true);
+    CHECK(scan && scan->count==15u);
+    CHECK(scan->voices[0].physical_voice==0u &&
+          scan->voices[14].physical_voice==28u);
+    CHECK(scan->voices[0].release.encoded_mod_release==20u &&
+          scan->voices[14].release.encoded_volume_release==63u);
+    CHECK(poly==originalPoly); // exhaustive scan never writes to VXD/chip
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,empty,0u,0u,true)); // unknown deferred rows => reject
+    const auto partial=std::span<const OriginalSf2VxdSnapshotVoice>(
+        tracked.data(),tracked.size()-1u);
+    // Voice 28 is deferred, but excluding the last (29) is safe.
+    CHECK(candidateOriginalSf2Cc64DeferredScan(
+        poly,partial,0u,0u,true));
+    const auto missing28=std::span<const OriginalSf2VxdSnapshotVoice>(
+        tracked.data(),tracked.size()-2u);
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,missing28,0u,0u,true));
+    auto damaged=poly;
+    damaged[kOriginalVxdVoiceRowStart+28u*kOriginalVxdVoiceRowStride+
+            0x16u]^=1u;
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        damaged,tracked,0u,0u,true));
+    auto dupTracked=tracked;
+    dupTracked[29]=dupTracked[0];
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,dupTracked,0u,0u,true));
+    auto wrongChannel=tracked;
+    wrongChannel[28].original_midi_channel=2u;
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,wrongChannel,0u,0u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,128u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,16u,0u,true));
+    CHECK(!candidateOriginalSf2Cc64DeferredScan(
+        poly,tracked,0u,0u,false));
+    CHECK(poly==originalPoly);
+    // Existing (already source proven) port-plan helper handles exact
+    // rate byte values, sustain deferral, and optional CSL/PSST updates.
+    OriginalVxdNoteReleaseEvidence e{};
+    e.original_key_channel_match=true;
+    e.original_voice_record_verified=true;
+    e.current_chip_registers_verified=true;
+    e.encoded_volume_release=state[v0+0x16u];
+    e.encoded_mod_release=state[v0+0x15u];
+    const auto cmd=candidateOriginalVxdMidiNoteRelease(0,e);
+    CHECK(cmd && cmd->count==4u);
+    CHECK(cmd->writes[1].port==0xa20u &&
+          cmd->writes[1].value==0x8029u); // GM0 original gen38=41
+    CHECK(cmd->writes[3].port==0xa20u &&
+          cmd->writes[3].value==0x807fu); // GM0 original gen30=127
+    e.original_sustain_held=true;
+    const auto held=candidateOriginalVxdMidiNoteRelease(0,e);
+    CHECK(held && held->deferred_by_sustain &&
+          held->count==0u);
+    e.original_sustain_held=false;
+    e.stored_end_word=0x152feu;
+    e.observed_chip_csl=0x72001234u;
+    e.observed_chip_psst=0x63005678u;
+    const auto rewrite=candidateOriginalVxdMidiNoteRelease(0,e);
+    CHECK(rewrite && rewrite->count==8u);
+    CHECK(rewrite->writes[5].value==0x72015302u);
+    CHECK(rewrite->writes[7].value==0x630152feu);
+    std::cout<<"P002_SOURCE_ORIGINAL_VXD_NOTEOFF_EVIDENCE_PASS"
+             <<" two_original_voice_record_byte_rates=TRUE"
+             <<" original_GM0_gen38_8029_gen30_807f=TRUE"
+             <<" original_release_from_SF2_noteon_descriptors=TRUE"
+             <<" noteoff_CC64_release_bytes_both_source_checked=TRUE"
+             <<" sustain_at_MIDI_channel_plus4_NOT_voice_plus4=TRUE"
+             <<" original_CC64_656D_pedal_off_release_helper_PRESENT=TRUE"
+             <<" original_CC64_30physical_slot_source_scan=TRUE"
+             <<" unknown_deferred_voice_fails_closed=TRUE"
+             <<" original_sustain_defer=TRUE"
+             <<" original_CSL_PSST_preserved_high_byte=TRUE"
+             <<" actual_exported_VST3_PCM=TEST_SEPARATELY"
+             <<" original_Win95_runtime_PCMPARITY=NOT_PROVEN\n";
+    return 0;
+}

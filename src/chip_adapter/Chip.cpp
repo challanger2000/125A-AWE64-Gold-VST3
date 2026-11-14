@@ -21,7 +21,14 @@ void Chip::DeviceDeleter::operator()(emu8k_t* p) const noexcept {
     delete p;
 }
 Chip::~Chip() = default;
-void Chip::close() noexcept { device_.reset(); }
+void Chip::close() noexcept {
+    device_.reset();
+    trace_armed_=false;
+    native_note_capture_active_=false;
+    native_note_chip_snapshot_.clear();
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
+}
 
 bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
     if (device_) { error = "Chip already initialized"; return false; }
@@ -62,11 +69,51 @@ bool Chip::open(const std::filesystem::path& privateRom, std::string& error) {
         return false;
     }
     device_ = std::move(candidate);
+    rendered_frames_=0;
+    trace_count_=0;
+    trace_overflow_=false;
+    trace_armed_=false;
     error.clear();
     return true;
 }
+bool Chip::armNativeNoteOutTransaction() noexcept {
+    if(!device_ || native_note_capture_active_)return false;
+    try {
+        native_note_chip_snapshot_.resize(sizeof(emu8k_t));
+    }catch (...) {
+        native_note_chip_snapshot_.clear();
+        return false;
+    }
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
+    return true;
+}
+bool Chip::beginNativeNoteOutTransaction() noexcept {
+    if(!device_ || native_note_capture_active_ ||
+       native_note_chip_snapshot_.size()!=sizeof(emu8k_t))
+        return false;
+    std::memcpy(native_note_chip_snapshot_.data(),device_.get(),
+                sizeof(emu8k_t));
+    native_note_old_wavetable_pos_=wavetable_pos_global;
+    native_note_write_count_=0u;
+    native_note_write_overflow_=false;
+    native_note_selector_=0u;
+    native_note_capture_active_=true;
+    return true;
+}
+bool Chip::endNativeNoteOutTransaction() noexcept {
+    if(!device_ || !native_note_capture_active_)return false;
+    // The original ROM/RAM pointers are not replaced, just the C
+    // struct's register/voice/channel state. This path only permits
+    // NOTE register writes; the sample ROM/RAM was never modified.
+    std::memcpy(device_.get(),native_note_chip_snapshot_.data(),
+                sizeof(emu8k_t));
+    wavetable_pos_global=native_note_old_wavetable_pos_;
+    native_note_capture_active_=false;
+    return !native_note_write_overflow_;
+}
 bool Chip::uploadRam(uint32_t address, std::span<const int16_t> samples) noexcept {
-    if (!device_) return false;
+    if (!device_ || native_note_capture_active_) return false;
     if (address < kSampleRamBase || address >= kFmReservedBase) return false;
     if (samples.size() > static_cast<std::size_t>(kFmReservedBase - address)) return false;
     if (!samples.empty())
@@ -74,16 +121,86 @@ bool Chip::uploadRam(uint32_t address, std::span<const int16_t> samples) noexcep
                     samples.data(), samples.size_bytes());
     return true;
 }
+bool Chip::armPortWriteTrace(std::size_t maxWrites) noexcept {
+    if(!device_ || maxWrites==0u || maxWrites>262144u)
+        return false;
+    // Full reservation on activation thread. No allocation in process().
+    try {
+        trace_buffer_.resize(maxWrites);
+    }catch (...) {
+        return false;
+    }
+    trace_count_=0u;
+    trace_overflow_=false;
+    trace_armed_=true;
+    return true;
+}
 void Chip::writePort(uint16_t port, uint16_t value) noexcept {
     if (!device_) return;
+    if(native_note_capture_active_) {
+        // Fail closed BEFORE touching the original chip if this note
+        // tries to issue a DRAM upload. SMALW/SMLD use E22 index
+        // 0x36/0x3a with DATA1 A20/A22. The snapshot copies register
+        // struct only, NOT 28 MiB sample RAM; permitting these writes
+        // would silently corrupt already authenticated original samples.
+        //
+        // E22 0x36/0x3a remain legal selectors for DATA3 on ordinary
+        // music voices 22/26; only the DRAM DATA1 combination is banned.
+        const bool allowedPort=
+            port==0xe22u || port==0xe20u ||
+            port==0xa20u || port==0xa22u ||
+            port==0x620u || port==0x622u;
+        // The pinned original fork maps DATA1 register 1 voices
+        // 20..31 to SMALR/SMARR/SMALW/SMARW/SMLD and hardware
+        // configuration. Any DATA1 access there is forbidden in a
+        // speculative NOTE transaction; legal DATA3 reads/writes on
+        // voice 22/26 must remain supported.
+        const bool dramOrGlobalData=
+            ((native_note_selector_>>5u)==1u) &&
+            ((native_note_selector_&31u)>=20u) &&
+            (port==0xa20u || port==0xa22u);
+        if(native_note_write_overflow_ || !allowedPort ||
+           (port==0xe22u && value>0xffu) || dramOrGlobalData ||
+           native_note_write_count_>=native_note_writes_.size()) {
+            native_note_write_overflow_=true;
+            return;
+        }
+        if(port==0xe22u)native_note_selector_=value;
+        native_note_writes_[native_note_write_count_++]={
+            rendered_frames_,port,value};
+    }else if(trace_armed_) {
+        if(trace_count_<trace_buffer_.size())
+            trace_buffer_[trace_count_++]={rendered_frames_,port,value};
+        else
+            trace_overflow_=true;
+    }
     wavetable_pos_global = device_->pos;
     emu8k_outw(port, value, device_.get());
 }
 uint16_t Chip::readPort(uint16_t port) noexcept {
-    return device_ ? emu8k_inw(port, device_.get()) : 0xffffu;
+    if(!device_)return 0xffffu;
+    if(native_note_capture_active_) {
+        // In the pinned original fork, reading E22 advances a GLOBAL
+        // random_helper outside emu8k_t; DATA1 global RAM-register
+        // reads can mutate the GLOBAL DMA flags/read cursor. None of
+        // these effects can be reverted by the C-struct snapshot.
+        // Original VXD idle allocator reads 620 (VTFT) only.
+        const bool globalRamRead=
+            ((native_note_selector_>>5u)==1u) &&
+            ((native_note_selector_&31u)>=20u) &&
+            (port==0xa20u || port==0xa22u);
+        const bool allowedRead=
+            port==0xe20u || port==0xa20u || port==0xa22u ||
+            port==0x620u || port==0x622u;
+        if(port==0xe22u || globalRamRead || !allowedRead) {
+            native_note_write_overflow_=true;
+            return 0xffffu;
+        }
+    }
+    return emu8k_inw(port,device_.get());
 }
 void Chip::render(int32_t* dest, std::size_t frames) noexcept {
-    if (!device_ || !dest) return;
+    if (!device_ || !dest || native_note_capture_active_) return;
     while (frames) {
         const auto n = std::min<std::size_t>(frames, WTBUFLEN);
         emu8k_reset_buffer(device_.get());
@@ -91,6 +208,7 @@ void Chip::render(int32_t* dest, std::size_t frames) noexcept {
         emu8k_update(device_.get());
         std::memcpy(dest, device_->buffer, n * 2u * sizeof(int32_t));
         dest += n * 2u; frames -= n;
+        rendered_frames_+=n;
     }
 }
 }

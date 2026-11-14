@@ -1,0 +1,265 @@
+#include "CreativeBoundVoiceController.h"
+#include <cstdint>
+#include <iostream>
+using namespace awe64::creative;
+#define CHECK(pred) do {if(!(pred)){std::cerr<<"P002_BOUND_VOICE_FAIL line="<<__LINE__<<" "<<#pred<<"\n";return 1;}}while(0)
+std::uint32_t msg(unsigned status,unsigned d1=0,unsigned d2=0) {
+    return status|(d1<<8)|(d2<<16);
+}
+MidiMessage decode(std::uint32_t packed) {
+    const auto r=decodeWinMmShort(packed);
+    return r.value();
+}
+CreativeRomNotePlan pianoNote(std::uint8_t channel=2) {
+    CreativeRomNotePlan n{};
+    n.channel=channel;n.program=0;n.key=60;n.velocity=96;
+    n.original_sbk_bank=0;n.count=1;
+    n.layers[0].metadata.bank=0;n.layers[0].metadata.program=0;
+    n.layers[0].metadata.key=60;n.layers[0].metadata.velocity=96;
+    n.layers[0].metadata.rom_sample_selector=3;
+    n.layers[0].metadata.instrument_local.raw[55]=7696; // original GM0
+    n.layers[0].address={3,0xFEB9,0x152FE,0x10000,0x10100};
+    return n;
+}
+OriginalCreativeIfatnTerms originalPianoTerms() {
+    OriginalCreativeIfatnTerms out{};
+    out.bank=0;out.initial_cutoff=178;out.encoded_volume_attack_rate=125;
+    out.volume={100,127,16,0,true}; // VXD measured encoded terms
+    return out;
+}
+int main() {
+    CreativeBoundVoiceController original{};
+    auto note=pianoNote();
+    auto terms=originalPianoTerms();
+    const auto first=original.bind(note,0,3,terms);
+    CHECK(first && original.occupiedVoiceCount()==1);
+    CHECK(first->pitch[0].port==0xE22 && first->pitch[0].value==3);
+    CHECK(first->pitch[1].port==0xE20 && first->pitch[1].value==0xC962);
+    CHECK(first->filter_and_attenuation[0].value==(0x20|3));
+    CHECK(first->filter_and_attenuation[1].port==0xE20);
+    CHECK(!original.bind(note,0,3,terms)); // duplicate physical voice
+    CHECK(!original.bind(note,0,30,terms)); // DRAM refresh voices
+    CHECK(!original.bind(note,1,9,terms)); // unknown bank layer
+    auto broken=note;broken.layers[0].address.sample_id=55;
+    CHECK(!original.bind(broken,0,9,terms));
+    broken=note;broken.layers[0].address.loop_end_word=0x20000;
+    CHECK(!original.bind(broken,0,9,terms));
+    auto wrongTerms=terms;wrongTerms.volume.original_1mgm_rom_sample=false;
+    CHECK(!original.bind(note,0,9,wrongTerms));
+    wrongTerms=terms;wrongTerms.bank=128;
+    CHECK(!original.bind(note,0,9,wrongTerms));
+
+    auto actions=original.process(decode(msg(0xB2,7,20)));
+    CHECK(actions && actions->count==1);
+    CHECK(actions->actions[0].kind==BoundVoiceActionKind::UpdateIfatn);
+    CHECK(actions->actions[0].physical_voice==3);
+    CHECK(actions->actions[0].writes[0].value==0x23);
+    CHECK(actions->actions[0].writes[1].value==0xB285);
+    actions=original.process(decode(msg(0xB2,7,127)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xB22D);
+    actions=original.process(decode(msg(0xB2,11,30)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xB26C);
+    actions=original.process(decode(msg(0xB2,11,127)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xB22D);
+
+    actions=original.process(decode(msg(0xE2,0,0)));
+    CHECK(actions && actions->count==1 && actions->actions[0].kind==BoundVoiceActionKind::UpdatePitch);
+    CHECK(actions->actions[0].writes[0].value==3 && actions->actions[0].writes[1].value==0xC6B8);
+    actions=original.process(decode(msg(0xE2,0,64)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xC962);
+    actions=original.process(decode(msg(0xE2,127,127)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xCC0C);
+    actions=original.process(decode(msg(0xE2,0,64)));
+    CHECK(actions && actions->count==1 && actions->actions[0].writes[1].value==0xC962);
+
+    actions=original.process(decode(msg(0xB2,64,127))); // pedal down
+    CHECK(actions && actions->count==0);
+    actions=original.process(decode(msg(0x82,60,0))); // key up, still sustained
+    CHECK(actions && actions->count==0);
+    actions=original.process(decode(msg(0xB2,64,0))); // pedal up
+    CHECK(actions && actions->count==1);
+    CHECK(actions->actions[0].kind==BoundVoiceActionKind::RequestEnvelopeRelease);
+    CHECK(actions->actions[0].physical_voice==3);
+    CHECK(original.occupiedVoiceCount()==1); // HW release NOT an immediate steal
+    actions=original.process(decode(msg(0xB2,7,20)));
+    CHECK(actions && actions->count==0); // no fabricated updates after release
+    CHECK(original.clearPhysicalVoice(3));
+    CHECK(!original.clearPhysicalVoice(3));
+    CHECK(original.occupiedVoiceCount()==0);
+    CHECK(!original.clearPhysicalVoice(30));
+
+    // Two separate original ROM layers can occupy physical 3 and 6.
+    // The original allocator (choosing those numbers) is still external.
+    actions=original.process(decode(msg(0xB2,7,100)));
+    CHECK(actions && actions->count==0);
+    CHECK(original.bind(note,0,3,terms));
+    CHECK(original.bind(note,0,6,terms));
+    actions=original.process(decode(msg(0xB2,7,20)));
+    CHECK(actions && actions->count==2);
+    CHECK(actions->actions[0].physical_voice==3 &&
+          actions->actions[1].physical_voice==6);
+    CHECK(actions->actions[0].writes[1].value==0xB285 &&
+          actions->actions[1].writes[1].value==0xB285);
+    actions=original.process(decode(msg(0xB2,120,0)));
+    CHECK(actions && actions->count==2);
+    CHECK(actions->actions[0].kind==BoundVoiceActionKind::RequestImmediateKill);
+    CHECK(actions->actions[1].kind==BoundVoiceActionKind::RequestImmediateKill);
+    CHECK(original.occupiedVoiceCount()==0);
+
+    // CC123 holds under sustain; CC121 resets controller but preserves program
+    // and issues a release request for a key that was already released.
+    CHECK(original.bind(note,0,3,terms));
+    CHECK(original.process(decode(msg(0xB2,64,127))));
+    actions=original.process(decode(msg(0xB2,123,0)));
+    CHECK(actions && actions->count==0);
+    actions=original.process(decode(msg(0xB2,121,0)));
+    CHECK(actions && actions->count==2); // IFATN reset + sustain release
+    CHECK(actions->actions[0].kind==BoundVoiceActionKind::UpdateIfatn);
+    CHECK(actions->actions[1].kind==BoundVoiceActionKind::RequestEnvelopeRelease);
+    CHECK(original.midi().channel(2).program==0 &&
+          original.midi().channel(2).cc7_volume==100 &&
+          original.midi().channel(2).cc11_expression==127);
+    CHECK(original.clearPhysicalVoice(3));
+
+    // MIDI channel separation: changing channel 2 cannot update a voice on 1.
+    auto other=pianoNote(1);
+    CHECK(original.bind(other,0,9,terms));
+    actions=original.process(decode(msg(0xB2,7,127)));
+    CHECK(actions && actions->count==0);
+    actions=original.process(decode(msg(0xB1,7,20)));
+    CHECK(actions && actions->count==1 && actions->actions[0].physical_voice==9);
+    CHECK(actions->actions[0].writes[1].value==0xB285);
+    MidiMessage invalid{};invalid.kind=MidiKind::Controller;
+    invalid.channel=16;invalid.data1=7;invalid.data2=50;
+    CHECK(!original.process(invalid));
+    CHECK(original.midi().channel(1).cc7_volume==20);
+    CHECK(original.clearPhysicalVoice(9));
+    // Original Win95 SBAWE.VXD mode-0 idle mono scan visits 0,3,6
+    // before the next lane. Here physical IDs are no longer supplied.
+    CreativeBoundVoiceController idleAllocated{};
+    std::array<OriginalVxdIdleVoiceProbe,30> probes{};
+    CHECK(!idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes));
+    for(auto& p:probes)p.driver_eligible=true;
+    const auto idle0=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    const auto idle3=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    const auto idle6=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(idle0 && idle3 && idle6);
+    CHECK(idle0->physical_voice==0 && idle3->physical_voice==3 &&
+          idle6->physical_voice==6);
+    CHECK(idle0->selected_voice_dcysusv[0].port==0xE22 &&
+          idle0->selected_voice_dcysusv[0].value==0xA0 &&
+          idle0->selected_voice_dcysusv[0].access_width_bits==8 &&
+          idle0->selected_voice_dcysusv[1].port==0xA20 &&
+          idle0->selected_voice_dcysusv[1].value==0x00FF &&
+          idle0->selected_voice_dcysusv[1].access_width_bits==16);
+    CHECK(idle3->selected_voice_dcysusv[0].value==0xA3);
+    CHECK(idle6->selected_voice_dcysusv[0].value==0xA6);
+    CHECK(idle0->assigned_voice_vtft[0].port==0xE22 &&
+          idle0->assigned_voice_vtft[0].value==0x60 &&
+          idle0->assigned_voice_vtft[0].access_width_bits==8 &&
+          idle0->assigned_voice_vtft[1].port==0x620 &&
+          idle0->assigned_voice_vtft[1].value==0x0000ffffu &&
+          idle0->assigned_voice_vtft[1].access_width_bits==32);
+    CHECK(idle3->assigned_voice_vtft[0].value==0x63);
+    CHECK(idle6->assigned_voice_vtft[0].value==0x66);
+    CHECK(idle0->initial.pitch[1].value==0xC962);
+    CHECK(idle3->initial.filter_and_attenuation[0].value==0x23);
+    probes[9].driver_key_marker=0x1000; // physical 9 is NOT verified idle
+    const auto idle12=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(idle12 && idle12->physical_voice==12);
+    CHECK(idleAllocated.clearPhysicalVoice(3));
+    const auto reused=idleAllocated.bindFirstOriginalIdleMono(note,0,terms,probes);
+    CHECK(reused && reused->physical_voice==3);
+    // Verified bounded source-to-register integration: genuine original
+    // GM0 C4 gen8=89 must override original instrument-global gen8=110.
+    CreativeBoundVoiceController originalBankBound{};
+    auto bankNote=pianoNote();
+    bankNote.layers[0].metadata.instrument_global.raw[8]=110;
+    bankNote.layers[0].metadata.instrument_local.raw[8]=89;
+    auto poisoned=terms;
+    poisoned.initial_cutoff=12; // intentionally wrong externally
+    const auto fromBank=originalBankBound.bindWithOriginalSbkCutoff(
+        bankNote,0,0,poisoned);
+    CHECK(fromBank && (fromBank->filter_and_attenuation[1].value>>8)==178);
+    CHECK(poisoned.initial_cutoff==12); // caller untouched
+    bankNote.layers[0].metadata.preset_local.raw[8]=3; // unproven offset
+    CHECK(!originalBankBound.bindWithOriginalSbkCutoff(
+        bankNote,0,9,poisoned));
+    CHECK(originalBankBound.occupiedVoiceCount()==1);
+    CHECK(originalBankBound.clearPhysicalVoice(0));
+    // Actual owner's original GM40/Violin C4 raw instrument values:
+    // global generator8=105, generator34=10, local pitch=8670.
+    // The PCOD+0x37BA generator34 attack path maps raw10 -> 115,
+    // which activates the genuine Creative velocity cutoff branch:
+    // (90*210+160)>>7 == 148 (measured original Win95 C4).
+    CreativeBoundVoiceController violinController{};
+    auto violinNote=pianoNote();
+    violinNote.program=40;violinNote.velocity=90;
+    violinNote.layers[0].metadata.program=40;
+    violinNote.layers[0].metadata.velocity=90;
+    violinNote.layers[0].metadata.rom_sample_selector=55;
+    violinNote.layers[0].address={
+        55,0x3765bu,0x37d1eu,0x37cf5u,0x37d18u};
+    violinNote.layers[0].metadata.instrument_global.raw[8]=105;
+    violinNote.layers[0].metadata.instrument_local.raw[8].reset();
+    violinNote.layers[0].metadata.instrument_global.raw[34]=10;
+    violinNote.layers[0].metadata.instrument_local.raw[55]=8670;
+    CHECK(violinController.process(decode(msg(0xC2,40,0))));
+    auto wrongAttack=terms;
+    wrongAttack.initial_cutoff=12; // wrong on purpose
+    wrongAttack.encoded_volume_attack_rate=125; // wrong on purpose
+    const auto violinBound=violinController.bindWithOriginalSbkCutoff(
+        violinNote,0,9,wrongAttack);
+    CHECK(violinBound &&
+          (violinBound->filter_and_attenuation[1].value>>8)==148);
+    CHECK(violinBound->pitch[1].value==0xBC66);
+    CHECK(wrongAttack.encoded_volume_attack_rate==125);
+    CHECK(violinController.clearPhysicalVoice(9));
+    violinNote.layers[0].metadata.preset_local.raw[34]=2;
+    CHECK(!violinController.bindWithOriginalSbkCutoff(
+        violinNote,0,9,wrongAttack)); // preset attack offset unresolved
+    // Reuse the existing bank-derived bind path: SF1 instVol must come
+    // from generator48, while DEVICE-STATE attenuation remains unchanged.
+    CreativeBoundVoiceController derivedVolume{};
+    auto volNote=pianoNote();
+    volNote.layers[0].metadata.instrument_local.raw[8]=89;
+    volNote.layers[0].metadata.instrument_global.raw[48]=107;
+    auto volTerms=terms;
+    volTerms.volume.device_state_additive_attenuation=0;
+    volTerms.volume.encoded_voice_amplitude=999; // deliberately poisoned
+    const auto direct=derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,0,volTerms);
+    CHECK(direct);
+    // For original MIDI velocity96, CC7=100/CC11=127 the computed
+    // IFATN low byte comes from instVol150, not the poisoned 999.
+    auto expectedTerms=terms;
+    expectedTerms.volume.device_state_additive_attenuation=0;
+    expectedTerms.volume.encoded_voice_amplitude=150;
+    expectedTerms.initial_cutoff=178;
+    const auto expectedLow=candidateOriginalCreativeIfatn(
+        96,expectedTerms);
+    CHECK(expectedLow && direct->filter_and_attenuation[1].value==expectedLow->word);
+    CHECK(volTerms.volume.encoded_voice_amplitude==999);
+    CHECK(derivedVolume.clearPhysicalVoice(0));
+    // An explicit but unsupported signed WORD may not fall back to the
+    // caller's old instrument descriptor: fail before occupying a voice.
+    volNote.layers[0].metadata.instrument_global.raw[48]=
+        static_cast<std::uint16_t>(-32768);
+    CHECK(!derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,6,volTerms));
+    CHECK(derivedVolume.occupiedVoiceCount()==0);
+    // Device-State and generator48 are genuinely two independent inputs.
+    volNote.layers[0].metadata.instrument_global.raw[48]=107;
+    volTerms.volume.device_state_additive_attenuation=7;
+    const auto withDevice=derivedVolume.bindWithOriginalSbkCutoff(
+        volNote,0,6,volTerms);
+    CHECK(withDevice);
+    expectedTerms.volume.device_state_additive_attenuation=7;
+    const auto deviceExpected=candidateOriginalCreativeIfatn(96,expectedTerms);
+    CHECK(deviceExpected &&
+          withDevice->filter_and_attenuation[1].value==deviceExpected->word);
+    CHECK(derivedVolume.clearPhysicalVoice(6));
+    std::cout<<"P002_BOUND_ORIGINAL_ROM_VOICES_PASS original_live_cc=4 pitchbend=3"
+             <<" sustain_release=TRUE all_sound_off=TRUE"
+             <<" allocator_and_release_registers_EXPLICITLY_UNVERIFIED=TRUE\n";
+}

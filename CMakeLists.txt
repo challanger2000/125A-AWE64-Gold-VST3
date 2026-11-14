@@ -41,11 +41,143 @@ else()
     target_link_libraries(awe64_fork_chip PUBLIC m)
 endif()
 
+# Original AWE64 Gold POST-EMU8000 CT1745 wavetable/card output.
+# Reuse only pin-verified original 86Box audio behavior, no Sound Blaster
+# DSP, FM, CD, PnP or guessed Creative driver mixer state.
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" hash-object
+        "${FORK_ROOT}/src/sound/snd_sb.c"
+    OUTPUT_VARIABLE GOLD_SB_BLOB OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE GOLD_SB_RC)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" hash-object
+        "${FORK_ROOT}/src/include/86box/filters.h"
+    OUTPUT_VARIABLE GOLD_FILTER_BLOB OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE GOLD_FILTER_RC)
+if(NOT GOLD_SB_RC EQUAL 0 OR NOT GOLD_SB_BLOB STREQUAL
+    "6d9a2da64e696237e0f3e4f210d75bc6e8ea0a63")
+    message(FATAL_ERROR "Pinned CT1745 snd_sb.c original source changed")
+endif()
+if(NOT GOLD_FILTER_RC EQUAL 0 OR NOT GOLD_FILTER_BLOB STREQUAL
+    "572137ef02ef1c708e1b6def4487bb53f8230dcf")
+    message(FATAL_ERROR "Pinned CT1745 filters.h original coefficients changed")
+endif()
+add_library(awe64_p002_ct1745_wavetable STATIC
+    src/card_mixer/OriginalCt1745WavetableMixer.cpp)
+target_include_directories(awe64_p002_ct1745_wavetable
+    PUBLIC src/card_mixer)
+target_compile_features(awe64_p002_ct1745_wavetable PUBLIC cxx_std_23)
+add_executable(awe64_p002_ct1745_wavetable_contract
+    tests/p002_gold_ct1745_adapter_contract.cpp)
+target_link_libraries(awe64_p002_ct1745_wavetable_contract
+    PRIVATE awe64_p002_ct1745_wavetable)
+add_test(NAME p002_original_awe64_gold_ct1745_post_chip_vectors
+         COMMAND awe64_p002_ct1745_wavetable_contract)
+
+# Independent, unmodified original fork static function oracle.
+# Linux-only test isolation uses GNU section garbage collection.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(awe64_p002_fork_wavetable_mixer_path
+        tests/p002_fork_awe64_wavetable_mixer_path.c)
+    target_include_directories(awe64_p002_fork_wavetable_mixer_path PRIVATE
+        "${FORK_ROOT}/src/include" "${FORK_ROOT}/src" "${FORK_ROOT}/src/cpu")
+    target_compile_options(awe64_p002_fork_wavetable_mixer_path
+        PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(awe64_p002_fork_wavetable_mixer_path
+        PRIVATE -Wl,--gc-sections)
+    target_link_libraries(awe64_p002_fork_wavetable_mixer_path PRIVATE m)
+    add_test(NAME p002_pinned_fork_awe64_gold_wavetable_mixer_path
+             COMMAND awe64_p002_fork_wavetable_mixer_path)
+
+    # DIRECT differential: the same original pinned snd_sb.c runs as
+    # its own C translation unit, sharing no DSP with the C++ VST3
+    # mixer adapter; compare per-sample after multiple real CT1745
+    # register mutations and original filter-state histories.
+    add_library(awe64_p002_original_fork_mixer_oracle STATIC
+        tests/p002_fork_awe64_wavetable_mixer_path.c)
+    target_compile_definitions(awe64_p002_original_fork_mixer_oracle
+        PRIVATE P002_ORIGINAL_CT1745_DIFFERENTIAL_ORACLE=1)
+    target_include_directories(awe64_p002_original_fork_mixer_oracle PRIVATE
+        "${FORK_ROOT}/src/include" "${FORK_ROOT}/src" "${FORK_ROOT}/src/cpu")
+    target_compile_options(awe64_p002_original_fork_mixer_oracle
+        PRIVATE -ffunction-sections -fdata-sections)
+    add_executable(awe64_p002_gold_ct1745_fork_differential
+        tests/p002_gold_ct1745_fork_differential.cpp)
+    target_link_libraries(awe64_p002_gold_ct1745_fork_differential
+        PRIVATE awe64_p002_ct1745_wavetable
+                awe64_p002_original_fork_mixer_oracle m)
+    target_link_options(awe64_p002_gold_ct1745_fork_differential
+        PRIVATE -Wl,--gc-sections)
+    add_test(NAME p002_original_fork_ct1745_full_filter_differential
+             COMMAND awe64_p002_gold_ct1745_fork_differential)
+endif()
+
 add_executable(awe64_replay tests/replay.cpp)
 target_link_libraries(awe64_replay PRIVATE awe64_fork_chip)
 add_executable(awe64_chip_contract tests/chip_contract.cpp)
 target_link_libraries(awe64_chip_contract PRIVATE awe64_fork_chip)
 add_test(NAME p001_chip_ram_rom_contract COMMAND awe64_chip_contract)
+# Passive read-only, sample-exact native physical port trace; no DSP edits.
+add_executable(awe64_p002_native_chip_port_trace_test
+    tests/p002_native_chip_port_trace.cpp)
+target_link_libraries(awe64_p002_native_chip_port_trace_test
+    PRIVATE awe64_fork_chip)
+add_test(NAME p002_native_original_chip_passive_port_trace
+    COMMAND awe64_p002_native_chip_port_trace_test)
+# Source-clocked hardware OUT execution on the ORIGINAL pinned EMU8000.
+# The executor does not invent driver timing; external measured offsets
+# remain mandatory for any original-Win95 equivalence claim.
+add_library(awe64_p002_sample_clock_ports STATIC
+    src/creative_compat/CreativeSampleClockPorts.cpp)
+target_include_directories(awe64_p002_sample_clock_ports PUBLIC
+    src/creative_compat)
+target_link_libraries(awe64_p002_sample_clock_ports PUBLIC awe64_fork_chip)
+target_compile_features(awe64_p002_sample_clock_ports PUBLIC cxx_std_23)
+add_executable(awe64_p002_sample_clock_ports_test
+    tests/p002_sample_clock_ports.cpp)
+target_link_libraries(awe64_p002_sample_clock_ports_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p002_source_clocked_original_chip_outs_and_pcm
+    COMMAND awe64_p002_sample_clock_ports_test)
+
+# Adversarial test for the *actual* private Creative VST3 bank state
+# checkpoint. The source is the same one exported by the real VST3;
+# synthetic in-memory voice/key flags only, no private Win95 media.
+if(WIN32)
+    add_executable(awe64_p002_private_vxd_checkpoint_test
+        tests/p002_private_vxd_checkpoint.cpp
+        src/vst3/P002PrivateRomBank.cpp
+        src/vst3/P002PrivateOriginalRamCapture.cpp)
+    target_include_directories(awe64_p002_private_vxd_checkpoint_test
+        PRIVATE src/vst3 src/creative_compat)
+    target_link_libraries(awe64_p002_private_vxd_checkpoint_test PRIVATE
+        awe64_fork_chip
+        awe64_creative_midi
+        awe64_p002_sf2_rom_bank_note_compiler
+        awe64_p002_sf2_ram_pcm_inventory
+        awe64_p002_original_ram_port_replay
+        bcrypt)
+    target_compile_features(awe64_p002_private_vxd_checkpoint_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p002_native_private_vxd_state_atomic_rollback
+        COMMAND awe64_p002_private_vxd_checkpoint_test)
+endif()
+
+# Separate Win32 WAV-byte verifier. It produces a synthetic, locally
+# short-lived PCM fixture only; no original Creative/private data.
+# The same exact RIFF writer is used by the exported VST3 on deactivate.
+if(WIN32)
+    add_executable(awe64_p002_native_dry_pcm_writer_test
+        tests/p002_private_dry_pcm_capture.cpp
+        src/vst3/P002PrivateDryPcmCapture.cpp)
+    target_include_directories(awe64_p002_native_dry_pcm_writer_test
+        PRIVATE src/vst3)
+    target_compile_features(awe64_p002_native_dry_pcm_writer_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p002_real_win32_native_precard_pcm16_wav_writer
+        COMMAND awe64_p002_native_dry_pcm_writer_test)
+endif()
 
 # A second process drives the *unmodified* original fork C interface directly
 # and records synthetic non-silent PCM; the adapter must replay its port writes
@@ -60,9 +192,604 @@ add_test(NAME p001_direct_fork_pcm_and_negative_controls
 # No claim of fork PCM parity is made until an independent 86Box AWE32_WAV
 # capture, its register trace, and the exact private ROM are provided.
 
+# P002: Creative 1996 public API factual identifiers and byte-level WinMM
+# staging. No claim of original driver register/acoustic equivalence until
+# independently captured original Creative traces are compared.
+add_library(awe64_creative_midi STATIC src/creative_compat/CreativeMidi.cpp)
+target_include_directories(awe64_creative_midi PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/creative_compat")
+target_compile_features(awe64_creative_midi PUBLIC cxx_std_23)
+add_executable(awe64_p002_midi_contract tests/p002_midi_contract.cpp)
+target_link_libraries(awe64_p002_midi_contract PRIVATE awe64_creative_midi)
+add_test(NAME p002_winmm_primary_api_16channel_contract COMMAND awe64_p002_midi_contract)
+# P002 experimentally source-derived/common velocity + independent IFATN
+# port writes. It is NOT silently wired into the approved P001 plugin.
+add_library(awe64_p002_register_candidate STATIC src/creative_compat/CreativeCandidateRegister.cpp)
+target_include_directories(awe64_p002_register_candidate PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src/creative_compat")
+target_compile_features(awe64_p002_register_candidate PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_register_candidate PUBLIC awe64_creative_midi)
+add_executable(awe64_p002_register_candidate_test tests/p002_candidate_register_test.cpp)
+target_link_libraries(awe64_p002_register_candidate_test PRIVATE awe64_p002_register_candidate)
+add_test(NAME p002_native_midi_to_ifatn_candidate_contract COMMAND awe64_p002_register_candidate_test)
+
+
+# P002 bounded native Creative 1MGM zone-to-IFATN bridge.
+# No original bank bytes shipped. No P001 chip or production VST3 changes.
+add_library(awe64_p002_sbk_zone STATIC
+    src/creative_compat/CreativeSbkDescriptor.cpp
+    src/creative_compat/CreativeSbkCandidate.cpp)
+target_include_directories(awe64_p002_sbk_zone PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sbk_zone PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sbk_zone PUBLIC awe64_p002_register_candidate)
+add_executable(awe64_p002_sbk_zone_test tests/p002_native_sbk_zone.cpp)
+target_link_libraries(awe64_p002_sbk_zone_test PRIVATE awe64_p002_sbk_zone)
+add_test(NAME p002_native_creative_sbk_key_zone_to_ifatn_contract
+         COMMAND awe64_p002_sbk_zone_test)
+
+
+# P002 raw original Creative 1MGM preset/instrument layering. Does not
+# allocate physical voices or modify the approved P001 chip/VST3.
+add_library(awe64_p002_sbk_layers STATIC
+    src/creative_compat/CreativeSbkLayers.cpp)
+target_include_directories(awe64_p002_sbk_layers PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sbk_layers PUBLIC cxx_std_23)
+add_executable(awe64_p002_sbk_layers_test tests/p002_native_sbk_layers.cpp)
+target_link_libraries(awe64_p002_sbk_layers_test PRIVATE awe64_p002_sbk_layers)
+add_test(NAME p002_native_creative_sbk_multilayer_contract
+         COMMAND awe64_p002_sbk_layers_test)
+
+# Standard RAM-SF2 PCM inventory is the first original-driver-RAM
+# prerequisite, not guessed Creative VXD DRAM placement or hardware DSP.
+add_library(awe64_p002_sf2_ram_pcm_inventory STATIC
+    src/creative_compat/CreativeSf2RamSamplePcm.cpp)
+target_include_directories(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_ram_pcm_inventory
+    PUBLIC awe64_p002_sbk_layers)
+add_executable(awe64_p002_sf2_ram_pcm_inventory_test
+    tests/p002_native_sf2_ram_pcm_inventory.cpp)
+target_link_libraries(awe64_p002_sf2_ram_pcm_inventory_test
+    PRIVATE awe64_p002_sf2_ram_pcm_inventory)
+add_test(NAME p002_native_soundfont_RAM_PCM_boundaries
+         COMMAND awe64_p002_sf2_ram_pcm_inventory_test)
+
+# Preserve the original Creative guest's captured SMALW/SMLD OUT order.
+# This replay is NOT independently generated Win95 driver RAM allocation.
+# The 86Box chip core remains exactly pinned and unmodified.
+add_library(awe64_p002_original_ram_port_replay STATIC
+    src/creative_compat/CreativeOriginalRamPortReplay.cpp)
+target_include_directories(awe64_p002_original_ram_port_replay
+    PUBLIC src/creative_compat)
+target_link_libraries(awe64_p002_original_ram_port_replay
+    PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory)
+target_compile_features(awe64_p002_original_ram_port_replay
+    PUBLIC cxx_std_23)
+add_executable(awe64_p002_original_ram_port_replay_test
+    tests/p002_native_original_ram_port_replay.cpp)
+target_link_libraries(awe64_p002_original_ram_port_replay_test
+    PRIVATE awe64_p002_original_ram_port_replay)
+add_test(NAME p002_original_Win95_RAM_port_trace_replay_contract
+    COMMAND awe64_p002_original_ram_port_replay_test)
+# Private owner-side diagnostic only: exact original EMU8000 RAM
+# upload from an independently reviewed guest capture, matched
+# byte-for-byte against external SF2 and validated by original chip
+# RAM readback. No Creative source assets or test firmware embedded.
+add_executable(awe64_p002_private_ram_capture_cli
+    tools/p002_private_ram_capture_cli.cpp)
+target_link_libraries(awe64_p002_private_ram_capture_cli
+    PRIVATE awe64_p002_original_ram_port_replay)
+target_compile_features(awe64_p002_private_ram_capture_cli
+    PRIVATE cxx_std_23)
+if(WIN32)
+    target_link_libraries(awe64_p002_private_ram_capture_cli PRIVATE bcrypt)
+endif()
+
+
+# MIDI NoteOn + 16-channel program state -> original Creative bank layers
+# -> genuine ROM word-address descriptors, without voice/allocation guesses.
+add_library(awe64_p002_rom_note_plan STATIC
+    src/creative_compat/CreativeMidiRomPlan.cpp)
+target_include_directories(awe64_p002_rom_note_plan PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_rom_note_plan PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_rom_note_plan
+    PUBLIC awe64_p002_sbk_layers awe64_creative_midi)
+add_executable(awe64_p002_rom_note_plan_test
+    tests/p002_native_midi_rom_plan.cpp)
+target_link_libraries(awe64_p002_rom_note_plan_test
+    PRIVATE awe64_p002_rom_note_plan)
+add_test(NAME p002_winmm_program_to_original_rom_address_contract
+         COMMAND awe64_p002_rom_note_plan_test)
+
+
+# Native P002 original-1MGM pitch candidate. Generates actual hardware IP
+# E22/E20 port words from MIDI key, gen55 and pitchbend, with soundbank
+# and physical-voice validation. Not an original-driver equivalence pass.
+add_library(awe64_p002_pitch_candidate STATIC
+    src/creative_compat/CreativePitchCandidate.cpp)
+target_include_directories(awe64_p002_pitch_candidate PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_pitch_candidate PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_pitch_candidate
+    PUBLIC awe64_p002_rom_note_plan awe64_p002_register_candidate)
+add_executable(awe64_p002_pitch_candidate_test
+    tests/p002_native_pitch_candidate.cpp)
+target_link_libraries(awe64_p002_pitch_candidate_test PRIVATE awe64_p002_pitch_candidate)
+add_test(NAME p002_native_original_creative_pitch_bend_candidate
+         COMMAND awe64_p002_pitch_candidate_test)
+
+
+# Original Creative Windows95 SBAWE.VXD-derived CC7/CC11/velocity/ROM
+# IFATN register candidate. Bank encoded attenuation still caller-owned.
+add_library(awe64_p002_original_controller_volume STATIC
+    src/creative_compat/CreativeControllerVolume.cpp)
+target_include_directories(awe64_p002_original_controller_volume
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_original_controller_volume PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_original_controller_volume
+    PUBLIC awe64_p002_register_candidate)
+add_executable(awe64_p002_original_controller_volume_test
+    tests/p002_native_controller_volume.cpp)
+target_link_libraries(awe64_p002_original_controller_volume_test
+    PRIVATE awe64_p002_original_controller_volume)
+add_test(NAME p002_native_real_win95_driver_cc7_cc11_ifatn
+         COMMAND awe64_p002_original_controller_volume_test)
+
+
+# P002 stateful ROM voice binding + live controller register words.
+# Physical voice allocation and release/kill register encodings remain
+# explicit inputs/semantic actions, never invented Creative driver parity.
+add_library(awe64_p002_bound_voices STATIC
+    src/creative_compat/CreativeBoundVoiceController.cpp)
+target_include_directories(awe64_p002_bound_voices PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_bound_voices PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_bound_voices
+    PUBLIC awe64_p002_original_controller_volume awe64_p002_pitch_candidate)
+add_executable(awe64_p002_bound_voices_test
+    tests/p002_native_bound_voice_controller.cpp)
+target_link_libraries(awe64_p002_bound_voices_test
+    PRIVATE awe64_p002_bound_voices)
+add_test(NAME p002_native_real_creative_live_voice_controllers
+         COMMAND awe64_p002_bound_voices_test)
+
+
+# Exact *idle* branch of Creative Win95 SBAWE.VXD mono-voice scan:
+# 30 musical voices visited in original 3-lane order; no invented stealing.
+add_library(awe64_p002_idle_allocator STATIC
+    src/creative_compat/CreativeIdleVoiceAllocator.cpp)
+target_include_directories(awe64_p002_idle_allocator PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_idle_allocator PUBLIC cxx_std_23)
+add_executable(awe64_p002_idle_allocator_test
+    tests/p002_native_idle_voice_allocator.cpp)
+target_link_libraries(awe64_p002_idle_allocator_test PRIVATE awe64_p002_idle_allocator)
+add_test(NAME p002_native_original_win95_idle_mono_voice_allocator
+         COMMAND awe64_p002_idle_allocator_test)
+target_link_libraries(awe64_p002_bound_voices PUBLIC awe64_p002_idle_allocator)
+
+
+# P002 original Win95 SBAWE.VXD mode-0 mono dynamic selection PROBE.
+# Requires complete live original driver + chip register snapshots.
+# Selection returns physical voice; actual I/O and voice steal not invented.
+add_library(awe64_p002_vxd_mono_priority STATIC
+    src/creative_compat/CreativeVxdMonoVoiceRanking.cpp)
+target_include_directories(awe64_p002_vxd_mono_priority PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_mono_priority PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_mono_priority
+    PUBLIC awe64_p002_idle_allocator awe64_p002_register_candidate)
+target_link_libraries(awe64_p002_bound_voices PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_mono_priority_test
+    tests/p002_native_vxd_mono_ranking.cpp)
+target_link_libraries(awe64_p002_vxd_mono_priority_test
+    PRIVATE awe64_p002_vxd_mono_priority)
+add_test(NAME p002_native_original_vxd_mono_voice_priority
+         COMMAND awe64_p002_vxd_mono_priority_test)
+
+
+# P002 independently derived forced original VXD group-voice termination.
+# True original per-group/voice flags required; NOT general MIDI NoteOff.
+add_library(awe64_p002_vxd_voice_termination STATIC
+    src/creative_compat/CreativeVxdVoiceTermination.cpp)
+target_include_directories(awe64_p002_vxd_voice_termination
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_voice_termination PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_voice_termination
+    PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_voice_termination_test
+    tests/p002_native_vxd_voice_termination.cpp)
+target_link_libraries(awe64_p002_vxd_voice_termination_test
+    PRIVATE awe64_p002_vxd_voice_termination)
+add_test(NAME p002_original_vxd_explicit_group_voice_termination
+         COMMAND awe64_p002_vxd_voice_termination_test)
+
+
+# P002: execute ONLY original-VXD-proven typed voice hardware port pairs
+# on the pinned, ORIGINAL unmodified fork chip; input is independent MIDI/
+# original-bank-derived commands, not a decoded original register trace.
+add_library(awe64_p002_real_chip_port_bridge STATIC
+    src/creative_compat/CreativeChipPortBridge.cpp)
+target_include_directories(awe64_p002_real_chip_port_bridge
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_real_chip_port_bridge PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_fork_chip awe64_p002_vxd_voice_termination)
+add_executable(awe64_p002_real_chip_port_bridge_test
+    tests/p002_native_real_chip_port_bridge.cpp)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_real_chip_port_bridge
+            awe64_p002_pitch_candidate
+            awe64_p002_original_controller_volume)
+add_test(NAME p002_real_original_dsp_vxd_register_execution
+         COMMAND awe64_p002_real_chip_port_bridge_test)
+
+
+# Actual installed Win95 SBAWE.VXD LCOD 0x1B4A/0x1C19 case5/case6
+# sample-address patch; explicit driver mode, no guessed NoteOn flags.
+add_library(awe64_p002_vxd_sample_address STATIC
+    src/creative_compat/CreativeVxdSampleAddress.cpp)
+target_include_directories(awe64_p002_vxd_sample_address PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_sample_address PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_sample_address
+    PUBLIC awe64_p002_sbk_layers awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_sample_address_test
+    tests/p002_native_vxd_sample_address.cpp)
+target_link_libraries(awe64_p002_vxd_sample_address_test
+    PRIVATE awe64_p002_vxd_sample_address)
+add_test(NAME p002_original_vxd_sample_address_case5_case6
+    COMMAND awe64_p002_vxd_sample_address_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_sample_address)
+
+
+# Original Windows95 SBAWE.VXD LCOD +0x6072..+0x6185 MIDI note release.
+# Separate from forced group choke: genuine sustain gate, both envelope
+# release registers and conditional preserved-byte CSL/PSST update.
+# Already-encoded driver per-voice envelope release rates are caller inputs.
+add_library(awe64_p002_vxd_note_release STATIC
+    src/creative_compat/CreativeVxdNoteRelease.cpp)
+target_include_directories(awe64_p002_vxd_note_release PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_note_release PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_note_release
+    PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_note_release_test
+    tests/p002_native_vxd_note_release.cpp)
+target_link_libraries(awe64_p002_vxd_note_release_test
+    PRIVATE awe64_p002_vxd_note_release)
+add_test(NAME p002_original_win95_midi_note_release_registers
+         COMMAND awe64_p002_vxd_note_release_test)
+
+# Original source LCOD+0x6072/0x60E4 VXD-state NoteOff applies genuine
+# per-voice byte rates; when release rewrites the sample loop, it READS
+# the original hardware CSL/PSST upper bytes through pinned chip IO.
+add_library(awe64_p002_sf2_source_note_release STATIC
+    src/creative_compat/CreativeSf2VxdSourceRelease.cpp)
+target_include_directories(awe64_p002_sf2_source_note_release
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_source_note_release PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_source_note_release
+    PUBLIC awe64_p002_sf2_vxd_state_snapshot awe64_p002_vxd_note_release)
+add_executable(awe64_p002_sf2_source_note_release_test
+    tests/p002_native_sf2_source_release.cpp)
+target_link_libraries(awe64_p002_sf2_source_note_release_test
+    PRIVATE awe64_p002_sf2_source_note_release)
+add_test(NAME p002_source_original_vxd_note_release
+    COMMAND awe64_p002_sf2_source_note_release_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_note_release)
+
+
+# Original Win95 SBAWE.VXD +0x5BE4..+0x5CA4 first seven per-voice
+# NOTE START registers: VTFT, CVCF, ATKHLDV, LFO1VAL, ATKHLD,
+# DCYSUS and LFO2VAL. Require already encoded original driver record.
+add_library(awe64_p002_vxd_voice_envelope_prelude STATIC
+    src/creative_compat/CreativeVxdVoiceEnvelopePrelude.cpp)
+target_include_directories(awe64_p002_vxd_voice_envelope_prelude
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_vxd_voice_envelope_prelude PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_vxd_voice_envelope_prelude
+    PUBLIC awe64_p002_vxd_mono_priority)
+add_executable(awe64_p002_vxd_voice_envelope_prelude_test
+    tests/p002_native_vxd_voice_envelope_prelude.cpp)
+target_link_libraries(awe64_p002_vxd_voice_envelope_prelude_test
+    PRIVATE awe64_p002_vxd_voice_envelope_prelude awe64_p002_sbk_layers)
+add_test(NAME p002_original_creative_vxd_note_start_envelope_prelude
+    COMMAND awe64_p002_vxd_voice_envelope_prelude_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge
+    PUBLIC awe64_p002_vxd_voice_envelope_prelude)
+# Original 1MGM instrument generator34 now uses the same proven
+# PCOD attack helper as the existing P002 envelope prelude.
+target_link_libraries(awe64_p002_bound_voices
+    PUBLIC awe64_p002_vxd_voice_envelope_prelude)
+
+# Format-2 original Creative ROM-only 148-byte descriptor note-start stage.
+# Existing volume/attack maths are linked; no second bank parser or chip.
+add_library(awe64_p002_sf2_voice_descriptor STATIC
+    src/creative_compat/CreativeSf2VoiceDescriptor.cpp)
+target_include_directories(awe64_p002_sf2_voice_descriptor
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_voice_descriptor PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_voice_descriptor
+    PUBLIC awe64_p002_vxd_voice_envelope_prelude
+           awe64_p002_original_controller_volume
+           awe64_p002_sbk_layers)
+add_executable(awe64_p002_sf2_voice_descriptor_test
+    tests/p002_native_sf2_voice_descriptor.cpp)
+target_link_libraries(awe64_p002_sf2_voice_descriptor_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+# Reuse the descriptor stage in the pre-existing native WinMM→ROM plan
+# test, so the entire source-backed SF2 note-start path is executed.
+target_link_libraries(awe64_p002_rom_note_plan_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+# Apply original SF2 DATA3/IP words on the pinned P001 chip via the
+# pre-existing transactional VXD port bridge, without modifying DSP.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+add_test(NAME p002_original_sf2_148byte_voice_descriptor
+    COMMAND awe64_p002_sf2_voice_descriptor_test)
+
+# Actual original Win95 SBAWE.VXD 18 contiguous typed NOTE START OUTs:
+# reset VTFT/CVCF, envelope/LFO prelude, then DATA3 IP and IFATN.
+# This is a bounded verified register phase, not a full voice allocator.
+add_library(awe64_p002_sf2_note_start_ports STATIC
+    src/creative_compat/CreativeSf2NoteStartPorts.cpp)
+target_include_directories(awe64_p002_sf2_note_start_ports
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_note_start_ports PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_note_start_ports
+    PUBLIC awe64_p002_sf2_voice_descriptor
+           awe64_p002_vxd_voice_envelope_prelude)
+add_executable(awe64_p002_sf2_note_start_ports_test
+    tests/p002_native_sf2_note_start_ports.cpp)
+target_link_libraries(awe64_p002_sf2_note_start_ports_test
+    PRIVATE awe64_p002_sf2_note_start_ports)
+add_test(NAME p002_original_sf2_18_typed_note_start_ports
+    COMMAND awe64_p002_sf2_note_start_ports_test)
+# Convert the ACTUAL independently compiled VXD typed NoteOn words to
+# clocked physical EMU8000 16-bit OUTs. Frame coordinates must be supplied
+# by separately authenticated Creative Win95 evidence; no pitch exceptions.
+add_library(awe64_p002_clocked_sf2_note_plan STATIC
+    src/creative_compat/CreativeClockedSf2NotePlan.cpp)
+target_include_directories(awe64_p002_clocked_sf2_note_plan PUBLIC
+    src/creative_compat)
+target_compile_features(awe64_p002_clocked_sf2_note_plan PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_clocked_sf2_note_plan PUBLIC
+    awe64_p002_sf2_full_noteon awe64_p002_sample_clock_ports
+    awe64_p002_real_chip_port_bridge)
+
+# The existing source-pinned chip bridge executes these EXACT 18 typed OUTs.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_note_start_ports)
+# Source-disassembled original LCOD+0x5CCF..+0x5EE6: following 16
+# contiguous typed OUTs (PEFE/FMMOD/TREMFRQ/FM2FRQ2/ENVVAL/ENVVOL
+# plus source PTRX/CPF resets), not an inferred generic NoteOn.
+add_library(awe64_p002_sf2_note_continuation STATIC
+    src/creative_compat/CreativeSf2NoteContinuationPorts.cpp)
+target_include_directories(awe64_p002_sf2_note_continuation
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_note_continuation PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_note_continuation
+    PUBLIC awe64_p002_sf2_note_start_ports)
+add_executable(awe64_p002_sf2_note_continuation_test
+    tests/p002_native_sf2_note_continuation_ports.cpp)
+target_link_libraries(awe64_p002_sf2_note_continuation_test
+    PRIVATE awe64_p002_sf2_note_continuation)
+add_test(NAME p002_original_sf2_next_16_typed_outs
+    COMMAND awe64_p002_sf2_note_continuation_test)
+# Both original segments are executed on the unchanged real chip core.
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_note_continuation)
+# Actual remaining 22 original typed OUTs: decoded source ROM sample
+# geometry, CCCA/Q, Z1/Z2, VTFT/CVCF, PTRX, CPF and DCYSUSV trigger.
+# Only two VXD device/voice state targets are explicit verified inputs.
+add_library(awe64_p002_sf2_final_note_ports STATIC
+    src/creative_compat/CreativeSf2NoteFinalPorts.cpp)
+target_include_directories(awe64_p002_sf2_final_note_ports
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_final_note_ports PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_final_note_ports
+    PUBLIC awe64_p002_sf2_note_continuation
+           awe64_p002_vxd_sample_address)
+add_executable(awe64_p002_sf2_final_note_ports_test
+    tests/p002_native_sf2_note_final_ports.cpp)
+target_link_libraries(awe64_p002_sf2_final_note_ports_test
+    PRIVATE awe64_p002_sf2_final_note_ports)
+add_test(NAME p002_original_sf2_final_22_typed_noteon_outs
+    COMMAND awe64_p002_sf2_final_note_ports_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_final_note_ports)
+# Original Win95 SF2 full one-note batch: all allocator/stop OUTs
+# first, then 56 actual note-start OUTs per voice. One-voice=61 writes,
+# two-voice=122, up to original six; source operands remain explicit.
+add_library(awe64_p002_sf2_full_noteon STATIC
+    src/creative_compat/CreativeSf2FullNoteOnPorts.cpp)
+target_include_directories(awe64_p002_sf2_full_noteon
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_full_noteon PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_full_noteon
+    PUBLIC awe64_p002_sf2_final_note_ports)
+add_executable(awe64_p002_sf2_full_noteon_test
+    tests/p002_native_sf2_full_noteon.cpp)
+target_link_libraries(awe64_p002_sf2_full_noteon_test
+    PRIVATE awe64_p002_sf2_full_noteon)
+target_link_libraries(awe64_p002_sf2_full_noteon_test PRIVATE
+    awe64_p002_clocked_sf2_note_plan)
+add_test(NAME p002_original_sf2_complete_noteon_order
+    COMMAND awe64_p002_sf2_full_noteon_test)
+# Actual unchanged 86Box EMU8000 execution; prevalidate the ENTIRE
+# source-derived 61/122 OUT batch before a first chip write.
+add_library(awe64_p002_sf2_full_noteon_chip STATIC
+    src/creative_compat/CreativeSf2FullNoteOnChip.cpp)
+target_include_directories(awe64_p002_sf2_full_noteon_chip
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_full_noteon_chip PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_full_noteon_chip
+    PUBLIC awe64_p002_sf2_full_noteon awe64_p002_real_chip_port_bridge)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_full_noteon_chip)
+# Reconstruct the two remaining source x86 SF2 NoteOn target operands:
+# original [channel+0x0e] / [voice+0x0e] / [channel+0x14] arithmetic,
+# and LCOD+0x2FA0 private original 16-WORD attack-128 lookup.
+add_library(awe64_p002_sf2_original_targets STATIC
+    src/creative_compat/CreativeSf2OriginalTargets.cpp)
+target_include_directories(awe64_p002_sf2_original_targets
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_original_targets PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_original_targets
+    PUBLIC awe64_p002_sf2_full_noteon)
+add_executable(awe64_p002_sf2_original_targets_test
+    tests/p002_native_sf2_original_targets.cpp)
+target_link_libraries(awe64_p002_sf2_original_targets_test
+    PRIVATE awe64_p002_sf2_original_targets)
+add_test(NAME p002_original_sf2_x86_final_targets
+    COMMAND awe64_p002_sf2_original_targets_test)
+
+# Source-verified native VXD memory image: thirty 0x20-byte physical
+# voices from 0x42, sixteen 0x24-byte MIDI channel slots from 0x442,
+# genuine '1MGM' ROM identity at 0x158e. Resolve exact target operands
+# from this SAME immutable source state snapshot for every NoteOn layer.
+add_library(awe64_p002_sf2_vxd_state_snapshot STATIC
+    src/creative_compat/CreativeSf2VxdStateSnapshot.cpp)
+target_include_directories(awe64_p002_sf2_vxd_state_snapshot
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_vxd_state_snapshot PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_vxd_state_snapshot
+    PUBLIC awe64_p002_sf2_original_targets awe64_p002_sf2_full_noteon_chip)
+add_executable(awe64_p002_sf2_vxd_state_snapshot_test
+    tests/p002_native_sf2_vxd_state_snapshot.cpp)
+target_link_libraries(awe64_p002_sf2_vxd_state_snapshot_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot)
+add_test(NAME p002_original_sf2_native_vxd_state_snapshot
+    COMMAND awe64_p002_sf2_vxd_state_snapshot_test)
+
+# Original Win95 LCOD+0x3EA1 physical allocator evaluated against
+# REAL pinned chip VTFT/DCYSUSV/CCCA reads, not guessed priorities.
+add_library(awe64_p002_sf2_live_vxd_allocator STATIC
+    src/creative_compat/CreativeSf2VxdLiveAllocator.cpp)
+target_include_directories(awe64_p002_sf2_live_vxd_allocator
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_live_vxd_allocator PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_live_vxd_allocator
+    PUBLIC awe64_p002_vxd_mono_priority awe64_p002_sf2_vxd_state_snapshot)
+add_executable(awe64_p002_sf2_live_vxd_allocator_test
+    tests/p002_native_sf2_live_allocator.cpp)
+target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
+    PRIVATE awe64_p002_sf2_live_vxd_allocator)
+# C4 source-original first voice VTFT -> stop -> next VTFT -> stop.
+# The target has NOW been declared (before this point it did not exist),
+# so its real EMU8000 regression can link the actual chip stop writer.
+target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
+    PRIVATE awe64_p002_sf2_full_noteon_chip)
+add_test(NAME p002_original_sf2_real_chip_live_mono_allocator
+    COMMAND awe64_p002_sf2_live_vxd_allocator_test)
+
+# Real source-backed format-2 SoundFont bank note compilation, previously
+# tested as individual disconnected stages. Source driver templates and
+# pitch tables are supplied privately. NO Creative data in public repo.
+add_library(awe64_p002_sf2_rom_bank_note_compiler STATIC
+    src/creative_compat/CreativeSf2RomBankNoteCompiler.cpp)
+target_include_directories(awe64_p002_sf2_rom_bank_note_compiler
+    PUBLIC src/creative_compat)
+target_compile_features(awe64_p002_sf2_rom_bank_note_compiler PUBLIC cxx_std_23)
+target_link_libraries(awe64_p002_sf2_rom_bank_note_compiler
+    PUBLIC awe64_p002_sf2_voice_descriptor
+           awe64_p002_sf2_vxd_state_snapshot
+           awe64_p002_sf2_live_vxd_allocator
+           awe64_p002_sf2_source_note_release
+           awe64_p002_rom_note_plan
+           awe64_p002_sf2_ram_pcm_inventory)
+target_link_libraries(awe64_p002_rom_note_plan_test
+    PRIVATE awe64_p002_sf2_rom_bank_note_compiler)
+# Actual digital PCM from original-source SF2 NoteOn and two physical
+# MIDI-key voices with original deferred NoteOff/CC64 pedal-up. Original
+# pinned EMU8000, synthetic temporary ROM, NOT Win95 original-driver
+# PCM equivalence or exported multi-note VST3 production integration.
+add_executable(awe64_p002_original_sf2_dry_pcm_test
+    tests/p002_native_sf2_dry_pcm.cpp)
+target_link_libraries(awe64_p002_original_sf2_dry_pcm_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot
+            awe64_p002_sf2_source_note_release)
+add_test(NAME p002_source_original_sf2_native_digital_pcm
+    COMMAND awe64_p002_original_sf2_dry_pcm_test)
+target_link_libraries(awe64_p002_real_chip_port_bridge_test
+    PRIVATE awe64_p002_sf2_vxd_state_snapshot)
+
+# Optional *actual* original 1996 x86 PORT TRACE differential. No
+# copyrighted original descriptor/trace is ever embedded in public builds.
+add_executable(awe64_p002_sf2_note_start_prefix_oracle
+    tests/p002_sf2_note_start_prefix_oracle.cpp)
+target_link_libraries(awe64_p002_sf2_note_start_prefix_oracle
+    PRIVATE awe64_p002_sf2_note_start_ports)
+if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}")
+    add_test(NAME p002_private_original_sf2_18_ordered_outs
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_note_start_prefix_differential.py"
+                --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_note_start_prefix_oracle>")
+endif()
+
+# The original Creative source-bank handoff is PRIVATE and never committed.
+# If configured in the runner/Test Lab environment, compare the native
+# encoded descriptors against ALL provided actual original 148-byte outputs.
+# Without this private fixture, no private/original differential PASS is claimed.
+add_executable(awe64_p002_sf2_descriptor_oracle
+    tests/p002_sf2_descriptor_oracle.cpp)
+target_link_libraries(awe64_p002_sf2_descriptor_oracle
+    PRIVATE awe64_p002_sf2_voice_descriptor)
+if(DEFINED ENV{AWE64_P002_PRIVATE_SF2_HANDOFF} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}")
+    add_test(NAME p002_private_original_sf2_148byte_differential
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_descriptor_differential.py"
+                --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+    if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
+       EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}")
+        # Actual SOURCE-LOCKED original LCOD+0x2D88 59 signed words
+        # versus genuine original x86 pre-NoteOn 148-byte handoff records.
+        # Never copy the VXD or its template to public CI artifacts.
+        add_test(NAME p002_private_original_sf2_59word_bank_builder
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_bank_builder_differential.py"
+                    --handoff "$ENV{AWE64_P002_PRIVATE_SF2_HANDOFF}"
+                    --private-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
+                    --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+    endif()
+endif()
+
+# Optional private all-192000-sample-rate native SF2 pitch differential.
+# Uses ONLY a user-owned hash-locked original SBAWE.VXD, never public assets.
+# Not gated on the separate original bank handoff; VXD tables suffice.
+if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}")
+    add_test(NAME p002_private_original_sf2_pitch_192000_rates
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/p002_private_sf2_pitch_matrix_differential.py"
+                --private-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
+                --executable "$<TARGET_FILE:awe64_p002_sf2_descriptor_oracle>")
+endif()
+
 # P001 only, activated after original-1MiB-ROM direct-core digital PCM parity.
 # This VST3 is an instrument smoke target with fixed AWETEST ROM tone only.
 option(AWE64_BUILD_P001_VST3 "Build experimental minimal VST3 instrument" OFF)
+# Owner-only source-native P002 evidence compiled in the Windows x64
+# pipeline but NEVER executed there: private authentic 1996 Creative VXD
+# tables and owner SoundFont are intentionally absent from GitHub CI.
+# It does not link any new DSP. Independent Linux source-probe execution
+# against the real privately owned SF2/VXD tables has already matched
+# all four C4/D4 (velocity 100) RAM sample82 148-byte descriptors.
+if(WIN32)
+    add_executable(awe64_p002_private_original_ram_descriptor_probe
+        tools/p002_private_real_ram_descriptor_probe.cpp)
+    target_include_directories(
+        awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE src/creative_compat)
+    target_compile_features(awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE cxx_std_23)
+    target_link_libraries(
+        awe64_p002_private_original_ram_descriptor_probe
+        PRIVATE awe64_p002_sf2_voice_descriptor
+                awe64_p002_sf2_ram_pcm_inventory bcrypt)
+endif()
+
 if(AWE64_BUILD_P001_VST3)
     if(NOT WIN32)
         message(FATAL_ERROR "125A AWE64 Gold VST3 targets Windows x64 only")
@@ -84,12 +811,30 @@ if(AWE64_BUILD_P001_VST3)
     smtg_add_vst3plugin(AWE64_Gold_P001
         src/vst3/P001Minimal.h
         src/vst3/P001Minimal.cpp
+        src/vst3/P002PrivateDryPcmCapture.h
+        src/vst3/P002PrivateDryPcmCapture.cpp
+        src/vst3/P002PrivateNoteFixture.h
+        src/vst3/P002PrivateNoteFixture.cpp
+        src/vst3/P002PrivateRomBank.h
+        src/vst3/P002PrivateRomBank.cpp
+        src/vst3/P002PrivateOriginalRamCapture.h
+        src/vst3/P002PrivateOriginalRamCapture.cpp
+        src/vst3/P002PrivateOriginalRamNotes.h
+        src/vst3/P002PrivateOriginalRamNotes.cpp
         src/vst3/P001Factory.cpp
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
         "${AWE64_VST3_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
     target_include_directories(AWE64_Gold_P001 PRIVATE
         "${AWE64_VST3_SDK_ROOT}")
-    target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip)
+    target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip
+        awe64_p002_sample_clock_ports
+        awe64_p002_ct1745_wavetable
+        awe64_p002_sf2_vxd_state_snapshot
+        awe64_p002_sf2_source_note_release
+        awe64_p002_sf2_ram_pcm_inventory
+        awe64_p002_sf2_rom_bank_note_compiler
+        awe64_p002_original_ram_port_replay
+        bcrypt)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
     add_executable(awe64_p001_vst3_host tests/p001_vst3_host.cpp)
@@ -97,6 +842,28 @@ if(AWE64_BUILD_P001_VST3)
     target_link_libraries(awe64_p001_vst3_host PRIVATE sdk sdk_hosting)
     target_compile_features(awe64_p001_vst3_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_host AWE64_Gold_P001)
+
+    # REAL exported P002-private-note VST3 MIDI→digital PCM (NOT P001
+    # fixed AWETEST voice). A synthetic source-derived mono GM0 fixture
+    # plus independently fetched/hash-pinned ORIGINAL Creative ROM are
+    # used. Provenance mutation and wrong-velocity negative controls.
+    add_executable(awe64_p002_diagnostic_vst3_host
+        tests/p002_vst3_private_diagnostic_host.cpp)
+    target_include_directories(awe64_p002_diagnostic_vst3_host
+        PRIVATE "${AWE64_VST3_SDK_ROOT}")
+    target_link_libraries(awe64_p002_diagnostic_vst3_host
+        PRIVATE sdk sdk_hosting)
+    target_compile_features(awe64_p002_diagnostic_vst3_host PRIVATE cxx_std_23)
+    add_dependencies(awe64_p002_diagnostic_vst3_host AWE64_Gold_P001)
+
+    add_executable(awe64_p002_native_ram_evidence_host
+        tests/p002_native_ram_evidence_host.cpp)
+    target_include_directories(awe64_p002_native_ram_evidence_host
+        PRIVATE "${AWE64_VST3_SDK_ROOT}")
+    target_link_libraries(awe64_p002_native_ram_evidence_host
+        PRIVATE sdk sdk_hosting bcrypt)
+    target_compile_features(awe64_p002_native_ram_evidence_host PRIVATE cxx_std_23)
+    add_dependencies(awe64_p002_native_ram_evidence_host AWE64_Gold_P001)
 
     # Test-only real Windows heap interception: downloaded/pinned MinHook
     # is linked into the independent host, NEVER into our VST3/product DLL.
@@ -110,6 +877,13 @@ if(AWE64_BUILD_P001_VST3)
         message(FATAL_ERROR "Unexpected pinned test-only MinHook commit: ${MINHOOK_HEAD}")
     endif()
     add_subdirectory("${AWE64_MINHOOK_ROOT}" "${CMAKE_BINARY_DIR}/minhook")
+    # P002 loads actual external SoundFont data and reads the original
+    # hardware allocator inside process(); zero allocations must hold
+    # across bank NoteOn, 30 voices, MIDI program and CC64. MinHook is
+    # test-only, never part of the shipped VST3.
+    target_link_libraries(awe64_p002_diagnostic_vst3_host PRIVATE minhook)
+    target_compile_definitions(awe64_p002_diagnostic_vst3_host
+        PRIVATE AWE64_P002_RT_HEAP_AUDIT=1)
     add_executable(awe64_p001_vst3_rt_host tests/p001_vst3_rt_host.cpp)
     target_link_libraries(awe64_p001_vst3_rt_host PRIVATE sdk sdk_hosting minhook)
     target_include_directories(awe64_p001_vst3_rt_host PRIVATE "${AWE64_VST3_SDK_ROOT}")

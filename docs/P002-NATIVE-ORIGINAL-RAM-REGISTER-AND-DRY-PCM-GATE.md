@@ -1,0 +1,265 @@
+# P002: independent native RAM-SF2 EMU8000 port-write and DRY PCM gate
+
+## What the exported VST3 now records
+
+The real Windows VST3 contains an explicitly enabled native-original-RAM
+source mode, `AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES=1`. It runs the
+source-derived note compiler and live original EMU8000 voice allocator
+rather than replaying captured C4/D4 NoteOn port clips.
+
+Only after the authentic **original RAM bank capture** and exact original
+1996 VXD source-table checks have succeeded, the additional optional
+`AWE64_P002_NATIVE_REGISTER_OUT_PATH=<NEW ABSOLUTE PRIVATE PATH>`
+arms a **262,144-event fixed buffer** in `Chip`. Each actual native
+16-bit OUT forwarded to the pinned unchanged EMU8000 is stamped with
+the 44,100-Hz monotonic host render-frame count. This is a separate,
+independently generated native sequence.
+
+Buffer allocation occurs during `setActive(true)`, not during
+`process()`. No allocations, synchronization or file I/O occur when
+capturing in the audio thread. `setActive(false)` writes a NEW file with
+`CreateFileW(CREATE_NEW)`, refusing overwrite, empty capture or overflow.
+The report is intentionally owner-private and is not published to
+GitHub/CI. The original EMU8000 DSP, Creative driver, ROM and user SF2
+remain unchanged.
+
+This records **WRITES only**; it does not prove original driver register
+READ parity, complete original voice allocation/ownership, or PCM parity.
+Its chip-frame zero is the **native activation**, not the independent
+Win95 guest boot/driver clock. No clock correction or automatic alignment
+is performed.
+
+## Original Creative Win95 session: actually boot and record (owner-private)
+
+The owner's private CC0-corrected Win95 FAT16 archive was inspected: it
+contains the authentic original Creative DLL/VXD, verified 83-sample SF2,
+corrected C0 controller test EXE and exact hardware-calibrated original
+86Box executable, but **no C:\P002RAM.LOG** in the FAT16 root. Thus
+the staged ZIP is NOT evidence of an executed corrected Win95 guest.
+
+Run on the owner's Windows 11 x64 computer, NEVER in public GitHub CI:
+
+1. Unzip the public-code Windows evidence kit.
+2. Place the already-owned original private archive
+   125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip beside its CMD.
+3. Double-click START-P002-WIN95-CAPTURE.cmd (Python 3 required).
+4. The CMD verifies official 86Box/ROM hashes, creates a new private
+   clone directory, launches the genuine Win95 guest, and captures
+   BOTH new EMU8K_TRACE and pre-card AWE32_WAV under ONE session tag.
+5. After the original test executable completes, close 86Box. The
+   verifier reads that actual guest FAT16 C:\P002RAM.LOG and original
+   installed Creative VXD/DLL, verifies the complete RAM bank upload
+   (260921 equal words / 255 rewrites), and writes a fresh private
+   source-session SHA manifest. The source ZIP and original assets
+   are NEVER overwritten, exported or committed to GitHub.
+
+An unbooted guest, missing log, mismatched Creative driver, inactive
+ROM/SF2, incomplete trace or silent/invalid source audio are strict NO-GO.
+The program does not pretend to execute original Win95 under Linux.
+
+**Important provenance correction:** The original Win95 guest LOG
+SHA256 660a0126... was genuinely verified on 2026-11-13 alongside
+the complete original 260921-word RAM upload (PR #4). That exact
+LOG is absent from this separately distributed, corrected FAT16 clone;
+this does not invalidate the historical original source proof.
+Real guest GetTickCount() events produce different LOG bytes
+for each newly booted session. The parity join now verifies the
+actual FAT16-attested original-source session digest for the specific
+LOG, register trace, WAV, ROM, SF2, VXD and calibrated fork executable.
+Original vs native host/chip note clock origins still require independent
+measurement; no audio alignment, fake start frame or source data replay.
+
+The owner-private final join accepts **two separately authenticated
+ORIGINAL source choices**, never mixes their hashes: (1) the exact
+2026-11-13 real Creative SHA triple (full original trace 4ec6...,
+original guest LOG 660a..., either original complete 138s WAV eec7...
+or independently supplied source-cropped C4/D4 WAV b4e...), OR
+(2) a NEW calibrated Win95 session verified by the owner-side
+--original-session-manifest PRIVATE_ORIGINAL_SESSION.json.
+
+For a new session, provide that --original-session-manifest alongside
+--native-manifest. Do NOT apply the older fixed source hashes to new
+GetTickCount logs. Both source alternatives still require independently
+measured note/chip clock origins and native VST3 PCM parity; neither
+authorizes product release by itself.
+
+## Run the real Windows VST3 native RAM evidence host
+
+The independent `awe64_p002_native_ram_evidence_host.exe` is built
+from public C++ source by the existing pinned Windows x64 workflow and
+shipped in the owner-only test ZIP alongside the genuine exported VST3.
+No private Windows95, Creative ROM, SoundFont, VXD, trace or WAV files
+are stored in the ZIP or in public GitHub CI.
+
+The host is **not a second synth** and does not replay the captured
+Win95 NoteOn fixture. It loads the actual exported VST3 DLL, activates
+the existing SHA-verified native RAM bank mode, sends C4 and D4 note
+On/Off at **explicit, caller-provided** 44.1kHz host sample positions,
+and makes the real VST3 write two files on deactivation:
+
+- `NEW_NATIVE_OUT_TRACE.txt` — original-fork EMU8000 physical
+  write-only 16-bit OUTs generated by the native MIDI-to-register code
+- `NEW_NATIVE_PRECARD.wav` — actual signed PCM16 from the original
+  EMU8000, **before** original CT1745 AWE64 Gold mixer
+
+The optional third output `NEW_NATIVE_CLOCK_SHA.json` is **required
+for a production full-parity join**. It contains the exact C4/D4 On/Off
+sample positions, independent audible-sample counts, and Windows CNG
+SHA256 of the exported VST3, source ROM, owner bank, RAM upload ports,
+final RAM words, original VXD source pack and both recorded native
+files. This is an owner-local anti-stale-session identity gate, **not**
+an assertion of original Windows95 Creative provenance. It is
+generated only after processing ends, using `CreateFileW(CREATE_NEW)`;
+the other files also refuse overwrite.
+
+Run `awe64_p002_native_ram_evidence_host.exe --help` for argument
+order, or `--self-test` for synthetic schedule and Windows CNG
+SHA256 controls. The private paths must be absolute and all three
+output filenames NEW. Use your genuine independently SHA-verified
+sources, never synthetic files for an original-driver claim.
+
+The owner-side **six-input full comparison** is invoked with the
+existing `p002_join_real_original_native_ram_parity.py`, the separate
+original source EMU8K_TRACE, original SF2, original P002RAM.LOG and
+original DRY WAV, plus the newly captured native trace/WAV and the
+native clock manifest. A *production* comparison now also requires a
+source-authentic physical-voice allocator/stop prologue, not a lone
+IFATN register pair or a RAM upload. Example C4 window:
+
+```powershell
+python p002_join_real_original_native_ram_parity.py `
+  --original-trace "PRIVATE_ORIGINAL_EMU8K_TRACE.txt" `
+  --original-sf2 "PRIVATE_SYNTH512.sf2" `
+  --original-guest-log "PRIVATE_P002RAM.LOG" `
+  --original-wav "PRIVATE_ORIGINAL_C4_D4_DRY.wav" `
+  --native-ports "NEW_NATIVE_OUT_TRACE.txt" `
+  --native-wav "NEW_NATIVE_PRECARD.wav" `
+  --original-session-manifest "NEW_PRIVATE_WIN95_SESSION.json" `
+  --native-manifest "NEW_NATIVE_CLOCK_SHA.json" `
+  --native-note C4 `
+  --original-port-origin VERIFIED_GUEST_C4_START `
+  --native-port-origin HOST_RECORDED_C4_ON_FRAME `
+  --port-frames VERIFIED_VOICE_START_WINDOW `
+  --original-pcm-start VERIFIED_ORIGINAL_C4_WAV_FRAME `
+  --native-pcm-start HOST_RECORDED_C4_ON_FRAME `
+  --pcm-frames VERIFIED_IDENTICAL_AUDIBLE_WINDOW `
+  --private-report "NEW_PRIVATE_PARITY_REPORT.json"
+```
+
+Those `VERIFIED_*` fields cannot be guessed, auto-aligned, or
+selected based on finding matching audio. The source guest MIDI-frame
+provenance and original DRY WAV window still require independent
+correlation. The host-only SHA/time manifest cannot establish it.
+Native 16-bit physical port writes and pre-card PCM remain a
+**necessary but insufficient** original-hardware equivalence gate.
+
+## Exact source-original Win95 evidence
+
+The owner-provided independent calibrated-fork EMU8K_TRACE has
+SHA256 `4ec6e1764afade0ae965c2ec81cae27b107ff10701c9f727b7d20e06876422f9`.
+The real original guest event starts recorded previously include
+C4 original WinMM NoteOn around chip frame **3,154,566**, C4 NoteOff
+**3,172,293**, and D4 direct `AWE_SEND_MIDI` NoteOn around
+**3,201,361** / NoteOff **3,219,527**. The existing source trace
+contains RAM uploads and thousands of unrelated chip events, so the
+exact note-specific frame window must be selected independently.
+
+The owner-provided `P002-Creative-Win95-Original-Dry-C4-D4.wav` is
+stereo PCM16/44,100Hz, **198,450 frames**, SHA256
+`b4e97086a13cf9c85f20a6e6ec0d9555fb7c708c1d6689fd5f38e0e7c4655dcf`.
+Measured audio has an initial digital-silence prefix:
+first nonzero frame **38,938**. It is a concrete audible original-owner
+reference, but this filename and audio alone do NOT authenticate exact
+zero-FX or a common chip-clock origin relative to the source register
+trace. Do not guess a sample offset from silence or normalize RMS.
+
+## Strict native vs original physical-port comparison
+
+Run against the separately captured **private** original Creative trace
+and the genuinely emitted **private** native file (never synthetic data
+for a real claim). Example for the first three original C4-on chip frames:
+
+```bash
+python tools/p002_compare_original_native_ram_note_ports.py \
+  --original PRIVATE_ORIGINAL_EMU8K_TRACE.txt \
+  --native PRIVATE_ACTUAL_NATIVE_VST3_PORT_OUT.txt \
+  --original-origin 3154566 \
+  --native-origin ACTUAL_NATIVE_NOTE_ON_FRAME \
+  --frames 3 \
+  --private-report PRIVATE_NEW_C4_PORT_REPORT.json
+```
+
+The native origin must come from the **host's recorded MIDI event sample
+position** and must not be chosen by scanning for a passing waveform.
+The comparator parses original READ/WRITE trace syntax and exact
+`frame PORT VALUE` native format, selects **WRITES only** in each
+caller-selected two-sided time window, and compares relative frame,
+original order, 16-bit port and value with zero tolerance. It rejects
+the wrong original source SHA, missing original/native events, missing
+native evidence header, overflow/partial capture (no completed export),
+different write counts and first differing word. It records mismatch
+index/field instead of a spurious PASS. Tests deliberately mutate
+timing, ordering, width-equivalent port values and the source SHA.
+
+**A matching three-frame C4 subwindow does not prove P002 acceptance.**
+The *combined* original/native audio gate now requires the source
+LCOD physical-voice start prologue with ordered `E22 60|voice`,
+`E22 A0|voice`, `A20 00FF`, `E22 60|voice`, `620 FFFF`.
+Even this is only a necessary structural condition, not full register
+or driver parity.
+Repeat for D4, both source NoteOffs, overlapping voices, other MIDI
+velocities, controllers and banks. A full native-original generated
+register engine must be independently proven, not copied from the
+source-original port fixture.
+
+## Bit-exact PRE-CARD DRY PCM is the final acoustic gate
+
+After verifying the actual native/sample chip clocks, obtain the
+independently emitted **real** native pre-CT1745 signed-PCM16 WAV with
+`AWE64_P002_NATIVE_DRY_PCM_WAV_PATH=<NEW ABSOLUTE PRIVATE PATH>`
+**together with** `AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES=1`,
+the three exact original Win95 RAM upload SHA-locked inputs, the
+verified original VXD source pack, and the original private ROM.
+Do not enable the PCM path in ordinary P001 or ROM mode.
+
+The real exported VST3 allocates a bounded 30-second stereo
+44.1kHz PCM16 buffer on `setActive(true)` (5,292,000 bytes);
+it records **every raw original EMU8000 stereo frame BEFORE the
+CT1745 AWE64 Gold card** during `process()`, without disk writes,
+locks, buffer reallocations, normalization, or additional DSP.
+It writes a fresh, explicit PCM RIFF/WAV file with `CreateFileW
+(CREATE_NEW)` only from `setActive(false)`. An empty, overflowing,
+or invalid capture fails closed; no incomplete report is accepted.
+Both private native WAV and native port OUT evidence are measured
+against one actual activation clock and must never be uploaded.
+
+For host monitoring, the existing `AWE64_P002_PRE_CARD_PCM_DIAGNOSTIC=1`
+still bypasses the CT1745 stage, but it does **not** by itself save
+a WAV. The new native `...DRY_PCM_WAV_PATH` is the direct byte-precise
+recording of chip samples and does not depend on a host export,
+resampler, or floating-point conversion.
+
+Use the same genuine original ROM/RAM/VXD source state and MIDI
+and run the strict no-alignment two-sided PCM comparison:
+
+```bash
+python tools/p002_compare_original_dry_pcm.py \
+  --original-precard-wav PRIVATE_ORIGINAL_DR_WRITE.wav \
+  --vst3-precard-wav PRIVATE_NATIVE_VST3_DR_WRITE.wav \
+  --original-start-frame VERIFIED_ORIGINAL_WINDOW_START \
+  --vst3-start-frame VERIFIED_NATIVE_WINDOW_START \
+  --frames VERIFIED_IDENTICAL_WINDOW_FRAMES \
+  --private-report PRIVATE_NEW_PCM_REPORT.json
+```
+
+That comparator forbids automatic time shift, gain matching, smoothing,
+frame truncation and silence-only passes. The original WAV alone cannot
+stand in for an actual exported VST3 RAM note: **full original-vs-native
+DRY PCM remains unverified** until both real waveforms have been
+captured from the same scenario and compared.
+
+CI synthetic regression success means only the capture/comparison
+*infrastructure* is tested. The original user's private Win95/Creative
+reference evidence is never committed or uploaded. P002 stays DRAFT,
+with GUI and Studio-One/ASIO tests deferred to the final end-to-end
+release stage.

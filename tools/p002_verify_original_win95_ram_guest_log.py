@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+"""P002 fail-closed audit of the ORIGINAL Windows 95 Creative API guest log.
+
+The log is produced by PRIVATE guest C:\\P002RAM.EXE using the installed
+1996 Creative AWEMAN32.DLL + original VXD. A syntactically valid log does
+NOT independently prove original Creative DLL provenance, register
+upload, correct MIDI bank selection, or any dry PCM waveform; these are
+separate required evidence gates.
+
+Always keep the actual private C:\\P002RAM.LOG and SoundFont OUT OF GIT.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+
+KEY_VALUE = re.compile(r"^([A-Z][A-Z0-9_]*)=(0x[0-9A-F]{8})$")
+MAX_LOG = 128 * 1024
+MAX_BANK = 32 * 1024 * 1024
+MAX_RAM_WORDS = 0xE00000
+MUST_ZERO = (
+    "ORIGINAL_AWEMAN32_AWE_OPEN_RC",
+    "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC",
+    "ORIGINAL_AWEMAN32_AWE_CLOSE_RC",
+    "ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC",
+    "PRE_LOAD_RESULT",
+    "POST_LOAD_RESULT",
+    "ORIGINAL_CREATIVE_MIDIOUT_OPEN_RESULT",
+    "ORIGINAL_RESET_CONTROLLERS_RC",
+    "ORIGINAL_BANK_SELECT_MSB1_RC",
+    "ORIGINAL_PROGRAM0_RC",
+    "ORIGINAL_CC91_REVERB_SEND_ZERO_RC",
+    "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC",
+    "ORIGINAL_MIDI_C4_VEL100_RC",
+    "ORIGINAL_MIDI_C4_OFF_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
+    "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC",
+)
+CAPTURE_BEGIN = "ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_BEGIN"
+CAPTURE_END = "ORIGINAL_WIN95_RAM_PORT_CAPTURE_MARKER_END"
+SUCCESS = "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK"
+NO_EVIDENCE = "GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API"
+DIRECT_BEGIN = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN"
+DIRECT_END = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END"
+REQUIRED = MUST_ZERO + (
+    "PRIVATE_WIN95_SF2_SIZE",
+    "PRIVATE_WIN95_SF2_FNV1A32",
+    "ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES",
+    "PRE_LOAD_SYNTH_BANK_RESULT",
+    "POST_LOAD_SYNTH_BANK_RESULT",
+    "PRE_LOAD_SYNTH_BANK_MODE_ID",
+    "POST_LOAD_SYNTH_BANK_MODE_ID",
+    "WIN95_ORIGINAL_MIDI_ENDPOINTS",
+    "CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT",
+    "PRE_LOAD_TOTAL_16BIT_WORDS",
+    "PRE_LOAD_FREE_16BIT_WORDS",
+    "POST_LOAD_TOTAL_16BIT_WORDS",
+    "POST_LOAD_FREE_16BIT_WORDS",
+    "CREATIVE_DRIVER_ALLOCATED_WORD_DELTA",
+    "ORIGINAL_API_LOAD_BEGIN_TICK_MS",
+    "ORIGINAL_API_LOAD_END_TICK_MS",
+    "ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS",
+    "ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS",
+    "ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS",
+    "ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS",
+)
+
+
+def fnv1a32(original: bytes) -> int:
+    """Full original guest-readable bank bytes; source identity only,
+    not collision-resistant SHA256 or original Creative provenance."""
+    value=2166136261
+    for byte in original:
+        value=((value ^ byte)*16777619) & 0xffffffff
+    return value
+
+
+def audit(raw: bytes, source_sf2: bytes) -> dict:
+    if not 32 < len(raw) <= MAX_LOG:
+        raise ValueError("Missing or oversized private original Creative guest log")
+    if (not 96 <= len(source_sf2) <= MAX_BANK or
+            source_sf2[:4] != b"RIFF" or source_sf2[8:12] != b"sfbk" or
+            int.from_bytes(source_sf2[4:8], "little") != len(source_sf2) - 8):
+        raise ValueError("Missing, truncated or invalid private SF2 source bank")
+    try:
+        content = raw.decode("ascii", "strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Non-ASCII original Creative guest log") from exc
+    lines = content.splitlines()
+    if len(lines) > 250:
+        raise ValueError("Unbounded original Creative guest log events")
+    if not lines or lines[0] != "P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START":
+        raise ValueError("Missing original Creative Win95 capture start marker")
+    if lines[-1] != NO_EVIDENCE or lines[-2] != SUCCESS:
+        raise ValueError("Guest capture did not complete original API and no-evidence warnings")
+    if content.count(CAPTURE_BEGIN) != 1 or content.count(CAPTURE_END) != 1:
+        raise ValueError("Duplicate/missing original Creative bank-upload markers")
+    if not (lines.index(CAPTURE_BEGIN) < lines.index(CAPTURE_END) <
+            lines.index(SUCCESS)):
+        raise ValueError("Original Creative bank-upload marker order invalid")
+    if content.count(DIRECT_BEGIN) != 1 or content.count(DIRECT_END) != 1:
+        raise ValueError("Original Creative direct AWE_SEND_MIDI capture markers absent")
+    if not (lines.index(CAPTURE_END) < lines.index(DIRECT_BEGIN) <
+            lines.index(DIRECT_END) < lines.index(SUCCESS)):
+        raise ValueError("Original Creative WinMM vs AWE_SEND_MIDI phase ordering invalid")
+
+    seen: dict[str, int] = {}
+    dll_path: str | None = None
+    for line in lines[1:]:
+        if not line:
+            raise ValueError("Unexpected empty line in original guest capture")
+        if line.startswith("LOADED_CREATIVE_MODULE_PATH="):
+            if dll_path is not None:
+                raise ValueError("Duplicate AWEMAN32 loaded DLL path")
+            dll_path = line.split("=", 1)[1].replace("/", "\\").upper()
+            if not dll_path.endswith("\\AWEMAN32.DLL"):
+                raise ValueError("Original Win95 loaded module is not AWEMAN32.DLL")
+        if line.startswith("WIN95_MIDI_DEVICE="):
+            # Device name is independent Windows 95 driver metadata,
+            # not a resource ID or proof of original VXD authenticity.
+            if not re.fullmatch(r"WIN95_MIDI_DEVICE=0x[0-9A-F]{8} NAME=.{1,80}", line):
+                raise ValueError("Malformed original Creative WinMM device inventory")
+        item = KEY_VALUE.fullmatch(line)
+        if item:
+            key, word = item.groups()
+            if key in seen:
+                raise ValueError("Duplicated original Creative guest result: " + key)
+            seen[key] = int(word, 16)
+        elif line not in (CAPTURE_BEGIN, CAPTURE_END, DIRECT_BEGIN, DIRECT_END,
+                          SUCCESS, NO_EVIDENCE,
+                          "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF",
+                          "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6") and not (
+                          line.startswith("LOADED_CREATIVE_MODULE_PATH=") or
+                          line.startswith("WIN95_MIDI_DEVICE=")):
+            raise ValueError("Unrecognized original Creative guest log line: " + line[:80])
+    if dll_path is None:
+        raise ValueError("Original Creative AWEMAN32 loaded DLL path absent")
+    for key in REQUIRED:
+        if key not in seen:
+            raise ValueError("Missing original Creative result: " + key)
+    for key in MUST_ZERO:
+        if seen[key] != 0:
+            raise ValueError("Original Creative/WinMM failure: " + key)
+    # Original Creative INDICES.H explicitly uses Win32 #pragma pack(2):
+    # CBufferObject is 14 bytes, not default-packed 16. This is an
+    # ABI correction of OUR OWN Win95 test executable, not proof of
+    # authentic SBAWE.VXD. Refuse stale/old incorrect guest logs.
+    if seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"] != 14:
+        raise ValueError("Original Creative CBufferObject ABI must be pack(2) and exactly 14 bytes")
+    # Creative's WINAWE32.C obtains the current synthesis mode through
+    # AWE_GET_SYN_BANK (305), 14-byte packed CBufferObject.m_Flag:
+    # 0=GM, 1=GS, 2=MT32, 3=USER_CUSTOM_BANK. A reported mode is
+    # NOT proof that CC0=1 selects user bank #1.
+    for prefix in ("PRE_LOAD_SYNTH_BANK", "POST_LOAD_SYNTH_BANK"):
+        code, mode = seen[prefix+"_RESULT"], seen[prefix+"_MODE_ID"]
+        if code == 0:
+            if mode > 3:
+                raise ValueError("Original Creative synth bank enum invalid: "+prefix)
+        elif code == 0xCB:
+            # Actual original Win95 Creative AWEManager returned 203 for
+            # OPTIONAL AWE_GET_SYN_BANK, while original AWE_LOAD_USER_BANK
+            # subsequently succeeded. This was a failure of OUR test
+            # harness to distinguish observation from a mandatory gate.
+            # Unknown mode is explicit; never fake an enumerated bank.
+            if mode != 0xFFFFFFFF:
+                raise ValueError(
+                    "Original Creative unavailable synth mode sentinel invalid: "+prefix)
+        else:
+            raise ValueError("Unexpected original Creative synth bank query result: "+prefix)
+    mode_valid = (seen["PRE_LOAD_SYNTH_BANK_RESULT"] == 0 and
+                  seen["POST_LOAD_SYNTH_BANK_RESULT"] == 0)
+    if seen["CREATIVE_ORIGINAL_ENDPOINT_MATCH_COUNT"] != 1 or not (
+            1 <= seen["WIN95_ORIGINAL_MIDI_ENDPOINTS"] <= 64):
+        raise ValueError("Ambiguous/non-original AWE MIDI device selection")
+    if seen["PRIVATE_WIN95_SF2_SIZE"] != len(source_sf2):
+        raise ValueError("Private guest SoundFont bytes differ from audited original bank")
+    if seen["PRIVATE_WIN95_SF2_FNV1A32"] != fnv1a32(source_sf2):
+        raise ValueError("Private guest source SF2 whole-file identity differs")
+    if not (0 < seen["PRE_LOAD_TOTAL_16BIT_WORDS"] <= MAX_RAM_WORDS and
+            seen["POST_LOAD_TOTAL_16BIT_WORDS"] ==
+            seen["PRE_LOAD_TOTAL_16BIT_WORDS"]):
+        raise ValueError("Inconsistent/unavailable original driver RAM installed size")
+    before = seen["PRE_LOAD_FREE_16BIT_WORDS"]
+    after = seen["POST_LOAD_FREE_16BIT_WORDS"]
+    if not 0 <= after < before <= seen["PRE_LOAD_TOTAL_16BIT_WORDS"]:
+        raise ValueError("Original driver reported no positive RAM SoundFont allocation")
+    delta = before - after
+    if delta != seen["CREATIVE_DRIVER_ALLOCATED_WORD_DELTA"]:
+        raise ValueError("Original Creative reported RAM word delta is inconsistent")
+    begin_ms = seen["ORIGINAL_API_LOAD_BEGIN_TICK_MS"]
+    end_ms = seen["ORIGINAL_API_LOAD_END_TICK_MS"]
+    if end_ms < begin_ms:
+        raise ValueError("Original guest RAM bank load time order invalid")
+    # Win95 GetTickCount is a host-guest OS timebase, NOT 86Box's
+    # independent EMU8000 sample/frame counter. These source submission
+    # anchors must not be mistaken for chip callback timestamps.
+    winmm_on = seen["ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS"]
+    winmm_off = seen["ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS"]
+    direct_on = seen["ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS"]
+    direct_off = seen["ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS"]
+    if not (end_ms <= winmm_on < winmm_off <
+            direct_on < direct_off and
+            winmm_off-winmm_on >= 300 and
+            direct_on-winmm_off >= 400 and
+            direct_off-direct_on >= 300):
+        raise ValueError(
+            "Original Win95 guest MIDI C4/D4 submission timestamps or "
+            "400ms note hold / cross-route separation invalid")
+    if not (lines.index(CAPTURE_BEGIN) <
+            next(i for i, x in enumerate(lines) if x.startswith(
+                "ORIGINAL_AWEMAN32_LOAD_USER_BANK_RC=")) <
+            lines.index(CAPTURE_END)):
+        raise ValueError("Original Win95 load result escaped bank-upload capture markers")
+    # Source mode is read before user-bank upload, then again after,
+    # so a change is OBSERVED rather than silently presumed absent.
+    def original_result_position(key):
+        return next(i for i, entry in enumerate(lines)
+                    if entry.startswith(key+"="))
+    if not (original_result_position("ORIGINAL_AWEMAN32_AWE_OPEN_RC") <
+            original_result_position("PRE_LOAD_SYNTH_BANK_RESULT") <
+            original_result_position("PRE_LOAD_SYNTH_BANK_MODE_ID") <
+            original_result_position("PRE_LOAD_RESULT") <
+            lines.index(CAPTURE_BEGIN) <
+            lines.index(CAPTURE_END) <
+            original_result_position("POST_LOAD_SYNTH_BANK_RESULT") <
+            original_result_position("POST_LOAD_SYNTH_BANK_MODE_ID") <
+            original_result_position("POST_LOAD_RESULT") <
+            original_result_position("ORIGINAL_RESET_CONTROLLERS_RC") <
+            lines.index(DIRECT_BEGIN)):
+        raise ValueError("Original Creative synth mode before/after load order invalid")
+    # The original Creative FAQ F.6 explicitly requires CC0=1 for
+    # User Bank 1; AWE_SELECT_SYN_BANK(203,USER_CUSTOM_BANK=3) is
+    # NOT the user-bank selection and the Win95 driver returned 0x6B.
+    # This nonnumeric source-program marker must precede both routes.
+    midi_bank_rule = "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6"
+    if lines.count(midi_bank_rule) != 1:
+        raise ValueError("Missing original Creative FAQ F.6 CC0=1 selection rule")
+    if not (original_result_position("POST_LOAD_RESULT") <
+            lines.index(midi_bank_rule) <
+            original_result_position("ORIGINAL_RESET_CONTROLLERS_RC")):
+        raise ValueError("Original Creative user bank CC0=1 marker order invalid")
+    if any("SELECT_USER_CUSTOM_BANK" in line for line in lines):
+        raise ValueError("Unsupported original synth-mode bank 203 reintroduced")
+    # Prove that each timestamp was emitted BEFORE its matching source
+    # NoteOn / NoteOff call, within the appropriate original MIDI phase.
+    # The captured guest OS ticks still do not establish sample-exact
+    # cross-clock correlation to the independently recorded 86Box trace.
+    if not (original_result_position("ORIGINAL_CC93_CHORUS_SEND_ZERO_RC") <
+            original_result_position("ORIGINAL_WINMM_C4_ON_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_MIDI_C4_VEL100_RC") <
+            original_result_position("ORIGINAL_WINMM_C4_OFF_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_MIDI_C4_OFF_RC") <
+            lines.index(DIRECT_BEGIN) <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC") <
+            original_result_position("ORIGINAL_DIRECT_D4_ON_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC") <
+            original_result_position("ORIGINAL_DIRECT_D4_OFF_SUBMIT_TICK_MS") <
+            original_result_position("ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC") <
+            lines.index(DIRECT_END)):
+        raise ValueError("Original Win95 C4/D4 MIDI submission timestamp "
+                         "log position/order invalid")
+    # Both original-driver MIDI routes must select the SAME controlled
+    # user-bank candidate before program and notes. An accepted API call
+    # does NOT establish that Bank 1 was actually rendered from RAM;
+    # that still requires independent original registers + dry PCM.
+    winmm_order = (
+        "ORIGINAL_RESET_CONTROLLERS_RC",
+        "ORIGINAL_BANK_SELECT_MSB1_RC",
+        "ORIGINAL_PROGRAM0_RC",
+        "ORIGINAL_CC91_REVERB_SEND_ZERO_RC",
+        "ORIGINAL_CC93_CHORUS_SEND_ZERO_RC",
+        "ORIGINAL_MIDI_C4_VEL100_RC",
+        "ORIGINAL_MIDI_C4_OFF_RC",
+    )
+    direct_order = (
+        "ORIGINAL_AWEMAN32_DIRECT_BANK_SELECT_MSB1_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_PROGRAM0_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_CC91_ZERO_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_CC93_ZERO_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_VEL100_RC",
+        "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC",
+    )
+    for labels, start, end in (
+            (winmm_order, CAPTURE_END, DIRECT_BEGIN),
+            (direct_order, DIRECT_BEGIN, DIRECT_END)):
+        offsets = [lines.index(label + "=" + "0x00000000") for label in labels]
+        if not (lines.index(start) < offsets[0] and
+                offsets[-1] < lines.index(end) and
+                all(left < right for left, right
+                    in zip(offsets, offsets[1:]))):
+            raise ValueError(
+                "Original Creative WinMM/direct bank-select and MIDI "
+                "source phase/order invalid")
+    if "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF" not in lines:
+        raise ValueError("Guest no-hardware-proof caveat missing")
+    return {
+        "status": "ORIGINAL_CREATIVE_WIN95_API_GUEST_LOG_CONTRACT_PASS",
+        "source_guest_log_sha256": hashlib.sha256(raw).hexdigest(),
+        "source_sf2_sha256": hashlib.sha256(source_sf2).hexdigest(),
+        "source_sf2_original_guest_fnv1a32": f"0x{fnv1a32(source_sf2):08X}",
+        "source_guest_fnv_not_cryptographic_provenance": True,
+        "source_sf2_bytes": len(source_sf2),
+        "creative_aweman32_module_path": dll_path,
+        "original_creative_cbuffer_pack2_size_bytes":
+            seen["ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES"],
+        "original_creative_synth_mode_before_load_id":
+            (seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] if
+             seen["PRE_LOAD_SYNTH_BANK_RESULT"] == 0 else None),
+        "original_creative_synth_mode_after_load_id":
+            (seen["POST_LOAD_SYNTH_BANK_MODE_ID"] if
+             seen["POST_LOAD_SYNTH_BANK_RESULT"] == 0 else None),
+        "original_creative_synth_mode_query_results": {
+            "before": seen["PRE_LOAD_SYNTH_BANK_RESULT"],
+            "after": seen["POST_LOAD_SYNTH_BANK_RESULT"]},
+        "original_synth_mode_change_observed":
+            ((seen["PRE_LOAD_SYNTH_BANK_MODE_ID"] !=
+              seen["POST_LOAD_SYNTH_BANK_MODE_ID"]) if mode_valid else None),
+        "original_midi_CC0_user_bank_mapping":
+            "NOT_PROVEN_BY_SYNTH_MODE_QUERY",
+        "original_driver_total_ram_words": seen["PRE_LOAD_TOTAL_16BIT_WORDS"],
+        "original_driver_free_ram_before_words": before,
+        "original_driver_free_ram_after_words": after,
+        "original_driver_ram_allocated_words": delta,
+        "original_guest_load_begin_ms": begin_ms,
+        "original_guest_load_end_ms": end_ms,
+        "original_user_bank_midi_cc0_controller": 0,
+        "original_user_bank_midi_cc0_value": 1,
+        "C4_D4_actually_use_RAM_samples":
+            "NOT_PROVEN_REQUIRES_INDEPENDENT_CCCA_PSST_CSL_ADDRESS_CAPTURE",
+        "original_guest_winmm_C4_submission_ticks_ms":
+            {"note_on": winmm_on, "note_off": winmm_off},
+        "original_guest_direct_D4_submission_ticks_ms":
+            {"note_on": direct_on, "note_off": direct_off},
+        "guest_GetTickCount_to_86Box_EMU8000_frame_time":
+            "NOT_PROVEN_INDEPENDENT_CLOCK_DOMAINS",
+        "original_MIDI_C4_vel100_91_93_zero_send_status": "WINMM_CALL_ACCEPTED",
+        "original_Creative_AWE_SEND_MIDI_401_D4_vel100_zero_send_status":
+            "ORIGINAL_AWEMAN32_API_ACCEPTED",
+        "winmm_and_direct_bank_msb1_probe_order": "API_CALLS_CONFIRMED",
+        "original_bank_msb1_selects_loaded_RAM_bank": "NOT_PROVEN",
+        "independent_WinMM_C4_vs_Creative_API_D4_register_parity":
+            "REQUIRES_SOURCE_GUEST_TRACE",
+        "original_86box_emu8000_register_trace": "REQUIRES_INDEPENDENT_CAPTURE",
+        "original_86box_guest_dry_pcm": "REQUIRES_INDEPENDENT_CAPTURE",
+        "original_creative_dll_vxd_provenance": "REQUIRES_INDEPENDENT_VERIFICATION",
+        "release_approved": False,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--private-guest-log", type=Path, required=True)
+    parser.add_argument("--private-sf2", type=Path, required=True)
+    parser.add_argument("--private-report", type=Path, required=True)
+    args = parser.parse_args()
+    path = args.private_report.resolve()
+    repo = Path(__file__).resolve().parents[1]
+    if path == repo or repo in path.parents or path.exists():
+        parser.error("Private source report must be new and outside Git")
+    log = args.private_guest_log.read_bytes()
+    source = args.private_sf2.read_bytes()
+    report = audit(log, source)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="ascii") as f:
+        json.dump(report, f, indent=2)
+        f.write("\n")
+    print("P002_WIN95_ORIGINAL_CREATIVE_DRIVER_RAM_GUEST_API_LOG_PASS",
+          "original_Win95_chip_trace=NOT_YET_PROVEN",
+          "original_Win95_dry_PCM=NOT_YET_PROVEN",
+          "release_approved=FALSE")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError) as exc:
+        print("P002_WIN95_GUEST_RAM_LOG_NO_GO", exc, file=sys.stderr)
+        sys.exit(1)
