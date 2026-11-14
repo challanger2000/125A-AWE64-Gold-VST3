@@ -238,6 +238,11 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     const char* nativeRam=std::getenv("AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES");
     const bool nativeRamRequested=(nativeRam && nativeRam[0]=='1' &&
                                    nativeRam[1]=='\0');
+    // Clocked native RAM captures require authentic private Creative
+    // register frame provenance; do not permit unverified timing.
+    const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
+    const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
+                                   clockEnv[1]=='\0';
     const char* tracePath=std::getenv("AWE64_P002_NATIVE_REGISTER_OUT_PATH");
     const bool traceRequested=tracePath && *tracePath;
     const char* dryWavPath=std::getenv("AWE64_P002_NATIVE_DRY_PCM_WAV_PATH");
