@@ -569,6 +569,12 @@ target_include_directories(awe64_p002_sf2_full_noteon_chip
 target_compile_features(awe64_p002_sf2_full_noteon_chip PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_full_noteon_chip
     PUBLIC awe64_p002_sf2_full_noteon awe64_p002_real_chip_port_bridge)
+# Source-original Win95 C4 layered physical voice0/3 allocation:
+# VTFT read -> DCYSUSV/VTFT stop -> next VTFT read, no speculative
+# E22 side effects. This links the actual chip writer to the existing
+# real EMU8000 CTest rather than creating a mock register helper.
+target_link_libraries(awe64_p002_sf2_live_vxd_allocator_test
+    PRIVATE awe64_p002_sf2_full_noteon_chip)
 target_link_libraries(awe64_p002_real_chip_port_bridge_test
     PRIVATE awe64_p002_sf2_full_noteon_chip)
 # Reconstruct the two remaining source x86 SF2 NoteOn target operands:

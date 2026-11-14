@@ -1,4 +1,5 @@
 #include "CreativeSf2VxdLiveAllocator.h"
+#include "CreativeSf2FullNoteOnChip.h"
 #include "Chip.h"
 #include <array>
 #include <cstdint>
@@ -75,6 +76,19 @@ int main(){
         CHECK(firstTrace[0].port==0xe22u &&
               firstTrace[0].value==0x60u &&
               firstTrace[0].frame==0u);
+        // Source Win95 C4 physical voice0: interleave the FIVE
+        // original 16-bit chip OUTs after allocator VTFT selection,
+        // before scanning next layer. Never duplicate first E22=60.
+        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*first));
+        const auto firstStop=chip.portWriteTrace();
+        CHECK(firstStop.size()==6u);
+        constexpr std::array<std::uint16_t,6> ports0{
+            0xe22u,0xe22u,0xa20u,0xe22u,0x620u,0x622u};
+        constexpr std::array<std::uint16_t,6> values0{
+            0x60u,0xa0u,0x00ffu,0x60u,0xffffu,0x0000u};
+        for(std::size_t i=0;i<firstStop.size();++i)
+            CHECK(firstStop[i].port==ports0[i] &&
+                  firstStop[i].value==values0[i]);
         // Simulate the ORIGINAL x86 NoteOn marker store; the next
         // candidate must follow the VXD's three-lane source order.
         put16(state,kOriginalVxdVoiceRowStart,0x003cu);
@@ -93,6 +107,16 @@ int main(){
               secondTrace[0].value==0x60u &&
               secondTrace[1].port==0xe22u &&
               secondTrace[1].value==0x63u);
+        CHECK(applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*next));
+        const auto secondStop=chip.portWriteTrace();
+        CHECK(secondStop.size()==7u);
+        constexpr std::array<std::uint16_t,5> ports3{
+            0xe22u,0xa20u,0xe22u,0x620u,0x622u};
+        constexpr std::array<std::uint16_t,5> values3{
+            0xa3u,0x00ffu,0x63u,0xffffu,0x0000u};
+        for(std::size_t i=0;i<5u;++i)
+            CHECK(secondStop[i+2u].port==ports3[i] &&
+                  secondStop[i+2u].value==values3[i]);
         for(const auto wrong:{30u,31u,33u}) {
             put16(state,0x06u,static_cast<std::uint16_t>(wrong));
             CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
@@ -111,6 +135,7 @@ int main(){
                  <<"original_32_physical_30_music_voices=TRUE "
                  <<"original_3_lane_priority=TRUE "
                  <<"original_real_VTFT_idle_scan_E22_outs=1_then_2 "
+             <<"original_stop_after_each_selection_C4_6_then_7_OUTS=TRUE "
                  <<"missing_source_state_FAIL_CLOSED=TRUE "
                  <<"voice_steal_effects_and_Win95_timestamps=NOT_PROVEN\n";
         return 0;
