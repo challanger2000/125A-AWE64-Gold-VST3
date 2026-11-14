@@ -253,15 +253,18 @@ def main(argv=None)->int:
     for name in ("original-port-origin","native-port-origin","port-frames",
                  "original-pcm-start","native-pcm-start","pcm-frames"):
         parser.add_argument("--"+name,required=True,type=int)
-    parser.add_argument("--original-session-manifest",required=True,type=Path)
+    parser.add_argument("--original-session-manifest",type=Path,
+                        help="Required for NEW Win95 captures; optional only for "
+                             "the exact independently verified 2026-11-13 source")
     parser.add_argument("--native-manifest",required=True,type=Path)
     parser.add_argument("--native-note",required=True,choices=("C4","D4"))
     a=parser.parse_args(argv)
     out=a.private_report.resolve()
     root=Path(__file__).resolve().parents[1]
     sources=[a.original_trace,a.original_sf2,a.original_guest_log,
-             a.original_wav,a.native_ports,a.native_wav,
-             a.original_session_manifest,a.native_manifest]
+             a.original_wav,a.native_ports,a.native_wav,a.native_manifest]
+    if a.original_session_manifest is not None:
+        sources.append(a.original_session_manifest)
     if out.exists() or out in [x.resolve() for x in sources] or (
             out==root or root in out.parents):
         parser.error("Private report must be NEW, outside Git and original/native inputs")
