@@ -2,6 +2,38 @@
 #include <algorithm>
 #include <limits>
 namespace awe64::creative {
+bool checkedNativePortsAtSourceFrames(
+    const std::span<const SourceClockedPort> original,
+    const std::span<const awe64::ChipPortWrite> native,
+    const std::span<SourceClockedPort> out,
+    std::size_t& count) noexcept {
+    count=0u;
+    if(original.empty() ||
+       original.size()!=native.size() ||
+       original.size()>SourceClockedPortPlayer::kMaxEvents ||
+       original.size()>out.size() ||
+       original.front().relative_frame!=0u)
+        return false;
+    // Phase 1: inspect ALL events; do not write a partial output plan
+    // if one of the native source-derived ports disagrees with Win95.
+    std::uint32_t previous=0u;
+    for(std::size_t i=0;i<original.size();++i) {
+        const auto& source=original[i];
+        if(source.relative_frame<previous ||
+           source.relative_frame>44100u*30u ||
+           source.port!=native[i].port ||
+           source.value!=native[i].value)
+            return false;
+        previous=source.relative_frame;
+    }
+    // Phase 2: carry ONLY source clock positions. Every actual 16-bit
+    // port/value is copied from the independently compiled native trace.
+    for(std::size_t i=0;i<original.size();++i)
+        out[i]={original[i].relative_frame,
+                native[i].port,native[i].value};
+    count=original.size();
+    return true;
+}
 bool SourceClockedPortPlayer::stage(
     awe64::Chip& chip,const std::span<const SourceClockedPort> source) noexcept {
     if(!chip.ready() || started_ || source.empty() ||
