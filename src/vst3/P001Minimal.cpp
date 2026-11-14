@@ -403,6 +403,55 @@ void Minimal::write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t valu
     chip_.writePort(port,uint16_t(value));
     chip_.writePort(uint16_t(port+2),uint16_t(value>>16));
 }
+bool Minimal::stagePrivateClockedNote(
+    const bool release,const int channel,const int pitch,
+    const int velocity) noexcept {
+    // This research-only path is strictly limited to the TWO original
+    // SHA-pinned owner captures. Normal VST3 MIDI/SF2 notes remain
+    // fully independent and are not spuriously limited to C4/D4.
+    if(!clockedNativeRam_ || clockedNativeRamFailed_ ||
+       !p002OriginalRamNotes_.ready() || channel!=0 ||
+       (pitch!=60 && pitch!=62) || (!release && velocity!=100) ||
+       nativeRamClock_.pending()!=0 || nativeRamClock_.missedDeadline()) {
+        clockedNativeRamFailed_=true;
+        return false;
+    }
+    nativeRamClock_.clear();
+    if(!chip_.beginNativeNoteOutTransaction()) {
+        clockedNativeRamFailed_=true;
+        return false;
+    }
+    // Run the ACTUAL source-derived 1996 VXD MIDI->SF2 descriptor->
+    // voice-allocator->chip-register compiler against REAL chip reads.
+    // The speculative chip register writes are rolled back *before*
+    // audio resumes. This NEVER copies the original trace's values.
+    const bool nativeOk=release
+        ? p002RomBank_.noteOff(chip_,static_cast<std::uint8_t>(channel),
+                              static_cast<std::uint8_t>(pitch))
+        : p002RomBank_.noteOn(chip_,static_cast<std::uint8_t>(channel),
+                             static_cast<std::uint8_t>(pitch),
+                             static_cast<std::uint8_t>(velocity));
+    const bool restored=chip_.endNativeNoteOutTransaction();
+    if(!nativeOk || !restored) {
+        clockedNativeRamFailed_=true;
+        return false;
+    }
+    std::array<awe64::creative::SourceClockedPort,
+               awe64::creative::SourceClockedPortPlayer::kMaxEvents> native{};
+    std::size_t count=0u;
+    if(!p002OriginalRamNotes_.verifiedNativeClockPlan(
+           release,channel,pitch,velocity,
+           chip_.nativeNoteOutTransaction(),native,count) ||
+       !nativeRamClock_.stage(
+           chip_,std::span<const awe64::creative::SourceClockedPort>(
+               native.data(),count))) {
+        // The original chip state has already been restored. Never
+        // emit a partial OUT batch on failed original/native parity.
+        clockedNativeRamFailed_=true;
+        return false;
+    }
+    return true;
+}
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
@@ -417,6 +466,10 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if(p002BankEnabled_) {
         if(channel<0 || channel>15)return;
         const int encoded=static_cast<int>(velocity*127.f+0.5f);
+        if(clockedNativeRam_) {
+            (void)stagePrivateClockedNote(false,channel,pitch,encoded);
+            return;
+        }
         if(encoded<=0 || encoded>127)return;
         (void)p002RomBank_.noteOn(chip_,static_cast<std::uint8_t>(channel),
                                  static_cast<std::uint8_t>(pitch),
@@ -484,6 +537,10 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
         return;
     }
     if(p002BankEnabled_) {
+        if(clockedNativeRam_) {
+            (void)stagePrivateClockedNote(true,channel,pitch,0);
+            return;
+        }
         if(channel>=0 && channel<16 && pitch>=0 && pitch<=127)
             (void)p002RomBank_.noteOff(
                 chip_,static_cast<std::uint8_t>(channel),
@@ -545,7 +602,12 @@ bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
 void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
     while(begin<end) {
         const auto count=std::min<int32>(980,end-begin);
-        if(p002PrivateRamPreloaded_ && p002OriginalRamNotes_.ready())
+        if(clockedNativeRam_) {
+            nativeRamClock_.render(
+                chip_,scratch_.data(),static_cast<std::size_t>(count));
+            if(nativeRamClock_.missedDeadline())
+                clockedNativeRamFailed_=true;
+        }else if(p002PrivateRamPreloaded_ && p002OriginalRamNotes_.ready())
             p002OriginalRamNotes_.render(
                 chip_,scratch_.data(),static_cast<std::size_t>(count));
         else
