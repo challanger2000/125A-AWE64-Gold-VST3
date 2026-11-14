@@ -1,0 +1,28 @@
+name: P002 public VXD resource source tools only
+on:
+  push:
+    branches: [diagnostic/p002-original-source-linux]
+    paths: [.github/workflows/p002-public-vxd-tools.yml]
+permissions:
+  contents: read
+jobs:
+  bundle-public-vxd-parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop/p002-creative-register-oracle
+      - name: Stage source-only original VXD resource parser and private pack builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p002-public-vxd-code
+          cp tools/p002_extract_original_vxd_sf2_resources.py tools/p002_make_private_vst3_rom_bank_resources.py p002-public-vxd-code/
+          grep -F '!= 32' p002-public-vxd-code/p002_make_private_vst3_rom_bank_resources.py
+          echo 'NO_CREATIVE_DRIVER_ROM_SF2_STATE_BYTES_IN_ARTIFACT'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-VXD-RESOURCE-SOURCE-ONLY
+          path: p002-public-vxd-code/
+          retention-days: 1
