@@ -380,8 +380,11 @@ int main(){
     CHECK(ramChip.open(syntheticRom,chipError));
     std::error_code cleanup;
     fs::remove(syntheticRom,cleanup);
-    originalState[6]=30u; // original VXD 30 music voices
-    originalState[0x18u]=30u; // validated original allocation mode count
+    // Original Win95 0x1592-byte VXD device image is 32 PHYSICAL
+    // chip voices (+06 and +18), with only the first 30 music slots
+    // visible to the authentic LCOD 3-lane voice allocator.
+    originalState[6]=32u;
+    originalState[0x18u]=32u;
     for(unsigned i=0;i<30u;++i) {
         const auto at=kOriginalVxdVoiceRowStart+
                       i*kOriginalVxdVoiceRowStride;
