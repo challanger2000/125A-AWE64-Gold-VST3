@@ -24,10 +24,11 @@ public:
     // May be called with arbitrary host block sizes, no heap or IO.
     void render(awe64::Chip& chip,std::int32_t* stereo,
                 std::size_t frames) noexcept;
-    void clear() noexcept {count_=0;next_=0;started_=false;}
+    void clear() noexcept {count_=0;next_=0;started_=false;timing_error_=false;}
     [[nodiscard]] bool finished() const noexcept {
-        return started_ && next_==count_;
+        return started_ && !timing_error_ && next_==count_;
     }
+    [[nodiscard]] bool missedDeadline() const noexcept { return timing_error_; }
     [[nodiscard]] std::size_t pending() const noexcept {
         return count_-next_;
     }
@@ -35,6 +36,6 @@ private:
     std::array<SourceClockedPort,kMaxEvents> events_{};
     std::size_t count_=0,next_=0;
     std::uint64_t first_frame_=0;
-    bool started_=false;
+    bool started_=false,timing_error_=false;
 };
 }
