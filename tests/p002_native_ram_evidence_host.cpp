@@ -116,23 +116,23 @@ void saveClockManifest(const fs::path& path,const Schedule& schedule,
         "original_final_ram_pcm_sha256","original_vxd_pack_sha256",
         "native_chip_out_trace_sha256","native_precard_wav_sha256"}};
     std::ostringstream json;
-    json<<"{\\n  \"schema\": \"P002_NATIVE_REAL_VST3_HOST_CLOCKS_V1\",\\n"
-        <<"  \"sample_rate\": 44100,\\n"
-        <<"  \"host_activation_origin_frame\": 0,\\n"
-        <<"  \"note_c4_on_frame\": "<<schedule.when[0]<<",\\n"
-        <<"  \"note_c4_off_frame\": "<<schedule.when[1]<<",\\n"
-        <<"  \"note_d4_on_frame\": "<<schedule.when[2]<<",\\n"
-        <<"  \"note_d4_off_frame\": "<<schedule.when[3]<<",\\n"
-        <<"  \"pcm_frames\": "<<schedule.total<<",\\n"
-        <<"  \"midi_channel\": 0,\\n"
-        <<"  \"midi_velocity\": 100,\\n"
-        <<"  \"audible_c4_on_frames\": "<<audible[0]<<",\\n"
-        <<"  \"audible_d4_on_frames\": "<<audible[1]<<",\\n";
+    json<<"{\n  \"schema\": \"P002_NATIVE_REAL_VST3_HOST_CLOCKS_V1\",\n"
+        <<"  \"sample_rate\": 44100,\n"
+        <<"  \"host_activation_origin_frame\": 0,\n"
+        <<"  \"note_c4_on_frame\": "<<schedule.when[0]<<",\n"
+        <<"  \"note_c4_off_frame\": "<<schedule.when[1]<<",\n"
+        <<"  \"note_d4_on_frame\": "<<schedule.when[2]<<",\n"
+        <<"  \"note_d4_off_frame\": "<<schedule.when[3]<<",\n"
+        <<"  \"pcm_frames\": "<<schedule.total<<",\n"
+        <<"  \"midi_channel\": 0,\n"
+        <<"  \"midi_velocity\": 100,\n"
+        <<"  \"audible_c4_on_frames\": "<<audible[0]<<",\n"
+        <<"  \"audible_d4_on_frames\": "<<audible[1]<<",\n";
     for(std::size_t i=0;i<keys.size();++i)
         json<<"  \""<<keys[i]<<"\": \""<<hashFileSha256(fs::path(argv[i+1]))
-            <<"\""<<(i+1<keys.size()?",":"")<<"\\n";
-    json<<"  ,\"original_win95_vs_native_pcm_parity\": \"NOT_COMPARED\",\\n"
-        <<"  \"original_creative_driver_provenance\": \"NOT_PROVEN_BY_HOST\"\\n}\\n";
+            <<"\""<<","<<"\n";
+    json<<"  \"original_win95_vs_native_pcm_parity\": \"NOT_COMPARED\",\n"
+        <<"  \"original_creative_driver_provenance\": \"NOT_PROVEN_BY_HOST\"\n}\n";
     const std::string bytes=json.str();
     check(bytes.size()<=65536u,"native evidence JSON unexpectedly large");
     const HANDLE file=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,
@@ -349,7 +349,7 @@ int wmain(int argc,wchar_t** argv) {
         mutation=valid;mutation.total=kMaxFrames+1u;
         if(validSchedule(mutation))return 6;
         std::cout<<"P002_PRIVATE_WINDOWS_NATIVE_HOST_SCHEDULE_SELFTEST_PASS "
-                 <<" original_driver_and_pcm_parity=NOT_TESTED\\n";
+                 <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
     }
     if(argc!=14 && argc!=15)return 2;
