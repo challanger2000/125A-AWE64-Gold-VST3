@@ -804,6 +804,7 @@ if(AWE64_BUILD_P001_VST3)
     target_include_directories(AWE64_Gold_P001 PRIVATE
         "${AWE64_VST3_SDK_ROOT}")
     target_link_libraries(AWE64_Gold_P001 PRIVATE sdk awe64_fork_chip
+        awe64_p002_sample_clock_ports
         awe64_p002_ct1745_wavetable
         awe64_p002_sf2_vxd_state_snapshot
         awe64_p002_sf2_source_note_release
