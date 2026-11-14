@@ -117,14 +117,14 @@ int main(){
     CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
                       originalChip.size())==0);
 
-    for(const auto forbidden:{0x36u,0x3au}) {
+    for(const auto forbidden:{0x34u,0x35u,0x36u,0x37u,0x3au,0x3fu}) {
         std::memcpy(originalChip.data(),a.rawForContractTesting(),
                     originalChip.size());
         CHECK(a.beginNativeNoteOutTransaction());
         a.writePort(0xe22u,static_cast<std::uint16_t>(forbidden));
         CHECK(!a.nativeNoteOutTransactionOverflow());
         const auto accepted=a.nativeNoteOutTransaction().size();
-        a.writePort(0xa20u,0xffffu); // forbidden SMALW/SMLD DATA1
+        a.writePort(0xa20u,0xffffu); // forbidden global/DRAM DATA1
         CHECK(a.nativeNoteOutTransactionOverflow());
         CHECK(a.nativeNoteOutTransaction().size()==accepted);
         CHECK(!a.endNativeNoteOutTransaction());
