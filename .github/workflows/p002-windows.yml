@@ -17,6 +17,7 @@ on:
       - 'tools/p002_make_private_original_vxd_ram_descriptor_tables.py'
       - 'tests/test_p002_make_private_original_vxd_ram_descriptor_tables.py'
       - 'tools/p002_verify_original_creative_ram_transfer.py'
+      - 'tests/test_p002_verify_original_creative_ram_transfer.py'
       - 'tools/p002_register_oracle.py'
       - 'tools/p002_voice_register_audit.py'
       - 'tools/p002_original_matrix_audit.py'
