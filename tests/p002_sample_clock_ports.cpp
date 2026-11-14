@@ -1,11 +1,55 @@
 #include "CreativeSampleClockPorts.h"
+#include <algorithm>
 #include <array>
+#include <vector>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #define CHECK(x) do{if(!(x)){std::cerr<<"P002_CLOCK_PORT_FAIL "<<__LINE__<<" "<<#x<<"\n";return 1;}}while(0)
+namespace {
+// A completely SYNTHETIC audible instrument, from the existing
+// direct_fork_fixture.cpp regression. This does not impersonate a
+// captured Creative Win95 driver register sequence.
+void startSyntheticVoice(awe64::Chip& chip) {
+    const auto write16=[&](unsigned reg,unsigned voice,
+                           std::uint16_t port,std::uint16_t val) {
+        chip.writePort(0xe22u,static_cast<std::uint16_t>((reg<<5u)|voice));
+        chip.writePort(port,val);
+    };
+    const auto write32=[&](unsigned reg,unsigned voice,
+                           std::uint16_t port,std::uint32_t val) {
+        chip.writePort(0xe22u,static_cast<std::uint16_t>((reg<<5u)|voice));
+        chip.writePort(port,static_cast<std::uint16_t>(val));
+        chip.writePort(static_cast<std::uint16_t>(port+2u),
+                       static_cast<std::uint16_t>(val>>16u));
+    };
+    constexpr unsigned v=29u;
+    write16(1,31u,0xa20u,0x0004u);
+    write16(5,v,0xa20u,0x0080u);
+    write32(3,v,0x620u,0x0000ffffu);
+    write32(2,v,0x620u,0x0000ffffu);
+    write32(6,v,0x620u,(128u<<24u)|459001u);
+    write32(7,v,0x620u,467282u);
+    write32(0,v,0xa20u,458995u);
+    write16(0,v,0xe20u,0xe000u);
+    write16(1,v,0xe20u,0xff00u);
+    write16(2,v,0xe20u,0u);
+    write16(3,v,0xe20u,0u);
+    write16(4,v,0xe20u,0u);
+    write16(5,v,0xe20u,0u);
+    write16(6,v,0xa20u,0x8000u);
+    write16(6,v,0xa22u,0x7f7fu);
+    write16(7,v,0xa20u,0x7f00u);
+    write16(4,v,0xa20u,0x8000u);
+    write16(4,v,0xa22u,0x7f7fu);
+    write16(5,v,0xa22u,0x8000u);
+    write16(7,v,0xa22u,0x8000u);
+    write32(1,v,0x620u,0x40000000u);
+    write16(5,v,0xa20u,0x7f00u);
+}
+}
 int main(){
     using namespace awe64;
     using namespace awe64::creative;
@@ -14,8 +58,15 @@ int main(){
     {
         std::ofstream f(path,std::ios::binary|std::ios::trunc);
         CHECK(f);
-        std::array<char,4096> zero{};
-        for(int i=0;i<256;++i)f.write(zero.data(),zero.size());
+        // Entirely synthetic audible ROM, same 96-sample saw as P001.
+        for(std::uint32_t i=0;i<524288u;++i) {
+            const std::int16_t pcm=(i>=458900u && i<467400u)
+                ? static_cast<std::int16_t>(
+                    (static_cast<int>(i%96u)-48)*350) : 0;
+            const auto word=static_cast<std::uint16_t>(pcm);
+            f.put(static_cast<char>(word));
+            f.put(static_cast<char>(word>>8u));
+        }
         CHECK(f.good());
     }
     Chip expected,clocked,chunked;
@@ -75,6 +126,86 @@ int main(){
           referenceTrace[5].frame==4u);
     a.clear();CHECK(a.pending()==0u);
     expected.close();clocked.close();chunked.close();
+
+    // Actual audible chip regression: source-observed C4 register timing
+    // has five buckets 8/20/82/16/26, totaling 152 OUTs. Contents
+    // below are SYNTHETIC controls, NOT copied Creative register values.
+    // This test asserts that the executor preserves the source's
+    // five-frame temporal geometry when the unchanged DSP is sounding.
+    Chip manualTone,oneBlockTone,splitTone;
+    CHECK(manualTone.open(path,err));
+    CHECK(oneBlockTone.open(path,err));
+    CHECK(splitTone.open(path,err));
+    for(auto* chip:{&manualTone,&oneBlockTone,&splitTone})
+        startSyntheticVoice(*chip);
+    std::array<std::int32_t,2u*512u> warm{};
+    for(auto* chip:{&manualTone,&oneBlockTone,&splitTone})
+        chip->render(warm.data(),512u);
+    CHECK(std::any_of(warm.begin(),warm.end(),
+                      [](auto v){return v!=0;}));
+    CHECK(manualTone.armPortWriteTrace(152));
+    CHECK(oneBlockTone.armPortWriteTrace(152));
+    CHECK(splitTone.armPortWriteTrace(152));
+    constexpr std::array<unsigned,5> sourceOriginalC4FrameCounts{
+        8u,20u,82u,16u,26u};
+    constexpr std::array<std::uint16_t,5> syntheticIfatn{
+        0xff00u,0xff20u,0xff40u,0xff10u,0xff00u};
+    std::array<SourceClockedPort,152> tonePlan{};
+    std::size_t n=0;
+    for(std::uint32_t frame=0u;frame<5u;++frame) {
+        for(unsigned j=0;j<sourceOriginalC4FrameCounts[frame];++j) {
+            const bool data=(j+1u==sourceOriginalC4FrameCounts[frame]);
+            tonePlan[n++]={frame,
+                static_cast<std::uint16_t>(data?0xe20u:0xe22u),
+                static_cast<std::uint16_t>(
+                    data?syntheticIfatn[frame]:((1u<<5u)|29u))};
+        }
+    }
+    CHECK(n==tonePlan.size());
+    SourceClockedPortPlayer oneBlockPlayer,splitPlayer;
+    CHECK(oneBlockPlayer.stage(oneBlockTone,tonePlan));
+    CHECK(splitPlayer.stage(splitTone,tonePlan));
+    constexpr std::size_t nFrames=1024u;
+    std::vector<std::int32_t> manual(nFrames*2u);
+    std::vector<std::int32_t> allAtOnce(nFrames*2u);
+    std::vector<std::int32_t> split(nFrames*2u);
+    std::size_t next=0u;
+    for(std::size_t frame=0;frame<nFrames;++frame) {
+        while(next<tonePlan.size() &&
+              tonePlan[next].relative_frame==frame) {
+            manualTone.writePort(tonePlan[next].port,
+                                 tonePlan[next].value);
+            ++next;
+        }
+        manualTone.render(manual.data()+2u*frame,1u);
+    }
+    oneBlockPlayer.render(oneBlockTone,allAtOnce.data(),nFrames);
+    std::size_t done=0u;
+    for(const auto chunk:{1u,2u,17u,64u,121u,819u}) {
+        CHECK(done+chunk<=nFrames);
+        splitPlayer.render(splitTone,split.data()+2u*done,chunk);
+        done+=chunk;
+    }
+    CHECK(done==nFrames && oneBlockPlayer.finished() &&
+          splitPlayer.finished());
+    CHECK(manual==allAtOnce && manual==split);
+    CHECK(std::any_of(manual.begin(),manual.end(),
+                      [](auto v){return v!=0;}));
+    const auto source=manualTone.portWriteTrace();
+    CHECK(source.size()==152u);
+    for(const auto* chip:{&oneBlockTone,&splitTone}) {
+        const auto rendered=chip->portWriteTrace();
+        CHECK(rendered.size()==source.size());
+        for(std::size_t i=0;i<source.size();++i)
+            CHECK(rendered[i].frame==source[i].frame &&
+                  rendered[i].port==source[i].port &&
+                  rendered[i].value==source[i].value);
+    }
+    std::size_t at=0u;
+    for(std::size_t frame=0u;frame<sourceOriginalC4FrameCounts.size();++frame)
+        for(std::size_t j=0u;j<sourceOriginalC4FrameCounts[frame];++j)
+            CHECK(source[at++].frame==512u+frame);
+    manualTone.close();oneBlockTone.close();splitTone.close();
     std::filesystem::remove(path);
     std::cout<<"P002_ORIGINAL_CHIP_SAMPLE_CLOCK_PORT_EXECUTOR_PASS "
                 "same_frame_order=TRUE chunk_invariant=TRUE "
