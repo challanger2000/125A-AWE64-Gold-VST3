@@ -98,7 +98,46 @@ int main(){
     a.render(actual.data(),64u);
     direct.render(baseline.data(),64u);
     CHECK(actual==baseline);
+    // A speculative original NoteOn MUST NOT be able to write to the
+    // 28-MiB sample RAM: restoring only emu8k_t would not undo it.
+    // Original Creative SMALW/SMLD use selector 0x36/0x3a on DATA1.
+    // Both 0x36 and 0x3a are also valid MUSIC voice 22/26 DATA3
+    // selectors, so the guard must distinguish the DATA PORT.
+    const auto beforeValue=a.rawForContractTesting()->ram[16];
+    std::memcpy(originalChip.data(),a.rawForContractTesting(),
+                originalChip.size());
+    CHECK(a.beginNativeNoteOutTransaction());
+    a.writePort(0xe22u,0x36u);
+    a.writePort(0xe20u,0x1234u); // legal music DATA3
+    a.writePort(0xe22u,0x3au);
+    a.writePort(0xe20u,0x5678u); // legal music DATA3
+    CHECK(a.nativeNoteOutTransaction().size()==4u);
+    CHECK(a.endNativeNoteOutTransaction());
+    CHECK(a.rawForContractTesting()->ram[16]==beforeValue);
+    CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
+                      originalChip.size())==0);
+
+    for(const auto forbidden:{0x36u,0x3au}) {
+        std::memcpy(originalChip.data(),a.rawForContractTesting(),
+                    originalChip.size());
+        CHECK(a.beginNativeNoteOutTransaction());
+        a.writePort(0xe22u,static_cast<std::uint16_t>(forbidden));
+        CHECK(!a.nativeNoteOutTransactionOverflow());
+        const auto accepted=a.nativeNoteOutTransaction().size();
+        a.writePort(0xa20u,0xffffu); // forbidden SMALW/SMLD DATA1
+        CHECK(a.nativeNoteOutTransactionOverflow());
+        CHECK(a.nativeNoteOutTransaction().size()==accepted);
+        CHECK(!a.endNativeNoteOutTransaction());
+        CHECK(std::memcmp(originalChip.data(),a.rawForContractTesting(),
+                          originalChip.size())==0);
+        CHECK(a.rawForContractTesting()->ram[16]==beforeValue);
+    }
+    CHECK(a.beginNativeNoteOutTransaction());
+    a.writePort(0xffffu,0x1u); // speculative unknown chip port
+    CHECK(a.nativeNoteOutTransactionOverflow());
+    CHECK(a.nativeNoteOutTransaction().empty());
+    CHECK(!a.endNativeNoteOutTransaction());
     direct.close();
-        b.close();a.close();std::filesystem::remove(rom);
+    b.close();a.close();std::filesystem::remove(rom);
     std::cout<<"P002_NATIVE_CHIP_PORT_TRACE_SAMPLE_CLOCK_AND_NO_DSP_SIDE_EFFECT_PASS\n";
 }
