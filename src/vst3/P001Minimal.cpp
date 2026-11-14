@@ -86,6 +86,11 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     const char* nativeRam=std::getenv("AWE64_P002_NATIVE_ORIGINAL_RAM_NOTES");
     const bool nativeRamRequested=(nativeRam && nativeRam[0]=='1' &&
                                    nativeRam[1]=='\0');
+    // This explicitly private diagnostic uses an original source trace
+    // for CLOCKS and strict comparison only, NEVER for the native OUT values.
+    const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
+    const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
+                                   clockEnv[1]=='\0';
     if((diag && *diag) || (bank && *bank) || nativeRamRequested)
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
@@ -134,6 +139,7 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 }
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
+        const bool nativeClockVerified=!clockedNativeRamFailed_;
         const bool traceSaved=privateNativeRegisterTracePath_.empty() ||
             savePrivateNativeRegisterOuts(
                 privateNativeRegisterTracePath_,chip_.portWriteTrace(),
@@ -156,12 +162,16 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002BankEnabled_=false;
         p002PrivateRamPreloaded_=false;
         p002OriginalRamNotes_.clear();
+        nativeRamClock_.clear();
+        clockedNativeRam_=false;
+        clockedNativeRamFailed_=false;
         p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
         preCardPcm16DiagnosticTap_=false;
         originalGoldCard_.reset(); // exact original CT1745 reset on the non-RT thread
         chip_.close(); // non-RT activation thread only
-        return traceSaved && pcmSaved ? kResultOk : kResultFalse;
+        return traceSaved && pcmSaved && nativeClockVerified
+            ? kResultOk : kResultFalse;
     }
     if (active_) return kResultOk;
     // The original 86Box AWE64 Gold CT1745 mixer starts at the source
@@ -193,6 +203,9 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     p002BankEnabled_=false;
     p002PrivateRamPreloaded_=false;
     p002OriginalRamNotes_.clear();
+    nativeRamClock_.clear();
+    clockedNativeRam_=false;
+    clockedNativeRamFailed_=false;
     const char* bankPath=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
     const char* sourcePath=std::getenv("AWE64_P002_PRIVATE_VXD_RESOURCES_PATH");
     const char* diagnosticPath=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
@@ -237,7 +250,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         (originalRamFinal && *originalRamFinal);
     const bool modeConflict=nativeRamRequested
         ? (!completeRamOriginal || !resourcePresent || bankPresent ||
-           diagnosticPresent || sourceRamNoteRequested)
+           diagnosticPresent ||
+           sourceRamNoteRequested!=clockedRamRequested)
         : (bankPresent!=resourcePresent ||
            (bankPresent && diagnosticPresent) ||
            (sourceRamNoteRequested && !anyCapturedRam) ||
@@ -245,6 +259,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             (!completeRamOriginal || bankPresent || diagnosticPresent)));
 
     if((nativeRam && *nativeRam && !nativeRamRequested) ||
+       (clockEnv && *clockEnv && !clockedRamRequested) ||
+       (clockedRamRequested && !nativeRamRequested) ||
        ((traceRequested || dryWavRequested) && !nativeRamRequested) ||
        modeConflict) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
@@ -305,6 +321,15 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         chip_.writePort(0xe22u,(1u<<5u)|31u);
         chip_.writePort(0xa20u,0x0004u);
         p002BankEnabled_=true;
+        if(clockedRamRequested) {
+            // Snapshot reservation is on setActive, never in process().
+            if(!p002OriginalRamNotes_.ready() ||
+               !chip_.armNativeNoteOutTransaction()) {
+                std::fputs("P002 native original clock capture cannot be armed\n",stderr);
+                chip_.close();return kResultFalse;
+            }
+            clockedNativeRam_=true;
+        }
         // Arm only AFTER the authentic Win95 Creative source RAM upload
         // and the private VXD table/state SHA gates have succeeded.
         if(traceRequested) {
