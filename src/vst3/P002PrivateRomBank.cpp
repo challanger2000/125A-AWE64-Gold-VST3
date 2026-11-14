@@ -46,6 +46,7 @@ std::uint32_t u32(std::span<const std::uint8_t> b,
 }
 }
 void P002PrivateRomBank::clear() noexcept {
+    native_checkpoint_active_=false;
     ready_=false;
     bank_bytes_.clear();
     state_.fill(0u);
@@ -231,6 +232,26 @@ bool P002PrivateRomBank::load(
     midi_.apply(program);
     ready_=true;error.clear();
     return true;
+}
+bool P002PrivateRomBank::beginNativeNoteCheckpoint() noexcept {
+    if(!ready_ || native_checkpoint_active_)return false;
+    native_checkpoint_.state=state_;
+    native_checkpoint_.ownership=ownership_;
+    native_checkpoint_.held_keys=held_keys_;
+    native_checkpoint_.ready=ready_;
+    native_checkpoint_active_=true;
+    return true;
+}
+void P002PrivateRomBank::commitNativeNoteCheckpoint() noexcept {
+    native_checkpoint_active_=false;
+}
+void P002PrivateRomBank::rollbackNativeNoteCheckpoint() noexcept {
+    if(!native_checkpoint_active_)return;
+    state_=native_checkpoint_.state;
+    ownership_=native_checkpoint_.ownership;
+    held_keys_=native_checkpoint_.held_keys;
+    ready_=native_checkpoint_.ready;
+    native_checkpoint_active_=false;
 }
 bool P002PrivateRomBank::noteOn(
     awe64::Chip& chip,const std::uint8_t channel,
