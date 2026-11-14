@@ -29,6 +29,50 @@ Its chip-frame zero is the **native activation**, not the independent
 Win95 guest boot/driver clock. No clock correction or automatic alignment
 is performed.
 
+## Original Creative Win95 session: actually boot and record (owner-private)
+
+The owner's private CC0-corrected Win95 FAT16 archive was inspected: it
+contains the authentic original Creative DLL/VXD, verified 83-sample SF2,
+corrected C0 controller test EXE and exact hardware-calibrated original
+86Box executable, but **no C:\P002RAM.LOG** in the FAT16 root. Thus
+the staged ZIP is NOT evidence of an executed corrected Win95 guest.
+
+Run on the owner's Windows 11 x64 computer, NEVER in public GitHub CI:
+
+1. Unzip the public-code Windows evidence kit.
+2. Place the already-owned original private archive
+   125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip beside its CMD.
+3. Double-click START-P002-WIN95-CAPTURE.cmd (Python 3 required).
+4. The CMD verifies official 86Box/ROM hashes, creates a new private
+   clone directory, launches the genuine Win95 guest, and captures
+   BOTH new EMU8K_TRACE and pre-card AWE32_WAV under ONE session tag.
+5. After the original test executable completes, close 86Box. The
+   verifier reads that actual guest FAT16 C:\P002RAM.LOG and original
+   installed Creative VXD/DLL, verifies the complete RAM bank upload
+   (260921 equal words / 255 rewrites), and writes a fresh private
+   source-session SHA manifest. The source ZIP and original assets
+   are NEVER overwritten, exported or committed to GitHub.
+
+An unbooted guest, missing log, mismatched Creative driver, inactive
+ROM/SF2, incomplete trace or silent/invalid source audio are strict NO-GO.
+The program does not pretend to execute original Win95 under Linux.
+
+**Important provenance fix:** A previous development revision invented
+a fixed SHA256 for C:\P002RAM.LOG even though no such authentic log
+was present in the packaged VM. That bogus fixed digest is removed.
+Real guest GetTickCount() events necessarily produce new LOG bytes
+for each newly booted session. Instead the parity join verifies the
+actual FAT16-attested original-source session digest for the specific
+LOG, register trace, WAV, ROM, SF2, VXD and calibrated fork executable.
+Original vs native host/chip note clock origins still require independent
+measurement; no audio alignment, fake start frame or source data replay.
+
+Use --original-session-manifest PRIVATE_ORIGINAL_SESSION.json alongside
+--native-manifest in the final owner-private join. This is required
+in production: an old historical source trace SHA cannot authorize
+a newly captured source session. Even an authenticated source session
+alone does not prove native VST3 PCM parity.
+
 ## Run the real Windows VST3 native RAM evidence host
 
 The independent `awe64_p002_native_ram_evidence_host.exe` is built
@@ -80,6 +124,7 @@ python p002_join_real_original_native_ram_parity.py `
   --original-wav "PRIVATE_ORIGINAL_C4_D4_DRY.wav" `
   --native-ports "NEW_NATIVE_OUT_TRACE.txt" `
   --native-wav "NEW_NATIVE_PRECARD.wav" `
+  --original-session-manifest "NEW_PRIVATE_WIN95_SESSION.json" `
   --native-manifest "NEW_NATIVE_CLOCK_SHA.json" `
   --native-note C4 `
   --original-port-origin VERIFIED_GUEST_C4_START `
