@@ -34,6 +34,7 @@
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
+#include "public.sdk/source/vst/hosting/parameterchanges.h"
 
 namespace {
 using namespace Steinberg;
@@ -109,7 +110,8 @@ std::string hashFileSha256(const fs::path& path) {
 }
 void saveClockManifest(const fs::path& path,const Schedule& schedule,
                        const std::array<std::size_t,2>& audible,
-                       wchar_t** argv,const wchar_t* prelude) {
+                       wchar_t** argv,const wchar_t* prelude,
+                       const std::uint64_t privateResetFrame) {
     const std::array<const char*,8> keys{{
         "exported_vst3_sha256","original_rom_sha256",
         "original_owner_sf2_sha256","original_ram_ports_sha256",
@@ -133,6 +135,8 @@ void saveClockManifest(const fs::path& path,const Schedule& schedule,
             <<"\""<<","<<"\n";
     json<<"  \"original_win95_prelude_source_sha256\": \""
         <<(prelude?hashFileSha256(fs::path(prelude)):"NOT_RUN")<<"\",\n";
+    json<<"  \"original_win95_native_reset_frame\": "
+        <<(privateResetFrame?std::to_string(privateResetFrame):"null")<<",\n";
     json<<"  \"original_win95_vs_native_pcm_parity\": \"NOT_COMPARED\",\n"
         <<"  \"original_creative_driver_provenance\": \"NOT_PROVEN_BY_HOST\"\n}\n";
     const std::string bytes=json.str();
@@ -243,7 +247,8 @@ void noteEvent(EventList& list,int key,bool on,int offset) {
     }
     check(list.addEvent(e)==kResultOk,"host MIDI event enqueue failed");
 }
-std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
+std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s,
+                               const std::uint64_t privateResetFrame) {
     // Four explicitly timed actions matching the OWNER's Win95 C4/D4
     // MIDI experiment. The native clock starts at VST3 activation:
     // no guess about original VM boot silence or an original audio offset.
@@ -251,6 +256,7 @@ std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
     constexpr std::array<bool,4> on{{true,false,true,false}};
     std::uint64_t position=0;
     std::size_t next=0;
+    bool resetDelivered=false;
     std::array<std::size_t,2> noteAudible{};
     while(position<s.total) {
         const auto count=static_cast<int>(
@@ -261,6 +267,19 @@ std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
         out.numChannels=2;
         out.channelBuffers32=buffers;
         EventList eventList{};
+        ParameterChanges parameterChanges(1);
+        if(privateResetFrame>0 && !resetDelivered &&
+           privateResetFrame>=position &&
+           privateResetFrame<position+static_cast<std::uint64_t>(count)) {
+            int32 queueIndex=-1, pointIndex=-1;
+            auto* queue=parameterChanges.addParameterData(
+                static_cast<ParamID>(0x125A7F80u),queueIndex);
+            check(queue && queue->addPoint(
+                static_cast<int32>(privateResetFrame-position),1.,pointIndex)
+                    ==kResultOk,
+                "actual VST3 midiOutReset param event creation failed");
+            resetDelivered=true;
+        }
         while(next<s.when.size() && s.when[next]<position+count) {
             check(s.when[next]>=position,"MIDI schedule out of order");
             noteEvent(eventList,keys[next],on[next],
@@ -274,6 +293,8 @@ std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
         data.outputs=&out;
         data.numOutputs=1;
         data.inputEvents=&eventList;
+        data.inputParameterChanges=
+            privateResetFrame>0?&parameterChanges:nullptr;
         check(processor->process(data)==kResultOk,
               "real exported VST3 rejected host RAM MIDI render");
         for(int i=0;i<count;++i) {
@@ -291,6 +312,8 @@ std::array<std::size_t,2> play(IAudioProcessor* processor,const Schedule& s) {
         position+=static_cast<std::uint64_t>(count);
     }
     check(next==s.when.size(),"host did not deliver all four MIDI events");
+    check(privateResetFrame==0 || resetDelivered,
+          "private Win95 midiOutReset control event never delivered");
     check(noteAudible[0]>=64u && noteAudible[1]>=64u,
           "native C4 or D4 source note produced no audible PCM");
     return noteAudible;
@@ -385,13 +408,22 @@ int wmain(int argc,wchar_t** argv) {
                  <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
     }
-    if(argc!=14 && argc!=15 && argc!=16 && argc!=17)return 2;
+    if(argc!=14 && argc!=15 && argc!=16 &&
+       argc!=17 && argc!=18)return 2;
     constexpr wchar_t kPreludeArg[]=L"--original-prelude=";
     constexpr std::size_t kPreludeLength=(sizeof(kPreludeArg)/sizeof(wchar_t))-1u;
-    const bool originalPrelude=(argc>=16 &&
-        std::wcsncmp(argv[argc-1],kPreludeArg,kPreludeLength)==0);
-    const bool clockedNotes=argc==17 || (argc==16 && !originalPrelude);
-    if(argc==17 && !originalPrelude)return 2;
+    constexpr wchar_t kResetArg[]=L"--source-reset-frame=";
+    constexpr std::size_t kResetLength=(sizeof(kResetArg)/sizeof(wchar_t))-1u;
+    const bool privateReset=(argc>=17 &&
+        std::wcsncmp(argv[argc-1],kResetArg,kResetLength)==0);
+    const int preludeIndex=argc-1-(privateReset?1:0);
+    const bool originalPrelude=(preludeIndex>=15 &&
+        std::wcsncmp(argv[preludeIndex],kPreludeArg,kPreludeLength)==0);
+    const bool clockedNotes=(argc==16 && !originalPrelude) ||
+        (argc==17 && !privateReset) || argc==18;
+    if((argc==17 && !originalPrelude && !privateReset) ||
+       (argc==18 && (!originalPrelude || !privateReset)) ||
+       (privateReset && !originalPrelude))return 2;
     bool outputPathsVerifiedNew=false;
     try {
         const Schedule sch=scheduleFromArgs(argv);
@@ -412,7 +444,7 @@ int wmain(int argc,wchar_t** argv) {
         }
         std::wstring originalPreludePath;
         if(originalPrelude) {
-            originalPreludePath=argv[argc-1]+kPreludeLength;
+            originalPreludePath=argv[preludeIndex]+kPreludeLength;
             const fs::path input(originalPreludePath);
             check(input.is_absolute() && fs::is_regular_file(input) &&
                   fs::file_size(input)==12506118u,
@@ -425,6 +457,12 @@ int wmain(int argc,wchar_t** argv) {
                       "original trace aliases source-note fixture");
             check(sch.when[0]==137u,
                   "private Win95 source-prelude only supports 137-frame native C4");
+        }
+        std::uint64_t sourceResetFrame=0;
+        if(privateReset) {
+            sourceResetFrame=frameNumber(argv[argc-1]+kResetLength);
+            check(sourceResetFrame==87475u && sch.when[0]==137u,
+                  "private owner Win95 midiOutReset must be at frame 87475");
         }
         outputPathsVerifiedNew=true;
         setEnv(L"AWE64_P001_ROM_PATH",argv[2]);
@@ -439,12 +477,14 @@ int wmain(int argc,wchar_t** argv) {
         setEnv(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"");
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_CHIP_PRELUDE_TRACE",
                originalPrelude?originalPreludePath.c_str():L"");
+        setEnv(L"AWE64_P002_PRIVATE_WIN95_SOURCE_RESET",
+               privateReset?L"1":L"");
         setEnv(L"AWE64_P002_PRIVATE_ORIGINAL_RAM_NOTE_PORTS",
                clockedNotes?argv[15]:L"");
         setEnv(L"AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM",
                clockedNotes?L"1":L"");
         Instance vst(argv[1]);
-        const auto audible=play(vst.processor,sch);
+        const auto audible=play(vst.processor,sch,sourceResetFrame);
         vst.stop();
         const auto nativeWav=fs::path(argv[8]);
         const auto nativeTrace=fs::path(argv[7]);
@@ -456,7 +496,8 @@ int wmain(int argc,wchar_t** argv) {
               "native VST3 original RAM note port trace missing/empty");
         if(argc>=15)
             saveClockManifest(fs::path(argv[14]),sch,audible,argv,
-                              originalPrelude?originalPreludePath.c_str():nullptr);
+                              originalPrelude?originalPreludePath.c_str():nullptr,
+                              sourceResetFrame);
         std::cout<<"P002_REAL_EXPORTED_NATIVE_RAM_EVIDENCE_CAPTURED"
                  <<" C4_D4_velocity=100"
                  <<" original_chip_DSP=UNCHANGED"
@@ -470,6 +511,8 @@ int wmain(int argc,wchar_t** argv) {
                                "NOT_COMPARED")
                  <<" original_prelude_replayed="
                  <<(originalPrelude?"YES":"NO")
+                 <<" original_win95_midi_out_reset_event="
+                 <<(privateReset?"AT_SAMPLE_87475":"NOT_RUN")
                  <<" Win95_vs_native_dry_pcm=NOT_COMPARED"
                  <<" release_approved=FALSE\n";
         return 0;

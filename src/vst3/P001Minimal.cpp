@@ -92,6 +92,16 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
     const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
                                    clockEnv[1]=='\0';
+
+    const char* privateResetEnv=
+        std::getenv("AWE64_P002_PRIVATE_WIN95_SOURCE_RESET");
+    const bool privateResetRequested=privateResetEnv &&
+        privateResetEnv[0]=='1' && privateResetEnv[1]=='\0';
+    if(nativeRamRequested && privateResetRequested) {
+        parameters.addParameter(STR16("P002 private Win95 midiOutReset"),
+            nullptr,1,0.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP002PrivateWin95ResetParam));
+    }
     if(!clockedRamRequested &&
        ((diag && *diag) || (bank && *bank) || nativeRamRequested))
         parameters.addParameter(STR16("P002 private CC64 sustain"),
@@ -208,6 +218,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     nativeRamClock_.clear();
     clockedNativeRam_=false;
     clockedNativeRamFailed_=false;
+    privateWin95SourceReset_=false;
+    privateWin95SourceResetDone_=false;
     const char* bankPath=std::getenv("AWE64_P002_PRIVATE_ROM_BANK_PATH");
     const char* sourcePath=std::getenv("AWE64_P002_PRIVATE_VXD_RESOURCES_PATH");
     const char* diagnosticPath=std::getenv("AWE64_P002_PRIVATE_NOTE_FIXTURE");
@@ -227,6 +239,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         std::getenv("AWE64_P002_PRIVATE_ORIGINAL_CHIP_PRELUDE_TRACE");
     const bool originalPreludeRequested=
         originalPreludeTrace && *originalPreludeTrace;
+    const char* originalReset=
+        std::getenv("AWE64_P002_PRIVATE_WIN95_SOURCE_RESET");
+    const bool sourceResetRequested=originalReset &&
+        originalReset[0]=='1' && originalReset[1]=='\0';
     // These are actual 1996 original driver NoteOn/NoteOff physical
     // port writes from THE SAME independently verified Win95 RAM bank.
     // Optional: no captured note file means authenticated RAM-only
@@ -276,7 +292,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
        (clockEnv && *clockEnv && !clockedRamRequested) ||
        (clockedRamRequested && !nativeRamRequested) ||
        ((traceRequested || dryWavRequested) && !nativeRamRequested) ||
-       modeConflict || (originalPreludeRequested && !nativeRamRequested)) {
+       modeConflict || (originalPreludeRequested && !nativeRamRequested) ||
+       (originalReset && *originalReset && !sourceResetRequested) ||
+       (sourceResetRequested && (!originalPreludeRequested ||
+                                 !nativeRamRequested))) {
         std::fputs("125A P002 private source/ROM bank mode incomplete or conflicting\n",
                    stderr);
         chip_.close();return kResultFalse;
@@ -370,6 +389,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             chip_.writePort(0xa20u,0x0004u);
         }
         p002BankEnabled_=true;
+        privateWin95SourceReset_=sourceResetRequested;
         if(clockedRamRequested) {
             // Snapshot reservation is on setActive, never in process().
             if(!p002OriginalRamNotes_.ready() ||
@@ -636,6 +656,30 @@ void Minimal::noteOff(int channel,int pitch) noexcept {
         playingKey_=-1;
     }
 }
+bool Minimal::privateWin95MidiOutReset() noexcept {
+    // Original Win95 Creative midiOutReset releases all 32 physical
+    // generators via DCYSUSV=0x807F. The SHA-attested source trace
+    // proves 23 generator releases at frame 1845375, 9 at 1845376.
+    // Their native time is fixed relative to the already pinned C4 frame.
+    // This private diagnostic never substitutes source C4/D4 note values.
+    constexpr std::uint64_t kNativeResetFrame=87475u;
+    if(!privateWin95SourceReset_ || privateWin95SourceResetDone_ ||
+       !p002BankEnabled_ || !chip_.ready() ||
+       chip_.renderedFrames()!=kNativeResetFrame ||
+       nativeRamClock_.pending()!=0u || nativeRamClock_.missedDeadline())
+        return false;
+    std::array<awe64::creative::SourceClockedPort,64u> events{};
+    for(std::uint16_t voice=0u;voice<32u;++voice) {
+        const std::uint32_t offset=voice<23u?0u:1u;
+        events[2u*voice]={offset,0xe22u,
+                           static_cast<std::uint16_t>((5u<<5u)|voice)};
+        events[2u*voice+1u]={offset,0xa20u,0x807fu};
+    }
+    nativeRamClock_.clear();
+    if(!nativeRamClock_.stage(chip_,events))return false;
+    privateWin95SourceResetDone_=true;
+    return true;
+}
 bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
     // This exact owner capture contains four MIDI note events only;
     // any additional controller would change register provenance.
@@ -670,7 +714,7 @@ bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
 void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
     while(begin<end) {
         const auto count=std::min<int32>(980,end-begin);
-        if(clockedNativeRam_) {
+        if(clockedNativeRam_ || privateWin95SourceReset_) {
             nativeRamClock_.render(
                 chip_,scratch_.data(),static_cast<std::size_t>(count));
             if(nativeRamClock_.missedDeadline())
@@ -738,6 +782,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     // the previous no-parameter path, while P002 private diagnostic can
     // reproduce source LCOD+0x656D pedal down/up sample accurately.
     IParamValueQueue* sustainQueue=nullptr;
+    IParamValueQueue* win95ResetQueue=nullptr;
     IParamValueQueue* programQueue=nullptr;
     constexpr std::array<ParamID,3> controllerIds{
         kP002PrivateCc7VolumeParam,
@@ -751,7 +796,11 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         const auto count=data.inputParameterChanges->getParameterCount();
         for(int32 q=0;q<count;++q) {
             auto* queue=data.inputParameterChanges->getParameterData(q);
-            if(queue && queue->getParameterId()==
+            if(queue && privateWin95SourceReset_ &&
+               queue->getParameterId()==kP002PrivateWin95ResetParam) {
+                if(win95ResetQueue)return kInvalidArgument;
+                win95ResetQueue=queue;
+            }else if(queue && queue->getParameterId()==
                              kP002PrivateDiagnosticCc64Param) {
                 if(sustainQueue)return kInvalidArgument; // ambiguous MIDI state
                 sustainQueue=queue;
@@ -769,6 +818,8 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             }
         }
     }
+    const int32 resetCount=win95ResetQueue?win95ResetQueue->getPointCount():0;
+    if(resetCount<0 || resetCount>1)return kInvalidArgument;
     const int32 ccCount=sustainQueue?sustainQueue->getPointCount():0;
     const int32 programCount=programQueue?programQueue->getPointCount():0;
     if(ccCount<0 || programCount<0)return kInvalidArgument;
@@ -781,12 +832,14 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         }
     }
     int32 ccIndex=0;
+    int32 resetIndex=0;
     int32 programIndex=0;
     int32 midiIndex=0;
     const int32 events=data.inputEvents?data.inputEvents->getEventCount():0;
     if(events<0)return kInvalidArgument;
     int32 pos=0;
     while(midiIndex<events || ccIndex<ccCount ||
+          resetIndex<resetCount ||
           programIndex<programCount ||
           controllerIndex[0]<controllerCount[0] ||
           controllerIndex[1]<controllerCount[1] ||
@@ -807,6 +860,13 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                ccOffset<0 || ccOffset>data.numSamples ||
                !std::isfinite(ccNormalized) ||
                ccNormalized<0. || ccNormalized>1.)
+                return kInvalidArgument;
+        }
+        int32 resetOffset=std::numeric_limits<int32>::max();
+        ParamValue resetValue=0.;
+        if(resetIndex<resetCount) {
+            if(win95ResetQueue->getPoint(resetIndex,resetOffset,resetValue)!=kResultOk ||
+               resetOffset<0 || resetOffset>data.numSamples || resetValue!=1.)
                 return kInvalidArgument;
         }
         int32 programOffset=std::numeric_limits<int32>::max();
@@ -846,21 +906,34 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         // deterministic private diagnostic scheduling rule, not a
         // claim about untraced original WinMM ordering. CC64 precedes
         // NoteOff at the same timestamp, as verified in the prior path.
-        const bool chooseController=controllerChoice>=0 &&
+        const bool chooseReset=resetIndex<resetCount &&
+            (!haveMidi || resetOffset<=midiOffset) &&
+            (!haveCc || resetOffset<=ccOffset) &&
+            (!haveProgram || resetOffset<=programOffset) &&
+            (controllerChoice<0 || resetOffset<=controllerOffset);
+        const bool chooseController=!chooseReset && controllerChoice>=0 &&
             (!haveMidi || controllerOffset<=midiOffset) &&
             (!haveCc || controllerOffset<=ccOffset) &&
             (!haveProgram || controllerOffset<=programOffset);
-        const bool chooseProgram=!chooseController && haveProgram &&
+        const bool chooseProgram=!chooseReset && !chooseController && haveProgram &&
             (!haveMidi || programOffset<=midiOffset) &&
             (!haveCc || programOffset<=ccOffset);
-        const bool chooseCc=!chooseController && !chooseProgram && haveCc &&
+        const bool chooseCc=!chooseReset && !chooseController && !chooseProgram && haveCc &&
             (!haveMidi || ccOffset<=midiOffset);
-        const int32 offset=chooseController?controllerOffset:
+        const int32 offset=chooseReset?resetOffset:(chooseController?controllerOffset:
             (chooseProgram?programOffset:
-            (chooseCc?ccOffset:midiOffset));
+            (chooseCc?ccOffset:midiOffset)));
         if(offset<pos)return kInvalidArgument;
         render(pos,offset,left,right);
         pos=offset;
+        if(chooseReset) {
+            if(!privateWin95MidiOutReset()) {
+                clockedNativeRamFailed_=true;
+                return kInvalidArgument;
+            }
+            ++resetIndex;
+            continue;
+        }
         if(chooseController) {
             if(clockedNativeRam_) {
                 clockedNativeRamFailed_=true;

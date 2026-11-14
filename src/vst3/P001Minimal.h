@@ -22,6 +22,8 @@ inline constexpr Steinberg::Vst::ParamID kP002PrivateProgramParam=0x125A00C0u;
 // never LegacyMIDICCOutEvent. Only future original-source bank NoteOns
 // observe these MIDI-state values; existing hardware voices are untouched.
 inline constexpr Steinberg::Vst::ParamID kP002PrivateCc7VolumeParam=0x125A0007u;
+// Original 1996 Creative Win95 MIDI reset, available ONLY in private P100.
+inline constexpr Steinberg::Vst::ParamID kP002PrivateWin95ResetParam=0x125A7F80u;
 inline constexpr Steinberg::Vst::ParamID kP002PrivateCc10PanParam=0x125A000Au;
 inline constexpr Steinberg::Vst::ParamID kP002PrivateCc11ExpressionParam=0x125A000Bu;
 class Minimal final : public Steinberg::Vst::SingleComponentEffect {
@@ -52,6 +54,7 @@ private:
     [[nodiscard]] bool stagePrivateClockedNote(bool release,
         int channel,int pitch,int velocity) noexcept;
     bool privateSustainCc64(std::uint8_t value) noexcept;
+    bool privateWin95MidiOutReset() noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
     void write(uint16_t reg, uint16_t voice, uint16_t port, uint16_t value) noexcept;
@@ -89,6 +92,8 @@ private:
     awe64::creative::SourceClockedPortPlayer nativeRamClock_{};
     bool clockedNativeRam_=false;
     bool clockedNativeRamFailed_=false;
+    bool privateWin95SourceReset_=false;
+    bool privateWin95SourceResetDone_=false;
     bool p002DiagnosticEnabled_=false; // private explicitly selected source diagnostic
     // Eight independently source-verified note groups. No runtime
     // physical voice stealing/retrigger; each pre-authenticated group
