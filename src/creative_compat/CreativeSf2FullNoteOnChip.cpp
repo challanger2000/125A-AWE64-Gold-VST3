@@ -55,4 +55,53 @@ bool applyOriginalCreativeSf2FullNoteOnPorts(
     }
     return true;
 }
+bool applyOriginalCreativeSf2StopSelectedIdleVoice(
+    awe64::Chip& chip,const OriginalWin95MonoSelection& selected) noexcept {
+    if(!chip.ready() ||
+       selected.reason!=OriginalWin95MonoSelectionReason::CompletelyIdle ||
+       selected.physical_voice>=kOriginalCreativeMusicVoices)return false;
+    const auto dc=candidateOriginalWin95SelectedVoiceDcysusvWrites(selected);
+    const auto vt=candidateOriginalWin95AssignedVoiceVtftWrites(selected.physical_voice);
+    if(!dc || !vt || !validateOriginalCreativeVxdVoicePorts(*dc) ||
+       !validateOriginalCreativeVxdVoicePorts(*vt))return false;
+    // SOURCE x86: E22 A0|voice, A20 00FF, E22 60|voice,
+    // 620 FFFF, 622 0000. The first E22 60|voice already came from
+    // the live original VTFT selector, so never duplicate it here.
+    return applyOriginalCreativeVxdVoicePorts(chip,*dc) &&
+           applyOriginalCreativeVxdVoicePorts(chip,*vt);
+}
+
+bool applyOriginalCreativeSf2MainPortsAfterStop(
+    awe64::Chip& chip,
+    const std::span<const OriginalSf2FullNoteOnVoice> voices) noexcept {
+    if(!chip.ready())return false;
+    const auto prepared=candidateOriginalSf2FullNoteOnPorts(voices);
+    if(!prepared ||
+       prepared->count!=voices.size()*kOriginalSf2OneVoiceStartWrites)
+        return false;
+    const auto& outs=prepared->out;
+    // Validate the COMPLETE original 61-command source plan, including
+    // allocator prologues, before emitting only the source main writes.
+    for(std::size_t i=0u;i<voices.size();++i) {
+        const auto at=i*5u;
+        const auto main=voices.size()*5u+i*kOriginalSf2OneVoiceMainWrites;
+        if(outs[at].port!=0xe22u || outs[at].access_width_bits!=8u ||
+           outs[at].value!=(0x60u|voices[i].physical_voice) ||
+           !validateOriginalCreativeVxdVoicePorts(
+               std::span<const OriginalWin95VxdPortWrite>(
+                   outs.data()+at+1u,4u)) ||
+           !validateOriginalCreativeVxdVoicePorts(
+               std::span<const OriginalWin95VxdPortWrite>(
+                   outs.data()+main,kOriginalSf2OneVoiceMainWrites)))
+            return false;
+    }
+    for(std::size_t i=0u;i<voices.size();++i) {
+        const auto at=voices.size()*5u+i*kOriginalSf2OneVoiceMainWrites;
+        if(!applyOriginalCreativeVxdVoicePorts(
+               chip,std::span<const OriginalWin95VxdPortWrite>(
+                   outs.data()+at,kOriginalSf2OneVoiceMainWrites)))
+            return false;
+    }
+    return true;
+}
 } // namespace awe64::creative

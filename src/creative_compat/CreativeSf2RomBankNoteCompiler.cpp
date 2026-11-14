@@ -419,10 +419,15 @@ candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
     if(!placement || placement->count!=inventory->count)
         return std::nullopt;
 
-    // The unchanged source x86 idle selector uses original 30-voice
-    // VXD rows and live EMU8000 reads. Mark selected rows in a scratch
-    // copy so the second layer cannot claim an already assigned voice.
-    // Do not modify real chip or caller state before full preflight.
+    // REAL Win95 Creative driver C4/D4 trace interleaves hardware
+    // VTFT selection with EACH layer's DCYSUSV/VTFT stop/reset.
+    // Do not preselect every layer and only then stop all of them:
+    // that emitted extra E22 selectors in the actual Windows VST3
+    // and changed the original driver's port order.
+    // Source SF2 RAM/driver table preflight is mandatory above.
+    // Like the original driver this can stop a voice before a late
+    // second-layer compilation error. The 0x1592 public state remains
+    // unchanged unless all original source compilation succeeds.
     std::array<std::uint8_t,kOriginalVxdMinDeviceImage> scratch{};
     std::copy_n(mutable_state.begin(),scratch.size(),scratch.begin());
     OriginalSf2ExecutedLiveLayeredBankNote result{};
@@ -439,6 +444,10 @@ candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
             if(chosen[j]==voice)return std::nullopt;
         chosen[i]=voice;
         result.selections[i]=*selected;
+        // Original LCOD VXD executes these exact five 16-bit chip
+        // OUTs immediately after the selected voice VTFT read.
+        if(!applyOriginalCreativeSf2StopSelectedIdleVoice(chip,*selected))
+            return std::nullopt;
         const auto row=kOriginalVxdVoiceRowStart+
             static_cast<std::size_t>(voice)*kOriginalVxdVoiceRowStride;
         scratch[row]=midi.data1;
@@ -456,8 +465,15 @@ candidateOriginalSf2StartNextIdleLayeredRamBankNoteOnLiveChip(
         return std::nullopt;
     auto original_after=source_context;
     original_after.original_state_bytes=compiled->vxd_state_after_noteon;
-    if(!applyOriginalCreativeSf2FullNoteOnFromVxdSnapshot(
-           chip,compiled->selectedVoices(),original_after))
+    // Allocation stop OUTs were already interleaved with the live
+    // original VTFT reads. Replay the source-derived 56 main writes
+    // for each layer; never duplicate the five stop prologue commands.
+    const auto resolved=candidateOriginalSf2ResolveVxdSnapshotVoices(
+        compiled->selectedVoices(),original_after);
+    if(!resolved ||
+       !applyOriginalCreativeSf2MainPortsAfterStop(
+           chip,std::span<const OriginalSf2FullNoteOnVoice>(
+               resolved->voices.data(),resolved->count)))
         return std::nullopt;
     std::copy_n(compiled->vxd_state_after_noteon.begin(),
                 kOriginalVxdMinDeviceImage,mutable_state.begin());
