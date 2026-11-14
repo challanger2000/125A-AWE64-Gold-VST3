@@ -1,5 +1,7 @@
 #pragma once
+#include <array>
 #include <cstddef>
+#include <cstring>
 #include <cstdint>
 extern "C" {
 #include <86box/sound.h>
@@ -58,6 +60,28 @@ public:
         return rendered_frames_;
     }
 
+    // Private P002 native MIDI->OUT evidence path ONLY. Arm off the audio
+    // thread; one speculative NoteOn runs the ORIGINAL driver-derived
+    // allocator and compiler against the REAL fork, including all genuine
+    // status reads. Every resulting write is recorded but then ALL chip
+    // register state is rolled back. The scheduled player later executes
+    // only those independently generated native words at source frames.
+    // Never use this mechanism for RAM uploads, chip render or arbitrary
+    // client DSP while the transaction is open.
+    [[nodiscard]] bool armNativeNoteOutTransaction() noexcept;
+    [[nodiscard]] bool beginNativeNoteOutTransaction() noexcept;
+    [[nodiscard]] bool endNativeNoteOutTransaction() noexcept;
+    [[nodiscard]] std::span<const ChipPortWrite>
+    nativeNoteOutTransaction() const noexcept {
+        return {native_note_writes_.data(),native_note_write_count_};
+    }
+    [[nodiscard]] bool nativeNoteOutTransactionOverflow() const noexcept {
+        return native_note_write_overflow_;
+    }
+    [[nodiscard]] bool nativeNoteOutTransactionActive() const noexcept {
+        return native_note_capture_active_;
+    }
+
     // Realtime when initialized: bounded chunks, no heap/locks/file I/O.
     // Output is original fork signed 32-bit interleaved digital samples, not normalized.
     void render(int32_t* interleavedStereo, std::size_t frames) noexcept;
@@ -71,5 +95,13 @@ private:
     std::size_t trace_count_=0;
     bool trace_armed_=false, trace_overflow_=false;
     std::uint64_t rendered_frames_=0;
+    // No allocations anywhere in a VST3 callback; core snapshot storage
+    // exists only in the opt-in original Creative native timing mode.
+    std::vector<std::byte> native_note_chip_snapshot_{};
+    std::array<ChipPortWrite,512u> native_note_writes_{};
+    std::size_t native_note_write_count_=0u;
+    int native_note_old_wavetable_pos_=0;
+    bool native_note_capture_active_=false;
+    bool native_note_write_overflow_=false;
 };
 }
