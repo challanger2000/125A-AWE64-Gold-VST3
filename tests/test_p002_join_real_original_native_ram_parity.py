@@ -147,7 +147,7 @@ class OriginalNativeBothDomainTests(unittest.TestCase):
             "converted_source_words_mismatched":0,
             "converted_source_words_bit_equal":260921,
             "source_window_overwritten_words":255,
-        }), patch.object(combined,"_sha",side_effect=lambda p:{
+        }), patch.object(combined.ports,"sha",side_effect=lambda p:{
             self.original_trace:combined.ORIGINAL_TRACE_SHA256,
             self.sf2:combined.ORIGINAL_SF2_SHA256,
             self.source_wav:combined.ORIGINAL_WAV_SHA256,
