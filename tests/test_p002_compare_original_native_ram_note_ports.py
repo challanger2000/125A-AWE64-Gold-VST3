@@ -75,12 +75,12 @@ class NativeRamOriginalPortWindowContract(unittest.TestCase):
     def test_matching_selector_only_is_not_a_musical_register_proof(self):
         # Previously these identical, non-empty traces returned EQUAL
         # even though neither side programmed a single EMU8000 value.
-        self.original.write_bytes(b"100 E22 0\\n")
+        self.original.write_bytes(b"100 E22 0\n")
         self.write_native(["3 E22 0"])
         with self.assertRaisesRegex(ValueError,
                                     "Original note window lacks chip selector"):
             self.compare()
-        self.original.write_bytes(b"100 E22 0\\n100 A20 23F8\\n")
+        self.original.write_bytes(b"100 E22 0\n100 A20 23F8\n")
         with self.assertRaisesRegex(ValueError,
                                     "native note window lacks chip selector"):
             self.compare()
