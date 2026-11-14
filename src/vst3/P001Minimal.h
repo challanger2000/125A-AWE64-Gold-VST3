@@ -49,6 +49,8 @@ public:
 private:
     void noteOn(int channel, int pitch, float velocity) noexcept;
     void noteOff(int channel,int pitch) noexcept;
+    [[nodiscard]] bool stagePrivateClockedNote(bool release,
+        int channel,int pitch,int velocity) noexcept;
     bool privateSustainCc64(std::uint8_t value) noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
