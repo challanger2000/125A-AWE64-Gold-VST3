@@ -722,7 +722,9 @@ Audio renderRealBankNotes(IPluginFactory* factory,unsigned noteCount,
 // voices, no extra synthetic/second sound engine.
 Audio renderBankProgramChange(
     IPluginFactory* factory,int changeToProgram,
-    bool playSecond=true,bool tieWithSecondNote=false) {
+    bool playSecond=true,bool tieWithSecondNote=false,
+    int sourceController=-1,int sourceValue=127,
+    bool sourceControllerSameSample=false) {
     Instance instance(factory,true);
     Audio audio{};
     const auto event=[&](EventList& list,bool on,int key,int offset) {
@@ -749,9 +751,11 @@ Audio renderBankProgramChange(
         if(block==2)event(events,false,60,71);
         if(playSecond && block==5)event(events,true,64,79);
         if(playSecond && block==11)event(events,false,64,91);
-        ParameterChanges changes(1);
+        ParameterChanges changes(2);
         const bool programAtThisBlock=changeToProgram>=0 &&
             block==(tieWithSecondNote?5:4);
+        const bool controllerAtThisBlock=sourceController>=0 &&
+            block==(sourceControllerSameSample?5:4);
         if(programAtThisBlock) {
             int32 index=0;
             auto* queue=changes.addParameterData(0x125A00C0u,index);
@@ -761,6 +765,22 @@ Audio renderBankProgramChange(
                 static_cast<Steinberg::Vst::ParamValue>(
                     changeToProgram)/127.,point)==kResultOk,
                 "original source program step invalid");
+        }
+        if(controllerAtThisBlock) {
+            require((sourceController==7 || sourceController==10 ||
+                     sourceController==11) &&
+                    sourceValue>=0 && sourceValue<=127,
+                    "invalid source-only controller test command");
+            int32 index=0;
+            const auto parameter=0x125A0000u+
+                static_cast<Steinberg::Vst::ParamID>(sourceController);
+            auto* queue=changes.addParameterData(parameter,index);
+            require(queue!=nullptr,"original source controller queue absent");
+            int32 point=0;
+            require(queue->addPoint(sourceControllerSameSample?79:29,
+                static_cast<Steinberg::Vst::ParamValue>(sourceValue)/127.,
+                point)==kResultOk,
+                "actual source controller automation point invalid");
         }
         if(block==5)audio.hashBeforeBlock2=audio.hash;
         ProcessData data{};
@@ -1150,6 +1170,34 @@ int wmain(int argc,wchar_t** argv){
                 "program change incorrectly modified sounding original voice");
         require(nonexistentProgram0.hash!=defaultProgram7.hash,
                 "unselected SF2 program unexpectedly played old preset");
+        // CC7/CC10/CC11 are ORIGINAL MIDI channel state fed to
+        // the source VXD descriptor compiler for the NEXT note.
+        // They must not rewrite a pre-existing chip voice, be ignored,
+        // or jump a sample when queued at the exact NoteOn offset.
+        const auto volumeReduced=renderBankProgramChange(
+            factory,-1,true,false,7,31);
+        const auto volumeTied=renderBankProgramChange(
+            factory,-1,true,false,7,31,true);
+        const auto expressionReduced=renderBankProgramChange(
+            factory,-1,true,false,11,42);
+        const auto expressionTied=renderBankProgramChange(
+            factory,-1,true,false,11,42,true);
+        const auto panChanged=renderBankProgramChange(
+            factory,-1,true,false,10,0);
+        const auto panTied=renderBankProgramChange(
+            factory,-1,true,false,10,0,true);
+        require(volumeReduced.hashBeforeBlock2==defaultProgram7.hashBeforeBlock2 &&
+                expressionReduced.hashBeforeBlock2==defaultProgram7.hashBeforeBlock2 &&
+                panChanged.hashBeforeBlock2==defaultProgram7.hashBeforeBlock2,
+                "source controller changed already-playing physical voice");
+        require(volumeReduced.hash!=defaultProgram7.hash &&
+                expressionReduced.hash!=defaultProgram7.hash &&
+                panChanged.hash!=defaultProgram7.hash,
+                "source CC7/CC11/CC10 failed to change NEW SF2 note PCM");
+        require(volumeTied.hash==volumeReduced.hash &&
+                expressionTied.hash==expressionReduced.hash &&
+                panTied.hash==panChanged.hash,
+                "same-sample source controller did not precede new MIDI NoteOn");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
@@ -1299,6 +1347,8 @@ int wmain(int argc,wchar_t** argv){
                  <<" actual_source_ROM_SF2_program_7_to_9_changes_PCM=TRUE"
                  <<" program_change_existing_voices_unaffected=TRUE"
                  <<" program_change_same_sample_precedes_NoteOn=TRUE"
+                 <<" original_CC7_CC10_CC11_sample_exact_nextNote_real_VST3_PCM=TRUE"
+                 <<" original_CC7_CC10_CC11_active_voice_unmodified=TRUE"
 
 #ifdef AWE64_P002_RT_HEAP_AUDIT
                  <<" P002_original_bank_30voice_program_CC64_rt_heap_calls="
