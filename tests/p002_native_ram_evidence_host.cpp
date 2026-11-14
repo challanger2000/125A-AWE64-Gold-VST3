@@ -424,7 +424,7 @@ int wmain(int argc,wchar_t** argv) {
         check(fs::is_regular_file(nativeTrace) &&
               fs::file_size(nativeTrace)>120u,
               "native VST3 original RAM note port trace missing/empty");
-        if(argc==15)
+        if(argc>=15)
             saveClockManifest(fs::path(argv[14]),sch,audible,argv);
         std::cout<<"P002_REAL_EXPORTED_NATIVE_RAM_EVIDENCE_CAPTURED"
                  <<" C4_D4_velocity=100"
@@ -433,7 +433,7 @@ int wmain(int argc,wchar_t** argv) {
                  <<" frames="<<sch.total
                  <<" C4_audible_samples="<<audible[0]
                  <<" D4_audible_samples="<<audible[1]
-                 <<" private_clock_sha_manifest="<<(argc==15?"WRITTEN":"NOT_REQUESTED")
+                 <<" private_clock_sha_manifest="<<(argc>=15?"WRITTEN":"NOT_REQUESTED")
                  <<" native_original_port_parity="
                  <<(argc==16?"ALL_C4_D4_WRITES_MATCHED_SOURCE":
                                "NOT_COMPARED")
@@ -451,7 +451,7 @@ int wmain(int argc,wchar_t** argv) {
             fs::remove(fs::path(argv[7]),ignore);
             ignore.clear();
             fs::remove(fs::path(argv[8]),ignore);
-            if(argc==15) {
+            if(argc>=15) {
                 ignore.clear();
                 fs::remove(fs::path(argv[14]),ignore);
             }
