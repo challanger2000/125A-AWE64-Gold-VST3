@@ -1,0 +1,121 @@
+name: P003 Creative original DOS libraries forensic analysis (no binary redistribution)
+on:
+  push:
+    branches:
+      - research/creative-dos-lib-audit-20261115
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  identify_original_creative_dos_libs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout archival Creative Developer Information Package (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: qb40/sound-blaster-awe32
+          ref: master
+          path: creative-dip
+          persist-credentials: false
+          sparse-checkout: |
+            DOS/LIB
+            DOS/DEMO/DEMO.C
+            README.TXT
+      - name: Checkout independent DOSMid reference (read-only)
+        uses: actions/checkout@v4
+        with:
+          repository: Tronix286/DOSMID
+          ref: main
+          path: dosmid
+          persist-credentials: false
+          sparse-checkout: |
+            AWE32
+      - name: Identify archive type, original library variants, module and public symbol tables
+        shell: bash
+        run: |
+          set -euo pipefail
+          for p in creative-dip/DOS/LIB/SF2LIB/FLAT/PAWE32.LIB creative-dip/DOS/LIB/SBKLIB/FLAT/PAWE32.LIB dosmid/AWE32/PAWE32.LIB; do
+            file "$p"
+            sha256sum "$p"
+            wc -c "$p"
+            od -An -tx1 -N 16 "$p"
+          done
+          python - <<'PY'
+          from pathlib import Path
+          import collections, hashlib, struct
+          root=Path('creative-dip/DOS/LIB')
+          libs={
+            'Creative SF2 Flat':root/'SF2LIB/FLAT/PAWE32.LIB',
+            'Creative SBK Flat':root/'SBKLIB/FLAT/PAWE32.LIB',
+            'DOSMid bundled':Path('dosmid/AWE32/PAWE32.LIB')}
+          def idx(buf,pos):
+            if pos>=len(buf):raise ValueError('index truncated')
+            a=buf[pos];pos+=1
+            if a&128:
+              if pos>=len(buf):raise ValueError('index truncated')
+              return ((a&127)<<8)|buf[pos],pos+1
+            return a,pos
+          def names(buf,kind):
+            ret=[];pos=0
+            try:
+              if kind in (0x90,0x91):
+                gr,pos=idx(buf,pos);seg,pos=idx(buf,pos)
+                if seg==0:pos+=2
+                while pos<len(buf):
+                  n=buf[pos];pos+=1
+                  if n==0 or pos+n>len(buf):break
+                  name=buf[pos:pos+n].decode('cp437','replace');pos+=n
+                  pos+=4 if kind==0x91 else 2
+                  _,pos=idx(buf,pos);ret.append(name)
+              if kind==0x8c:
+                while pos<len(buf):
+                  n=buf[pos];pos+=1
+                  if n==0 or pos+n>len(buf):break
+                  name=buf[pos:pos+n].decode('cp437','replace');pos+=n
+                  _,pos=idx(buf,pos);ret.append(name)
+            except (IndexError,ValueError):
+              pass
+            return ret
+          for title,path in libs.items():
+            b=path.read_bytes()
+            print('---',title,'sha256',hashlib.sha256(b).hexdigest(),'size',len(b))
+            if b[:1]!=b'\xf0':
+              print('NOT_OMF_LIBRARY_START',b[:12].hex());continue
+            pagesize=3+struct.unpack_from('<H',b,1)[0]
+            print('OMF_LIBRARY_PAGE_SIZE',pagesize)
+            if pagesize<16 or pagesize>4096:raise RuntimeError('Unexpected OMF page size')
+            off=pagesize; modules=[];record_types=collections.Counter();pub=[];ext=[];checksum_fail=0;parse_errors=[]
+            current='UNKNOWN'
+            while off<len(b):
+              typ=b[off]
+              if typ==0xF1:
+                print('OMF_LIBRARY_END',off);break
+              if typ==0 or typ==0xff:
+                off=((off//pagesize)+1)*pagesize
+                continue
+              if off+3>len(b):break
+              count=struct.unpack_from('<H',b,off+1)[0]
+              end=off+3+count
+              if count<1 or end>len(b):
+                parse_errors.append((off,typ,count))
+                off=((off//pagesize)+1)*pagesize
+                continue
+              rec=b[off:end]
+              if (sum(rec)&255)!=0:checksum_fail+=1
+              payload=rec[3:-1];record_types[hex(typ)]+=1
+              if typ in (0x80,0x82):
+                length=payload[0] if payload else 0
+                current=payload[1:1+length].decode('cp437','replace')
+                modules.append(current)
+              if typ in (0x90,0x91):pub += [(current,s) for s in names(payload,typ)]
+              if typ==0x8c:ext += [(current,s) for s in names(payload,typ)]
+              if typ in (0x8a,0x8b):
+                off=((end+pagesize-1)//pagesize)*pagesize
+              else:off=end
+            print('MODULE_COUNT',len(modules),'MODULES',modules[:150])
+            print('RECORD_TYPES',dict(record_types),'CHECKSUM_FAILURES',checksum_fail,'PARSE_ERRORS',parse_errors[:8])
+            print('PUBDEF_COUNT',len(pub),'PUBLICS',pub[:180])
+            print('EXTDEF_COUNT',len(ext),'EXTERNALS',ext[:110])
+          print('ORIGINAL_CREATIVE_DOS_LIBRARY_STRUCTURE_RESEARCH_DONE')
+          PY
