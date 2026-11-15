@@ -219,10 +219,25 @@ int main() {
         chip,bank,captured,recordedBase,originalFinal,true,
         capturedResult,error));
     CHECK(capturedResult.entire_pool_readback_equal &&
+          capturedResult.original_source_port_replay_verified &&
+          capturedResult.original_port_writes==captured.size() &&
+          capturedResult.original_sample_word_writes==8u &&
           !capturedResult.original_creative_source_transformation_verified &&
           capturedResult.physical_word_base==recordedBase &&
           capturedResult.source_pool_words==8u &&
           capturedResult.sample_headers==2u);
+    const auto mappedCaptured=p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,capturedResult,originalFinal,0u,7u,60u,100u);
+    CHECK(mappedCaptured && mappedCaptured->count==1u);
+    CHECK(mappedCaptured->layers[0].physical_sample_start==recordedBase);
+    CHECK(mappedCaptured->layers[0].physical_sample_end==recordedBase+4u);
+    CHECK(mappedCaptured->layers[0].candidate_initial_ccca==recordedBase-4u);
+    auto staleCaptured=originalFinal;
+    staleCaptured[7u]^=1u;
+    CHECK(!p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,capturedResult,staleCaptured,0u,7u,60u,100u));
+    CHECK(!p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,capturedResult,originalFinal,0u,6u,60u,100u));
     for(std::size_t i=0;i<expected.size();++i)
         CHECK(std::uint16_t(original->ram[capturedIndex+i])==expected[i]);
     // No original driver source recording is authorized to overwrite
