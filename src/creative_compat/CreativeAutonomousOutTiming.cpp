@@ -21,12 +21,13 @@ constexpr std::uint32_t kIndexAfterDataA20=72u;
 constexpr std::uint32_t kIndexAfterDataA22=76u;
 constexpr std::uint32_t kIndexAfterDataE20=82u;
 constexpr std::uint32_t kIndexAfterIndex=97u;
-// The 7FFD and 7F27 physical A20 data writes precede additional
-// original Creative driver control-path work, not a generic 72-cycle
-// index select. These values identify a hardware register transaction;
-// they are NOT MIDI note or preset identifiers. Their observed
-// inter-voice variability (~75 cycles) is unresolved. Using the mean
-// keeps this candidate structural instead of special-casing voices.
+// Longer driver work follows particular EMU8000 register SELECTOR
+// classes after an A20 data transfer: E22 0x80 (control transfer) and
+// E22 0x60 (another voice's initialization). Match the *register class*
+// in the independent native OUT stream, not the A20 payload value:
+// SoundFont/velocity changes may alter that data word. The observed
+// inter-voice CPU variability (~75 cycles) is unresolved, hence a mean
+// cost rather than a hardcoded voice/note-specific clock trace.
 constexpr std::uint32_t kAfterA20ControlTransfer=236u;
 constexpr std::uint32_t kAfterA20FinalEnvelope=162u;
 constexpr std::uint32_t kReleaseNextRegister=76u;
@@ -75,11 +76,14 @@ std::uint32_t cost(const awe64::ChipPortWrite& previous,
     switch(previous.port) {
         case 0x622u:return kIndexAfterData620;
         case 0xa20u:
-            // Distinguish the *native* protocol transaction that
-            // causes extra VXD housekeeping, independent of note
-            // identity, source note clocks and sample/preset ID.
-            if(previous.value==0x7ffdu)return kAfterA20ControlTransfer;
-            if(previous.value==0x7f27u)return kAfterA20FinalEnvelope;
+            // These E22 high address bits identify which EMU8000
+            // register class the original driver next initializes.
+            // No MIDI key/preset, data payload, source note clock or
+            // voice-number exception is used to infer the CPU work.
+            if((current.value & 0xe0u)==0x80u)
+                return kAfterA20ControlTransfer;
+            if((current.value & 0xe0u)==0x60u)
+                return kAfterA20FinalEnvelope;
             return kIndexAfterDataA20;
         case 0xa22u:return kIndexAfterDataA22;
         case 0xe20u:return kIndexAfterDataE20;
