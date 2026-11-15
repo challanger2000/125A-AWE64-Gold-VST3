@@ -55,11 +55,16 @@ Sample make(){
     return {total,phdrStart,pbagStart};
 }
 }
-Sample makeSparse77(){
+Sample makeSparse77(bool reversed=false){
     Bytes phdr,pbag,pdta,root;
     std::uint16_t row=0;
-    for(std::uint16_t program=0;program<=77;++program){
-        if(program==63u)continue;
+    for(std::uint16_t candidate=0;candidate<=77;++candidate){
+        if(candidate==63u)continue;
+        // The authentic owner SF2's PHDR sequence does not coincide
+        // with MIDI program order. Test both permutations explicitly.
+        const auto program=static_cast<std::uint16_t>(
+            reversed ? (candidate<63u ? 62u-candidate : 141u-candidate)
+                     : candidate);
         header(phdr,"SYNTH-PRESET",program,0u,row++);
     }
     header(phdr,"EOP",255u,255u,row);
@@ -105,6 +110,25 @@ int main(){
     CHECK(!hasExactSoundFontPreset(*sparse,0,63));
     CHECK(!hasExactSoundFontPreset(*sparse,0,78));
     CHECK(hasExactSoundFontPreset(*sparse,0,77));
+    // The sample owner's 77 presets are NOT necessarily sorted by
+    // program. Browsing remains physical PHDR order, MIDI lookup
+    // remains exact program number, and the absent 63 stays absent.
+    const auto shuffled=makeSparse77(true);
+    const auto shuffledPresets=inspectOriginalSoundFontPresetInventory(
+        shuffled.data);
+    CHECK(shuffledPresets && shuffledPresets->size()==77u);
+    CHECK((*shuffledPresets)[0].program==62u &&
+          (*shuffledPresets)[0].original_phdr_row==0u);
+    CHECK((*shuffledPresets)[62].program==0u &&
+          (*shuffledPresets)[62].original_phdr_row==62u);
+    CHECK((*shuffledPresets)[63].program==77u &&
+          (*shuffledPresets)[63].original_phdr_row==63u);
+    CHECK((*shuffledPresets)[76].program==64u);
+    for(std::uint16_t p=0;p<=77u;++p)
+        CHECK(hasExactSoundFontPreset(*shuffledPresets,0u,
+                                      static_cast<std::uint8_t>(p))==
+              (p!=63u));
+    CHECK(!hasExactSoundFontPreset(*shuffledPresets,128u,77u));
     unsigned mutations=0;
     auto bad=f.data;
     bad[0]^=1u;
