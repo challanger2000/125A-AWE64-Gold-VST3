@@ -1365,6 +1365,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(sevenZoneSf2Path,ec);
         std::filesystem::remove(invalidLayerSf2Path,ec);
         std::filesystem::remove(twoProgramSf2Path,ec);
+        std::filesystem::remove(missingInitialProgramSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cout<<"P002_EXPORTED_REAL_VST3_MIDI_TO_PINNED_EMU8000_PCM_PASS"
@@ -1405,6 +1406,8 @@ int wmain(int argc,wchar_t** argv){
                  <<" original_30_voice_CC64_full_release=TRUE"
                  <<" original_unproven_31st_voice_stealing_forbidden=TRUE"
                  <<" actual_source_ROM_SF2_program_7_to_9_changes_PCM=TRUE"
+                 <<" P003_explicit_SF2_bank128_sample_accurate=TRUE"
+                 <<" P003_missing_initial_program_first_PHDR_fallback=TRUE"
                  <<" program_change_existing_voices_unaffected=TRUE"
                  <<" program_change_same_sample_precedes_NoteOn=TRUE"
                  <<" original_CC7_CC10_CC11_sample_exact_nextNote_real_VST3_PCM=TRUE"
@@ -1441,6 +1444,7 @@ int wmain(int argc,wchar_t** argv){
         std::filesystem::remove(sevenZoneSf2Path,ec);
         std::filesystem::remove(invalidLayerSf2Path,ec);
         std::filesystem::remove(twoProgramSf2Path,ec);
+        std::filesystem::remove(missingInitialProgramSf2Path,ec);
         std::filesystem::remove(vxdResourcePath,ec);
         std::filesystem::remove(badVxdResourcePath,ec);
         std::cerr<<"P002_EXPORTED_VST3_DIAGNOSTIC_FAIL "<<e.what()<<"\n";
