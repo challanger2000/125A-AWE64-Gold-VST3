@@ -57,6 +57,33 @@ bool p003CapturedRamMatchesExactSourceSf2(
     return p003CalculateSourceSha256(sf2,digest) &&
            digest==capture.source_sf2_sha256;
 }
+bool p003CandidateAllocateAndUploadMonoSf2(
+    awe64::Chip& chip,P003CandidateRamAllocator& allocator,
+    const std::span<const std::uint8_t> sf2,
+    P003CandidateRamAllocation& allocation,
+    P003RamUploadResult& result,std::string& error) {
+    result={};allocation={};error.clear();
+    // Never reserve space for an unsupported SF2. This API is an
+    // activation-thread candidate, not a realtime MIDI callback.
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
+       !allocator.valid()) {
+        error="P003 candidate allocator/chip not ready";
+        return false;
+    }
+    const auto reservation=allocator.allocateMonoSf2(sf2);
+    if(!reservation) {
+        error="P003 unsupported SoundFont, no contiguous RAM space, "
+              "or all 64 bounded allocation slots occupied";
+        return false;
+    }
+    if(!p003UploadValidatedMonoSf2PoolToOriginalChip(
+           chip,sf2,reservation->base,result,error)) {
+        (void)allocator.release(*reservation);
+        return false;
+    }
+    allocation=*reservation;
+    return true;
+}
 bool p003UploadValidatedMonoSf2PoolToOriginalChip(
     awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
     const std::uint32_t base,P003RamUploadResult& result,
