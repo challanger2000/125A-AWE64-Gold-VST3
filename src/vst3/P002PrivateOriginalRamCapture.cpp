@@ -254,17 +254,18 @@ bool preloadOriginalCreativeCapturedRamSource(
     // when the FINAL ram matches source-observed words on all 260921.
     // The independently SHA-pinned source assets serve as the genuine
     // provenance for this ONE bank, not arbitrary external data.
-    const auto verified=
-        awe64::creative::candidateReplayObservedOriginalCreativeFinalRamBank(
-            chip,ports,kSourceObservedWordBase,expectedFinal,true,true);
-    if(!verified ||
-       verified->original_port_upload.exact_port_writes!=ports.size() ||
-       verified->original_port_upload.original_sample_words!=
+    awe64::creative::P003RamUploadResult captured{};
+    if(!awe64::creative::p003ReplaySourceCapturedMonoSf2Bank(
+           chip,ownerBank,ports,kSourceObservedWordBase,expectedFinal,
+           true,captured,error) ||
+       captured.original_port_writes!=ports.size() ||
+       captured.original_sample_word_writes!=
            realSession->original_smlD_word_writes ||
-       verified->independently_verified_final_word_count!=
-           kFinalOriginalSampleWords ||
-       verified->source_sample_distinct_rewritten_words!=255u) {
-        error="source original chip RAM replay/final-state gate refused";
+       captured.source_pool_words!=kFinalOriginalSampleWords ||
+       captured.sample_headers!=kOriginalMonoSampleHeaders ||
+       captured.original_distinct_overwritten_words!=255u) {
+        if(error.empty())
+            error="source original chip RAM replay/final-state gate refused";
         return false;
     }
     // For this test-only mode, directly inspect the original chip RAM
