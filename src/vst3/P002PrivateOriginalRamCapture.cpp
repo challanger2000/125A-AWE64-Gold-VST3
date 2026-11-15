@@ -257,9 +257,9 @@ bool preloadOriginalCreativeCapturedRamSource(
     // The independently SHA-pinned source assets serve as the genuine
     // provenance for this ONE bank, not arbitrary external data.
     awe64::creative::P003RamUploadResult captured{};
-    if(!awe64::creative::p003ReplaySourceCapturedMonoSf2Bank(
-           chip,ownerBank,ports,kSourceObservedWordBase,expectedFinal,
-           true,captured,error) ||
+    if(!awe64::creative::p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
+           chip,ownerBank,ports,expectedFinal,true,captured,error) ||
+       captured.physical_word_base!=kSourceObservedWordBase ||
        captured.original_port_writes!=ports.size() ||
        captured.original_sample_word_writes!=
            realSession->original_smlD_word_writes ||
