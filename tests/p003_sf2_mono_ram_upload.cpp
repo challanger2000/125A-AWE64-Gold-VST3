@@ -218,11 +218,16 @@ int main() {
         chip,allocator,sf2(true),firstLease,firstAuto,error));
     CHECK(allocator.usedBanks()==2u &&
           original->ram[firstAutoAt]==savedFirstAuto);
-    CHECK(allocator.release(firstLease)==false); // failed call cleared handle
+    // Invalid second load cannot destroy the first lease handle.
+    CHECK(allocator.contains(firstLease) &&
+          firstLease.base==originalFirstLease.base &&
+          firstLease.generation==originalFirstLease.generation);
+    CHECK(allocator.pin(firstLease));
+    CHECK(!allocator.release(firstLease));
+    CHECK(allocator.unpin(firstLease));
     CHECK(allocator.release(secondLease));
     CHECK(allocator.usedBanks()==1u);
-    CHECK(allocator.contains(originalFirstLease));
-    CHECK(allocator.release(originalFirstLease));
+    CHECK(allocator.release(firstLease));
     CHECK(allocator.usedBanks()==0u);
 
     // General P003 driver-CAPTURED loader: different physical base,
