@@ -353,7 +353,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                    chip_,std::filesystem::path(originalRamSf2),
                    std::filesystem::path(originalRamFinal),preludeError)) {
                 std::fprintf(stderr,
-                    "P003 final original prelude RAM rejected: %s\\n",
+                    "P003 final original prelude RAM rejected: %s\n",
                     preludeError.c_str());
                 chip_.close();return kResultFalse;
             }
