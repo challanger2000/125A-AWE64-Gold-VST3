@@ -158,6 +158,7 @@ if(WIN32)
         awe64_p002_sf2_ram_pcm_inventory
         awe64_p003_sf2_preset_inventory
         awe64_p002_original_ram_port_replay
+        awe64_p003_sf2_mono_ram_preload
         bcrypt)
     target_compile_features(awe64_p002_private_vxd_checkpoint_test
         PRIVATE cxx_std_23)
