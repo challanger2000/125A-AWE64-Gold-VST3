@@ -100,6 +100,52 @@ int main() {
     CHECK(count==release.size() && stats.final_relative_frame==0u);
     for(std::size_t i=0;i<count;++i)
         CHECK(output[i].relative_frame==0u);
+    // A short 8-write NoteOff has nonzero CPU execution duration.
+    // A late intrasample phase must cross into the NEXT sample.
+    release={
+        {0u,0xe22u,0xa0u},{0u,0xa20u,0x8027u},
+        {0u,0xe22u,0xe0u},{0u,0xa20u,0x8004u},
+        {0u,0xe22u,0xa1u},{0u,0xa20u,0x8027u},
+        {0u,0xe22u,0xe1u},{0u,0xa20u,0x8004u}};
+    std::array<SourceClockedPort,512u> early{},late{};
+    std::size_t earlyCount=0u,lateCount=0u;
+    P003AutonomousTimingStats earlyStats{},lateStats{};
+    CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        release,true,0u,early,earlyCount,&earlyStats));
+    CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        release,true,2800u,late,lateCount,&lateStats));
+    CHECK(earlyCount==8u && lateCount==8u);
+    CHECK(earlyStats.final_relative_frame==0u);
+    CHECK(lateStats.final_relative_frame==1u);
+    CHECK(earlyStats.estimated_guest_cpu_cycles==
+          lateStats.estimated_guest_cpu_cycles);
+    CHECK(lateStats.assumed_intrasample_phase_cycles==2800u);
+    for(std::size_t i=0;i<8u;++i) {
+        CHECK(early[i].relative_frame==0u);
+        CHECK(late[i].relative_frame==(i>=4u?1u:0u));
+        CHECK(late[i].port==release[i].port &&
+              late[i].value==release[i].value);
+    }
+    // NoteOn writes retain the identical native OUT order while
+    // independently modeled phase changes which audio frame receives
+    // the second voice-search transaction.
+    std::array<SourceClockedPort,512u> onEarly{},onLate{};
+    std::size_t onEarlyCount=0u,onLateCount=0u;
+    CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        a,false,0u,onEarly,onEarlyCount));
+    CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        a,false,2149u,onLate,onLateCount));
+    CHECK(onEarlyCount==onLateCount && onLateCount==a.size());
+    CHECK(onEarly[6].relative_frame==0u);
+    CHECK(onLate[6].relative_frame==1u);
+    for(std::size_t i=0;i<a.size();++i) {
+        CHECK(onEarly[i].relative_frame<=onLate[i].relative_frame);
+        CHECK(onEarly[i].port==onLate[i].port &&
+              onEarly[i].value==onLate[i].value);
+    }
+    CHECK(!awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        release,true,3024u,output,count));
+    CHECK(count==0u);
     release.resize(17u);
     CHECK(!p003CandidateAutonomousNoteTimeline(release,true,output,count));
     CHECK(!p003CandidateAutonomousNoteTimeline({},false,output,count));
