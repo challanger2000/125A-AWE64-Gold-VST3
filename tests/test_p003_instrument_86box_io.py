@@ -14,6 +14,12 @@ ORIGINAL_SHAPED_SYNTHETIC = (
     '#include <86box/timer.h>\n'
     '#include "cpu.h"\n'
     + HEADER + '\n'
+    + 'uint8_t inb(uint16_t port) {\n'
+    + '    ret &= p->inb(port, p->priv);\n'
+    + '    return ret;\n}\n'
+    + 'void outb(uint16_t port, uint8_t val) {\n'
+    + '    p->outb(port, val, p->priv);\n'
+    + '    return;\n}\n'
     + 'uint16_t inw(uint16_t port) {\n'
     + '    ret &= p->inw(port, p->priv);\n'
     + '    ' + IN_HOOK + '\n    return ret;\n}\n'
@@ -46,6 +52,12 @@ class TestPhysical16CallbackProbe(unittest.TestCase):
         # guest OUTL physically splits into two word callbacks.
         self.assertEqual(patched.count(b'p003_physical_inw('), 4)
         self.assertEqual(patched.count(b'p003_physical_outw('), 3)
+        self.assertEqual(patched.count(b'p003_physical_inb('), 2)
+        self.assertEqual(patched.count(b'p003_physical_outb('), 2)
+        self.assertIn(b"p003_cpu_io_note('r', port &",patched)
+        self.assertIn(b"(uint16_t) value << 8",patched)
+        self.assertIn(b'p003_physical_outb(port, val, p->priv, p->outb)',
+                      patched)
         self.assertIn(
             b'p003_physical_outw(port + i, val >> (i << 3), p->priv, p->outw)',
             patched)
@@ -79,6 +91,18 @@ class TestPhysical16CallbackProbe(unittest.TestCase):
             b'/* missing outl word dispatch */')
         with self.assertRaisesRegex(ValueError,"Unexpected original callback count"):
             instrument(changed,None)
+    def test_missing_byte_outb_probe_refused(self):
+        altered=ORIGINAL_SHAPED_SYNTHETIC.replace(
+            b'p->outb(port, val, p->priv)',
+            b'/* hardware word dispatch absent */')
+        with self.assertRaisesRegex(ValueError,"Unexpected original callback count"):
+            instrument(altered,None)
+    def test_missing_byte_inb_probe_refused(self):
+        altered=ORIGINAL_SHAPED_SYNTHETIC.replace(
+            b'p->inb(port, p->priv)',
+            b'/* physical input callback absent */')
+        with self.assertRaisesRegex(ValueError,"Unexpected original callback count"):
+            instrument(altered,None)
     def test_crlf_pinned_original_source_matches_git_hash(self):
         original=ORIGINAL_SHAPED_SYNTHETIC
         crlf=original.replace(b'\n',b'\r\n')
