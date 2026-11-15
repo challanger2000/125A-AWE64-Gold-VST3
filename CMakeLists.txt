@@ -310,7 +310,8 @@ target_include_directories(awe64_p003_sf2_mono_ram_preload
     PUBLIC src/creative_compat)
 target_link_libraries(awe64_p003_sf2_mono_ram_preload
     PUBLIC awe64_fork_chip awe64_p002_sf2_ram_pcm_inventory
-           awe64_p003_observed_three_tap)
+           awe64_p003_observed_three_tap
+           awe64_p002_original_ram_port_replay)
 if(WIN32)
     target_link_libraries(awe64_p003_sf2_mono_ram_preload PRIVATE bcrypt)
 endif()
