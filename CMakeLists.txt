@@ -914,6 +914,7 @@ if(AWE64_BUILD_P001_VST3)
         awe64_p003_sf2_preset_inventory
         awe64_p002_sf2_rom_bank_note_compiler
         awe64_p002_original_ram_port_replay
+        awe64_p003_sf2_mono_ram_preload
         bcrypt)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
