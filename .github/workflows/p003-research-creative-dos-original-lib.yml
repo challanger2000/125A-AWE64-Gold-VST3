@@ -123,7 +123,8 @@ jobs:
             print('PUBDEF_COUNT',len(pub),'PUBLICS',pub[:180])
             print('EXTDEF_COUNT',len(ext),'EXTERNALS',ext[:110])
           print('ORIGINAL_CREATIVE_DOS_LIBRARY_STRUCTURE_RESEARCH_DONE')
-          PY      - name: Generate derived fingerprints without redistributing Creative code
+          PY
+      - name: Generate derived fingerprints without redistributing Creative code
         shell: bash
         run: |
           python audit-source/tools/p003_public_dos_omf_fingerprints.py \
