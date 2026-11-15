@@ -166,6 +166,11 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
     // This marks a checked original CAPTURE, not an independently
     // reconstructed Creative sample transform or allocator.
     result.original_creative_source_transformation_verified=false;
+    result.original_port_writes=replay->original_port_upload.exact_port_writes;
+    result.original_sample_word_writes=
+        replay->original_port_upload.original_sample_words;
+    result.original_distinct_overwritten_words=
+        replay->source_sample_distinct_rewritten_words;
     return true;
 }
 #ifdef _WIN32
