@@ -265,6 +265,34 @@ int main() {
         chip,bank,repeatedCapture,recordedBase,originalFinal,true,
         capturedResult,error));
     CHECK(capturedResult.entire_pool_readback_equal);
+    // Real Creative can transform PCM on upload. This test changes a
+    // captured SMLD value AND its independent final RAM snapshot while
+    // leaving the source SF2 untouched. The RAW upload resolver must
+    // refuse it; the original CAPTURE resolver must still use exactly
+    // the measured physical chip address and full final image.
+    auto convertedPorts=captured;
+    convertedPorts[6u].value=0x1234u; // source sample 2 was 0x0000
+    auto convertedFinal=originalFinal;
+    convertedFinal[2u]=0x1234u;
+    P003RamUploadResult convertedCapture{};
+    CHECK(p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,convertedPorts,recordedBase,convertedFinal,true,
+        convertedCapture,error));
+    CHECK(convertedCapture.original_source_port_replay_verified &&
+          !convertedCapture.original_creative_source_transformation_verified);
+    CHECK(std::uint16_t(original->ram[capturedIndex+2u])==0x1234u);
+    const auto convertedNote=p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,convertedCapture,convertedFinal,0u,7u,60u,100u);
+    CHECK(convertedNote && convertedNote->count==1u &&
+          convertedNote->layers[0].physical_sample_start==recordedBase);
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,convertedCapture,0u,7u,60u,100u));
+    // Restore genuine synthetic fixture so later negative checks also
+    // validate that this test never leaves an altered sample behind.
+    CHECK(p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,captured,recordedBase,originalFinal,true,
+        capturedResult,error));
+    CHECK(std::uint16_t(original->ram[capturedIndex+2u])==expected[2u]);
     // A synthetic, unauthenticated bank can NEVER activate the
     // source-attested Creative 1996 transform+upload path.
     P003RamUploadResult fakeOriginal{};
