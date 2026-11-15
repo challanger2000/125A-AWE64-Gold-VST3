@@ -320,9 +320,9 @@ bool p003ReattestOwnerRamAfterOriginalPrelude(
                           kOriginalFinalRamWordsSha,observedFinalBytes)) {
         error="P003 original-prelude SF2/final-RAM SHA mismatch";return false;
     }
-    // Validate ALL original physical sample words BEFORE the redundant
-    // converter write. Prelude's source-driven port/history state must
-    // already contain the independently attested final bank.
+    // No chip writes are allowed after the original Win95 prelude:
+    // validate the full bank and transformation without disturbing
+    // sample-RAM, chorus/EQ state, filters, or original chip timing.
     const auto* raw=chip.rawForContractTesting();
     if(!raw || !raw->ram) {
         error="P003 original-prelude RAM inaccessible";return false;
@@ -338,7 +338,7 @@ bool p003ReattestOwnerRamAfterOriginalPrelude(
         }
     }
     awe64::creative::P003RamUploadResult p003{};
-    if(!awe64::creative::p003UploadExactOriginalWin95ConvertedOwnerBank(
+    if(!awe64::creative::p003VerifyReplayedOriginalWin95OwnerBankWithoutWrites(
            chip,ownerBank,observedFinalBytes,p003,error) ||
        !p003.entire_pool_readback_equal ||
        !p003.original_creative_source_transformation_verified ||
