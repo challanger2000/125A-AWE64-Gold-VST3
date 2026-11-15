@@ -97,7 +97,7 @@ class OriginalCreativeGuestStageTests(unittest.TestCase):
             before=stage.sha256(original)
             clone=root/"separate-two-bank-guest.img"
             result=stage.stage(original,clone,exe,sf2,second)
-            self.assertEqual(result["guest_second_sf2"],"C:\\\\P003BANK.SF2")
+            self.assertEqual(result["guest_second_sf2"],"C:\\P003BANK.SF2")
             self.assertEqual(result["second_sf2_sha256"],
                 hashlib.sha256(second.read_bytes()).hexdigest())
             self.assertNotEqual(result["second_sf2_sha256"],
