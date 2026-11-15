@@ -6,6 +6,7 @@
 #include "P002PrivateRomBank.h"
 #include "P002PrivateOriginalRamNotes.h"
 #include "CreativeSampleClockPorts.h"
+#include "CreativeAutonomousOutTiming.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "OriginalCt1745WavetableMixer.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
@@ -93,6 +94,9 @@ private:
     // register values, not the captured-original note replay mechanism.
     awe64::creative::SourceClockedPortPlayer nativeRamClock_{};
     bool clockedNativeRam_=false;
+    // Opt-in P003 candidate clock. No original note-frame fixture.
+    // Never enabled for release/default VST3 playback.
+    bool autonomousNativeRam_=false;
     bool clockedNativeRamFailed_=false;
     bool privateWin95SourceReset_=false;
     bool privateWin95SourceResetDone_=false;
