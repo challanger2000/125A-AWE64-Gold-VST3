@@ -12,7 +12,8 @@ def sf2_bank():
     data = bytes([i % 251 for i in range(512)])
     return b"RIFF" + (len(data) + 4).to_bytes(4, "little") + b"sfbk" + data
 
-def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
+def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None,
+                    second_bank: bytes | None = None) -> bytes:
     source=sf2_bank() if bank_bytes is None else bank_bytes
     lines = [
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_BANK_CAPTURE_START",
@@ -68,6 +69,29 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None) -> bytes:
         "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK",
         "GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API",
     ]
+    if second_bank is not None:
+        additions=[
+            "P003_ORIGINAL_SECOND_BANK_EXPERIMENT_BEGIN",
+            "P003_SECOND_SF2_SIZE="+hex32(len(second_bank)),
+            "P003_SECOND_SF2_FNV1A32="+hex32(auditor.fnv1a32(second_bank)),
+            "P003_BEFORE_SECOND_RESULT=0x00000000",
+            "P003_BEFORE_SECOND_TOTAL_16BIT_WORDS=0x00E00000",
+            "P003_BEFORE_SECOND_FREE_16BIT_WORDS=0x00CF0000",
+            "P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN",
+            "P003_ORIGINAL_SECOND_BANK_LOAD_RC=0x00000000",
+            "P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_END",
+            "P003_AFTER_SECOND_RESULT=0x00000000",
+            "P003_AFTER_SECOND_TOTAL_16BIT_WORDS=0x00E00000",
+            "P003_AFTER_SECOND_FREE_16BIT_WORDS=0x00CE8000",
+            "P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA=0x00008000",
+            "P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0x00000000",
+            "P003_AFTER_SECOND_CLEAR_RESULT=0x00000000",
+            "P003_AFTER_SECOND_CLEAR_TOTAL_16BIT_WORDS=0x00E00000",
+            "P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS=0x00CF0000",
+            "P003_ORIGINAL_SECOND_BANK_EXPERIMENT_FINISHED",
+        ]
+        at=lines.index("ORIGINAL_AWEMAN32_CLEAR_USER_BANK_RC=0x00000000")
+        lines[at:at]=additions
     return ("\r\n".join(lines) + "\r\n").encode("ascii")
 
 def hex32(n: int):
@@ -82,6 +106,47 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
         body = self.log.decode("ascii")
         assert body.count(old) == 1, old
         return body.replace(old, new).encode("ascii")
+
+    def test_p003_original_two_bank_source_and_free_delta_gates(self):
+        second=bytearray(sf2_bank())
+        second[-1]^=3
+        second=bytes(second)
+        log=synth_guest_log(len(self.bank),self.bank,second)
+        report=auditor.audit(log,self.bank,second)
+        self.assertTrue(report["p003_second_original_sf2_present"])
+        self.assertEqual(report["p003_second_original_driver_allocated_words"],0x8000)
+        self.assertEqual(report["p003_second_original_driver_free_after_clear_words"],0xCF0000)
+        self.assertEqual(report["p003_candidate_allocator_original_parity"],
+                         "NOT_PROVEN")
+        with self.assertRaisesRegex(ValueError,"second SF2"):
+            auditor.audit(log,self.bank)
+        changed=bytearray(second);changed[-2]^=1
+        with self.assertRaisesRegex(ValueError,"whole-file identity"):
+            auditor.audit(log,self.bank,bytes(changed))
+        with self.assertRaisesRegex(ValueError,"second SF2"):
+            auditor.audit(self.log,self.bank,second)
+        altered=log.replace(
+            b"P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA=0x00008000",
+            b"P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA=0x00008001")
+        with self.assertRaisesRegex(ValueError,"allocation/release mismatch"):
+            auditor.audit(altered,self.bank,second)
+        changed=log.replace(
+            b"P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS=0x00CF0000",
+            b"P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS=0x00CE8000")
+        with self.assertRaisesRegex(ValueError,"allocation/release mismatch"):
+            auditor.audit(changed,self.bank,second)
+        corrupted=log.replace(
+            b"P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0x00000000",
+            b"P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0x00000001")
+        with self.assertRaisesRegex(ValueError,"load/clear failure"):
+            auditor.audit(corrupted,self.bank,second)
+        out_of_order=log.replace(
+            b"P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN\r\n"
+            b"P003_ORIGINAL_SECOND_BANK_LOAD_RC=0x00000000",
+            b"P003_ORIGINAL_SECOND_BANK_LOAD_RC=0x00000000\r\n"
+            b"P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN")
+        with self.assertRaisesRegex(ValueError,"order invalid"):
+            auditor.audit(out_of_order,self.bank,second)
 
     def test_original_creative_pack2_cbuffer_abi_required(self):
         # Original Creative INDICES.H sets #pragma pack(2) for Win32.
