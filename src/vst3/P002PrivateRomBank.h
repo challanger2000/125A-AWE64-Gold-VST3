@@ -81,6 +81,9 @@ private:
         std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage> state{};
         awe64::creative::OriginalSf2RomBankVoiceOwnership ownership{};
         std::array<bool,128> held_keys{};
+        awe64::creative::MidiState midi{};
+        std::uint16_t bank_number=0u;
+        std::uint8_t channel=0u, program=0u;
         bool ready=false;
     };
     NativeNoteCheckpoint native_checkpoint_{};
