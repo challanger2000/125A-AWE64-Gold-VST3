@@ -30,6 +30,12 @@ constexpr std::size_t kOriginalNotePortBytes=5741u;
 constexpr std::size_t kNewOwnerNotePortBytes=5683u;
 constexpr std::string_view kNewOwnerNotePortSha =
     "5ea597cb377bbbca659e8b750fecfe748fc021abf748a48c044936d75ff70595";
+ // Genuine second independent 2026-11-15 Win95/Creative RAM bank session.
+ // Exactly 324 unmodified hardware writes (C4 152+8, D4 156+8),
+ // extracted verbatim from the original trace SHA256 181b2bc29a0...
+ // No port values, note events or sample-clock deltas are synthesized.
+constexpr std::string_view kP003OwnerNotePortSha =
+    "5a7b6bc04a42eece523619e02571c67313b4a02877e244e8b52390bbb2e2d3bb";
 constexpr std::array<std::size_t,4> kExactSourceCounts{{152u,8u,156u,8u}};
 constexpr std::array<std::uint32_t,4> kSourceFirstFrames{{
     3154566u,3172293u,3201361u,3219527u
@@ -37,14 +43,18 @@ constexpr std::array<std::uint32_t,4> kSourceFirstFrames{{
 constexpr std::array<std::uint32_t,4> kNewOwnerSourceFirstFrames{{
     1758037u,1775737u,1804806u,1822988u
 }};
+constexpr std::array<std::uint32_t,4> kP003OwnerSourceFirstFrames{{
+    1632237u,1650400u,1679469u,1697634u
+}};
 constexpr std::array<std::string_view,4> kSourceSections{{
     "# C4_ON","# C4_OFF","# D4_ON","# D4_OFF"
 }};
 
 bool hasExactNoteSourceSha(
     const std::span<const std::uint8_t> data,
-    bool& newOwnerSession) noexcept {
+    bool& newOwnerSession,bool& p003OwnerSession) noexcept {
     newOwnerSession=false;
+    p003OwnerSession=false;
     if(data.size()!=kOriginalNotePortBytes &&
        data.size()!=kNewOwnerNotePortBytes)return false;
     BCRYPT_ALG_HANDLE algorithm=nullptr;
@@ -63,6 +73,7 @@ bool hasExactNoteSourceSha(
                 accepted=true;
                 bool oldSha=data.size()==kOriginalNotePortBytes;
                 bool newSha=data.size()==kNewOwnerNotePortBytes;
+                bool p003Sha=data.size()==kNewOwnerNotePortBytes;
                 for(std::size_t i=0;i<hash.size();++i) {
                     const char high=digits[hash[i]>>4];
                     const char low=digits[hash[i]&15];
@@ -70,9 +81,12 @@ bool hasExactNoteSourceSha(
                                       kOriginalNotePortSha[2*i+1]==low;
                     newSha=newSha && kNewOwnerNotePortSha[2*i]==high &&
                                       kNewOwnerNotePortSha[2*i+1]==low;
+                    p003Sha=p003Sha && kP003OwnerNotePortSha[2*i]==high &&
+                                        kP003OwnerNotePortSha[2*i+1]==low;
                 }
-                newOwnerSession=newSha;
-                accepted=oldSha || newSha;
+                newOwnerSession=newSha || p003Sha;
+                p003OwnerSession=p003Sha;
+                accepted=oldSha || newSha || p003Sha;
             }
             BCryptDestroyHash(state);
         }
@@ -111,18 +125,19 @@ bool P002PrivateOriginalRamNotes::load(
     const auto dataSize=static_cast<std::size_t>(file.tellg());
     file.seekg(0,std::ios::beg);
     std::array<std::uint8_t,kOriginalNotePortBytes> bytes{};
-    bool newOwnerSession=false;
+    bool newOwnerSession=false,p003OwnerSession=false;
     if(!file.read(reinterpret_cast<char*>(bytes.data()),dataSize) ||
        !hasExactNoteSourceSha(
            std::span<const std::uint8_t>(bytes.data(),dataSize),
-           newOwnerSession)) {
+           newOwnerSession,p003OwnerSession)) {
         error="Real original Creative C4/D4 note fixture SHA256 invalid";
         return false;
     }
     const std::string text(reinterpret_cast<const char*>(bytes.data()),
                            dataSize);
-    const auto& firstFrames=newOwnerSession?
-        kNewOwnerSourceFirstFrames:kSourceFirstFrames;
+    const auto& firstFrames=p003OwnerSession?
+        kP003OwnerSourceFirstFrames:(newOwnerSession?
+        kNewOwnerSourceFirstFrames:kSourceFirstFrames);
     std::istringstream lines(text);
     std::string line;
     std::size_t section=0u,section_count=0u;
