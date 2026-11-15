@@ -5,6 +5,7 @@
 #include "Chip.h"
 #include "CreativeSf2RamSamplePcm.h"
 #include "CreativeOriginalRamPortReplay.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -21,6 +22,9 @@ struct P003RamUploadResult {
     std::size_t original_sample_word_writes=0;
     std::size_t original_distinct_overwritten_words=0;
     bool original_source_port_replay_verified=false;
+    // Bound to the exact source SF2 bytes, not merely a matching pool size.
+    std::array<std::uint8_t,32> source_sf2_sha256{};
+    bool source_sf2_sha256_verified=false;
 };
 // Explicit caller-supplied physical address, never guessed from the
 // SoundFont or treated as original Win95 Creative placement. Invoke
@@ -59,6 +63,12 @@ p003CandidatePhysicalNoteFromOriginalSourceCapture(
     std::span<const std::uint16_t> original_final_words,
     std::uint16_t bank,std::uint8_t program,
     std::uint8_t key,std::uint8_t velocity) noexcept;
+
+// Reject reusing an otherwise verified original RAM capture with a
+// DIFFERENT SoundFont of identical sample-header count and geometry.
+[[nodiscard]] bool p003CapturedRamMatchesExactSourceSf2(
+    std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& capture) noexcept;
 
 // Strict original-Win95-owner profile: SHA-attest BOTH the authentic
 // 555,754-byte source SF2 and the authentic 521,842-byte physical RAM
