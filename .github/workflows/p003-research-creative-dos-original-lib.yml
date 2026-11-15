@@ -138,3 +138,41 @@ jobs:
           path: creative-dos-omf-fingerprints.json
           retention-days: 3
           if-no-files-found: error
+      - name: Identify original OMF SEGDEF class CODE versus DATA (do not mislabel tables)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import struct
+          from pathlib import Path
+          def idx(b,p):
+            a=b[p];p+=1
+            if a&128:return ((a&127)<<8)|b[p],p+1
+            return a,p
+          for fname in ('creative-dip/DOS/LIB/SF2LIB/FLAT/PAWE32.LIB','creative-dip/DOS/LIB/SBKLIB/FLAT/PAWE32.LIB'):
+            b=Path(fname).read_bytes();page=3+struct.unpack_from('<H',b,1)[0]
+            p=page;mod='';names=[''];seg=0
+            print('LIBRARY_SEGMENT_TYPES',fname)
+            while p<len(b):
+              t=b[p]
+              if t==0xf1:break
+              if t in (0,255):
+                p=(p//page+1)*page;continue
+              n=struct.unpack_from('<H',b,p+1)[0];end=p+3+n;payload=b[p+3:end-1]
+              if end>len(b) or n<1:raise ValueError('OMF broken')
+              if t==0x80:
+                mod=payload[1:1+payload[0]].decode('cp437','replace');names=[''];seg=0
+              elif t==0x96:
+                at=0
+                while at<len(payload):
+                  length=payload[at];at+=1
+                  names.append(payload[at:at+length].decode('cp437','replace'));at+=length
+              elif t in (0x98,0x99):
+                seg+=1
+                attr=payload[0];at=1
+                if (attr>>5)==0:at+=3
+                else:at+=(4 if t==0x99 else 2)
+                sn,at=idx(payload,at);cl,at=idx(payload,at)
+                print('SEGDEF',mod,'segment',seg,'name',names[sn] if sn<len(names) else sn,'class',names[cl] if cl<len(names) else cl)
+              if t in (0x8a,0x8b):p=((end+page-1)//page)*page
+              else:p=end
+          PY
