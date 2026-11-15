@@ -100,9 +100,10 @@ int main() {
     CHECK(count==release.size() && stats.final_relative_frame==0u);
     for(std::size_t i=0;i<count;++i)
         CHECK(output[i].relative_frame==0u);
-    // Same synthetic *structure*, with a different A20 control
-    // transfer, changes the modeled guest driver CPU work but never
-    // replaces the native port/value bytes or loads source note clocks.
+    // Same synthetic native register program, changing only the
+    // SELECTOR CLASS of the E22 word after A20, changes modeled driver
+    // CPU work. Changing A20 SOUND DATA does NOT change timing.
+    // No original source-note timing, key or preset is consulted.
     std::array<SourceClockedPort,512u> normalCpu{},controlCpu{},envelopeCpu{};
     std::size_t normalCount=0u,controlCount=0u,envelopeCount=0u;
     P003AutonomousTimingStats normalStats{},controlStats{},envelopeStats{};
@@ -110,21 +111,28 @@ int main() {
         a,false,0u,normalCpu,normalCount,&normalStats));
     auto control=a;
     CHECK(control[23].port==0xa20u && control[24].port==0xe22u);
-    control[23].value=0x7ffdu;
+    CHECK((control[24].value & 0xe0u)==0u);
+    control[24].value=0x80u; // high bits select control-register class
     CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
         control,false,0u,controlCpu,controlCount,&controlStats));
     CHECK(normalCount==controlCount);
     CHECK(controlStats.estimated_guest_cpu_cycles==
           normalStats.estimated_guest_cpu_cycles+164u);
-    CHECK(controlCpu[23].value==0x7ffdu);
+    CHECK(controlCpu[24].value==0x80u);
     CHECK(controlCpu[24].relative_frame>=normalCpu[24].relative_frame);
-    control[23].value=0x7f27u;
+    control[24].value=0x60u; // independent voice-register class
     CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
         control,false,0u,envelopeCpu,envelopeCount,&envelopeStats));
     CHECK(envelopeCount==normalCount);
     CHECK(envelopeStats.estimated_guest_cpu_cycles==
           normalStats.estimated_guest_cpu_cycles+90u);
-    CHECK(envelopeCpu[23].value==0x7f27u);
+    CHECK(envelopeCpu[24].value==0x60u);
+    control=a;
+    control[23].value^=0x1fffu; // user bank changes underlying data
+    CHECK(awe64::creative::p003CandidateAutonomousNoteTimelineAtPhase(
+        control,false,0u,envelopeCpu,envelopeCount,&envelopeStats));
+    CHECK(envelopeStats.estimated_guest_cpu_cycles==
+          normalStats.estimated_guest_cpu_cycles);
 
     // A short 8-write NoteOff has nonzero CPU execution duration.
     // A late intrasample phase must cross into the NEXT sample.
