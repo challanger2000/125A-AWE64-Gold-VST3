@@ -204,6 +204,23 @@ bool replayPrivateOriginalWin95ChipPrelude(
         error="prelude: original Win95 hardware-init/read/write geometry mismatch";
         return false;
     }
+    // A matching number of reads is insufficient. The REAL original
+    // Creative driver may have observed a different EMU8000 register
+    // value, even though every original OUT was replayed successfully.
+    // Never approve this VST3 chip state or subsequent PCM parity if
+    // a single source READ differs. This is activation-only code.
+    if(report.read_disagreements!=0u) {
+        std::ostringstream diagnostic;
+        diagnostic<<"prelude: original Win95 chip READ mismatch count="
+                  <<report.read_disagreements
+                  <<" first_frame="<<report.first_read_disagreement_frame
+                  <<" port="<<report.first_read_disagreement_port
+                  <<" selector="<<report.first_read_disagreement_selector
+                  <<" original="<<report.first_read_disagreement_source
+                  <<" native="<<report.first_read_disagreement_native;
+        error=diagnostic.str();
+        return false;
+    }
     if(!advanceTo(chip,clock,kActivationChipClock)) {
         error="prelude: remaining original clock invalid";return false;
     }
