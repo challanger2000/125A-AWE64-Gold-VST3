@@ -20,6 +20,7 @@ struct P003RamUploadResult {
     std::size_t original_port_writes=0;
     std::size_t original_sample_word_writes=0;
     std::size_t original_distinct_overwritten_words=0;
+    bool original_source_port_replay_verified=false;
 };
 // Explicit caller-supplied physical address, never guessed from the
 // SoundFont or treated as original Win95 Creative placement. Invoke
@@ -45,6 +46,19 @@ struct P003RamUploadResult {
     std::span<const std::uint16_t> original_final_words,
     bool original_driver_and_sf2_hashes_independently_verified,
     P003RamUploadResult& result,std::string& error);
+
+// Source-captured physical SF2 note address resolver. Unlike raw
+// pool resolver this accepts original driver TRANSFORMED RAM bytes,
+// provided the FULL final original chip RAM image still matches the
+// separately captured source. Never invents a VXD note allocator.
+[[nodiscard]] std::optional<OriginalSf2RamPhysicalNotePlan>
+p003CandidatePhysicalNoteFromOriginalSourceCapture(
+    const awe64::Chip& chip,
+    std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& source_capture,
+    std::span<const std::uint16_t> original_final_words,
+    std::uint16_t bank,std::uint8_t program,
+    std::uint8_t key,std::uint8_t velocity) noexcept;
 
 // Strict original-Win95-owner profile: SHA-attest BOTH the authentic
 // 555,754-byte source SF2 and the authentic 521,842-byte physical RAM
