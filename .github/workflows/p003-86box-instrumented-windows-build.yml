@@ -63,17 +63,20 @@ jobs:
           if ($before -ne $after) { throw 'Original EMU8000 source unexpectedly changed' }
           Write-Host 'P003_FORK_ONLY_IO_INSTRUMENTED original_emu8000_source_sha_unchanged=TRUE'
       - name: Configure original fork release for Windows GUI
+        working-directory: p003-probe-source
         run: >-
-          cmake -S p003-probe-source -B p003-probe-source/build --preset regular
-          --toolchain ./p003-probe-source/cmake/flags-gcc-x86_64.cmake
+          cmake -S . -B build --preset regular
+          --toolchain ./cmake/flags-gcc-x86_64.cmake
           -D QT=on
       - name: Build actual 86Box with separate CPU I/O recorder
-        run: cmake --build p003-probe-source/build --parallel 4
+        working-directory: p003-probe-source
+        run: cmake --build build --parallel 4
       - name: Install binary and runtime libraries
+        working-directory: p003-probe-source
         run: |
-          cmake --install p003-probe-source/build
-          ls -lah p003-probe-source/build/artifacts/
-          test -f p003-probe-source/build/artifacts/86Box.exe
+          cmake --install build
+          ls -lah build/artifacts/
+          test -f build/artifacts/86Box.exe
       - uses: actions/upload-artifact@v4
         with:
           name: P003-86Box-original-EMU8000-CPU-TSC-port-trace-Win11
