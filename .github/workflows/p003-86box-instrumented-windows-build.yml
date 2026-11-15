@@ -1,0 +1,82 @@
+name: P003 instrumented original 86Box Win95 x64 research fork
+on:
+  push:
+    branches:
+      - develop/p002-creative-register-oracle
+    paths:
+      - '.github/workflows/p003-86box-instrumented-windows-build.yml'
+      - 'tools/p003_instrument_86box_io.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows_original_cpu_clock_probe_fork:
+    name: Windows original 86Box fork with IO-only CPU TSC logger
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prepare original 86Box MSYS2 UCRT64 build environment
+        uses: msys2/setup-msys2@v2
+        with:
+          release: true
+          update: true
+          msystem: UCRT64
+          install: zip
+          pacboy: >-
+            ninja:p
+            cmake:p
+            gcc:p
+            pkgconf:p
+            freetype:p
+            SDL2:p
+            zlib:p
+            libpng:p
+            openal:p
+            rtmidi:p
+            libslirp:p
+            fluidsynth:p
+            libserialport:p
+            qt5-static:p
+            vulkan-headers:p
+            llvm-openmp:p
+      - name: Copy pinned fork; instrument ONLY non-chip src/io.c
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'CPU IO source-only unit tests failed' }
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --verify-only
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned original 86Box src/io.c not verified' }
+          New-Item -ItemType Directory -Path p003-probe-source -Force | Out-Null
+          Copy-Item -LiteralPath third_party/86box-awe32/* -Destination p003-probe-source -Recurse -Force
+          # Source chip hashes in the original submodule must not change.
+          $before = (Get-ChildItem third_party/86box-awe32/src -Recurse -File | Where-Object { $_.Name -match 'emu8k|awe' } | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash }) -join ';'
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p003-probe-source/src/io.p003.c
+          if ($LASTEXITCODE -ne 0) { throw 'CPU IO patch refused' }
+          Move-Item -Path p003-probe-source/src/io.p003.c -Destination p003-probe-source/src/io.c -Force
+          $after = (Get-ChildItem p003-probe-source/src -Recurse -File | Where-Object { $_.Name -match 'emu8k|awe' } | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash }) -join ';'
+          if ($before -ne $after) { throw 'Original EMU8000 source unexpectedly changed' }
+          Write-Host 'P003_FORK_ONLY_IO_INSTRUMENTED original_emu8000_source_sha_unchanged=TRUE'
+      - name: Configure original fork release for Windows GUI
+        run: >-
+          cmake -S p003-probe-source -B p003-probe-source/build --preset regular
+          --toolchain ./p003-probe-source/cmake/flags-gcc-x86_64.cmake
+          -D QT=on
+      - name: Build actual 86Box with separate CPU I/O recorder
+        run: cmake --build p003-probe-source/build --parallel 4
+      - name: Install binary and runtime libraries
+        run: |
+          cmake --install p003-probe-source/build
+          ls -lah p003-probe-source/build/artifacts/
+          test -f p003-probe-source/build/artifacts/86Box.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P003-86Box-original-EMU8000-CPU-TSC-port-trace-Win11
+          path: p003-probe-source/build/artifacts/**
+          retention-days: 3
+          if-no-files-found: error
