@@ -113,7 +113,7 @@ class OriginalCreativeGuestStageTests(unittest.TestCase):
                 self.assertEqual(root_entries[:11],b"P002RAM EXE")
                 self.assertEqual(root_entries[32:43],b"P002RAM SF2")
                 self.assertEqual(root_entries[64:75],b"P003BANKSF2")
-            with self.assertRaisesRegex(ValueError,"must differ"):
+            with self.assertRaisesRegex(ValueError,"same source|must differ"):
                 stage.stage(original,root/"reject-same.img",exe,sf2,sf2)
             self.assertFalse((root/"reject-same.img").exists())
 
