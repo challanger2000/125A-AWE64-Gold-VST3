@@ -57,6 +57,39 @@ int main(){
     CHECK(!P003CandidateRamAllocator(0xffffe0u).valid());
     CHECK(!P003CandidateRamAllocator(0x200010u,0x200010u).valid());
     // Fixed descriptor capacity protects bounded worst-case behavior.
+    // Two-bank ground truth: privately measured ORIGINAL Creative
+    // Win95 86Box source, 2026-11-15. Test uses only physical address
+    // and length metadata, never the user's ROM or SF2 sample bytes.
+    // Original QUERY_DRAM_SIZE deltas: first 260937 (=260921+16);
+    // second 32784 (=32768+16); real SMALW/SMLD sample bases:
+    // 0x200010 and 0x23FB59. A naive raw allocator predicted
+    // 0x23FB49 and MUST NOT silently pass as source parity.
+    P003CandidateRamAllocator originalMeasured;
+    const auto firstOriginal=
+        originalMeasured.allocateCreativeSampleWords(260921u);
+    CHECK(firstOriginal && firstOriginal->base==0x200010u &&
+          firstOriginal->words==260921u);
+    const auto secondOriginal=
+        originalMeasured.allocateCreativeSampleWords(32768u);
+    CHECK(secondOriginal && secondOriginal->base==0x23fb59u &&
+          secondOriginal->words==32768u &&
+          secondOriginal->base!=firstOriginal->base+firstOriginal->words);
+    CHECK(originalMeasured.freeWords()==
+          (0xffffe0u-0x200010u)-260937u-32784u);
+    CHECK(originalMeasured.pin(*firstOriginal));
+    CHECK(!originalMeasured.release(*firstOriginal));
+    CHECK(originalMeasured.unpin(*firstOriginal));
+    CHECK(originalMeasured.release(*secondOriginal));
+    CHECK(originalMeasured.release(*firstOriginal));
+    CHECK(originalMeasured.freeWords()==0xffffe0u-0x200010u);
+    P003CandidateRamAllocator lastAllowed(0xffffcfu,0xffffe0u);
+    const auto oneNearFm=lastAllowed.allocateCreativeSampleWords(1u);
+    CHECK(oneNearFm && oneNearFm->base==0xffffcfu);
+    CHECK(!lastAllowed.allocateCreativeSampleWords(1u));
+    CHECK(lastAllowed.release(*oneNearFm));
+    P003CandidateRamAllocator tooSmallForGuard(0xffffd0u,0xffffe0u);
+    CHECK(!tooSmallForGuard.allocateCreativeSampleWords(1u));
+
     P003CandidateRamAllocator sixtyFour;
     std::vector<P003CandidateRamAllocation> leases;
     for(unsigned i=0;i<64u;++i){
@@ -79,7 +112,10 @@ int main(){
              <<" stale_handle_rejected=TRUE"
              <<" physical_ram_tail_guard=TRUE"
              <<" free_space=TRUE"
-             <<" source_Creative_allocation_parity=NOT_PROVEN"
+             <<" genuine_Win95_two_bank_sample_offsets=EXACT"
+             <<" genuine_Win95_per_bank_16_words=EXACT"
+             <<" generic_compaction_parity=NOT_PROVEN"
+             <<" source_Creative_allocation_parity=TWO_BANK_LAYOUT_ONLY"
              <<" allocator_does_not_touch_chip=TRUE\n";
     return 0;
 }
