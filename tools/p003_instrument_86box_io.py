@@ -57,16 +57,23 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
 }
 '''
 
+def canonical_git_bytes(raw: bytes) -> bytes:
+    # GitHub Windows runners may expand tracked LF files to CRLF.
+    # A Git blob is hashed from canonical LF bytes; do NOT disable the
+    # SHA pin or broaden it to another 86Box revision.
+    return raw.replace(b"\r\n", b"\n")
+
 def git_blob_sha(raw: bytes) -> str:
+    clean = canonical_git_bytes(raw)
     return hashlib.sha1(
-        b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+        b"blob " + str(len(clean)).encode("ascii") + b"\0" + clean
     ).hexdigest()
 
 def instrument(raw: bytes, pin: str | None = ORIGINAL_IO_BLOB_SHA1) -> bytes:
     if pin is not None and git_blob_sha(raw) != pin:
         raise ValueError("86Box original src/io.c Git blob hash differs")
     try:
-        source = raw.decode("utf-8")
+        source = canonical_git_bytes(raw).decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("Source file is not UTF-8") from exc
     if MARKER in source:
