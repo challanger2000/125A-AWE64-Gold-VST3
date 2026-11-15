@@ -197,6 +197,7 @@ int main() {
         chip,allocator,damaged,secondLease,secondAuto,error));
     CHECK(secondLease.base==firstLease.base+firstLease.words &&
           allocator.contains(secondLease));
+    const auto originalFirstLease=firstLease;
     const auto firstAutoAt=firstLease.base-awe64::kSampleRamBase;
     const auto savedFirstAuto=original->ram[firstAutoAt];
     CHECK(!p003CandidateAllocateAndUploadMonoSf2(
@@ -206,17 +207,8 @@ int main() {
     CHECK(allocator.release(firstLease)==false); // failed call cleared handle
     CHECK(allocator.release(secondLease));
     CHECK(allocator.usedBanks()==1u);
-    // Explicit cleanup via the first lease's known verified location,
-    // not by a reset that could incorrectly stop active sample voices.
-    P003CandidateRamAllocation recovered{};
-    for(std::uint32_t i=0;i<P003CandidateRamAllocator::kMaxBanks;++i) {
-        // first occupies slot 0, generation 1.
-        const P003CandidateRamAllocation candidate{
-            awe64::kSampleRamBase+1024u,8u,1u,i};
-        if(allocator.contains(candidate)) {recovered=candidate;break;}
-    }
-    CHECK(allocator.contains(recovered));
-    CHECK(allocator.release(recovered));
+    CHECK(allocator.contains(originalFirstLease));
+    CHECK(allocator.release(originalFirstLease));
     CHECK(allocator.usedBanks()==0u);
 
     // General P003 driver-CAPTURED loader: different physical base,
