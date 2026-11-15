@@ -16,6 +16,10 @@ struct P003RamUploadResult {
     std::size_t sample_headers=0;
     bool entire_pool_readback_equal=false;
     bool original_creative_source_transformation_verified=false;
+    // Source-captured original port/rewrite counts (zero for raw uploads).
+    std::size_t original_port_writes=0;
+    std::size_t original_sample_word_writes=0;
+    std::size_t original_distinct_overwritten_words=0;
 };
 // Explicit caller-supplied physical address, never guessed from the
 // SoundFont or treated as original Win95 Creative placement. Invoke
