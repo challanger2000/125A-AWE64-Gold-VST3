@@ -320,6 +320,16 @@ target_link_libraries(awe64_p003_sf2_mono_ram_preload_test
     PRIVATE awe64_p003_sf2_mono_ram_preload)
 add_test(NAME p003_real_original_emu8000_mono_ram_upload_full_readback
     COMMAND awe64_p003_sf2_mono_ram_preload_test)
+# Execute a genuine 61-OUT sample-RAM NoteOn against the pinned
+# unmodified core using a synthetic SF2; hash digital output twice
+# and prove that changing only the SF2 sample changes real chip PCM.
+add_executable(awe64_p003_sf2_ram_audio_test
+    tests/p003_sf2_ram_audio.cpp)
+target_link_libraries(awe64_p003_sf2_ram_audio_test
+    PRIVATE awe64_p003_sf2_mono_ram_preload
+            awe64_p002_sf2_full_noteon_chip)
+add_test(NAME p003_real_emu8000_sf2_ram_noteon_pcm
+    COMMAND awe64_p003_sf2_ram_audio_test)
 
 # Preserve the original Creative guest's captured SMALW/SMLD OUT order.
 # This replay is NOT independently generated Win95 driver RAM allocation.
