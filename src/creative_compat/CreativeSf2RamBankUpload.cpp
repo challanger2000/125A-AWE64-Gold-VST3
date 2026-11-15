@@ -139,6 +139,14 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
         error="P003 source-captured SF2 pool/physical RAM geometry mismatch";
         return false;
     }
+    // A missing SHA provider must reject BEFORE touching the emulated
+    // Creative hardware. Never perform cryptographic source binding
+    // after any original SMALW/SMLD write has already committed.
+    std::array<std::uint8_t,32> bound_source_hash{};
+    if(!p003CalculateSourceSha256(sf2,bound_source_hash)) {
+        error="P003 original source bank SHA256 unavailable";
+        return false;
+    }
     // The 1996 upload trace may rewrite words, but MUST NOT touch any
     // physical word outside the separately authenticated final bank.
     // Preflight this BEFORE the first hardware-visible port write.
@@ -213,11 +221,7 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
     result.original_distinct_overwritten_words=
         replay->source_sample_distinct_rewritten_words;
     result.original_source_port_replay_verified=true;
-    if(!p003CalculateSourceSha256(sf2,result.source_sf2_sha256)) {
-        result={};
-        error="P003 original source bank SHA256 unavailable";
-        return false;
-    }
+    result.source_sf2_sha256=bound_source_hash;
     result.source_sf2_sha256_verified=true;
     return true;
 }
