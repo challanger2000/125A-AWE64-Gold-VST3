@@ -195,3 +195,53 @@ velocities, SF2 programs, and native exported VST3 WAVs.
 
 **Gate remains NO-GO for autonomous Creative Win95 PCM parity.
 Original 160,000/160,000 source-clocked reference remains unchanged.**
+
+## P003 CPU-cost refinement on authentic original V3 guest traces (subsequent revision)
+
+The private 2026-11-15 `18:43` and `18:53` original Win95
+CPU-/EMU8000 traces were read and compared **event by event**.
+For all the note-register writes of each of C4 On/Off and D4 On/Off,
+the original **relative CPU-TSC intervals are exactly the same in
+both runs**: C4 ON 9500, C4 OFF 331, D4 ON 10058, D4 OFF 325 cycles.
+The timestamps' **phases inside the EMU8000 sample are different**,
+so neither original 44.1kHz register trace is bit-for-bit identical
+across original Win95 sessions. This is a strong *same-program*
+observation, **not** a claim about other keys, patches or controllers.
+
+The subsequent private research scheduler revision changes the CPU
+work model to use native **EMU8000 selector register classes**, not
+A20 sample/preset payloads, or any note-ID or copied clock table.
+In particular, transitions from A20 data to E22 0x80-class or 0x60-class
+selectors have empirically longer driver work than ordinary index
+selects. It still uses an unverified half-sample phase by default.
+
+Original x86 cycle durations vs independent native estimated durations:
+
+| Event | Authentic x86 guest TSC span | New native estimated CPU cycle span |
+|---|---:|---:|
+| C4 ON | 9500 | 9555 |
+| C4 OFF | 331 | 329 |
+| D4 ON | 10058 | 9991 |
+| D4 OFF | 325 | 329 |
+
+Original-frame classification of 324 source register OUTs, with
+**actual original phase used only in offline scoring**, never
+as runtime input:
+
+| Original Win95 run | New cycle model with source phase | Same model with unsupported fixed half-sample phase |
+|---|---:|---:|
+| 2026-11-15 18:43 | **322/324** | 267/324 |
+| 2026-11-15 18:53 | **319/324** | 272/324 |
+
+The five remaining original-phase errors over the two sessions are
+from original driver CPU work estimation, whereas the much larger
+mid-sample errors are from **unknown original sub-sample scheduling
+phase**. Because the 18:43 and 18:53 CPU instruction deltas are the
+same, the phase difference across runs cannot be repaired by
+re-fitting the x86 instruction costs.
+
+The 15-Nov source-clocked native WAV already proved 160,000/160,000
+PCM words bit-identical; that does not mean these autonomous model
+statistics establish any PCM parity. A genuinely independent native
+exported Windows VST3 audio run is required for every new code
+revision. **Release gate remains NO-GO for autonomous timing.**
