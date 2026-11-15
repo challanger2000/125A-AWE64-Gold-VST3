@@ -53,7 +53,7 @@ jobs:
           python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --verify-only
           if ($LASTEXITCODE -ne 0) { throw 'Pinned original 86Box src/io.c not verified' }
           New-Item -ItemType Directory -Path p003-probe-source -Force | Out-Null
-          Copy-Item -LiteralPath third_party/86box-awe32/* -Destination p003-probe-source -Recurse -Force
+          Copy-Item -Path "third_party/86box-awe32/*" -Destination "p003-probe-source" -Recurse -Force
           # Source chip hashes in the original submodule must not change.
           $before = (Get-ChildItem third_party/86box-awe32/src -Recurse -File | Where-Object { $_.Name -match 'emu8k|awe' } | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash }) -join ';'
           python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p003-probe-source/src/io.p003.c
