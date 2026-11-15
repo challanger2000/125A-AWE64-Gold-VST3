@@ -84,6 +84,16 @@ def synth_guest_log(bank_size: int, bank_bytes: bytes | None = None,
             "P003_AFTER_SECOND_TOTAL_16BIT_WORDS=0x00E00000",
             "P003_AFTER_SECOND_FREE_16BIT_WORDS=0x00CE8000",
             "P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA=0x00008000",
+            "P003_ORIGINAL_SECOND_BANK_MIDI_BEGIN",
+            "P003_ORIGINAL_SECOND_BANK_CC0_2_RC=0x00000000",
+            "P003_ORIGINAL_SECOND_BANK_PROGRAM7_RC=0x00000000",
+            "P003_ORIGINAL_SECOND_BANK_CC91_ZERO_RC=0x00000000",
+            "P003_ORIGINAL_SECOND_BANK_CC93_ZERO_RC=0x00000000",
+            "P003_SECOND_BANK_NOTE_ON_TICK_MS=0x00000E00",
+            "P003_ORIGINAL_SECOND_BANK_NOTE60_ON_RC=0x00000000",
+            "P003_SECOND_BANK_NOTE_OFF_TICK_MS=0x00001000",
+            "P003_ORIGINAL_SECOND_BANK_NOTE60_OFF_RC=0x00000000",
+            "P003_ORIGINAL_SECOND_BANK_MIDI_END",
             "P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0x00000000",
             "P003_AFTER_SECOND_CLEAR_RESULT=0x00000000",
             "P003_AFTER_SECOND_CLEAR_TOTAL_16BIT_WORDS=0x00E00000",
@@ -140,6 +150,16 @@ class OriginalWin95RAMGuestLogTests(unittest.TestCase):
             b"P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0x00000001")
         with self.assertRaisesRegex(ValueError,"load/clear failure"):
             auditor.audit(corrupted,self.bank,second)
+        mutated_midi=log.replace(
+            b"P003_ORIGINAL_SECOND_BANK_CC93_ZERO_RC=0x00000000",
+            b"P003_ORIGINAL_SECOND_BANK_CC93_ZERO_RC=0x00000001")
+        with self.assertRaisesRegex(ValueError,"MIDI call failed"):
+            auditor.audit(mutated_midi,self.bank,second)
+        truncated_note=log.replace(
+            b"P003_SECOND_BANK_NOTE_OFF_TICK_MS=0x00001000",
+            b"P003_SECOND_BANK_NOTE_OFF_TICK_MS=0x00000E01")
+        with self.assertRaisesRegex(ValueError,"note duration invalid"):
+            auditor.audit(truncated_note,self.bank,second)
         out_of_order=log.replace(
             b"P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN\r\n"
             b"P003_ORIGINAL_SECOND_BANK_LOAD_RC=0x00000000",
