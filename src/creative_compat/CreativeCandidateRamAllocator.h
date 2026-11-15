@@ -8,7 +8,6 @@
 // not a proven Creative invariant. All addresses are chip WORD addresses.
 // The pinned EMU8000 core, original captured-bank path and DSP are untouched.
 #include "CreativeSf2RamSamplePcm.h"
-#include "Chip.h"
 #include <array>
 #include <algorithm>
 #include <cstddef>
