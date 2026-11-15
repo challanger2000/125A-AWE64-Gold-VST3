@@ -16,7 +16,7 @@ R 42 A20 1234
 50 E22 0040
 54 620 8010
 """
-CPU = """# P003_CPU_GUEST_OUTW_V1 synthetic
+CPU = """# P003_CPU_GUEST_PHYSICAL16_V2 synthetic
 W 10000 200 1234 ABCDEF00 E22 0060 0
 R 10012 185 1234 ABCDEF02 A20 1234 1
 W 10028 170 1234 ABCDEF04 620 FFFF 2
@@ -77,7 +77,13 @@ class TestOriginalChipCpuClockJoin(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"header"):
             compare(chip=CHIP.replace("EMU8000","BOGUS"))
         with self.assertRaisesRegex(ValueError,"header"):
-            compare(cpu=CPU.replace("P003_CPU_GUEST_OUTW_V1","BOGUS"))
+            compare(cpu=CPU.replace("P003_CPU_GUEST_PHYSICAL16_V2","BOGUS"))
+    def test_old_16bit_only_guest_probe_is_rejected(self):
+        old = CPU.replace("P003_CPU_GUEST_PHYSICAL16_V2",
+                          "P003_CPU_GUEST_OUTW_V1")
+        with self.assertRaisesRegex(ValueError,
+                                    "omits physical EMU8000 callbacks"):
+            compare(cpu=old)
 
 if __name__=="__main__":
     unittest.main()
