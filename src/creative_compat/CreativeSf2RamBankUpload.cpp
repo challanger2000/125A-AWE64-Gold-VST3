@@ -1,5 +1,6 @@
 #include "CreativeSf2RamBankUpload.h"
 #include "CreativeOriginalSmplThreeTap.h"
+#include <algorithm>
 #include <bit>
 #include <array>
 #include <string_view>
