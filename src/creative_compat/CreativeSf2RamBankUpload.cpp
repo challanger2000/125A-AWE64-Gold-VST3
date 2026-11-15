@@ -225,6 +225,72 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
     result.source_sf2_sha256_verified=true;
     return true;
 }
+bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
+    awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
+    const std::span<const OriginalRamUploadPortWrite> ports,
+    const std::span<const std::uint16_t> final_words,
+    const bool source_verified,
+    P003RamUploadResult& result,std::string& error) {
+    result={};error.clear();
+    if(!source_verified || ports.empty() || final_words.empty()) {
+        error="P003 no independently authenticated original Creative DRAM source";
+        return false;
+    }
+    // Interpret ONLY the actual original Win95 SMALW/SMLD address
+    // writes. Exact selector/order/clock checks are done by the common
+    // original-port oracle before any hardware I/O is committed.
+    std::uint16_t selected=0xffffu,lo=0u,hi=0u;
+    bool low=false,high=false,pointer=false;
+    std::uint32_t physical=0u;
+    auto minAddress=std::numeric_limits<std::uint32_t>::max();
+    std::size_t wordWrites=0u;
+    for(const auto& e:ports) {
+        if(e.port==0xe22u) {
+            selected=e.value;
+            if(selected==0x36u) {
+                low=false;high=false;pointer=false;
+            }else if(selected!=0x3au || !pointer) {
+                error="P003 observed address requires a complete SMALW";
+                return false;
+            }
+        }else if(selected==0x36u) {
+            if(e.port==0xa20u) {
+                if(low) {error="P003 duplicate SMALW low word";return false;}
+                lo=e.value;low=true;
+            }else if(e.port==0xa22u) {
+                if(high){error="P003 duplicate SMALW high word";return false;}
+                hi=e.value;high=true;
+            }else {
+                error="P003 unexpected SMALW hardware port";return false;
+            }
+            if(low && high) {
+                physical=std::uint32_t(lo)|(std::uint32_t(hi)<<16u);
+                pointer=true;
+            }
+        }else if(selected==0x3au && pointer && e.port==0xa20u) {
+            if(physical<awe64::kSampleRamBase+4u ||
+               physical>=awe64::kFmReservedBase) {
+                error="P003 original SMLD points into ROM/guard/FM tail";
+                return false;
+            }
+            minAddress=std::min(minAddress,physical);
+            ++wordWrites;
+            ++physical;
+        }else {
+            error="P003 invalid original RAM address source event";
+            return false;
+        }
+    }
+    if(minAddress==std::numeric_limits<std::uint32_t>::max() ||
+       wordWrites<final_words.size()) {
+        error="P003 original Creative RAM source lacks complete sample writes";
+        return false;
+    }
+    // Deriving the address from the original 1996 driver *trace* is
+    // NOT synthesizing the driver's still-unproven allocator.
+    return p003ReplaySourceCapturedMonoSf2Bank(
+        chip,sf2,ports,minAddress,final_words,source_verified,result,error);
+}
 std::optional<OriginalSf2RamPhysicalNotePlan>
 p003CandidatePhysicalNoteFromOriginalSourceCapture(
     const awe64::Chip& chip,
