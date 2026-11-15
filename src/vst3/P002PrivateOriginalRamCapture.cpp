@@ -288,10 +288,12 @@ bool preloadOriginalCreativeCapturedRamSource(
     // final Win95 physical RAM snapshot. It must agree with EVERY word
     // already deposited through authentic Win95 SMALW/SMLD port replay.
     // A disagreement is a hard activation failure, not a fallback to
-    // guessed sample coordinates or a replacement DSP.
+    // guessed sample coordinates or a replacement DSP. Critically,
+    // the verified 1996 SMALW/SMLD transfer must remain the SOLE
+    // physical write path: do not overwrite it with a direct memcpy.
     awe64::creative::P003RamUploadResult p003{};
     std::string p003Error;
-    if(!awe64::creative::p003UploadExactOriginalWin95ConvertedOwnerBank(
+    if(!awe64::creative::p003VerifyReplayedOriginalWin95OwnerBankWithoutWrites(
            chip,ownerBank,observedFinalBytes,p003,p003Error) ||
        !p003.entire_pool_readback_equal ||
        !p003.original_creative_source_transformation_verified ||
