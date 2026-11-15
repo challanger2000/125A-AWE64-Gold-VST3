@@ -346,6 +346,17 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                              preludeError.c_str());
                 chip_.close();return kResultFalse;
             }
+            // P003 must attest the FINAL original chip after the
+            // optional prelude reopened it. The earlier P003 upload
+            // belonged to the discarded pre-prelude device instance.
+            if(!p003ReattestOwnerRamAfterOriginalPrelude(
+                   chip_,std::filesystem::path(originalRamSf2),
+                   std::filesystem::path(originalRamFinal),preludeError)) {
+                std::fprintf(stderr,
+                    "P003 final original prelude RAM rejected: %s\\n",
+                    preludeError.c_str());
+                chip_.close();return kResultFalse;
+            }
             std::fprintf(stderr,
                 "P002_WIN95_ORIGINAL_PRELUDE_REPLAYED "
                 "writes=%u reads=%u INIT=%u HWCF=%u "
