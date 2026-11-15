@@ -182,6 +182,74 @@ int main() {
         CHECK(original->ram[
             awe64::kFmReservedBase-awe64::kSampleRamBase+i]==
             reservedBefore[i]);
+    // General P003 driver-CAPTURED loader: different physical base,
+    // independent final words and original Creative SMALW/SMLD register
+    // writes. This models a second source recording, never a guessed
+    // 1996 allocator or generic automatic 3-tap source transform.
+    constexpr auto recordedBase=std::uint32_t(awe64::kSampleRamBase+128u);
+    std::vector<OriginalRamUploadPortWrite> captured;
+    const auto port=[&](std::uint16_t p,std::uint16_t v) {
+        captured.push_back({static_cast<std::uint64_t>(captured.size()),
+                            p,v});
+    };
+    port(0xe22u,0x36u);
+    port(0xa20u,static_cast<std::uint16_t>(recordedBase));
+    port(0xa22u,static_cast<std::uint16_t>(recordedBase>>16u));
+    port(0xe22u,0x3au);
+    for(const auto word:expected)port(0xa20u,word);
+    P003RamUploadResult capturedResult{};
+    std::vector<std::uint16_t> originalFinal(
+        expected.begin(),expected.end());
+    const auto capturedIndex=recordedBase-awe64::kSampleRamBase;
+    // Caller-provided source provenance flag is mandatory. A failure
+    // must leave entire destination unchanged.
+    const auto beforeCaptured=original->ram[capturedIndex];
+    CHECK(!p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,captured,recordedBase,originalFinal,false,
+        capturedResult,error));
+    CHECK(original->ram[capturedIndex]==beforeCaptured);
+    auto invalidFinal=originalFinal;
+    invalidFinal[7u]^=1u;
+    CHECK(!p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,captured,recordedBase,invalidFinal,true,
+        capturedResult,error));
+    CHECK(original->ram[capturedIndex]==beforeCaptured);
+    // All 8 source values must match at a different RAM location.
+    CHECK(p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,captured,recordedBase,originalFinal,true,
+        capturedResult,error));
+    CHECK(capturedResult.entire_pool_readback_equal &&
+          !capturedResult.original_creative_source_transformation_verified &&
+          capturedResult.physical_word_base==recordedBase &&
+          capturedResult.source_pool_words==8u &&
+          capturedResult.sample_headers==2u);
+    for(std::size_t i=0;i<expected.size();++i)
+        CHECK(std::uint16_t(original->ram[capturedIndex+i])==expected[i]);
+    // No original driver source recording is authorized to overwrite
+    // another bank or protected physical RAM. Reject before first OUT.
+    auto escaped=captured;
+    escaped[1u].value=static_cast<std::uint16_t>(recordedBase+64u);
+    CHECK(!p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,escaped,recordedBase,originalFinal,true,
+        capturedResult,error));
+    for(std::size_t i=0;i<expected.size();++i)
+        CHECK(std::uint16_t(original->ram[capturedIndex+i])==expected[i]);
+    // The original Creative driver may rewrite an already uploaded
+    // word. Last value must win; the final bank must still match.
+    auto repeatedCapture=captured;
+    const auto add=[&](std::uint16_t p,std::uint16_t v) {
+        repeatedCapture.push_back({
+            static_cast<std::uint64_t>(repeatedCapture.size()),p,v});
+    };
+    add(0xe22u,0x36u);
+    add(0xa20u,static_cast<std::uint16_t>(recordedBase+3u));
+    add(0xa22u,static_cast<std::uint16_t>(recordedBase>>16u));
+    add(0xe22u,0x3au);
+    add(0xa20u,expected[3u]);
+    CHECK(p003ReplaySourceCapturedMonoSf2Bank(
+        chip,bank,repeatedCapture,recordedBase,originalFinal,true,
+        capturedResult,error));
+    CHECK(capturedResult.entire_pool_readback_equal);
     // A synthetic, unauthenticated bank can NEVER activate the
     // source-attested Creative 1996 transform+upload path.
     P003RamUploadResult fakeOriginal{};
@@ -261,6 +329,7 @@ int main() {
         <<"physical_words=8 full_readback=TRUE "
         <<"boundary_last_word=0xffffdf"
         <<" negative_controls="<<rejected
+        <<" generic_original_captured_port_upload=TRUE"
         <<" original_creative_allocator=NOT_CLAIMED"
         <<" external_proprietary_assets=NONE\n";
     return 0;
