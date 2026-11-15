@@ -230,11 +230,28 @@ bool P002PrivateRomBank::load(
     // an invented MIDI 0..127 browser list. All parsing/allocation is
     // on activation, never inside a VST3 audio callback.
     auto exactPresets=inspectOriginalSoundFontPresetInventory(bank_bytes_);
-    if(!exactPresets ||
-       !hasExactSoundFontPreset(*exactPresets,bank_number_,program_)) {
-        error="P003 actual SF2 preset inventory missing/ambiguous or selected "
-              "bank/program absent";
+    if(!exactPresets) {
+        error="P003 actual SF2 preset inventory missing/ambiguous";
         clear();return false;
+    }
+    if(!hasExactSoundFontPreset(*exactPresets,bank_number_,program_)) {
+        // Preserve the authentic owner Win95 source state strictly.
+        // Only a distinct NON-OWNER, ROM-only research bank may use
+        // a safe host-side initial program fallback. The actual
+        // existing PHDR row (not a fabricated program zero) wins.
+        if(original_ram_source_already_sha_authenticated) {
+            error="P003 original owner initial program not in actual bank";
+            clear();return false;
+        }
+        const auto first=std::find_if(exactPresets->begin(),exactPresets->end(),
+            [&](const Sf2PresetIdentity& row) noexcept {
+                return row.bank==bank_number_;
+            });
+        if(first==exactPresets->end()) {
+            error="P003 no actual SF2 presets in requested initial bank";
+            clear();return false;
+        }
+        program_=first->program;
     }
     presets_=std::move(*exactPresets);
     MidiMessage program{};
