@@ -280,9 +280,14 @@ void WINAPI p002_ram_entry(void) {
     HMIDIOUT midi=0;
     ORIGINAL_CREATIVE_BUFFER buffer;
     char userbank_file_buffer[128]="C:\\P002RAM.SF2";
+    char secondbank_file_buffer[128]="C:\\P003BANK.SF2";
+    DWORD max_second_before=0u,free_second_before=0u;
+    DWORD max_second_after=0u,free_second_after=0u;
+    DWORD max_second_clear=0u,free_second_clear=0u;
+    DWORD optional_attributes=0u;
     char dllpath[260];
     DWORD p=0u;
-    int opened=0,loaded=0,haveMidi=0,success=0;
+    int opened=0,loaded=0,loadedSecond=0,haveMidi=0,success=0;
     log_file=CreateFileA(log_path,GENERIC_WRITE,FILE_SHARE_READ,0,
                          CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,0);
     if(log_file==INVALID_HANDLE_VALUE)ExitProcess(29);
@@ -442,8 +447,68 @@ void WINAPI p002_ram_entry(void) {
                            "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"))goto done;
     Sleep(500);
     emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n");
+    /* P003 optional TRUE ORIGINAL Win95 multi-bank allocator experiment.
+     * The staged second SF2 is never shipped in the repository.
+     * When absent, preserve the original single-bank capture unchanged.
+     * When present, use only Creative's own AWEManager API 204/205;
+     * no candidate C++ allocator, guessed driver memory placement,
+     * synthetic SMALW/SMLD or emulated free-RAM result is involved.
+     */
+    optional_attributes=GetFileAttributesA(secondbank_file_buffer);
+    if(optional_attributes!=INVALID_FILE_ATTRIBUTES) {
+        emit("P003_ORIGINAL_SECOND_BANK_EXPERIMENT_BEGIN\r\n");
+        if(optional_attributes & FILE_ATTRIBUTE_DIRECTORY)goto done;
+        if(!original_query_dram(manager,handle,"P003_BEFORE_SECOND",
+                                &max_second_before,&free_second_before))
+            goto done;
+        buffer.m_Size=sizeof(secondbank_file_buffer);
+        buffer.m_Buffer=secondbank_file_buffer;
+        buffer.m_SizeUsed=0u;
+        buffer.m_Flag=ORIGINAL_OPER_FILE;
+        emit("P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN\r\n");
+        rc=manager(handle,ORIGINAL_AWE_LOAD_USER_BANK,2u,
+                   (LPARAM)&buffer);
+        report("P003_ORIGINAL_SECOND_BANK_LOAD_RC=",(DWORD)rc);
+        emit("P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_END\r\n");
+        if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
+        loadedSecond=1;
+        if(!original_query_dram(manager,handle,"P003_AFTER_SECOND",
+                                &max_second_after,&free_second_after))
+            goto done;
+        if(max_second_before!=0xFFFFFFFFu &&
+           max_second_after!=0xFFFFFFFFu) {
+            if(max_second_before!=max_second_after ||
+               free_second_after>free_second_before)goto done;
+            report("P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA=",
+                   free_second_before-free_second_after);
+        }else {
+            emit("P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA_UNKNOWN\r\n");
+        }
+        rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,2u,0);
+        report("P003_ORIGINAL_SECOND_BANK_CLEAR_RC=",(DWORD)rc);
+        if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
+        loadedSecond=0;
+        if(!original_query_dram(manager,handle,"P003_AFTER_SECOND_CLEAR",
+                                &max_second_clear,&free_second_clear))
+            goto done;
+        if(max_second_before!=0xFFFFFFFFu &&
+           max_second_clear!=0xFFFFFFFFu &&
+           (max_second_before!=max_second_clear ||
+            free_second_clear!=free_second_before)) {
+            emit("P003_ORIGINAL_SECOND_BANK_RELEASE_RAM_MISMATCH\r\n");
+            goto done;
+        }
+        emit("P003_ORIGINAL_SECOND_BANK_EXPERIMENT_FINISHED\r\n");
+    }else if(GetLastError()!=ERROR_FILE_NOT_FOUND &&
+             GetLastError()!=ERROR_PATH_NOT_FOUND) {
+        emit("P003_SECOND_SF2_PATH_INACCESSIBLE\r\n");goto done;
+    }
     success=1;
 done:
+    if(loadedSecond) {
+        rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,2u,0);
+        report("P003_ORIGINAL_SECOND_BANK_CLEANUP_RC=",(DWORD)rc);
+    }
     if(haveMidi) {
         midiOutReset(midi);
         midiOutClose(midi);
