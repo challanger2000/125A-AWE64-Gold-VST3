@@ -16,7 +16,7 @@ R 42 A20 1234
 50 E22 0040
 54 620 8010
 """
-CPU = """# P003_CPU_GUEST_PHYSICAL16_V2 synthetic
+CPU = """# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 synthetic
 W 10000 200 1234 ABCDEF00 E22 0060 0
 R 10012 185 1234 ABCDEF02 A20 1234 1
 W 10028 170 1234 ABCDEF04 620 FFFF 2
@@ -77,13 +77,30 @@ class TestOriginalChipCpuClockJoin(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"header"):
             compare(chip=CHIP.replace("EMU8000","BOGUS"))
         with self.assertRaisesRegex(ValueError,"header"):
-            compare(cpu=CPU.replace("P003_CPU_GUEST_PHYSICAL16_V2","BOGUS"))
+            compare(cpu=CPU.replace("P003_CPU_GUEST_PHYSICAL_8_16_32_V3","BOGUS"))
     def test_old_16bit_only_guest_probe_is_rejected(self):
-        old = CPU.replace("P003_CPU_GUEST_PHYSICAL16_V2",
+        old = CPU.replace("P003_CPU_GUEST_PHYSICAL_8_16_32_V3",
                           "P003_CPU_GUEST_OUTW_V1")
-        with self.assertRaisesRegex(ValueError,
-                                    "omits physical EMU8000 callbacks"):
+        with self.assertRaisesRegex(ValueError,"incomplete"):
             compare(cpu=old)
+        v2 = CPU.replace("P003_CPU_GUEST_PHYSICAL_8_16_32_V3",
+                         "P003_CPU_GUEST_PHYSICAL16_V2")
+        with self.assertRaisesRegex(ValueError,"omits"):
+            compare(cpu=v2)
+    def test_byte_reads_keep_source_16bit_value_unverified(self):
+        # Physical byte read has returned only an 8-bit value; it
+        # cannot prove equality of the original 16-bit EMU8K read word.
+        cpu = CPU.replace(
+            "R 10012 185 1234 ABCDEF02 A20 1234 1",
+            "r 10012 185 1234 ABCDEF02 A20 00FF 1")
+        joined = compare(cpu=cpu)
+        self.assertEqual(
+            joined["byte_read_full_word_value_not_visible_in_cpu_layer"],1)
+        self.assertEqual(joined["matched_io_events"],6)
+        altered=cpu.replace("ABCDEF02 A20 00FF","ABCDEF02 E20 00FF")
+        with self.assertRaisesRegex(ValueError,"byte-read physical callback mismatch"):
+            compare(cpu=altered)
+
 
 if __name__=="__main__":
     unittest.main()
