@@ -9,6 +9,7 @@
 // NoteOn voice/register programming or certify VST3 soundbank playback.
 // NEVER call it on the process() audio thread.
 #include "Chip.h"
+#include "CreativeSf2RamBankUpload.h"
 #include <filesystem>
 #include <cstdint>
 #include <span>
@@ -32,7 +33,8 @@ namespace awe64::vst3 {
     const std::filesystem::path& privateOwnerSf2,
     const std::filesystem::path& originalFilteredCapturedRamPorts,
     const std::filesystem::path& observedOriginalFinalBankWordsPcm16,
-    std::string& error);
+    std::string& error,
+    awe64::creative::P003RamUploadResult* verified_capture=nullptr);
 // After an authenticated full Win95 prelude recreates the chip, re-run
 // the independent P003 SHA-pinned owner converter against THAT final
 // physical chip state. No conjectural RAM allocator or DSP processing.
