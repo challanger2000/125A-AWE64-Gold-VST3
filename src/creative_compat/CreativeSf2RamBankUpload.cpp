@@ -198,11 +198,35 @@ p003CandidatePhysicalNoteFromVerifiedRawPool(
     if(!pool || pool->sample_headers!=upload.sample_headers ||
        pool->whole_smpl_pcm_le16.size()/2u!=upload.source_pool_words)
         return std::nullopt;
-    const auto note=candidateOriginalSf2RamPhysicalNotePlan(
-        sf2,bank,program,key,velocity,upload.physical_word_base,
-        upload.source_pool_words,true);
+    // P003 is a caller-addressed RAW sample upload, NOT an authenticated
+    // Creative 1996 driver allocator. Never promote it by passing true
+    // to candidateOriginalSf2RamPhysicalNotePlan(original_upload_verified).
+    const auto source=candidateOriginalSf2RamMonoNotePcmPlan(
+        sf2,bank,program,key,velocity,awe64::kSampleRamBytes/2u);
     const auto* raw=chip.rawForContractTesting();
-    if(!note || !raw || !raw->ram)return std::nullopt;
+    if(!source || source->count==0u || !raw || !raw->ram)
+        return std::nullopt;
+    OriginalSf2RamPhysicalNotePlan mapped{};
+    mapped.count=source->count;
+    for(std::size_t i=0;i<mapped.count;++i) {
+        const auto& sample=source->layers[i];
+        if(sample.total_pool_words!=upload.source_pool_words ||
+           sample.start_word>=sample.end_word ||
+           sample.end_word>upload.source_pool_words ||
+           sample.loop_start_word<sample.start_word ||
+           sample.loop_start_word>=sample.loop_end_word ||
+           sample.loop_end_word>upload.source_pool_words)
+            return std::nullopt;
+        auto& dst=mapped.layers[i];
+        dst.sample_id=sample.sample_id;
+        dst.physical_sample_start=upload.physical_word_base+sample.start_word;
+        dst.physical_sample_end=upload.physical_word_base+sample.end_word;
+        dst.physical_loop_start=upload.physical_word_base+sample.loop_start_word;
+        dst.physical_loop_end=upload.physical_word_base+sample.loop_end_word;
+        dst.candidate_initial_ccca=dst.physical_sample_start-4u;
+        dst.candidate_initial_psst=dst.physical_loop_start-1u;
+        dst.candidate_initial_csl=dst.physical_loop_end-1u;
+    }
     const auto bytes=pool->whole_smpl_pcm_le16;
     const auto offset=std::size_t(upload.physical_word_base-
                                   awe64::kSampleRamBase);
@@ -216,8 +240,8 @@ p003CandidatePhysicalNoteFromVerifiedRawPool(
         if(std::bit_cast<std::uint16_t>(raw->ram[offset+word])!=original)
             return std::nullopt;
     }
-    for(std::size_t voice=0;voice<note->count;++voice) {
-        const auto& v=note->layers[voice];
+    for(std::size_t voice=0;voice<mapped.count;++voice) {
+        const auto& v=mapped.layers[voice];
         const auto start=std::size_t(v.physical_sample_start-
                                     upload.physical_word_base);
         const auto end=std::size_t(v.physical_sample_end-
@@ -232,6 +256,6 @@ p003CandidatePhysicalNoteFromVerifiedRawPool(
                 return std::nullopt;
         }
     }
-    return note;
+    return mapped;
 }
 } // namespace awe64::creative
