@@ -319,6 +319,42 @@ bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
     return p003ReplaySourceCapturedMonoSf2Bank(
         chip,sf2,ports,minAddress,final_words,source_verified,result,error);
 }
+bool p003CompareCandidateAllocationToOriginalCapture(
+    P003CandidateRamAllocator& allocator,
+    const std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& observed,
+    P003CandidateRamAllocation& verified_lease,
+    std::string& error) {
+    verified_lease={};error.clear();
+    if(!p003CapturedRamMatchesExactSourceSf2(sf2,observed) ||
+       !observed.original_source_port_replay_verified ||
+       !allocator.valid()) {
+        error="P003 original Creative comparison missing authentic matching SF2";
+        return false;
+    }
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->sample_headers!=observed.sample_headers ||
+       pool->whole_smpl_pcm_le16.size()/2u!=observed.source_pool_words) {
+        error="P003 source SF2 size/header differs from Creative trace";
+        return false;
+    }
+    const auto allocated=allocator.allocateMonoSf2(sf2);
+    if(!allocated) {
+        error="P003 candidate allocator could not reserve original bank";
+        return false;
+    }
+    if(allocated->base!=observed.physical_word_base ||
+       allocated->words!=observed.source_pool_words) {
+        // NO silent substitution of an arbitrary first-fit layout
+        // for actual Creative WIN95 physical sample addresses.
+        error="P003 candidate allocation disagrees with original Creative"
+              " physical RAM base/size; Creative parity NOT proven";
+        (void)allocator.release(*allocated);
+        return false;
+    }
+    verified_lease=*allocated;
+    return true;
+}
 std::optional<OriginalSf2RamPhysicalNotePlan>
 p003CandidatePhysicalNoteFromOriginalSourceCapture(
     const awe64::Chip& chip,
