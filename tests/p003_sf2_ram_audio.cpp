@@ -33,11 +33,17 @@ B makeSf2(bool inverse,bool nonorderedPresets=false){
         const int wave=((i%128u)<64u?1:-1)*(inverse?-1:1)*12500;
         w16(pcm,std::uint16_t(static_cast<std::int16_t>(wave)));
     }
+    if(nonorderedPresets){
+        for(std::uint32_t i=0;i<n;++i) {
+            const int wave=((i%64u)<32u?1:-1)*(inverse?-1:1)*7000;
+            w16(pcm,std::uint16_t(static_cast<std::int16_t>(wave)));
+        }
+    }
     B sdta{'s','d','t','a'};chunk(sdta,"smpl",pcm);
     B pdta{'p','d','t','a'},phdr,pbag,pgen,inst,ibag,igen,shdr;
-    // Both presets refer to the same physical instrument/sample.
-    // In the second fixture row0 is program 77 and row1 program 7:
-    // source PHDR order must never be confused with MIDI ProgramChange.
+    // Two real SF2 programs use DIFFERENT instruments and samples.
+    // The second fixture puts program 77 before program 7 in PHDR.
+    // MIDI must select by program number, never by physical row.
     if(nonorderedPresets){
         name(phdr,"P003-OTHER");w16(phdr,77);w16(phdr,0);w16(phdr,0);
         w32(phdr,0);w32(phdr,0);w32(phdr,0);
@@ -50,15 +56,23 @@ B makeSf2(bool inverse,bool nonorderedPresets=false){
     w32(phdr,0);w32(phdr,0);w32(phdr,0);
     w16(pbag,0);w16(pbag,0);w16(pbag,1);w16(pbag,0);
     if(nonorderedPresets){w16(pbag,2);w16(pbag,0);}
-    w16(pgen,41);w16(pgen,0);
+    w16(pgen,41);w16(pgen,nonorderedPresets?1:0);
     if(nonorderedPresets){w16(pgen,41);w16(pgen,0);}
     name(inst,"P003-INST");w16(inst,0);
-    name(inst,"EOI");w16(inst,1);
+    if(nonorderedPresets){name(inst,"P003-OTHER");w16(inst,1);}
+    name(inst,"EOI");w16(inst,nonorderedPresets?2:1);
     w16(ibag,0);w16(ibag,0);w16(ibag,1);w16(ibag,0);
+    if(nonorderedPresets){w16(ibag,2);w16(ibag,0);}
     w16(igen,53);w16(igen,0);
+    if(nonorderedPresets){w16(igen,53);w16(igen,1);}
     name(shdr,"P003-SAMPLE");w32(shdr,0);w32(shdr,n);
     w32(shdr,64);w32(shdr,n-64);w32(shdr,44100);
     shdr.push_back(60);shdr.push_back(0);w16(shdr,0);w16(shdr,1);
+    if(nonorderedPresets){
+        name(shdr,"P003-SAMPLEB");w32(shdr,n);w32(shdr,2u*n);
+        w32(shdr,n+64u);w32(shdr,2u*n-64u);w32(shdr,44100);
+        shdr.push_back(60);shdr.push_back(0);w16(shdr,0);w16(shdr,1);
+    }
     name(shdr,"EOS");for(int i=0;i<5;++i)w32(shdr,0);
     shdr.push_back(0);shdr.push_back(0);w16(shdr,0);w16(shdr,0);
     chunk(pdta,"phdr",phdr);chunk(pdta,"pbag",pbag);
@@ -78,7 +92,8 @@ void dword(CreativeSf2VoiceDescriptorBytes& b,unsigned off,std::uint32_t x){
     for(unsigned j=0;j<4u;++j)b[off+j]=std::uint8_t(x>>(j*8u));
 }
 struct Result{std::uint32_t nonzero=0;std::uint64_t hash=0xcbf29ce484222325ull;};
-Result render(const std::filesystem::path& rom,const B& sf2){
+Result render(const std::filesystem::path& rom,const B& sf2,
+              std::uint8_t program=7u){
     awe64::Chip chip;std::string error;
     if(!chip.open(rom,error))throw std::runtime_error(error);
     constexpr std::uint32_t addr=awe64::kSampleRamBase+16u;
@@ -86,11 +101,13 @@ Result render(const std::filesystem::path& rom,const B& sf2){
     if(!p003UploadValidatedMonoSf2PoolToOriginalChip(chip,sf2,addr,upload,error))
         throw std::runtime_error(error);
     const auto note=p003CandidatePhysicalNoteFromVerifiedRawPool(
-        chip,sf2,upload,0u,7u,60u,100u);
+        chip,sf2,upload,0u,program,60u,100u);
     if(!note || note->count!=1u)throw std::runtime_error("MIDI RAM address resolution");
     if(p003CandidatePhysicalNoteFromVerifiedRawPool(
            chip,sf2,upload,0u,63u,60u,100u))
         throw std::runtime_error("absent MIDI program illegally mapped");
+    if(note->layers[0].sample_id!=(program==77u?1u:0u))
+        throw std::runtime_error("program selected wrong sample");
     const auto& physical=note->layers[0];
     OriginalSf2FullNoteOnVoice voice{};
     voice.played_midi_key=60;voice.physical_voice=0;
@@ -144,17 +161,21 @@ int main(){
         const auto repeated=render(rom,makeSf2(false));
         const auto inverted=render(rom,makeSf2(true));
         const auto reordered=render(rom,makeSf2(false,true));
+        const auto second=render(rom,makeSf2(false,true),77u);
         std::error_code ec;std::filesystem::remove(rom,ec);
         CHECK(a.nonzero>100u);
         CHECK(a.hash==repeated.hash && a.nonzero==repeated.nonzero);
         CHECK(a.hash!=inverted.hash);
         CHECK(a.hash==reordered.hash &&
               a.nonzero==reordered.nonzero);
+        CHECK(second.nonzero>100u);
+        CHECK(a.hash!=second.hash);
         std::cout<<"P003_REAL_EMU8000_RAM_SF2_NOTE_PCM_PASS"
             <<" selected_MIDI_program=7 selected_sample_id=0"
             <<" original_61_OUT_chip=TRUE"
             <<" deterministic_pcm=TRUE source_mutation_changes_pcm=TRUE"
             <<" nonordered_PHDR_same_midi_sound=TRUE"
+            <<" second_program_selects_distinct_pcm=TRUE"
             <<" original_Win95_pcm_parity=NOT_PROVEN"
             <<" production_VST3=NOT_CONNECTED\n";
         return 0;
