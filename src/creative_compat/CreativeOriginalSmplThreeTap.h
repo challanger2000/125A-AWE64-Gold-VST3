@@ -1,7 +1,9 @@
 #pragma once
 // P003 exact empirically observed Creative Win95 source-bank sample
-// conversion: 3-tap original-trace oracle, NOT yet generalized beyond
-// one SHA-attested 2026-11-14 SoundFont/Win95 driver session.
+// conversion: 3-tap original-trace oracle. FULL original Win95 SMALW/SMLD
+// captures from 2026-11-13/15 now validate two different SF2 pools
+// (260921 and 32768 words) bit-for-bit; not yet generalized to
+// arbitrary SoundFont layouts or all original Creative driver variants.
 // Pure PCM transform; NOT a DSP, address allocator or voice renderer.
 #include <cstdint>
 #include <optional>
