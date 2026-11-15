@@ -156,8 +156,16 @@ bool replayPrivateOriginalWin95ChipPrelude(
             const auto observed=chip.readPort(static_cast<std::uint16_t>(port));
             ++report.physical_reads;
             if(observed!=value) {
-                if(report.read_disagreements==0u)
+                if(report.read_disagreements==0u) {
                     report.first_read_disagreement_frame=frame;
+                    report.first_read_disagreement_port=
+                        static_cast<std::uint16_t>(port);
+                    report.first_read_disagreement_selector=
+                        static_cast<std::uint16_t>(selector);
+                    report.first_read_disagreement_source=
+                        static_cast<std::uint16_t>(value);
+                    report.first_read_disagreement_native=observed;
+                }
                 ++report.read_disagreements;
             }
         }else{
