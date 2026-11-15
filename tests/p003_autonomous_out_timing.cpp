@@ -54,7 +54,7 @@ int main() {
     for(unsigned i=0;i<6;++i)CHECK(output[i].relative_frame==0u);
     for(unsigned i=6;i<12;++i)CHECK(output[i].relative_frame==1u);
     CHECK(output[12].relative_frame==2u);
-    CHECK(output.back().relative_frame>=3u);
+    CHECK(output[count-1u].relative_frame>=3u);
     for(std::size_t i=0;i<count;++i) {
         CHECK(output[i].port==a[i].port && output[i].value==a[i].value);
         if(i)CHECK(output[i].relative_frame>=output[i-1u].relative_frame);
