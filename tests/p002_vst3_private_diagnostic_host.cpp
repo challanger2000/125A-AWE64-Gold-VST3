@@ -1177,6 +1177,12 @@ int wmain(int argc,wchar_t** argv){
             factory,-1,true,false,-1,127,false,0);
         const auto drumBank=renderBankProgramChange(
             factory,-1,true,false,-1,127,false,128);
+        const auto drumWithAbsentProgram9=renderBankProgramChange(
+            factory,9,true,false,-1,127,false,128);
+        const auto ordinaryBankProgram9=renderBankProgramChange(
+            factory,9,true,false,-1,127,false,0);
+        const auto noSecondBankSwitch=renderBankProgramChange(
+            factory,-1,false,false,-1,127,false,128);
         const auto noSecondNoSwitch=renderBankProgramChange(
             factory,-1,false);
         const auto noSecondButSwitch=renderBankProgramChange(
@@ -1201,6 +1207,11 @@ int wmain(int argc,wchar_t** argv){
         require(drumBank.hashBeforeBlock2==defaultProgram7.hashBeforeBlock2 &&
                 drumBank.nonzero>100u,
                 "valid bank128 SF2 selection interrupted previous hardware voice");
+        require(drumWithAbsentProgram9.hash==drumBank.hash &&
+                ordinaryBankProgram9.hash==program9.hash,
+                "same-sample bank/program ordering selected absent PHDR preset");
+        require(noSecondBankSwitch.hash==noSecondNoSwitch.hash,
+                "SF2 bank selection changed already sounding EMU8000 voice");
         // CC7/CC10/CC11 are ORIGINAL MIDI channel state fed to
         // the source VXD descriptor compiler for the NEXT note.
         // They must not rewrite a pre-existing chip voice, be ignored,
