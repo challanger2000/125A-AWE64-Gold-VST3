@@ -13,6 +13,7 @@
 #include "CreativeSf2RomBankNoteCompiler.h"
 #include "CreativeMidi.h"
 #include "CreativeSf2PresetInventory.h"
+#include "CreativeSf2RamBankUpload.h"
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -24,7 +25,9 @@ public:
     [[nodiscard]] bool load(const std::filesystem::path& source_pack,
                             const std::filesystem::path& soundfont,
                             std::string& error,
-                            bool original_ram_source_already_sha_authenticated=false);
+                            bool original_ram_source_already_sha_authenticated=false,
+                            const awe64::creative::P003RamUploadResult*
+                                original_source_captured_ram=nullptr);
     void clear() noexcept;
     [[nodiscard]] bool ready() const noexcept {return ready_;}
     [[nodiscard]] bool originalRamMode() const noexcept {return ram_mode_;}
