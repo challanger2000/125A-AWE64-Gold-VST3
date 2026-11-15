@@ -129,3 +129,69 @@ C4/D4 frame tables or recorded source offsets, and do not promote the
 model to normal VST3 playback without independent new MIDI/PCM trials.
 
 **Gate unchanged: autonomous original-driver clock and PCM parity NO-GO.**
+
+## P003 experimental independent CPU-cycle scheduler after owner review, 2026-11-15
+
+Owner's independently supplied `P003-Original-Creative-CPU-Zeitmessung-AUSWERTUNG(1).zip`
+contains 324 full physical port+value events (as offline-private CSV),
+a summary of the separate original 2026-11-15 18:53:12 Creative driver capture,
+and an original 8/16/32-bit CPU-IO / 44.1kHz register sample-clock audit.
+
+**No private CSV, source Win95 WAV, original ROM, or Creative VXD bytes
+have been committed.**
+
+Replaced the former 200MHz artificial OUT-group frame layout in
+`CreativeAutonomousOutTiming.cpp` with a **bounded 133,333,333-Hz guest CPU
+cycle estimator**, based on register protocol STRUCTURE rather than
+pitch/program/source note ID:
+
+* Identify two native voice-search completion groups from the native
+  620/622-register transactions; model the observed ~2.3k cycle
+  driver-work bridges between voice searches and main programming.
+* Model subsequent independent index/data word transaction costs. Native
+  register words remain byte-for-byte from the existing voice compiler.
+* Support a **fractional CPU phase within a 44.1kHz sample** in
+  `p003CandidateAutonomousNoteTimelineAtPhase`. An eight-register NoteOff
+  now can legitimately split across two samples, rather than being
+  incorrectly forced into the first sample.
+* Full bounds checks, sample-clock monotonicity, no heap per callback,
+  and fail-closed rejection of unsupported voice transaction layouts.
+* The standard opt-in VST3 experimental wrapper uses a **deterministic
+  half-sample placeholder phase**. This is **not** the actual Win95
+  scheduler phase; a sample-accurate VST3 host MIDI event does not
+  provide that CPU-side sub-sample information.
+
+An independent private offline diagnostic compared the new cycle-cost
+estimator to two *different, authentic 86Box/Win95 guest CPU/EMU8000
+captures* (the earlier 18:43 V3 capture and the newly provided 18:53
+reference). **ONLY FOR OFFLINE DIAGNOSTIC** the first event's ACTUAL
+original TSC remainder was used to compute the phase. It is NEVER read
+or injected into the VST3 autonomous mode.
+
+| Authentic guest run | Mode | C4 ON | D4 ON | C4 OFF | D4 OFF | Total |
+|---|---|---:|---:|---:|---:|---:|
+| 2026-11-15 18:43 | Offline, source TSC phase known | 152/152 | 154/156 | 8/8 | 8/8 | **322/324** |
+| 2026-11-15 18:53 | Offline, source TSC phase known | 152/152 | 154/156 | 8/8 | 8/8 | **322/324** |
+
+Both remaining D4 ON errors are the two adjacent OUTs at indices
+108/109, misassigned by one chip sample. These two independent source
+runs share the same structural register program, hence this is
+**NOT** an independent general MIDI/patch validation.
+
+The offline source-phase test is only a **CPU-cost estimator diagnostic**,
+not a valid claim of self-contained VST3 driver parity. With the
+mid-sample fallback phase, the runtime candidate does NOT know the
+original fractional Win95 phase; its bit-exact dry PCM output has not
+been independently verified. The experimentally observed note-off
+crossing and other timing edge cases are now part of the synthetic
+automated C++ regressions.
+
+Remaining blocker: derive or replace host-vs-original sub-sample CPU
+dispatch phase with a reproducible, driver-independent rule or accept
+physical-session variability. A universal bit-identical guarantee across
+distinct original Win95 scheduling runs cannot be inferred solely from
+MIDI sampleOffset. Next audit should use genuinely new notes, overlaps,
+velocities, SF2 programs, and native exported VST3 WAVs.
+
+**Gate remains NO-GO for autonomous Creative Win95 PCM parity.
+Original 160,000/160,000 source-clocked reference remains unchanged.**
