@@ -56,8 +56,11 @@ def chip_events(lines):
 
 def guest_events(lines):
     first = next(lines, "").rstrip("\r\n")
-    if not first.startswith("# P003_CPU_GUEST_OUTW_V1 "):
-        raise ValueError("Wrong guest x86 I/O trace header")
+    if first.startswith("# P003_CPU_GUEST_OUTW_V1 "):
+        raise ValueError("Legacy V1 guest-only INW/OUTW capture omits "
+                         "physical EMU8000 callbacks from 32-bit OUTL/INL")
+    if not first.startswith("# P003_CPU_GUEST_PHYSICAL16_V2 "):
+        raise ValueError("Wrong guest physical x86 I/O callback trace header")
     expected_seq = 0
     for number, line in enumerate(lines, 2):
         if not line.strip() or line.startswith("#"):
@@ -160,6 +163,7 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
         "last_guest_tsc": last_tsc,
         "guest_tsc_regressions": tsc_regressions,
         "event_sequence_exact": True,
+        "cpu_trace_granularity": "PHYSICAL_16BIT_CALLBACK_FROM_GUEST_8_16_32_BIT_IO",
         "guest_cpu_to_chip_clock_calibrated": False,
         "original_emu8000_modified": False,
         "note_groups": {}
