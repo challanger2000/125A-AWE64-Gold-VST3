@@ -197,6 +197,20 @@ int main() {
         chip,allocator,damaged,secondLease,secondAuto,error));
     CHECK(secondLease.base==firstLease.base+firstLease.words &&
           allocator.contains(secondLease));
+    // MIDI notes from TWO simultaneously loaded banks must bind to
+    // disjoint physical sample data, without special-casing sample 0.
+    const auto firstAutoNote=p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,firstAuto,0u,7u,60u,100u);
+    const auto secondAutoNote=p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,damaged,secondAuto,0u,7u,60u,100u);
+    CHECK(firstAutoNote && secondAutoNote &&
+          firstAutoNote->count==1u && secondAutoNote->count==1u);
+    CHECK(firstAutoNote->layers[0].physical_sample_start==firstLease.base &&
+          secondAutoNote->layers[0].physical_sample_start==secondLease.base);
+    CHECK(firstAutoNote->layers[0].physical_sample_end<=
+          secondAutoNote->layers[0].physical_sample_start);
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,secondAuto,0u,7u,60u,100u));
     const auto originalFirstLease=firstLease;
     const auto firstAutoAt=firstLease.base-awe64::kSampleRamBase;
     const auto savedFirstAuto=original->ram[firstAutoAt];
