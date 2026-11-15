@@ -869,6 +869,8 @@ int wmain(int argc,wchar_t** argv){
     invalidLayerSf2Path+=L".private-invalid-final-zone";
     auto twoProgramSf2Path=fixture;
     twoProgramSf2Path+=L".private-two-program-rom-sf2";
+    auto missingInitialProgramSf2Path=fixture;
+    missingInitialProgramSf2Path+=L".private-no-program7-rom-sf2";
     auto vxdResourcePath=fixture;
     vxdResourcePath+=L".private-source-pack";
     auto badVxdResourcePath=fixture;
@@ -907,6 +909,16 @@ int wmain(int argc,wchar_t** argv){
         writePrivateResearchFile(twoProgramSf2Path,
                                  buildPrivateSyntheticRomSf2Bank(
                                      false,1u,false,true));
+        auto missingInitial=buildPrivateSyntheticRomSf2Bank();
+        constexpr char name[]="SYNTHBANK";
+        const auto row=std::search(missingInitial.begin(),
+            missingInitial.end(),std::begin(name),std::end(name)-1);
+        require(row!=missingInitial.end() &&
+                std::size_t(missingInitial.end()-row)>21u,
+                "missing-initial-program fixture lost actual PHDR row");
+        *(row+20)=9u; // Original source pack requests program 7.
+        *(row+21)=0u; // Bank only has actual PHDR program 9.
+        writePrivateResearchFile(missingInitialProgramSf2Path,missingInitial);
         const auto privatePack=buildPrivateSyntheticVxdResourcePack();
         writePrivateResearchFile(vxdResourcePath,privatePack);
         auto mutatedPack=privatePack;
@@ -1240,6 +1252,12 @@ int wmain(int argc,wchar_t** argv){
                 expressionTied.hash==expressionReduced.hash &&
                 panTied.hash==panChanged.hash,
                 "same-sample source controller did not precede new MIDI NoteOn");
+        require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
+                           missingInitialProgramSf2Path.c_str())==0,
+                "select sparse ROM bank without VXD initial program");
+        const auto missingInitialProgram=renderBankProgramChange(factory,-1);
+        require(missingInitialProgram.nonzero>100u,
+                "P003 actual VST3 did not start first real PHDR program");
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",L"")==0 &&
                 _wputenv_s(L"AWE64_P002_PRIVATE_VXD_RESOURCES_PATH",L"")==0,
                 "clear private SF2 research mode");
