@@ -20,6 +20,14 @@ from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p003_private_fat16_replace import patch_disposable_guest
 from p003_owner_two_bank_run import generated_comparison_sf2
 
+def complete_synthetic_partition_mbr(original:Path):
+    # The legacy stager's synthetic FAT test does not populate the
+    # MBR partition length; the stricter original-owner FAT16 reader
+    # requires it. Set it on THIS SYNTHETIC test fixture only.
+    with original.open("r+b") as disk:
+        disk.seek(458)
+        disk.write(struct.pack("<I",1_039_000))
+
 def make_existing_winini(clone:Path):
     """Only a dummy Windows directory and Win.INI for preloaded owner VM."""
     with PrivateFat16Reader(clone) as disk:
@@ -72,6 +80,7 @@ class PrivateOwnerP003TwoBankTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="P003-clone-test-") as td:
             root=Path(td)
             original,old_exe,first=write_inputs(root)
+            complete_synthetic_partition_mbr(original)
             original_sha=stager.sha256(original)
             clone=root/"cloned-only.img"
             stager.stage(original,clone,old_exe,first)
@@ -113,6 +122,7 @@ class PrivateOwnerP003TwoBankTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="P003-negative-") as td:
             root=Path(td)
             source,old_exe,first=write_inputs(root)
+            complete_synthetic_partition_mbr(source)
             clone=root/"clone.img"
             stager.stage(source,clone,old_exe,first)
             make_existing_winini(clone)
