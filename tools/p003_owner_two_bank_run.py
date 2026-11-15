@@ -27,6 +27,7 @@ import zipfile
 from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p002_verify_original_win95_ram_guest_log import audit
 from p003_private_fat16_replace import patch_disposable_guest,digest
+from p003_join_original_guest_cpu_chip_clocks import join_traces
 
 PINNED_FORK_SHA="67ec5e58643e32a6dc4efd6e1b42ce2ce7b7da048d218355a54ff39cdc327f16"
 PINNED_ROM_SHA="4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e"
@@ -205,10 +206,22 @@ def check_wav(path:Path)->dict:
     return meta
 
 def run(archive:Path,guest_exe:Path,comparison:Path|None,
-        results_root:Path)->tuple[Path,dict]:
+        results_root:Path,cpu_probe_fork:Path|None=None,
+        expected_cpu_probe_sha256:str|None=None)->tuple[Path,dict]:
     require(os.name=="nt",
             "Echter Original-86Box-Zweibanktest braucht Windows 11")
     verified=verify_private_archive(archive)
+    if cpu_probe_fork is not None:
+        require(bool(expected_cpu_probe_sha256) and
+                len(expected_cpu_probe_sha256)==64 and
+                all(c in "0123456789abcdef" for c in expected_cpu_probe_sha256),
+                "P003 CPU-Probe-Fork benoetigt gepinnte 64-stellige SHA256")
+        require(cpu_probe_fork.is_file() and
+                sha256(cpu_probe_fork)==expected_cpu_probe_sha256,
+                "P003 CPU-Probe-86Box muss exakt dem separaten CI-Build entsprechen")
+    else:
+        require(expected_cpu_probe_sha256 is None,
+                "Kein CPU-Probe-EXE angegeben, SHA allein unzulaessig")
     require(guest_exe.is_file(),"Das neue P003-Gastprogramm fehlt im Paket")
     guest_bytes=guest_exe.read_bytes()
     second=comparison.read_bytes() if comparison else generated_comparison_sf2()
@@ -230,8 +243,11 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
     second_sf2_path.write_bytes(second)
     trace=media/"ORIGINAL-EMU8000-REGISTER.trace"
     wav=media/"ORIGINAL-EMU8000-DRY.wav"
+    cpu_trace=media/"ORIGINAL-86BOX-GUEST-CPU-IO.trace"
     guest_log=media/"ORIGINAL-CREATIVE-P002RAM.LOG"
-    report={"schema":"125A-P003-OWNER-TWO-BANK-CAPTURE-V1",
+    report={"schema":("125A-P003-OWNER-CPU-IO-TRACE-AND-CHIP-PCM-V1"
+                      if cpu_probe_fork is not None else
+                      "125A-P003-OWNER-TWO-BANK-CAPTURE-V1"),
             "session":session,"status":"NO_GO_NOT_RUN",
             "real_original_Creative_RAM_bank2_parity":"NOT_YET_PROVEN",
             "real_original_vs_native_VST3_PCM":"NOT_COMPARED",
@@ -241,6 +257,10 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
              "Creative-Win95-Gast.LOG":guest_log,
              "Original-Bank-1.sf2":original_sf2_path,
              "Vergleichs-Bank-2.sf2":second_sf2_path}
+    if cpu_probe_fork is not None:
+        deliver["Original-CPU-IO.trace"]=cpu_trace
+        report["original_fork_cpu_io_trace_enabled"]=True
+        report["cpu_tsc_to_chip_frame_calibrated"]=False
     try:
         with zipfile.ZipFile(archive) as source:
             source.extractall(originals)
@@ -254,9 +274,23 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
         emulator=originals/"86Box"/"86Box.exe"
         require(sha256(emulator)==PINNED_FORK_SHA,
                 "Privater Emulator hat sich nach dem Entpacken geaendert")
+        if cpu_probe_fork is not None:
+            # Replace executable ONLY inside the already extracted disposable
+            # private copy. The source ZIP and calibrated original exe remain
+            # immutable. The instrumented fork only changed x86 src/io.c.
+            with cpu_probe_fork.open("rb") as source, emulator.open("wb") as dest:
+                for part in iter(lambda:source.read(1024*1024),b""):
+                    dest.write(part)
+            require(sha256(emulator)==expected_cpu_probe_sha256,
+                    "CPU-Probe-86Box changed after copying")
+            report["source_identifiers"]["cpu_probe_fork_sha256"]=(
+                expected_cpu_probe_sha256)
+            report["source_identifiers"]["baseline_fork_sha256"]=PINNED_FORK_SHA
         report["status"]="ORIGINAL_VM_STAGED_NOT_YET_EXECUTED"
         env=os.environ.copy()
         env.update({"EMU8K_TRACE":str(trace),"AWE32_WAV":str(wav)})
+        if cpu_probe_fork is not None:
+            env["AWE64_P003_CPU_IO_TRACE"]=str(cpu_trace)
         print("\n125A P003: Original-Windows-95 und Creative-Treiber starten.")
         print("In der VM muss der Test automatisch starten.")
         print("Sobald er fertig ist, 86Box ueber Datei > Beenden schliessen.")
@@ -284,7 +318,26 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
                 "Keine echte EMU8000-Registerspur aus dieser 86Box-Sitzung")
         report["original_source_wav"]=check_wav(wav)
         report["original_source_trace_bytes"]=trace.stat().st_size
-        report["status"]="SOURCE_CREATIVE_TWO_BANK_API_TRACE_WAV_CAPTURED"
+        if cpu_probe_fork is not None:
+            require(cpu_trace.is_file() and cpu_trace.stat().st_size>10000,
+                    "CPU-Zeitspur des instrumentierten Originals fehlt")
+            with trace.open(encoding="utf-8") as chip_source, \
+                 cpu_trace.open(encoding="utf-8") as cpu_source:
+                joined=join_traces(chip_source,cpu_source)
+            require(joined["matched_io_events"]>1000 and
+                    joined["physical_write_events"]>1000 and
+                    joined["event_sequence_exact"],
+                    "CPU-Ereignisse nicht vollstaendig an Chip-EMU8K gebunden")
+            report["cpu_chip_event_join"]={
+                "matched_port_events":joined["matched_io_events"],
+                "physical_writes":joined["physical_write_events"],
+                "cpu_tsc_regressions":joined["guest_tsc_regressions"],
+                "cpu_clock_to_chip_sample_calibrated":False,
+                "emu8000_original_core_unchanged":True,
+            }
+            report["status"]="SOURCE_CREATIVE_TWO_BANK_API_TRACE_WAV_CPU_IO_CAPTURED"
+        else:
+            report["status"]="SOURCE_CREATIVE_TWO_BANK_API_TRACE_WAV_CAPTURED"
         report["real_original_Creative_RAM_bank2_parity"]=(
             "SOURCE_ONLY_SOURCE_PORT_ADDRESS_DIFF_PENDING")
         report["real_original_vs_native_VST3_PCM"]="NOT_COMPARED"
@@ -307,13 +360,16 @@ def main()->int:
     p.add_argument("--guest-exe",type=Path)
     p.add_argument("--second-sf2",type=Path)
     p.add_argument("--results-root",type=Path)
+    p.add_argument("--cpu-probe-fork-exe",type=Path)
+    p.add_argument("--cpu-probe-fork-sha256")
     args=p.parse_args()
     root=package_directory()
     archive=choose_private_zip(root,args.private_original_archive)
     guest=args.guest_exe if args.guest_exe else root/"P002RAM.EXE"
     destination=(args.results_root if args.results_root
                  else root).resolve()
-    result,report=run(archive,guest,args.second_sf2,destination)
+    result,report=run(archive,guest,args.second_sf2,destination,
+                      args.cpu_probe_fork_exe,args.cpu_probe_fork_sha256)
     print("\nP003-Ergebnis: "+str(result))
     print("Status: "+report["status"])
     if "error" in report:print("Fehler: "+report["error"])
