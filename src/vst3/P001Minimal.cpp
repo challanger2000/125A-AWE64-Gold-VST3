@@ -316,12 +316,14 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             chip_.close();return kResultFalse;
         }
     }
+    awe64::creative::P003RamUploadResult p003CapturedOriginalRam{};
     if(anyCapturedRam) {
         std::string why;
         if(!preloadOriginalCreativeCapturedRamSource(
                 chip_,std::filesystem::path(originalRamSf2),
                 std::filesystem::path(originalRamPorts),
-                std::filesystem::path(originalRamFinal),why)) {
+                std::filesystem::path(originalRamFinal),why,
+                &p003CapturedOriginalRam)) {
             std::fprintf(stderr,
                 "125A P002 ORIGINAL RAM source replay rejected: %s\n",
                 why.c_str());
@@ -400,7 +402,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         if(!p002PrivateRamPreloaded_ ||
            !p002RomBank_.load(std::filesystem::path(sourcePath),
                               std::filesystem::path(originalRamSf2),
-                              why,true)) {
+                              why,true,&p003CapturedOriginalRam)) {
             std::fprintf(stderr,
                 "125A P002 original Creative native RAM source rejected: %s\n",
                 why.c_str());
