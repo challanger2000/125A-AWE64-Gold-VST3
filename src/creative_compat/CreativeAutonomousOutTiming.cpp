@@ -5,23 +5,32 @@
 
 namespace awe64::creative {
 namespace {
-// Owner's original CPU/EMU8000 V3 evidence showed 133.333333MHz and
-// two expensive voice-search/driver bookkeeping gaps of ~2.3k cycles,
-// followed by short index+data groups. These costs are structural and
-// independent of MIDI key/program/velocity and source port times.
-// They are still EMPIRICAL estimates (not disassembled VXD cycles).
+// P003: two independently recorded Win95 sessions (18:43 and 18:53)
+// had identical relative physical OUT CPU-TSC deltas for each of 324
+// C4/D4 note-register writes, despite DIFFERENT 44.1 kHz sample frames.
+// This confirms that driver work and intrasample CPU phase must be
+// modeled separately. All coefficients remain empirical, source
+// protocol-category estimates, NOT a cycle-exact 1996 VXD emulator.
+// No MIDI key, program, source event timestamp, or note ID is read.
 constexpr std::uint32_t kFirstVoiceSearchBridge=2340u;
 constexpr std::uint32_t kSecondVoiceSearchBridge=2314u;
-constexpr std::uint32_t kVoiceProbeOut=110u;
-constexpr std::uint32_t kVoiceSelectOut=80u;
-constexpr std::uint32_t kProbeToResetOut=123u;
-constexpr std::uint32_t kIndexAfterData620=72u;
-constexpr std::uint32_t kIndexAfterDataA20=90u;
-constexpr std::uint32_t kIndexAfterDataA22=82u;
-constexpr std::uint32_t kIndexAfterDataE20=87u;
-constexpr std::uint32_t kIndexAfterIndex=110u;
+constexpr std::uint32_t kVoiceProbeOut=109u;
+constexpr std::uint32_t kVoiceSelectOut=78u;
+constexpr std::uint32_t kIndexAfterData620=70u;
+constexpr std::uint32_t kIndexAfterDataA20=72u;
+constexpr std::uint32_t kIndexAfterDataA22=76u;
+constexpr std::uint32_t kIndexAfterDataE20=82u;
+constexpr std::uint32_t kIndexAfterIndex=97u;
+// The 7FFD and 7F27 physical A20 data writes precede additional
+// original Creative driver control-path work, not a generic 72-cycle
+// index select. These values identify a hardware register transaction;
+// they are NOT MIDI note or preset identifiers. Their observed
+// inter-voice variability (~75 cycles) is unresolved. Using the mean
+// keeps this candidate structural instead of special-casing voices.
+constexpr std::uint32_t kAfterA20ControlTransfer=236u;
+constexpr std::uint32_t kAfterA20FinalEnvelope=162u;
 constexpr std::uint32_t kReleaseNextRegister=76u;
-constexpr std::uint32_t kReleaseSecondVoiceWork=180u;
+constexpr std::uint32_t kReleaseSecondVoiceWork=177u;
 constexpr std::size_t kObservedMinPreludeWrites=12u;
 constexpr std::size_t kMaxPreludeWrites=24u;
 constexpr std::uint64_t kMaxEstimatedCycles=
@@ -56,7 +65,7 @@ std::uint32_t cost(const awe64::ChipPortWrite& previous,
             return (current.value&0x80u)?
                 kVoiceSelectOut:kVoiceProbeOut;
         if(previous.port==0xa20u && current.port==0xe22u)
-            return kProbeToResetOut;
+            return i<firstPreludeEnd?128u:119u;
         return 0u;
     }
     // E22 index selects and subsequent 16/32-bit data transfers share
@@ -65,7 +74,13 @@ std::uint32_t cost(const awe64::ChipPortWrite& previous,
     if(current.port!=0xe22u)return 0u;
     switch(previous.port) {
         case 0x622u:return kIndexAfterData620;
-        case 0xa20u:return kIndexAfterDataA20;
+        case 0xa20u:
+            // Distinguish the *native* protocol transaction that
+            // causes extra VXD housekeeping, independent of note
+            // identity, source note clocks and sample/preset ID.
+            if(previous.value==0x7ffdu)return kAfterA20ControlTransfer;
+            if(previous.value==0x7f27u)return kAfterA20FinalEnvelope;
+            return kIndexAfterDataA20;
         case 0xa22u:return kIndexAfterDataA22;
         case 0xe20u:return kIndexAfterDataE20;
         case 0xe22u:return kIndexAfterIndex;
