@@ -288,6 +288,34 @@ int main() {
     auto forgedCapture=capturedResult;
     forgedCapture.source_sf2_sha256_verified=false;
     CHECK(!p003CapturedRamMatchesExactSourceSf2(bank,forgedCapture));
+    // SOURCE-DRIVEN DIFFERENTIAL: compare the candidate first-fit
+    // allocator against a separately captured original Win95 address.
+    // The synthetic evidence is explicitly not a second Creative
+    // driver observation; it proves the differential gate catches a
+    // plausible but incorrect 0x200010 default layout.
+    P003CandidateRamAllocation comparedLease{};
+    P003CandidateRamAllocator defaultCandidate;
+    CHECK(!p003CompareCandidateAllocationToOriginalCapture(
+        defaultCandidate,bank,capturedResult,comparedLease,error));
+    CHECK(!error.empty() && defaultCandidate.usedBanks()==0u);
+    CHECK(comparedLease.words==0u);
+    P003CandidateRamAllocator sourceCalibrated(
+        recordedBase,awe64::kFmReservedBase);
+    CHECK(p003CompareCandidateAllocationToOriginalCapture(
+        sourceCalibrated,bank,capturedResult,comparedLease,error));
+    CHECK(error.empty() && comparedLease.base==recordedBase &&
+          comparedLease.words==8u &&
+          sourceCalibrated.contains(comparedLease));
+    CHECK(sourceCalibrated.release(comparedLease));
+    CHECK(sourceCalibrated.usedBanks()==0u);
+    CHECK(!p003CompareCandidateAllocationToOriginalCapture(
+        sourceCalibrated,differentBank,capturedResult,comparedLease,error));
+    CHECK(sourceCalibrated.usedBanks()==0u);
+    auto incorrectObserved=capturedResult;
+    incorrectObserved.physical_word_base+=1u;
+    CHECK(!p003CompareCandidateAllocationToOriginalCapture(
+        sourceCalibrated,bank,incorrectObserved,comparedLease,error));
+    CHECK(sourceCalibrated.usedBanks()==0u);
     const auto mappedCaptured=p003CandidatePhysicalNoteFromOriginalSourceCapture(
         chip,bank,capturedResult,originalFinal,0u,7u,60u,100u);
     CHECK(mappedCaptured && mappedCaptured->count==1u);
