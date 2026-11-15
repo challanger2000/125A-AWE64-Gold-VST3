@@ -228,14 +228,14 @@ static int original_query_dram(CREATIVE_AWEMANAGER manager,
    cryptographic proof of sample authenticity. The offline auditor
    also SHA256-locks the private SF2 file and genuine guest trace. */
 static BYTE bank_hash_buffer[4096];
-static int sample_identity(DWORD*byte_count,DWORD*bank_fnv32) {
+static int sample_identity(const char* path,DWORD*byte_count,DWORD*bank_fnv32) {
     HANDLE f;
     DWORD result=0u;
     BYTE head[12];
     DWORD read=0u,total=0u,i;
     DWORD fnv=2166136261u;
     DWORD riff_size=0u;
-    f=CreateFileA(sample_path,GENERIC_READ,FILE_SHARE_READ,
+    f=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ,
                   0,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,0);
     if(f==INVALID_HANDLE_VALUE)return 0;
     result=GetFileSize(f,0);
@@ -284,7 +284,7 @@ void WINAPI p002_ram_entry(void) {
     DWORD max_second_before=0u,free_second_before=0u;
     DWORD max_second_after=0u,free_second_after=0u;
     DWORD max_second_clear=0u,free_second_clear=0u;
-    DWORD optional_attributes=0u;
+    DWORD optional_attributes=0u,second_sample_bytes=0u,second_sample_fnv32=0u;
     char dllpath[260];
     DWORD p=0u;
     int opened=0,loaded=0,loadedSecond=0,haveMidi=0,success=0;
@@ -303,7 +303,7 @@ void WINAPI p002_ram_entry(void) {
     }
     report("ORIGINAL_AWEMAN32_CBUFFER_PACK2_SIZE_BYTES=",
            (DWORD)sizeof(ORIGINAL_CREATIVE_BUFFER));
-    if(!sample_identity(&sample_bytes,&sample_fnv32)) {
+    if(!sample_identity(sample_path,&sample_bytes,&sample_fnv32)) {
         emit("PRIVATE_SAMPLE_MISSING_INVALID_RIFF_OR_UNREADABLE\r\n");
         goto done;
     }
@@ -458,6 +458,13 @@ void WINAPI p002_ram_entry(void) {
     if(optional_attributes!=INVALID_FILE_ATTRIBUTES) {
         emit("P003_ORIGINAL_SECOND_BANK_EXPERIMENT_BEGIN\r\n");
         if(optional_attributes & FILE_ATTRIBUTE_DIRECTORY)goto done;
+        if(!sample_identity(secondbank_file_buffer,
+                            &second_sample_bytes,&second_sample_fnv32)) {
+            emit("P003_SECOND_SF2_IDENTITY_INVALID\r\n");
+            goto done;
+        }
+        report("P003_SECOND_SF2_SIZE=",second_sample_bytes);
+        report("P003_SECOND_SF2_FNV1A32=",second_sample_fnv32);
         if(!original_query_dram(manager,handle,"P003_BEFORE_SECOND",
                                 &max_second_before,&free_second_before))
             goto done;
