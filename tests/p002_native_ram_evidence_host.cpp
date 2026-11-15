@@ -447,8 +447,9 @@ int wmain(int argc,wchar_t** argv) {
             originalPreludePath=argv[preludeIndex]+kPreludeLength;
             const fs::path input(originalPreludePath);
             check(input.is_absolute() && fs::is_regular_file(input) &&
-                  fs::file_size(input)==12506118u,
-                  "source boot-prelude requires original Win95 trace");
+                  (fs::file_size(input)==12506118u ||
+                   fs::file_size(input)==13902067u),
+                  "source boot-prelude requires SHA-verified Win95 trace");
             for(int i=1;i<=14;++i)
                 check(input.lexically_normal()!=fs::path(argv[i]).lexically_normal(),
                       "original trace aliases host input/output");
