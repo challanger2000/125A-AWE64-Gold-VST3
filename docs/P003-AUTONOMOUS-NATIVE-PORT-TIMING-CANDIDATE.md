@@ -23,7 +23,7 @@ transaction is restored before the bounded independent native OUT writes are
 played by the existing per-sample scheduler. No new DSP or mutable original
 EMU8000 core.
 
-The 200 MHz virtual CPU / 44.1 kHz chip-clock candidate distinguishes index
+The earlier 200 MHz virtual CPU / 44.1 kHz chip-clock candidate distinguishes index
 OUTs from data OUTs and includes a structural initial-voice allocation
 workload. **Empirical coefficients 20, 67, 2020, and 291 cycles were fitted
 to the 2026-11-15 capture itself.** They are NOT verified original Win95
@@ -62,3 +62,70 @@ velocities, controllers and banks. Until that cross-session differential
 passes, retain the hard-reference mode and private-only autonomous flag.
 
 **Gate: autonomous register/PCM identity NOT YET VERIFIED.**
+
+## Independent original owner V3 physical CPU + EMU8000 evidence, 2026-11-15 18:43 UTC
+
+**Source**: owner-supplied `P003-20261115T184307Z-5fd6f4a2-ERGEBNIS.zip`,
+ZIP SHA256 `ddaa0625cf0d984bad2f9cc2dd56f128a86734c22d638e1bf310526bd16afe7f`.
+Full private files (original Creative driver, sample data, audio and CPU trace)
+are NOT published to GitHub.
+
+Independent read and SHA256/ZIP-CRC validation:
+- **816,594/816,594 source 86Box EMU8000 callback events joined in strict
+  original order to guest x86 CPU-port callbacks, with no event omissions**.
+- **760,209 register writes, 56,385 register reads**. All 816,589
+  non-byte-read values agree fully; the five byte-read CPU callbacks
+  expose only the low byte (which independently matches the source),
+  while the original chip trace carries their full 16-bit result.
+  Never overstate those five as a 16-bit full-value comparison.
+- **0 CPU-TSC regressions**, Win95 guest and original Creative API PASS,
+  44.1kHz/stereo/PCM16 original WAV present. This proves original
+  measurement coverage, **not independent native VST3 PCM parity**.
+- The owner Win95 VM CPU clock is **133,333,333 Hz**, not 200MHz.
+  The 200MHz candidate coefficient units were corrected in code
+  (133333333 Hz, 13/45/1347/194 research cycles). The coefficients
+  remain fitted approximations, not original VXD instruction counts.
+
+The source NoteOn and NoteOff port **values and order** are exactly those
+of the separately authenticated 2026-11-15 original P003 reference:
+all **324/324** original note OUTs, independent session, no newly added
+native melody/velocity reference yet.
+
+| Note event | Writes | V3 44.1kHz frame histogram, starting at event | Measured guest TSC span |
+|---|---:|---|---:|
+| C4 NoteOn | 152 | 6 / 12 / 88 / 46 | 9,500 |
+| C4 NoteOff | 8 | 8 | 331 |
+| D4 NoteOn | 156 | 8 / 14 / 86 / 48 | 10,058 |
+| D4 NoteOff | 8 | 6 / 2 | 325 |
+
+At 133.333MHz one EMU8000 sample is ~3,023 guest CPU clock cycles.
+C4 NoteOn's observed 9,500 TSC ticks span ~3.14 sample periods;
+D4 NoteOn's 10,058 ticks ~3.33 periods. The note-off sequence can
+**cross a sample boundary** depending on CPU/chip fractional phase;
+therefore the existing candidate assumption that every NoteOff's
+eight writes are all in frame zero is also independently falsified.
+
+The current 133.333MHz-rescaled, sample-equivalent original 15 November
+research candidate was checked offline against the NEW source trace
+without using the source timing as generator:
+
+| Event | Correct autonomous offsets / total |
+|---|---:|
+| C4 NoteOn | 105 / 152 |
+| C4 NoteOff | 8 / 8 |
+| D4 NoteOn | 71 / 156 |
+| D4 NoteOff | 6 / 8 |
+| **Independent V3 holdout total** | **190 / 324** |
+
+This is a **FAIL of the autonomous research clock model**, not an issue
+with original Creative PCM emulation. The earlier sample-exact
+`source_clocked` VST3 comparison (160,000/160,000 PCM16) is preserved.
+
+**Engineering direction**: use real guest CPU TSC plus captured CS:EIP and
+remaining x86 instruction cycles to derive source-validated instruction
+work and fractional sample-clock phase for generic note/voice/controller
+operations. Do not replace a dynamic driver scheduler with hardcoded
+C4/D4 frame tables or recorded source offsets, and do not promote the
+model to normal VST3 playback without independent new MIDI/PCM trials.
+
+**Gate unchanged: autonomous original-driver clock and PCM parity NO-GO.**
