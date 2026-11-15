@@ -111,6 +111,9 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
         parameters.addParameter(STR16("P002 source SF2 program"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateProgramParam));
+        parameters.addParameter(STR16("P003 exact SF2 bank"),
+            nullptr,128,0.,ParameterInfo::kCanAutomate,
+            static_cast<int32>(kP003ExactSf2BankParam));
         // These are original MIDI controller STATE (not a hand-tuned
         // filter, amp or FX send). Actual original VXD source mapping
         // from CC7/CC11/CC10 happens when the next voice is compiled.
@@ -803,6 +806,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     IParamValueQueue* sustainQueue=nullptr;
     IParamValueQueue* win95ResetQueue=nullptr;
     IParamValueQueue* programQueue=nullptr;
+    IParamValueQueue* bankQueue=nullptr;
     constexpr std::array<ParamID,3> controllerIds{
         kP002PrivateCc7VolumeParam,
         kP002PrivateCc10PanParam,
@@ -827,6 +831,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                       queue->getParameterId()==kP002PrivateProgramParam) {
                 if(programQueue)return kInvalidArgument;
                 programQueue=queue;
+            }else if(queue && p002BankEnabled_ &&
+                      queue->getParameterId()==kP003ExactSf2BankParam) {
+                if(bankQueue)return kInvalidArgument;
+                bankQueue=queue;
             }else if(queue && p002BankEnabled_) {
                 for(std::size_t c=0;c<controllerIds.size();++c) {
                     if(queue->getParameterId()!=controllerIds[c])continue;
@@ -841,7 +849,8 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     if(resetCount<0 || resetCount>1)return kInvalidArgument;
     const int32 ccCount=sustainQueue?sustainQueue->getPointCount():0;
     const int32 programCount=programQueue?programQueue->getPointCount():0;
-    if(ccCount<0 || programCount<0)return kInvalidArgument;
+    const int32 bankCount=bankQueue?bankQueue->getPointCount():0;
+    if(ccCount<0 || programCount<0 || bankCount<0)return kInvalidArgument;
     std::array<int32,3> controllerCount{};
     std::array<int32,3> controllerIndex{};
     for(std::size_t c=0;c<controllerQueues.size();++c) {
@@ -853,6 +862,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     int32 ccIndex=0;
     int32 resetIndex=0;
     int32 programIndex=0;
+    int32 bankIndex=0;
     int32 midiIndex=0;
     const int32 events=data.inputEvents?data.inputEvents->getEventCount():0;
     if(events<0)return kInvalidArgument;
@@ -860,6 +870,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     while(midiIndex<events || ccIndex<ccCount ||
           resetIndex<resetCount ||
           programIndex<programCount ||
+          bankIndex<bankCount ||
           controllerIndex[0]<controllerCount[0] ||
           controllerIndex[1]<controllerCount[1] ||
           controllerIndex[2]<controllerCount[2]) {
@@ -899,6 +910,16 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                programNormalized<0. || programNormalized>1.)
                 return kInvalidArgument;
         }
+        int32 bankOffset=std::numeric_limits<int32>::max();
+        ParamValue bankNormalized=0.;
+        const bool haveBank=bankIndex<bankCount;
+        if(haveBank) {
+            if(bankQueue->getPoint(bankIndex,bankOffset,bankNormalized)!=kResultOk ||
+               bankOffset<0 || bankOffset>data.numSamples ||
+               !std::isfinite(bankNormalized) ||
+               bankNormalized<0. || bankNormalized>1.)
+                return kInvalidArgument;
+        }
         int32 controllerOffset=std::numeric_limits<int32>::max();
         ParamValue controllerNormalized=0.;
         int controllerChoice=-1;
@@ -929,19 +950,28 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             (!haveMidi || resetOffset<=midiOffset) &&
             (!haveCc || resetOffset<=ccOffset) &&
             (!haveProgram || resetOffset<=programOffset) &&
+            (!haveBank || resetOffset<=bankOffset) &&
             (controllerChoice<0 || resetOffset<=controllerOffset);
         const bool chooseController=!chooseReset && controllerChoice>=0 &&
             (!haveMidi || controllerOffset<=midiOffset) &&
             (!haveCc || controllerOffset<=ccOffset) &&
-            (!haveProgram || controllerOffset<=programOffset);
-        const bool chooseProgram=!chooseReset && !chooseController && haveProgram &&
+            (!haveProgram || controllerOffset<=programOffset) &&
+            (!haveBank || controllerOffset<=bankOffset);
+        // Bank is resolved before program at equal sample offsets.
+        // This is a literal SF2 PHDR selection, NOT a 1996 CC0 mapping.
+        const bool chooseBank=!chooseReset && !chooseController && haveBank &&
+            (!haveMidi || bankOffset<=midiOffset) &&
+            (!haveCc || bankOffset<=ccOffset) &&
+            (!haveProgram || bankOffset<=programOffset);
+        const bool chooseProgram=!chooseReset && !chooseController && !chooseBank && haveProgram &&
             (!haveMidi || programOffset<=midiOffset) &&
             (!haveCc || programOffset<=ccOffset);
-        const bool chooseCc=!chooseReset && !chooseController && !chooseProgram && haveCc &&
+        const bool chooseCc=!chooseReset && !chooseController && !chooseBank && !chooseProgram && haveCc &&
             (!haveMidi || ccOffset<=midiOffset);
         const int32 offset=chooseReset?resetOffset:(chooseController?controllerOffset:
+            (chooseBank?bankOffset:
             (chooseProgram?programOffset:
-            (chooseCc?ccOffset:midiOffset)));
+            (chooseCc?ccOffset:midiOffset))));
         if(offset<pos)return kInvalidArgument;
         render(pos,offset,left,right);
         pos=offset;
@@ -964,6 +994,20 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                     controllerNumbers[static_cast<std::size_t>(controllerChoice)],
                     value))return kInvalidArgument;
             ++controllerIndex[static_cast<std::size_t>(controllerChoice)];
+            continue;
+        }
+        if(chooseBank) {
+            if(clockedNativeRam_) {
+                clockedNativeRamFailed_=true;
+                return kInvalidArgument;
+            }
+            if(!p002RomBank_.ready())return kInvalidArgument;
+            const auto bank=static_cast<std::uint16_t>(
+                bankNormalized*128. + 0.5);
+            // Unsupported requested bank is an ignored MIDI selection,
+            // never a silent alias and never an invalid DAW audio block.
+            (void)p002RomBank_.selectExactSf2Bank(bank);
+            ++bankIndex;
             continue;
         }
         if(chooseProgram) {
