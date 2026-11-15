@@ -190,6 +190,26 @@ int main() {
         chip,bank,forgedRam,fakeOriginal,error));
     CHECK(!error.empty() && !fakeOriginal.entire_pool_readback_equal &&
           !fakeOriginal.original_creative_source_transformation_verified);
+    // P003 original-prelude attestation is a VERIFY-ONLY entrypoint.
+    // Public CI has no private Creative source, so synthetic inputs
+    // MUST fail before any physical chip write and must not change
+    // even one word of the existing loaded bank or the chip clock.
+    const auto verifyClock=chip.renderedFrames();
+    const auto verifyFirst=original->ram[at];
+    const auto verifyLast=original->ram[
+        lastAllowed-awe64::kSampleRamBase+7u];
+    P003RamUploadResult rejectedPrelude{
+        999u,7u,5u,true,true};
+    error.clear();
+    CHECK(!p003VerifyReplayedOriginalWin95OwnerBankWithoutWrites(
+        chip,bank,forgedRam,rejectedPrelude,error));
+    CHECK(!error.empty() && !rejectedPrelude.entire_pool_readback_equal &&
+          !rejectedPrelude.original_creative_source_transformation_verified &&
+          rejectedPrelude.physical_word_base==0u &&
+          rejectedPrelude.source_pool_words==0u);
+    CHECK(chip.renderedFrames()==verifyClock &&
+          original->ram[at]==verifyFirst &&
+          original->ram[lastAllowed-awe64::kSampleRamBase+7u]==verifyLast);
     // Every rejected input must leave BOTH earlier valid sample
     // destinations AND the protected tail untouched. Checking just the
     // first sample word would miss partial corruptions after it.
