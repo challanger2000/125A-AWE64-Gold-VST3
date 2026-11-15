@@ -66,8 +66,27 @@ bool P002PrivateRomBank::load(
     const std::filesystem::path& source_pack,
     const std::filesystem::path& soundfont,
     std::string& error,
-    const bool original_ram_source_already_sha_authenticated) {
+    const bool original_ram_source_already_sha_authenticated,
+    const P003RamUploadResult* original_source_captured_ram) {
     clear();
+    const bool captured=original_source_captured_ram &&
+        original_source_captured_ram->entire_pool_readback_equal &&
+        original_source_captured_ram->original_source_port_replay_verified &&
+        original_source_captured_ram->original_port_writes>0u &&
+        original_source_captured_ram->source_pool_words>0u &&
+        original_source_captured_ram->physical_word_base>=
+            awe64::kSampleRamBase+4u &&
+        original_source_captured_ram->physical_word_base<
+            awe64::kFmReservedBase &&
+        original_source_captured_ram->source_pool_words<=
+            std::size_t(awe64::kFmReservedBase-
+                original_source_captured_ram->physical_word_base);
+    if(original_source_captured_ram && !captured) {
+        error="P003 source RAM capture not independently attested";
+        return false;
+    }
+    const bool ramSourceMode=
+        original_ram_source_already_sha_authenticated || captured;
     std::ifstream pack(source_pack,std::ios::binary|std::ios::ate);
     if(!pack || pack.tellg()!=static_cast<std::streamoff>(kPackLength)) {
         error="P002 source resource pack missing or exact length invalid";
@@ -139,7 +158,7 @@ bool P002PrivateRomBank::load(
         error="P002 source resource pack layout invalid";
         clear();return false;
     }
-    if(original_ram_source_already_sha_authenticated) {
+    if(ramSourceMode) {
         // The 125ABK01 header merely ASSERTS a VXD SHA; without this
         // independent 820-byte hash any forged pitch/volume/template
         // could masquerade as the real Windows-95 Creative algorithm.
@@ -191,33 +210,51 @@ bool P002PrivateRomBank::load(
         error="P002 malformed or unsupported standard SF2 sample inventory";
         clear();return false;
     }
-    if(original_ram_source_already_sha_authenticated) {
-        // This is the SAME bank already admitted by the separate
-        // original RAM trace+PCM SHA verifier on the activation thread.
-        // Generalized Creative RAM placement has NOT been established.
-        if(!isExactOriginalCreativeRamOwnerSf2(bank_bytes_) ||
-           sampleInventory->sample_headers!=83u ||
-           sampleInventory->ram_mono!=83u ||
+    if(ramSourceMode) {
+        // The byte-exact original owner profile remains SHA-gated.
+        // For another SF2, only an already SOURCE-CAPTURED physical
+        // pool with externally verified original Win95 provenance may
+        // enter the original VXD voice compiler. A fake header/flag
+        // alone cannot bypass the actual 820-byte VXD table SHA gate.
+        if(original_ram_source_already_sha_authenticated &&
+           (!isExactOriginalCreativeRamOwnerSf2(bank_bytes_) ||
+            sampleInventory->sample_headers!=83u ||
+            bank_number_!=0u)) {
+            error="P002 original Win95 owner SF2 identity mismatched";
+            clear();return false;
+        }
+        if(sampleInventory->ram_mono!=sampleInventory->sample_headers ||
            sampleInventory->rom_mono!=0u ||
-           sampleInventory->unsupported!=0u ||
-           bank_number_!=0u || program_>127u) {
-            error="P002 original Win95 RAM source bank/type not matched";
+           sampleInventory->unsupported!=0u || program_>127u) {
+            error="P003 only original-captured RAM-mono banks supported";
+            clear();return false;
+        }
+        const auto pool=candidateStandardSf2WholeMonoRamPool(bank_bytes_);
+        if(!pool) {
+            error="P003 original-captured SF2 RAM pool invalid";
             clear();return false;
         }
         constexpr std::uint32_t originalPhysicalBase=0x200010u;
         constexpr std::size_t originalPoolWords=260921u;
-        // Check EVERY sample header and the complete source pool at
-        // activation, not merely sample 0. A corrupted later shdr
-        // must reject the bank before MIDI can select that program.
-        const auto pool=candidateStandardSf2WholeMonoRamPool(bank_bytes_);
-        if(!pool || pool->sample_headers!=83u ||
-           pool->whole_smpl_pcm_le16.size()!=originalPoolWords*2u) {
-            error="P002 source SoundFont RAM pool not authentic";
+        const auto actualBase=captured
+            ? original_source_captured_ram->physical_word_base
+            : originalPhysicalBase;
+        const auto actualWords=captured
+            ? original_source_captured_ram->source_pool_words
+            : originalPoolWords;
+        if(pool->whole_smpl_pcm_le16.size()!=actualWords*2u ||
+           (captured && original_source_captured_ram->sample_headers!=
+                       pool->sample_headers) ||
+           (original_ram_source_already_sha_authenticated &&
+             (actualBase!=originalPhysicalBase ||
+              actualWords!=originalPoolWords ||
+              pool->sample_headers!=83u))) {
+            error="P003 captured physical RAM geometry differs from SoundFont";
             clear();return false;
         }
         ram_mode_=true;
-        source_ram_base_=originalPhysicalBase;
-        source_ram_pool_words_=originalPoolWords;
+        source_ram_base_=actualBase;
+        source_ram_pool_words_=actualWords;
     }else {
         if(sampleInventory->ram_mono>0u ||
            sampleInventory->unsupported>0u ||
