@@ -206,12 +206,12 @@ bool P002PrivateRomBank::load(
         }
         constexpr std::uint32_t originalPhysicalBase=0x200010u;
         constexpr std::size_t originalPoolWords=260921u;
-        // Require a standard RAM-mono sample descriptor within the
-        // exact original source pool; the preloader already verified
-        // the whole SF2 SHA and final chip RAM content.
-        const auto pool=candidateOriginalSf2ReadRamMonoSamplePcm(
-            bank_bytes_,0u,0xe00000u);
-        if(!pool || pool->total_pool_words!=originalPoolWords) {
+        // Check EVERY sample header and the complete source pool at
+        // activation, not merely sample 0. A corrupted later shdr
+        // must reject the bank before MIDI can select that program.
+        const auto pool=candidateStandardSf2WholeMonoRamPool(bank_bytes_);
+        if(!pool || pool->sample_headers!=83u ||
+           pool->whole_smpl_pcm_le16.size()!=originalPoolWords*2u) {
             error="P002 source SoundFont RAM pool not authentic";
             clear();return false;
         }
