@@ -726,7 +726,8 @@ Audio renderBankProgramChange(
     IPluginFactory* factory,int changeToProgram,
     bool playSecond=true,bool tieWithSecondNote=false,
     int sourceController=-1,int sourceValue=127,
-    bool sourceControllerSameSample=false) {
+    bool sourceControllerSameSample=false,
+    int exactSf2Bank=-1) {
     Instance instance(factory,true);
     Audio audio{};
     const auto event=[&](EventList& list,bool on,int key,int offset) {
@@ -753,7 +754,19 @@ Audio renderBankProgramChange(
         if(block==2)event(events,false,60,71);
         if(playSecond && block==5)event(events,true,64,79);
         if(playSecond && block==11)event(events,false,64,91);
-        ParameterChanges changes(2);
+        ParameterChanges changes(3);
+        const bool bankAtThisBlock=exactSf2Bank>=0 && block==4;
+        if(bankAtThisBlock) {
+            require(exactSf2Bank<=128,"invalid exact SF2 bank test");
+            int32 index=0;
+            auto* queue=changes.addParameterData(0x125A00B0u,index);
+            require(queue!=nullptr,"exact SF2 bank queue absent");
+            int32 point=0;
+            require(queue->addPoint(29,
+                    static_cast<Steinberg::Vst::ParamValue>(
+                        exactSf2Bank)/128.,point)==kResultOk,
+                "exact SF2 bank automation point invalid");
+        }
         const bool programAtThisBlock=changeToProgram>=0 &&
             block==(tieWithSecondNote?5:4);
         const bool controllerAtThisBlock=sourceController>=0 &&
@@ -1156,6 +1169,14 @@ int wmain(int argc,wchar_t** argv){
         const auto program9AtSameSample=renderBankProgramChange(
             factory,9,true,true);
         const auto nonexistentProgram0=renderBankProgramChange(factory,0);
+        // Select literal bank128/PHDR from the actual exported VST3
+        // (not a guessed Creative CC0 hardware mapping).
+        const auto missingBank=renderBankProgramChange(
+            factory,-1,true,false,-1,127,false,127);
+        const auto currentBank=renderBankProgramChange(
+            factory,-1,true,false,-1,127,false,0);
+        const auto drumBank=renderBankProgramChange(
+            factory,-1,true,false,-1,127,false,128);
         const auto noSecondNoSwitch=renderBankProgramChange(
             factory,-1,false);
         const auto noSecondButSwitch=renderBankProgramChange(
@@ -1174,6 +1195,12 @@ int wmain(int argc,wchar_t** argv){
                 nonexistentProgram0.nonzero==defaultProgram7.nonzero,
                 "missing SF2 Program Change must retain prior playable preset "
                 "without aborting the VST3 audio callback");
+        require(missingBank.hash==defaultProgram7.hash &&
+                currentBank.hash==defaultProgram7.hash,
+                "unsupported/current SF2 bank changed actual VST3 PCM");
+        require(drumBank.hashBeforeBlock2==defaultProgram7.hashBeforeBlock2 &&
+                drumBank.nonzero>100u,
+                "valid bank128 SF2 selection interrupted previous hardware voice");
         // CC7/CC10/CC11 are ORIGINAL MIDI channel state fed to
         // the source VXD descriptor compiler for the NEXT note.
         // They must not rewrite a pre-existing chip voice, be ignored,
