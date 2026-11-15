@@ -36,6 +36,46 @@ struct P002PrivateRomBankCheckpointProbe {
         drum.bank=128u;drum.program=2u;drum.original_phdr_row=77u;
         bank.presets_={first,second,drum};
     }
+    static void seedMidiCheckpoint(P002PrivateRomBank& bank) {
+        bank.clear();
+        bank.ready_=true;
+        bank.bank_number_=0u;
+        bank.channel_=0u;
+        bank.program_=77u;
+        awe64::creative::MidiMessage program{};
+        program.kind=awe64::creative::MidiKind::Program;
+        program.channel=0u;program.data1=77u;
+        bank.midi_.apply(program);
+        awe64::creative::MidiMessage volume{};
+        volume.kind=awe64::creative::MidiKind::Controller;
+        volume.channel=0u;volume.data1=7u;volume.data2=93u;
+        bank.midi_.apply(volume);
+    }
+    static void mutateMidiCheckpoint(P002PrivateRomBank& bank) {
+        bank.program_=9u;
+        bank.bank_number_=128u;
+        bank.channel_=1u;
+        awe64::creative::MidiMessage program{};
+        program.kind=awe64::creative::MidiKind::Program;
+        program.channel=0u;program.data1=9u;
+        bank.midi_.apply(program);
+        awe64::creative::MidiMessage volume{};
+        volume.kind=awe64::creative::MidiKind::Controller;
+        volume.channel=0u;volume.data1=7u;volume.data2=12u;
+        bank.midi_.apply(volume);
+    }
+    static bool originalMidiCheckpoint(const P002PrivateRomBank& bank) {
+        const auto& ch=bank.midi_.channel(0u);
+        return bank.ready_ && bank.program_==77u &&
+               bank.bank_number_==0u && bank.channel_==0u &&
+               ch.program==77u && ch.cc7_volume==93u;
+    }
+    static bool mutatedMidiCheckpoint(const P002PrivateRomBank& bank) {
+        const auto& ch=bank.midi_.channel(0u);
+        return bank.ready_ && bank.program_==9u &&
+               bank.bank_number_==128u && bank.channel_==1u &&
+               ch.program==9u && ch.cc7_volume==12u;
+    }
     static bool original(const P002PrivateRomBank& bank) {
         return bank.ready_ &&
                bank.state_[0x42u]==0xfeu &&
@@ -123,6 +163,26 @@ int main() {
     CHECK(Probe::mutated(bank)); // successful event must persist changes
     bank.rollbackNativeNoteCheckpoint(); // after commit must be NO-OP
     CHECK(Probe::mutated(bank));
+
+    // Failed source-clocked MIDI transaction rolls back the FULL
+    // logical channel state, not only the VXD voice bytes. A stale CC7
+    // or ProgramChange would alter the very next note after an error.
+    P002PrivateRomBank midiRollback;
+    Probe::seedMidiCheckpoint(midiRollback);
+    CHECK(Probe::originalMidiCheckpoint(midiRollback));
+    CHECK(midiRollback.beginNativeNoteCheckpoint());
+    Probe::mutateMidiCheckpoint(midiRollback);
+    CHECK(Probe::mutatedMidiCheckpoint(midiRollback));
+    midiRollback.rollbackNativeNoteCheckpoint();
+    CHECK(Probe::originalMidiCheckpoint(midiRollback));
+    CHECK(!midiRollback.nativeNoteCheckpointActive());
+    CHECK(midiRollback.beginNativeNoteCheckpoint());
+    Probe::mutateMidiCheckpoint(midiRollback);
+    midiRollback.commitNativeNoteCheckpoint();
+    midiRollback.rollbackNativeNoteCheckpoint();
+    CHECK(Probe::mutatedMidiCheckpoint(midiRollback));
+    midiRollback.clear();
+    CHECK(!midiRollback.ready());
 
     // Replay the original source ownership preflight with a SYNTHETIC
     // descriptor whose original 0x20 VXD row is internally consistent.
