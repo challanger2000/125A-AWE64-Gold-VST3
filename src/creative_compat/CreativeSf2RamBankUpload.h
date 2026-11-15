@@ -34,6 +34,14 @@ struct P003RamUploadResult {
     std::span<const std::uint8_t> authentic_original_ram_pcm16le,
     P003RamUploadResult& result,std::string& error);
 
+// Verify an already replayed original Win95 physical RAM bank WITHOUT
+// writing any chip memory. The complete original EMU8000 prelude state
+// (including sample RAM and DSP-history) remains untouched.
+[[nodiscard]] bool p003VerifyReplayedOriginalWin95OwnerBankWithoutWrites(
+    const awe64::Chip& chip,std::span<const std::uint8_t> owner_sf2,
+    std::span<const std::uint8_t> authentic_original_ram_pcm16le,
+    P003RamUploadResult& result,std::string& error);
+
 // Resolve a MIDI note against the ACTUAL just-uploaded raw PCM16 pool.
 // This binds the caller's SF2 to physical memory by comparing ALL words
 // in every selected source sample before returning chip voice addresses.
