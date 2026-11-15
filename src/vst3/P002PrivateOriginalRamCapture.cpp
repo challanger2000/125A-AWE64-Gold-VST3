@@ -304,4 +304,50 @@ bool preloadOriginalCreativeCapturedRamSource(
     }
     return true;
 }
+bool p003ReattestOwnerRamAfterOriginalPrelude(
+    awe64::Chip& chip,const std::filesystem::path& privateOwnerSf2,
+    const std::filesystem::path& observedOriginalFinalBankWordsPcm16,
+    std::string& error) {
+    error.clear();
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive()) {
+        error="P003 original-prelude chip is not ready";return false;
+    }
+    std::vector<std::uint8_t> ownerBank,observedFinalBytes;
+    if(!exactPrivateBytes(privateOwnerSf2,kSourceBankBytes,
+                          kOwnerSf2Sha,ownerBank) ||
+       !exactPrivateBytes(observedOriginalFinalBankWordsPcm16,
+                          kFinalOriginalSampleWords*2u,
+                          kOriginalFinalRamWordsSha,observedFinalBytes)) {
+        error="P003 original-prelude SF2/final-RAM SHA mismatch";return false;
+    }
+    // Validate ALL original physical sample words BEFORE the redundant
+    // converter write. Prelude's source-driven port/history state must
+    // already contain the independently attested final bank.
+    const auto* raw=chip.rawForContractTesting();
+    if(!raw || !raw->ram) {
+        error="P003 original-prelude RAM inaccessible";return false;
+    }
+    const std::size_t offset=kSourceObservedWordBase-awe64::kSampleRamBase;
+    for(std::size_t i=0;i<kFinalOriginalSampleWords;++i) {
+        const std::uint16_t expected=static_cast<std::uint16_t>(
+            std::uint16_t(observedFinalBytes[2u*i]) |
+            (std::uint16_t(observedFinalBytes[2u*i+1u])<<8u));
+        if(static_cast<std::uint16_t>(raw->ram[offset+i])!=expected) {
+            error="P003 original prelude RAM does not match original final bank";
+            return false;
+        }
+    }
+    awe64::creative::P003RamUploadResult p003{};
+    if(!awe64::creative::p003UploadExactOriginalWin95ConvertedOwnerBank(
+           chip,ownerBank,observedFinalBytes,p003,error) ||
+       !p003.entire_pool_readback_equal ||
+       !p003.original_creative_source_transformation_verified ||
+       p003.physical_word_base!=kSourceObservedWordBase ||
+       p003.source_pool_words!=kFinalOriginalSampleWords ||
+       p003.sample_headers!=kOriginalMonoSampleHeaders) {
+        if(error.empty())error="P003 source-converted prelude sample proof failed";
+        return false;
+    }
+    return true;
+}
 } // namespace awe64::vst3
