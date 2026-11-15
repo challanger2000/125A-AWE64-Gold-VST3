@@ -76,6 +76,18 @@ struct P003RamUploadResult {
     bool original_driver_and_sf2_hashes_independently_verified,
     P003RamUploadResult& result,std::string& error);
 
+// Compare the independent candidate RAM allocator with an authenticated
+// Creative Win95 physical bank observation for EXACTLY the same SF2.
+// A mismatch reports both positions and releases the candidate lease;
+// this comparison does not alter a single EMU8000 RAM word. Each bank
+// needs its own independent source capture to prove an allocation rule.
+[[nodiscard]] bool p003CompareCandidateAllocationToOriginalCapture(
+    P003CandidateRamAllocator& allocator,
+    std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& authentic_capture,
+    P003CandidateRamAllocation& verified_lease,
+    std::string& error);
+
 // Source-captured physical SF2 note address resolver. Unlike raw
 // pool resolver this accepts original driver TRANSFORMED RAM bytes,
 // provided the FULL final original chip RAM image still matches the
