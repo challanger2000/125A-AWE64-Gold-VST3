@@ -15,6 +15,47 @@
 #include <limits>
 #include <vector>
 namespace awe64::creative {
+namespace {
+bool p003CalculateSourceSha256(
+    const std::span<const std::uint8_t> bytes,
+    std::array<std::uint8_t,32>& digest) noexcept {
+    digest.fill(0u);
+#ifdef _WIN32
+    if(bytes.empty() || bytes.size()>0xffffffffu)return false;
+    BCRYPT_ALG_HANDLE provider=nullptr;
+    BCRYPT_HASH_HANDLE handle=nullptr;
+    bool ok=false;
+    if(BCryptOpenAlgorithmProvider(
+           &provider,BCRYPT_SHA256_ALGORITHM,nullptr,0)==0) {
+        if(BCryptCreateHash(provider,&handle,nullptr,0,nullptr,0,0)==0) {
+            ok=BCryptHashData(handle,
+                  const_cast<PUCHAR>(
+                    reinterpret_cast<const UCHAR*>(bytes.data())),
+                  static_cast<ULONG>(bytes.size()),0)==0 &&
+                BCryptFinishHash(handle,digest.data(),
+                    static_cast<ULONG>(digest.size()),0)==0;
+            BCryptDestroyHash(handle);
+        }
+        BCryptCloseAlgorithmProvider(provider,0);
+    }
+    if(!ok)digest.fill(0u);
+    return ok;
+#else
+    (void)bytes;
+    return false;
+#endif
+}
+}
+bool p003CapturedRamMatchesExactSourceSf2(
+    const std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& capture) noexcept {
+    if(!capture.original_source_port_replay_verified ||
+       !capture.source_sf2_sha256_verified ||
+       !capture.entire_pool_readback_equal)return false;
+    std::array<std::uint8_t,32> digest{};
+    return p003CalculateSourceSha256(sf2,digest) &&
+           digest==capture.source_sf2_sha256;
+}
 bool p003UploadValidatedMonoSf2PoolToOriginalChip(
     awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
     const std::uint32_t base,P003RamUploadResult& result,
@@ -172,6 +213,12 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
     result.original_distinct_overwritten_words=
         replay->source_sample_distinct_rewritten_words;
     result.original_source_port_replay_verified=true;
+    if(!p003CalculateSourceSha256(sf2,result.source_sf2_sha256)) {
+        result={};
+        error="P003 original source bank SHA256 unavailable";
+        return false;
+    }
+    result.source_sf2_sha256_verified=true;
     return true;
 }
 std::optional<OriginalSf2RamPhysicalNotePlan>
@@ -184,7 +231,7 @@ p003CandidatePhysicalNoteFromOriginalSourceCapture(
     const std::uint8_t key,const std::uint8_t velocity) noexcept {
     if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
        !capture.entire_pool_readback_equal ||
-       !capture.original_source_port_replay_verified ||
+       !p003CapturedRamMatchesExactSourceSf2(sf2,capture) ||
        capture.original_port_writes==0u ||
        capture.original_sample_word_writes<capture.source_pool_words ||
        final_words.empty() ||
@@ -381,6 +428,7 @@ p003CandidatePhysicalNoteFromVerifiedRawPool(
     if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
        !upload.entire_pool_readback_equal ||
        upload.original_creative_source_transformation_verified ||
+       upload.original_source_port_replay_verified ||
        upload.source_pool_words==0u ||
        upload.physical_word_base<awe64::kSampleRamBase+4u ||
        upload.physical_word_base>=awe64::kFmReservedBase ||
