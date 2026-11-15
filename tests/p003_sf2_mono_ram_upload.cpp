@@ -228,6 +228,11 @@ int main() {
           capturedResult.sample_headers==2u);
     CHECK(capturedResult.source_sf2_sha256_verified);
     CHECK(p003CapturedRamMatchesExactSourceSf2(bank,capturedResult));
+    // Even if captured original RAM happens to equal raw SF2 bytes,
+    // it MUST never be silently reclassified as an unauthenticated
+    // direct-copy bank through the other candidate mapping API.
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,capturedResult,0u,7u,60u,100u));
     // A different bank with identical sample headers/PCM pool geometry
     // cannot borrow another Creative driver's physical RAM attestation.
     auto differentBank=bank;
