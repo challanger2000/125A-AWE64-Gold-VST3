@@ -5,6 +5,7 @@
 #include "Chip.h"
 #include "CreativeSf2RamSamplePcm.h"
 #include "CreativeOriginalRamPortReplay.h"
+#include "CreativeCandidateRamAllocator.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +34,17 @@ struct P003RamUploadResult {
     awe64::Chip& chip,std::span<const std::uint8_t> sf2,
     std::uint32_t explicit_physical_word_base,
     P003RamUploadResult& result,std::string& error);
+// Candidate autonomous SF2 bank placement + raw PCM transfer to the
+// unmodified chip. A transactional allocation handle is returned only
+// on SUCCESS; failed format/capacity/transfer releases the reserved
+// region immediately. This is NOT yet the original Creative 1996
+// memory allocator or signed-sample conversion.
+[[nodiscard]] bool p003CandidateAllocateAndUploadMonoSf2(
+    awe64::Chip& chip,P003CandidateRamAllocator& allocator,
+    std::span<const std::uint8_t> sf2,
+    P003CandidateRamAllocation& allocation,
+    P003RamUploadResult& result,std::string& error);
+
 // P003 generic source-CAPTURED SF2 RAM bank. For any structurally
 // valid mono SF2, the caller supplies a separately authenticated Win95
 // Creative SMALW/SMLD upload trace, physical base and final DRAM image.
