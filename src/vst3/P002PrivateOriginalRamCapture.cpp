@@ -187,8 +187,10 @@ bool preloadOriginalCreativeCapturedRamSource(
     awe64::Chip& chip,const std::filesystem::path& privateOwnerSf2,
     const std::filesystem::path& originalFilteredCapturedRamPorts,
     const std::filesystem::path& observedOriginalFinalBankWordsPcm16,
-    std::string& error) {
+    std::string& error,
+    awe64::creative::P003RamUploadResult* verified_capture) {
     error.clear();
+    if(verified_capture)*verified_capture={};
     if(!chip.ready()) {
         error="original EMU8000 not initialized";return false;
     }
@@ -305,6 +307,7 @@ bool preloadOriginalCreativeCapturedRamSource(
               p003Error;
         return false;
     }
+    if(verified_capture)*verified_capture=captured;
     return true;
 }
 bool p003ReattestOwnerRamAfterOriginalPrelude(
