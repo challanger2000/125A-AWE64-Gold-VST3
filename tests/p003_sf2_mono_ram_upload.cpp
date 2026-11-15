@@ -195,7 +195,8 @@ int main() {
           allocator.contains(firstLease));
     CHECK(p003CandidateAllocateAndUploadMonoSf2(
         chip,allocator,damaged,secondLease,secondAuto,error));
-    CHECK(secondLease.base==firstLease.base+firstLease.words &&
+    CHECK(secondLease.base==firstLease.base+firstLease.words+
+          P003CandidateRamAllocator::kSourceObservedPerBankOverhead &&
           allocator.contains(secondLease));
     // MIDI notes from TWO simultaneously loaded banks must bind to
     // disjoint physical sample data, without special-casing sample 0.
