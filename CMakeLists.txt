@@ -316,6 +316,17 @@ if(WIN32)
     target_link_libraries(awe64_p003_sf2_mono_ram_preload PRIVATE bcrypt)
 endif()
 target_compile_features(awe64_p003_sf2_mono_ram_preload PUBLIC cxx_std_23)
+# Independent OFFLINE sample-bank memory allocator contract:
+# no original Creative memory-management parity is implied. This
+# exercises multi-bank placement, reuse, stale handle safety and FM tail.
+add_executable(awe64_p003_candidate_ram_allocator_test
+    tests/p003_candidate_ram_allocator.cpp)
+target_link_libraries(awe64_p003_candidate_ram_allocator_test
+    PRIVATE awe64_p002_sf2_ram_pcm_inventory)
+target_compile_features(awe64_p003_candidate_ram_allocator_test
+    PRIVATE cxx_std_23)
+add_test(NAME p003_candidate_multi_bank_ram_allocator_contract
+    COMMAND awe64_p003_candidate_ram_allocator_test)
 add_executable(awe64_p003_sf2_mono_ram_preload_test
     tests/p003_sf2_mono_ram_upload.cpp)
 target_link_libraries(awe64_p003_sf2_mono_ram_preload_test
