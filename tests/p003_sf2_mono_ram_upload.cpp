@@ -251,6 +251,15 @@ int main() {
         chip,bank,capturedResult,staleCaptured,0u,7u,60u,100u));
     CHECK(!p003CandidatePhysicalNoteFromOriginalSourceCapture(
         chip,bank,capturedResult,originalFinal,0u,6u,60u,100u));
+    // Corruption in a DIFFERENT sample must invalidate a note for
+    // sample0. A per-note-only RAM check misses this bank binding bug.
+    const auto otherSampleWord=original->ram[capturedIndex+5u];
+    original->ram[capturedIndex+5u]^=1;
+    CHECK(!p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,capturedResult,originalFinal,0u,7u,60u,100u));
+    original->ram[capturedIndex+5u]=otherSampleWord;
+    CHECK(p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,bank,capturedResult,originalFinal,0u,7u,60u,100u));
     for(std::size_t i=0;i<expected.size();++i)
         CHECK(std::uint16_t(original->ram[capturedIndex+i])==expected[i]);
     // No original driver source recording is authorized to overwrite
