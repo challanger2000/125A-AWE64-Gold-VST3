@@ -215,8 +215,8 @@ int main() {
         capturedResult,error));
     CHECK(original->ram[capturedIndex]==beforeCaptured);
     // All 8 source values must match at a different RAM location.
-    CHECK(p003ReplaySourceCapturedMonoSf2Bank(
-        chip,bank,captured,recordedBase,originalFinal,true,
+    CHECK(p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
+        chip,bank,captured,originalFinal,true,
         capturedResult,error));
     CHECK(capturedResult.entire_pool_readback_equal &&
           capturedResult.original_source_port_replay_verified &&
@@ -226,6 +226,7 @@ int main() {
           capturedResult.physical_word_base==recordedBase &&
           capturedResult.source_pool_words==8u &&
           capturedResult.sample_headers==2u);
+    CHECK(capturedResult.physical_word_base==recordedBase);
     CHECK(capturedResult.source_sf2_sha256_verified);
     CHECK(p003CapturedRamMatchesExactSourceSf2(bank,capturedResult));
     // Even if captured original RAM happens to equal raw SF2 bytes,
@@ -276,6 +277,21 @@ int main() {
         capturedResult,error));
     for(std::size_t i=0;i<expected.size();++i)
         CHECK(std::uint16_t(original->ram[capturedIndex+i])==expected[i]);
+    // A secondary original SMALW pointing beyond the complete bank
+    // must NOT fool address auto-detection into authorizing an invalid
+    // disjoint layout. No original chip memory may change.
+    auto extraBank=captured;
+    extraBank.push_back({500u,0xe22u,0x36u});
+    extraBank.push_back({501u,0xa20u,
+        static_cast<std::uint16_t>(recordedBase+64u)});
+    extraBank.push_back({502u,0xa22u,
+        static_cast<std::uint16_t>(recordedBase>>16u)});
+    extraBank.push_back({503u,0xe22u,0x3au});
+    extraBank.push_back({504u,0xa20u,0x5555u});
+    const auto beforeForeign=original->ram[capturedIndex+64u];
+    CHECK(!p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
+        chip,bank,extraBank,originalFinal,true,capturedResult,error));
+    CHECK(original->ram[capturedIndex+64u]==beforeForeign);
     // The original Creative driver may rewrite an already uploaded
     // word. Last value must win; the final bank must still match.
     auto repeatedCapture=captured;
