@@ -177,6 +177,64 @@ bool p003UploadExactOriginalWin95ConvertedOwnerBank(
     return true;
 #endif
 }
+bool p003VerifyReplayedOriginalWin95OwnerBankWithoutWrites(
+    const awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
+    const std::span<const std::uint8_t> attested_ram,
+    P003RamUploadResult& result,std::string& error) {
+    result={};error.clear();
+#ifndef _WIN32
+    (void)chip;(void)sf2;(void)attested_ram;
+    error="P003 original source profile requires Windows BCrypt";
+    return false;
+#else
+    constexpr std::uint32_t base=0x200010u;
+    constexpr std::size_t n=260921u;
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
+       sf2.size()!=555754u || attested_ram.size()!=n*2u ||
+       !matchesSourceSha256(sf2,
+         "d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b") ||
+       !matchesSourceSha256(attested_ram,
+         "ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470")) {
+        error="P003 original owner source/physical snapshot SHA gate rejected";
+        return false;
+    }
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->sample_headers!=83u ||
+       pool->whole_smpl_pcm_le16.size()!=2u*n ||
+       n>std::size_t(awe64::kFmReservedBase-base)) {
+        error="P003 original owner SF2 geometry invalid";return false;
+    }
+    const auto translated=p003PredictOwnerObservedThreeTapRamWords(
+        pool->whole_smpl_pcm_le16);
+    if(!translated || translated->size()!=n) {
+        error="P003 original source transform unavailable";return false;
+    }
+    const auto* raw=chip.rawForContractTesting();
+    if(!raw || !raw->ram) {
+        error="P003 original core sample RAM unavailable";return false;
+    }
+    const auto offset=std::size_t(base-awe64::kSampleRamBase);
+    for(std::size_t i=0;i<n;++i) {
+        const auto expected=static_cast<std::uint16_t>(
+            std::uint16_t(attested_ram[2u*i]) |
+            (std::uint16_t(attested_ram[2u*i+1u])<<8u));
+        if(std::bit_cast<std::uint16_t>((*translated)[i])!=expected) {
+            error="P003 original source transform differs from SHA-pinned Win95 RAM";
+            return false;
+        }
+        if(std::bit_cast<std::uint16_t>(raw->ram[offset+i])!=expected) {
+            error="P003 original prelude chip RAM differs from Win95 RAM";
+            return false;
+        }
+    }
+    result.physical_word_base=base;
+    result.source_pool_words=n;
+    result.sample_headers=pool->sample_headers;
+    result.entire_pool_readback_equal=true;
+    result.original_creative_source_transformation_verified=true;
+    return true;
+#endif
+}
 std::optional<OriginalSf2RamPhysicalNotePlan>
 p003CandidatePhysicalNoteFromVerifiedRawPool(
     const awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
