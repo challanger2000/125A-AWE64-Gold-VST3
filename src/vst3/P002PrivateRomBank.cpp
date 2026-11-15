@@ -250,6 +250,10 @@ bool P002PrivateRomBank::beginNativeNoteCheckpoint() noexcept {
     native_checkpoint_.state=state_;
     native_checkpoint_.ownership=ownership_;
     native_checkpoint_.held_keys=held_keys_;
+    native_checkpoint_.midi=midi_;
+    native_checkpoint_.bank_number=bank_number_;
+    native_checkpoint_.channel=channel_;
+    native_checkpoint_.program=program_;
     native_checkpoint_.ready=ready_;
     native_checkpoint_active_=true;
     return true;
@@ -262,6 +266,10 @@ void P002PrivateRomBank::rollbackNativeNoteCheckpoint() noexcept {
     state_=native_checkpoint_.state;
     ownership_=native_checkpoint_.ownership;
     held_keys_=native_checkpoint_.held_keys;
+    midi_=native_checkpoint_.midi;
+    bank_number_=native_checkpoint_.bank_number;
+    channel_=native_checkpoint_.channel;
+    program_=native_checkpoint_.program;
     ready_=native_checkpoint_.ready;
     native_checkpoint_active_=false;
 }
