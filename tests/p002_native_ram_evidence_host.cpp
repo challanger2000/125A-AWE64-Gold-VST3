@@ -111,7 +111,8 @@ std::string hashFileSha256(const fs::path& path) {
 void saveClockManifest(const fs::path& path,const Schedule& schedule,
                        const std::array<std::size_t,2>& audible,
                        wchar_t** argv,const wchar_t* prelude,
-                       const std::uint64_t privateResetFrame) {
+                       const std::uint64_t privateResetFrame,
+                       const bool autonomousTiming) {
     const std::array<const char*,8> keys{{
         "exported_vst3_sha256","original_rom_sha256",
         "original_owner_sf2_sha256","original_ram_ports_sha256",
@@ -133,6 +134,9 @@ void saveClockManifest(const fs::path& path,const Schedule& schedule,
     for(std::size_t i=0;i<keys.size();++i)
         json<<"  \""<<keys[i]<<"\": \""<<hashFileSha256(fs::path(argv[i+1]))
             <<"\""<<","<<"\n";
+    json<<"  \"native_note_timing_mode\": \""
+        <<(autonomousTiming?"AUTONOMOUS_CANDIDATE":
+            "ORIGINAL_SOURCE_OR_INSTANT")<<"\",\n";
     json<<"  \"original_win95_prelude_source_sha256\": \""
         <<(prelude?hashFileSha256(fs::path(prelude)):"NOT_RUN")<<"\",\n";
     json<<"  \"original_win95_native_reset_frame\": "
@@ -366,6 +370,9 @@ int wmain(int argc,wchar_t** argv) {
           L"original pre-note chip initialization ONLY. "
           L"Authentic source values VERIFY "
           L"native OUTs; only original sample offsets schedule native writes.\n"
+          L"Option: append --autonomous-timing after --original-prelude=<TRACE> "
+          L"for a source-note-clock-FREE research candidate only. "
+          L"Do NOT combine with a source note-port fixture.\n"
           L"No Win95 clock is inferred. Original/native parity is NOT proven by this host.\n";
         return 0;
     }
@@ -408,22 +415,30 @@ int wmain(int argc,wchar_t** argv) {
                  <<" original_driver_and_pcm_parity=NOT_TESTED\n";
         return 0;
     }
-    if(argc!=14 && argc!=15 && argc!=16 &&
-       argc!=17 && argc!=18)return 2;
+    // An explicit final opt-in argument activates source-FREE
+    // provisional pacing; never mix with source-clock replay.
+    const bool autonomousTiming=argc>=15 &&
+        std::wcscmp(argv[argc-1],L"--autonomous-timing")==0;
+    const int effectiveArgc=argc-(autonomousTiming?1:0);
+    if(effectiveArgc!=14 && effectiveArgc!=15 &&
+       effectiveArgc!=16 && effectiveArgc!=17 &&
+       effectiveArgc!=18)return 2;
     constexpr wchar_t kPreludeArg[]=L"--original-prelude=";
     constexpr std::size_t kPreludeLength=(sizeof(kPreludeArg)/sizeof(wchar_t))-1u;
     constexpr wchar_t kResetArg[]=L"--source-reset-frame=";
     constexpr std::size_t kResetLength=(sizeof(kResetArg)/sizeof(wchar_t))-1u;
-    const bool privateReset=(argc>=17 &&
-        std::wcsncmp(argv[argc-1],kResetArg,kResetLength)==0);
-    const int preludeIndex=argc-1-(privateReset?1:0);
+    const bool privateReset=(effectiveArgc>=17 &&
+        std::wcsncmp(argv[effectiveArgc-1],kResetArg,kResetLength)==0);
+    const int preludeIndex=effectiveArgc-1-(privateReset?1:0);
     const bool originalPrelude=(preludeIndex>=15 &&
         std::wcsncmp(argv[preludeIndex],kPreludeArg,kPreludeLength)==0);
-    const bool clockedNotes=(argc==16 && !originalPrelude) ||
-        (argc==17 && !privateReset) || argc==18;
-    if((argc==17 && !originalPrelude && !privateReset) ||
-       (argc==18 && (!originalPrelude || !privateReset)) ||
-       (privateReset && !originalPrelude))return 2;
+    const bool clockedNotes=(effectiveArgc==16 && !originalPrelude) ||
+        (effectiveArgc==17 && !privateReset) || effectiveArgc==18;
+    if((effectiveArgc==17 && !originalPrelude && !privateReset) ||
+       (effectiveArgc==18 && (!originalPrelude || !privateReset)) ||
+       (privateReset && !originalPrelude) ||
+       (autonomousTiming && (clockedNotes || privateReset)))
+        return 2;
     bool outputPathsVerifiedNew=false;
     try {
         const Schedule sch=scheduleFromArgs(argv);
@@ -484,6 +499,8 @@ int wmain(int argc,wchar_t** argv) {
                clockedNotes?argv[15]:L"");
         setEnv(L"AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM",
                clockedNotes?L"1":L"");
+        setEnv(L"AWE64_P003_AUTONOMOUS_OUT_PACING",
+               autonomousTiming?L"1":L"");
         Instance vst(argv[1]);
         const auto audible=play(vst.processor,sch,sourceResetFrame);
         vst.stop();
@@ -495,10 +512,10 @@ int wmain(int argc,wchar_t** argv) {
         check(fs::is_regular_file(nativeTrace) &&
               fs::file_size(nativeTrace)>120u,
               "native VST3 original RAM note port trace missing/empty");
-        if(argc>=15)
+        if(effectiveArgc>=15)
             saveClockManifest(fs::path(argv[14]),sch,audible,argv,
                               originalPrelude?originalPreludePath.c_str():nullptr,
-                              sourceResetFrame);
+                              sourceResetFrame,autonomousTiming);
         std::cout<<"P002_REAL_EXPORTED_NATIVE_RAM_EVIDENCE_CAPTURED"
                  <<" C4_D4_velocity=100"
                  <<" original_chip_DSP=UNCHANGED"
@@ -506,10 +523,12 @@ int wmain(int argc,wchar_t** argv) {
                  <<" frames="<<sch.total
                  <<" C4_audible_samples="<<audible[0]
                  <<" D4_audible_samples="<<audible[1]
-                 <<" private_clock_sha_manifest="<<(argc>=15?"WRITTEN":"NOT_REQUESTED")
+                 <<" private_clock_sha_manifest="<<(effectiveArgc>=15?"WRITTEN":"NOT_REQUESTED")
                  <<" native_original_port_parity="
                  <<(clockedNotes?"ALL_C4_D4_WRITES_MATCHED_SOURCE":
                                "NOT_COMPARED")
+                 <<" autonomous_timing_model="
+                 <<(autonomousTiming?"RESEARCH_CANDIDATE":"OFF")
                  <<" original_prelude_replayed="
                  <<(originalPrelude?"YES":"NO")
                  <<" original_win95_midi_out_reset_event="
@@ -528,7 +547,7 @@ int wmain(int argc,wchar_t** argv) {
             fs::remove(fs::path(argv[7]),ignore);
             ignore.clear();
             fs::remove(fs::path(argv[8]),ignore);
-            if(argc>=15) {
+            if(effectiveArgc>=15) {
                 ignore.clear();
                 fs::remove(fs::path(argv[14]),ignore);
             }
