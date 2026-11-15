@@ -23,6 +23,14 @@ constexpr std::size_t kExactTraceBytes=12506118u;
 constexpr std::string_view kOriginalTraceSha=
     "eaaefc68a8421b20891f7e29216b16062686d721bab13c81ffd1c4ff52d73044";
 constexpr std::uint32_t kOriginalC4Frame=1758037u;
+// Separate real Creative Win95 P003 source from 2026-11-15.
+// This admits only pre-note chip initialization, not note-port replay.
+constexpr std::size_t kP003TraceBytes=13902067u;
+constexpr std::string_view kP003TraceSha=
+    "181b2bc29a0a3118ea6eb8bc6d921b5447b2c9bf5714356b85d1176e4a6e9548";
+constexpr std::uint32_t kP003C4Frame=1632237u;
+constexpr std::uint32_t kP003PreludeWrites=676900u;
+constexpr std::uint32_t kP003PreludeReads=49275u;
 constexpr std::uint32_t kExactOriginalPreludeWrites=676888u;
 constexpr std::uint32_t kExactOriginalPreludeReads=49263u;
 constexpr std::uint32_t kExpectedInitWrites=524u;
@@ -79,8 +87,9 @@ bool parse(const std::string& s,const int base,std::uint32_t& value) {
     return err==std::errc{} && p==s.data()+s.size();
 }
 bool advanceTo(awe64::Chip& chip,const std::uint32_t clock,
-               const std::uint32_t target) noexcept {
-    if(target<clock || target>=kOriginalC4Frame)return false;
+               const std::uint32_t target,
+               const std::uint32_t sourceC4Frame) noexcept {
+    if(target<clock || target>=sourceC4Frame)return false;
     std::array<std::int32_t,256u*2u> output{};
     std::uint32_t left=target-clock;
     while(left>0) {
@@ -100,13 +109,16 @@ bool replayPrivateOriginalWin95ChipPrelude(
     OriginalChipPreludeResult& report,
     std::string& error) {
     report={};error.clear();
-    // P100 first C4 is exactly frame 137, not guessed. This owner-only
-    // experiment is intentionally INELIGIBLE for other MIDI schedules.
+    // Authentic 2026-11-14 and P003-2026-11-15 sources both have a
+    // verified physical C4 clock. Native C4 remains at frame 137.
     if(!chip.ready() || nativeC4!=137u) {
-        error="prelude: original chip or P100 exact clock not available";return false;
+        error="prelude: original chip or native C4+137 clock invalid";return false;
     }
     std::vector<std::uint8_t> bytes,originalRam;
-    if(!loadPinned(original,kExactTraceBytes,kOriginalTraceSha,bytes) ||
+    const bool p003Owner=loadPinned(
+        original,kP003TraceBytes,kP003TraceSha,bytes);
+    if((!p003Owner &&
+        !loadPinned(original,kExactTraceBytes,kOriginalTraceSha,bytes)) ||
        !loadPinned(finalRam,kFinalBankWords*2u,kOriginalRamSha,originalRam)) {
         error="prelude: private original Win95 TRACE / final RAM SHA invalid";
         return false;
@@ -114,7 +126,13 @@ bool replayPrivateOriginalWin95ChipPrelude(
     // Original chip clock at plugin activation must put original C4
     // at exactly host frame 137. Nothing after original C4 enters the
     // chip: those notes MUST still come from the real native MIDI engine.
-    constexpr std::uint32_t kActivationChipClock=kOriginalC4Frame-137u;
+    const std::uint32_t sourceC4Frame=
+        p003Owner?kP003C4Frame:kOriginalC4Frame;
+    const std::uint32_t activationChipClock=sourceC4Frame-nativeC4;
+    const std::uint32_t expectedWrites=
+        p003Owner?kP003PreludeWrites:kExactOriginalPreludeWrites;
+    const std::uint32_t expectedReads=
+        p003Owner?kP003PreludeReads:kExactOriginalPreludeReads;
     const std::string text(reinterpret_cast<const char*>(bytes.data()),
                            bytes.size());
     std::istringstream input(text);
@@ -146,8 +164,8 @@ bool replayPrivateOriginalWin95ChipPrelude(
             port!=0xa22u && port!=0x620u && port!=0x622u)) {
             error="prelude: invalid source clock, port or value";return false;
         }
-        if(frame>=kActivationChipClock)break; // absolutely NO source notes
-        if(!advanceTo(chip,clock,frame)) {
+        if(frame>=activationChipClock)break; // absolutely NO source notes
+        if(!advanceTo(chip,clock,frame,sourceC4Frame)) {
             error="prelude: cannot advance original physical chip clock";
             return false;
         }
@@ -197,8 +215,8 @@ bool replayPrivateOriginalWin95ChipPrelude(
         }
     }
     if(!seenSourceHeader ||
-       report.physical_writes!=kExactOriginalPreludeWrites ||
-       report.physical_reads!=kExactOriginalPreludeReads ||
+       report.physical_writes!=expectedWrites ||
+       report.physical_reads!=expectedReads ||
        report.source_init_writes!=kExpectedInitWrites ||
        report.source_hardware_config_writes!=kExpectedGlobalWrites) {
         error="prelude: original Win95 hardware-init/read/write geometry mismatch";
@@ -221,7 +239,7 @@ bool replayPrivateOriginalWin95ChipPrelude(
         error=diagnostic.str();
         return false;
     }
-    if(!advanceTo(chip,clock,kActivationChipClock)) {
+    if(!advanceTo(chip,clock,activationChipClock,sourceC4Frame)) {
         error="prelude: remaining original clock invalid";return false;
     }
     // The source is a strictly verified original full Win95 run, and
@@ -238,7 +256,7 @@ bool replayPrivateOriginalWin95ChipPrelude(
     if(!chip.rebaseDiagnosticFrameClock()) {
         error="prelude: native diagnostic frame clock reset refused";return false;
     }
-    report.source_chip_clock_at_activation=kActivationChipClock;
+    report.source_chip_clock_at_activation=activationChipClock;
     return true;
 }
 } // namespace awe64::vst3
