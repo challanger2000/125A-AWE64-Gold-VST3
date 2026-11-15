@@ -4,6 +4,8 @@ on:
     branches: [develop/p002-creative-register-oracle]
     paths:
       - 'tools/p003_owner_two_bank_run.py'
+      - 'tools/p003_join_original_guest_cpu_chip_clocks.py'
+      - 'tests/test_p003_join_original_guest_cpu_chip_clocks.py'
       - 'tools/p003_private_fat16_replace.py'
       - 'tools/START-P003-TEST.bat'
       - 'tools/P003-START-HIER.txt'
@@ -85,8 +87,9 @@ jobs:
           python-version: '3.12'
       - name: Verify Windows one-click host code compiles
         run: |
-          python -m py_compile tools/p003_owner_two_bank_run.py tools/p003_private_fat16_replace.py
+          python -m py_compile tools/p003_owner_two_bank_run.py tools/p003_private_fat16_replace.py tools/p003_join_original_guest_cpu_chip_clocks.py
           python -m unittest discover -s tests -p 'test_p003_owner_two_bank_run.py' -v
+          python -m unittest discover -s tests -p 'test_p003_join_original_guest_cpu_chip_clocks.py' -v
       - name: Install standalone Windows EXE packager
         run: python -m pip install --disable-pip-version-check pyinstaller==6.16.0
       - name: Build self-contained Windows 11 P003 starter (Python not required)
