@@ -57,9 +57,11 @@ def chip_events(lines):
 def guest_events(lines):
     first = next(lines, "").rstrip("\r\n")
     if first.startswith("# P003_CPU_GUEST_OUTW_V1 "):
-        raise ValueError("Legacy V1 guest-only INW/OUTW capture omits "
-                         "physical EMU8000 callbacks from 32-bit OUTL/INL")
-    if not first.startswith("# P003_CPU_GUEST_PHYSICAL16_V2 "):
+        raise ValueError("Legacy V1 guest-only CPU trace incomplete")
+    if first.startswith("# P003_CPU_GUEST_PHYSICAL16_V2 "):
+        raise ValueError("Legacy V2 physical16 CPU trace omits "
+                         "EMU8000 byte index OUTB and byte INB callbacks")
+    if not first.startswith("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "):
         raise ValueError("Wrong guest physical x86 I/O callback trace header")
     expected_seq = 0
     for number, line in enumerate(lines, 2):
@@ -76,7 +78,7 @@ def guest_events(lines):
             seq = int(parts[7], 10)
         except ValueError as exc:
             raise ValueError(f"Bad guest x86 CPU field at line {number}") from exc
-        if (direction not in ("R", "W") or tsc < 0 or
+        if (direction not in ("R", "W", "r") or tsc < 0 or
             port not in PORTS or not 0 <= value <= 65535 or
             not 0 <= cs <= 65535 or not 0 <= eip <= 0xffffffff or
             seq != expected_seq):
@@ -120,6 +122,7 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
     seen = 0
     reg_count = 0
     tsc_regressions = 0
+    observed_byte_reads = 0
     old_tsc = None
     first_tsc = None
     last_tsc = None
@@ -132,7 +135,17 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
             raise ValueError(f"Original chip and CPU I/O trace count differs after {seen} events")
         direction, frame, port, value = chip
         cd, cp, cv, tsc, cycles, cs, eip = cpu
-        if (direction,port,value) != (cd,cp,cv):
+        # 'r' is a guest byte read: the CPU I/O layer sees only the
+        # returned 8-bit value. The unchanged EMU8000 chip trace has
+        # the authentic 16-bit register read value. Match order,
+        # direction and port; never claim CPU read WORD equality for
+        # these read-b callbacks, and always count them in the report.
+        if cd == "r":
+            if direction != "R" or port != cp:
+                raise ValueError(
+                    f"Original byte-read physical callback mismatch at event {seen}")
+            observed_byte_reads += 1
+        elif (direction,port,value) != (cd,cp,cv):
             raise ValueError(f"Original chip/guest CPU register mismatch at event {seen}")
         seen += 1
         if old_tsc is not None and tsc < old_tsc:
@@ -163,7 +176,8 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
         "last_guest_tsc": last_tsc,
         "guest_tsc_regressions": tsc_regressions,
         "event_sequence_exact": True,
-        "cpu_trace_granularity": "PHYSICAL_16BIT_CALLBACK_FROM_GUEST_8_16_32_BIT_IO",
+        "cpu_trace_granularity": "PHYSICAL_BYTE_AND_16BIT_CALLBACKS_FROM_GUEST_8_16_32_BIT_IO",
+        "byte_read_full_word_value_not_visible_in_cpu_layer": observed_byte_reads,
         "guest_cpu_to_chip_clock_calibrated": False,
         "original_emu8000_modified": False,
         "note_groups": {}
