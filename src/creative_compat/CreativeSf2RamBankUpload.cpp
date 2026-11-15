@@ -77,6 +77,97 @@ bool p003UploadValidatedMonoSf2PoolToOriginalChip(
     result.entire_pool_readback_equal=true;
     return true;
 }
+bool p003ReplaySourceCapturedMonoSf2Bank(
+    awe64::Chip& chip,const std::span<const std::uint8_t> sf2,
+    const std::span<const OriginalRamUploadPortWrite> ports,
+    const std::uint32_t base,
+    const std::span<const std::uint16_t> final_words,
+    const bool source_verified,
+    P003RamUploadResult& result,std::string& error) {
+    result={};error.clear();
+    if(!source_verified || !chip.ready() ||
+       chip.nativeNoteOutTransactionActive()) {
+        error="P003 source-captured original Creative driver provenance/EMU8000 gate";
+        return false;
+    }
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->whole_smpl_pcm_le16.size()/2u!=final_words.size() ||
+       final_words.empty() || base<awe64::kSampleRamBase+4u ||
+       base>=awe64::kFmReservedBase ||
+       final_words.size()>std::size_t(awe64::kFmReservedBase-base)) {
+        error="P003 source-captured SF2 pool/physical RAM geometry mismatch";
+        return false;
+    }
+    // The 1996 upload trace may rewrite words, but MUST NOT touch any
+    // physical word outside the separately authenticated final bank.
+    // Preflight this BEFORE the first hardware-visible port write.
+    std::uint16_t selected=0xffffu,low=0,high=0;
+    bool haveLow=false,haveHigh=false,haveAddress=false;
+    std::uint32_t address=0u;
+    std::size_t writes=0u;
+    for(const auto& e:ports) {
+        if(e.port==0xe22u) {
+            if(e.value!=0x36u && e.value!=0x3au) {
+                error="P003 source-captured non-RAM register selector";return false;
+            }
+            selected=e.value;
+            if(selected==0x36u) {
+                haveLow=false;haveHigh=false;haveAddress=false;
+            }else if(!haveAddress) {
+                error="P003 source-captured RAM write without pointer";return false;
+            }
+        }else if(selected==0x36u) {
+            if(e.port==0xa20u) {low=e.value;haveLow=true;}
+            else if(e.port==0xa22u) {high=e.value;haveHigh=true;}
+            else {error="P003 source-captured malformed address port";return false;}
+            if(haveLow && haveHigh) {
+                address=std::uint32_t(low)|(std::uint32_t(high)<<16u);
+                haveAddress=true;
+            }
+        }else if(selected==0x3au && e.port==0xa20u &&
+                 haveAddress) {
+            if(address<base || address-base>=final_words.size()) {
+                error="P003 original driver trace touches outside captured bank";
+                return false;
+            }
+            ++writes;
+            ++address;
+        }else {
+            error="P003 source-captured unexpected hardware port";return false;
+        }
+    }
+    if(writes<final_words.size()) {
+        error="P003 source-captured missing RAM writes";return false;
+    }
+    // Last original SMLD write wins. Existing source oracle checks
+    // EVERY final word and EVERY port BEFORE applying any writes.
+    const auto replay=candidateReplayObservedOriginalCreativeFinalRamBank(
+        chip,ports,base,final_words,true,true);
+    if(!replay ||
+       replay->independently_verified_final_word_count!=final_words.size() ||
+       replay->original_port_upload.original_sample_words!=writes) {
+        error="P003 original captured trace differs from final physical RAM";
+        return false;
+    }
+    const auto* raw=chip.rawForContractTesting();
+    if(!raw || !raw->ram) {
+        error="P003 captured physical chip RAM readback unavailable";return false;
+    }
+    const auto start=std::size_t(base-awe64::kSampleRamBase);
+    for(std::size_t i=0;i<final_words.size();++i) {
+        if(std::bit_cast<std::uint16_t>(raw->ram[start+i])!=final_words[i]) {
+            error="P003 original chip RAM readback mismatch";return false;
+        }
+    }
+    result.physical_word_base=base;
+    result.source_pool_words=final_words.size();
+    result.sample_headers=pool->sample_headers;
+    result.entire_pool_readback_equal=true;
+    // This marks a checked original CAPTURE, not an independently
+    // reconstructed Creative sample transform or allocator.
+    result.original_creative_source_transformation_verified=false;
+    return true;
+}
 #ifdef _WIN32
 namespace {
 bool matchesSourceSha256(
