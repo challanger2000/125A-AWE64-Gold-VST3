@@ -143,6 +143,18 @@ int main() {
     damaged[poolPosition]^=1u;
     CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
         chip,damaged,outcome,0u,7u,60u,100u));
+    // Corrupt a DIFFERENT physical sample while playing sample 0:
+    // source-wide verification must still reject the bank.
+    auto* rawPcm=chip.rawForContractTesting();
+    CHECK(rawPcm && rawPcm->ram);
+    const auto untouchedSecond=rawPcm->ram[
+        first-awe64::kSampleRamBase+5u];
+    rawPcm->ram[first-awe64::kSampleRamBase+5u]^=1;
+    CHECK(!p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,outcome,0u,7u,60u,100u));
+    rawPcm->ram[first-awe64::kSampleRamBase+5u]=untouchedSecond;
+    CHECK(p003CandidatePhysicalNoteFromVerifiedRawPool(
+        chip,bank,outcome,0u,7u,60u,100u));
     const std::array<std::uint16_t,8> expected{
         0xffffu,0x8000u,0x0000u,0x7fffu,
         0x1234u,0x8001u,0xa55au,0x0000u};
