@@ -62,7 +62,14 @@ bool p003CandidateAllocateAndUploadMonoSf2(
     const std::span<const std::uint8_t> sf2,
     P003CandidateRamAllocation& allocation,
     P003RamUploadResult& result,std::string& error) {
-    result={};allocation={};error.clear();
+    result={};error.clear();
+    // Never overwrite a still-owned lease: doing so would permanently
+    // lose the caller's only handle and could recycle live voice RAM.
+    if(allocation.words!=0u || allocation.generation!=0u ||
+       allocation.base!=0u || allocation.id!=0u) {
+        error="P003 caller allocation output still owns a bank lease";
+        return false;
+    }
     // Never reserve space for an unsupported SF2. This API is an
     // activation-thread candidate, not a realtime MIDI callback.
     if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
