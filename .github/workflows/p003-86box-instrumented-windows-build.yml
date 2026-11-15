@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/p003-86box-instrumented-windows-build.yml'
       - 'tools/p003_instrument_86box_io.py'
+      - 'tools/p003_join_original_guest_cpu_chip_clocks.py'
+      - 'tests/test_p003_instrument_86box_io.py'
+      - 'tests/test_p003_join_original_guest_cpu_chip_clocks.py'
   workflow_dispatch:
 permissions:
   contents: read
