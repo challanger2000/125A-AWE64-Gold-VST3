@@ -11,13 +11,17 @@ from pathlib import Path
 import sys
 
 ORIGINAL_IO_BLOB_SHA1 = "dbb3530af572426f3ef9e990d3158142c9bf841f"
-MARKER = "P003_CPU_GUEST_OUTW_V1"
+MARKER = "P003_CPU_GUEST_PHYSICAL16_V2"
 HEADER = "#define NPORTS 65536 /* PC/AT supports 64K ports */"
 IN_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) in w(%04X) = %04X\\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);'
 OUT_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) outw(%04X, %04X)\\n", CS, cpu_state.pc, in_smm, found, qfound, port, val);'
 LOGGER = r'''
-/* P003 experiment: strictly source-side CPU I/O trace ONLY.
- * The original EMU8000 chip implementation is not modified. */
+/* P003 V2: monitor the physical 16-bit callback dispatch, NOT just
+ * guest OUTW/INW. Original Creative uses 32-bit OUTL/INL, which 86Box
+ * dispatches through p->outw / p->inw as the AWE32 handler has no
+ * outl/inl registration. The physical handler logs the same 16-bit
+ * register writes as the UNMODIFIED EMU8000 core.
+ * No original DSP source, driver or sound card handler is modified. */
 static FILE *p003_cpu_io_file;
 static int p003_cpu_io_initialized;
 static unsigned long long p003_cpu_io_seq;
@@ -41,7 +45,7 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
         if (path && *path) {
             p003_cpu_io_file = fopen(path, "wb");
             if (p003_cpu_io_file) {
-                fputs("# P003_CPU_GUEST_OUTW_V1 "
+                fputs("# P003_CPU_GUEST_PHYSICAL16_V2 "
                       "CPU_TSC_AND_REMAINING_CYCLES_NOT_YET_CLOCK_CALIBRATED\n",
                       p003_cpu_io_file);
                 atexit(p003_cpu_io_close);
@@ -54,6 +58,19 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
                 direction, (unsigned long long) tsc, (int) cycles,
                 (unsigned) CS, (unsigned) cpu_state.pc,
                 (unsigned) port, (unsigned) value, p003_cpu_io_seq++);
+}
+static uint16_t p003_physical_inw(uint16_t port, void *priv,
+                                 uint16_t (*cb)(uint16_t, void *))
+{
+    uint16_t value = cb(port, priv);
+    p003_cpu_io_note('R', port, value);
+    return value;
+}
+static void p003_physical_outw(uint16_t port, uint16_t value, void *priv,
+                              void (*cb)(uint16_t, uint16_t, void *))
+{
+    cb(port, value, priv);
+    p003_cpu_io_note('W', port, value);
 }
 '''
 
@@ -85,10 +102,24 @@ def instrument(raw: bytes, pin: str | None = ORIGINAL_IO_BLOB_SHA1) -> bytes:
             source.count('#include "cpu.h"') != 1):
         raise ValueError("Pinned guest CPU/TSC header prerequisites missing")
     source = source.replace(HEADER, HEADER + "\n" + LOGGER, 1)
-    source = source.replace(IN_HOOK,
-        "p003_cpu_io_note('R', port, ret);\n    " + IN_HOOK, 1)
-    source = source.replace(OUT_HOOK,
-        "p003_cpu_io_note('W', port, val);\n    " + OUT_HOOK, 1)
+    # The real AWE32/EMU8000 handler registers 16-bit callbacks.
+    # Guest OUTL/INL calls enter these same handlers through io.c's
+    # physical 16-bit split path. Record the actual callback event,
+    # so source chip and CPU timestamps have exactly the same event
+    # granularity; old INW/OUTW-only logging omitted most index OUTs.
+    for before, after, n in (
+        ("p->inw(port, p->priv)",
+         "p003_physical_inw(port, p->priv, p->inw)", 2),
+        ("p->inw(port + 2, p->priv)",
+         "p003_physical_inw(port + 2, p->priv, p->inw)", 1),
+        ("p->outw(port, val, p->priv)",
+         "p003_physical_outw(port, val, p->priv, p->outw)", 1),
+        ("p->outw(port + i, val >> (i << 3), p->priv)",
+         "p003_physical_outw(port + i, val >> (i << 3), p->priv, p->outw)", 1),
+    ):
+        if source.count(before) != n:
+            raise ValueError("Unexpected original callback count: " + before)
+        source = source.replace(before, after)
     return source.encode("utf-8")
 
 def main() -> int:
