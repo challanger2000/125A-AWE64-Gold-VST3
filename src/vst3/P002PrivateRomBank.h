@@ -37,6 +37,14 @@ public:
     // A source-valid MIDI ProgramChange alters only FUTURE bank zone
     // selection, never existing chip voices or their original releases.
     [[nodiscard]] bool programChange(std::uint8_t program) noexcept;
+    // Explicit SF2 browser bank selection, NOT a conjectural Creative
+    // Win95 MIDI CC0/CC32 hardware bank mapping. Select the first REAL
+    // PHDR preset in that bank when its old program is absent, atomically.
+    // Existing chip voices remain assigned to their previous samples.
+    [[nodiscard]] bool selectExactSf2Bank(std::uint16_t bank) noexcept;
+    [[nodiscard]] std::uint16_t currentBank() const noexcept {
+        return bank_number_;
+    }
     // Original Creative logical MIDI CC state used by NEXT NoteOn only.
     // Already sounding chip registers are not rewritten speculatively.
     [[nodiscard]] bool controller(std::uint8_t number,
