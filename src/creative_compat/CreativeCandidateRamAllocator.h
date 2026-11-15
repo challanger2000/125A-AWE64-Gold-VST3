@@ -152,33 +152,6 @@ private:
             s.base,s.words,s.generation,
             static_cast<std::uint32_t>(freeSlot)};
     }
-    // Prevent a still-playing voice from referencing RAM recycled for
-    // another bank. The caller must pin on successful NoteOn and unpin
-    // only after the original VXD voice has fully terminated.
-    [[nodiscard]] bool pin(const P003CandidateRamAllocation& h) noexcept {
-        if(!contains(h) || slots_[h.id].pins==0xffffffffu)return false;
-        ++slots_[h.id].pins;
-        return true;
-    }
-    [[nodiscard]] bool unpin(const P003CandidateRamAllocation& h) noexcept {
-        if(!contains(h) || slots_[h.id].pins==0u)return false;
-        --slots_[h.id].pins;
-        return true;
-    }
-    [[nodiscard]] std::uint32_t activePins(
-        const P003CandidateRamAllocation& h) const noexcept {
-        return contains(h) ? slots_[h.id].pins : 0u;
-    }
-    [[nodiscard]] bool release(const P003CandidateRamAllocation& h)
-        noexcept {
-        if(!contains(h) || slots_[h.id].pins!=0u)return false;
-        slots_[h.id].active=false;
-        return true;
-    }
-    // Do not silently move an active voice or claim Creative's
-    // proprietary compaction algorithm. Source owner must stop voices
-    // and explicitly release each bank before reusing its address.
-private:
     struct Slot {
         std::uint32_t base=0,words=0,guard_after=0,generation=0,pins=0;
         bool active=false;
