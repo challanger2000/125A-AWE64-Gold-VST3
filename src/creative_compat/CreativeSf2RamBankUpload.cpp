@@ -17,6 +17,56 @@
 #include <vector>
 namespace awe64::creative {
 namespace {
+// The SHA-attested owner Creative captures contain legitimate RAM-capacity
+// probes and exactly 16 zero prefix + 15 zero suffix guard writes outside
+// the 260921 playable source words. Do not misidentify those as a
+// different SF2 base or skip the original hardware writes.
+// This narrow profile is activated by the OWNER caller only after the
+// complete port file was checked against a pinned original-driver SHA.
+enum class OwnerAuxProfile : std::uint8_t {
+    none, guard31, probe57_and_guard31
+};
+constexpr std::uint32_t kOwnerBase=0x200010u;
+constexpr std::size_t kOwnerWords=260921u;
+constexpr std::uint32_t kOwnerEnd=kOwnerBase+kOwnerWords;
+constexpr OwnerAuxProfile ownerAuxProfile(
+    const std::size_t events,const std::size_t words,
+    const bool sourceVerified) noexcept {
+    if(!sourceVerified || words!=kOwnerWords)return OwnerAuxProfile::none;
+    if(events==523182u)return OwnerAuxProfile::guard31;
+    if(events==523467u)return OwnerAuxProfile::probe57_and_guard31;
+    return OwnerAuxProfile::none;
+}
+constexpr std::size_t ownerAuxExpectedCount(
+    const OwnerAuxProfile profile) noexcept {
+    return profile==OwnerAuxProfile::probe57_and_guard31?88u:
+        profile==OwnerAuxProfile::guard31?31u:0u;
+}
+constexpr bool ownerAuxExactWrite(
+    const OwnerAuxProfile profile,const std::size_t n,
+    const std::uint32_t address,const std::uint16_t word) noexcept {
+    if(profile==OwnerAuxProfile::none ||
+       n>=ownerAuxExpectedCount(profile))return false;
+    std::size_t i=n;
+    if(profile==OwnerAuxProfile::probe57_and_guard31) {
+        if(i==0u)return address==0x200000u && word==0xaa55u;
+        if(i==1u)return address==0x200000u && word==0x55aau;
+        if(i<57u)return address==0x240000u+
+            static_cast<std::uint32_t>(i-2u)*0x40000u &&
+            word==0xaa55u;
+        i-=57u;
+    }
+    if(i<16u)return address==0x200000u+i && word==0u;
+    return address==kOwnerEnd+(i-16u) && word==0u;
+}
+static_assert(ownerAuxExactWrite(OwnerAuxProfile::probe57_and_guard31,
+    56u,0xfc0000u,0xaa55u));
+static_assert(ownerAuxExactWrite(OwnerAuxProfile::probe57_and_guard31,
+    87u,0x23fb57u,0u));
+static_assert(!ownerAuxExactWrite(OwnerAuxProfile::probe57_and_guard31,
+    57u,0x200000u,1u)); // corrupted source guard must be rejected
+static_assert(!ownerAuxExactWrite(OwnerAuxProfile::guard31,
+    0u,0x200001u,0u));
 bool p003CalculateSourceSha256(
     const std::span<const std::uint8_t> bytes,
     std::array<std::uint8_t,32>& digest) noexcept {
@@ -188,7 +238,10 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
     std::uint16_t selected=0xffffu,low=0,high=0;
     bool haveLow=false,haveHigh=false,haveAddress=false;
     std::uint32_t address=0u;
-    std::size_t writes=0u;
+    const auto profile=ownerAuxProfile(
+        ports.size(),final_words.size(),source_verified);
+    std::size_t auxiliaryWrites=0u;
+    std::size_t writes=0u,bankWrites=0u;
     for(const auto& e:ports) {
         if(e.port==0xe22u) {
             if(e.value!=0x36u && e.value!=0x3au) {
@@ -211,17 +264,26 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
         }else if(selected==0x3au && e.port==0xa20u &&
                  haveAddress) {
             if(address<base || address-base>=final_words.size()) {
-                error="P003 original driver trace touches outside captured bank";
-                return false;
-            }
+                if(profile==OwnerAuxProfile::none || base!=kOwnerBase ||
+                   !ownerAuxExactWrite(
+                       profile,auxiliaryWrites,address,e.value)) {
+                    error="P003 original RAM outside SF2 is not an exact "
+                          "verified Creative probe/guard";
+                    return false;
+                }
+                ++auxiliaryWrites;
+            }else ++bankWrites;
             ++writes;
             ++address;
         }else {
             error="P003 source-captured unexpected hardware port";return false;
         }
     }
-    if(writes<final_words.size()) {
-        error="P003 source-captured missing RAM writes";return false;
+    if(writes<final_words.size() ||
+       bankWrites<final_words.size() ||
+       auxiliaryWrites!=ownerAuxExpectedCount(profile)) {
+        error="P003 source-captured missing RAM writes or probe/guard";
+        return false;
     }
     // Last original SMLD write wins. Existing source oracle checks
     // EVERY final word and EVERY port BEFORE applying any writes.
@@ -278,7 +340,10 @@ bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
     bool low=false,high=false,pointer=false;
     std::uint32_t physical=0u;
     auto minAddress=std::numeric_limits<std::uint32_t>::max();
-    std::size_t wordWrites=0u;
+    const auto profile=ownerAuxProfile(
+        ports.size(),final_words.size(),source_verified);
+    std::size_t auxiliaryWrites=0u;
+    std::size_t wordWrites=0u,bankWrites=0u;
     for(const auto& e:ports) {
         if(e.port==0xe22u) {
             selected=e.value;
@@ -303,12 +368,29 @@ bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
                 pointer=true;
             }
         }else if(selected==0x3au && pointer && e.port==0xa20u) {
-            if(physical<awe64::kSampleRamBase+4u ||
-               physical>=awe64::kFmReservedBase) {
-                error="P003 original SMLD points into ROM/guard/FM tail";
-                return false;
+            if(profile!=OwnerAuxProfile::none) {
+                if(physical>=kOwnerBase &&
+                   physical-kOwnerBase<final_words.size()) {
+                    minAddress=std::min(minAddress,physical);
+                    ++bankWrites;
+                }else {
+                    if(!ownerAuxExactWrite(
+                           profile,auxiliaryWrites,physical,e.value)) {
+                        error="P003 original probe/guard address or data "
+                              "differs from independently attested source";
+                        return false;
+                    }
+                    ++auxiliaryWrites;
+                }
+            }else {
+                if(physical<awe64::kSampleRamBase+4u ||
+                   physical>=awe64::kFmReservedBase) {
+                    error="P003 original SMLD points into ROM/guard/FM tail";
+                    return false;
+                }
+                minAddress=std::min(minAddress,physical);
+                ++bankWrites;
             }
-            minAddress=std::min(minAddress,physical);
             ++wordWrites;
             ++physical;
         }else {
@@ -317,8 +399,11 @@ bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
         }
     }
     if(minAddress==std::numeric_limits<std::uint32_t>::max() ||
-       wordWrites<final_words.size()) {
-        error="P003 original Creative RAM source lacks complete sample writes";
+       bankWrites<final_words.size() ||
+       auxiliaryWrites!=ownerAuxExpectedCount(profile) ||
+       (profile!=OwnerAuxProfile::none && minAddress!=kOwnerBase)) {
+        error="P003 original Creative RAM source lacks exact "
+              "sample words or original probe/guard";
         return false;
     }
     // Deriving the address from the original 1996 driver *trace* is
