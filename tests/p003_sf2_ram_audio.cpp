@@ -25,7 +25,7 @@ void chunk(B& b,std::string_view id,const B& data){
     b.insert(b.end(),data.begin(),data.end());if(data.size()&1u)b.push_back(0u);
 }
 void name(B& b,std::string_view s){b.insert(b.end(),s.begin(),s.end());b.insert(b.end(),20u-s.size(),0u);}
-B makeSf2(bool inverse){
+B makeSf2(bool inverse,bool nonorderedPresets=false){
     constexpr std::uint32_t n=16384u;
     B info{'I','N','F','O'};chunk(info,"ifil",{2,0,1,0});
     B pcm;
@@ -35,12 +35,23 @@ B makeSf2(bool inverse){
     }
     B sdta{'s','d','t','a'};chunk(sdta,"smpl",pcm);
     B pdta{'p','d','t','a'},phdr,pbag,pgen,inst,ibag,igen,shdr;
-    name(phdr,"P003-RAM");w16(phdr,7);w16(phdr,0);w16(phdr,0);
+    // Both presets refer to the same physical instrument/sample.
+    // In the second fixture row0 is program 77 and row1 program 7:
+    // source PHDR order must never be confused with MIDI ProgramChange.
+    if(nonorderedPresets){
+        name(phdr,"P003-OTHER");w16(phdr,77);w16(phdr,0);w16(phdr,0);
+        w32(phdr,0);w32(phdr,0);w32(phdr,0);
+    }
+    name(phdr,"P003-RAM");w16(phdr,7);w16(phdr,0);
+    w16(phdr,nonorderedPresets?1:0);
     w32(phdr,0);w32(phdr,0);w32(phdr,0);
-    name(phdr,"EOP");w16(phdr,0);w16(phdr,0);w16(phdr,1);
+    name(phdr,"EOP");w16(phdr,0);w16(phdr,0);
+    w16(phdr,nonorderedPresets?2:1);
     w32(phdr,0);w32(phdr,0);w32(phdr,0);
     w16(pbag,0);w16(pbag,0);w16(pbag,1);w16(pbag,0);
+    if(nonorderedPresets){w16(pbag,2);w16(pbag,0);}
     w16(pgen,41);w16(pgen,0);
+    if(nonorderedPresets){w16(pgen,41);w16(pgen,0);}
     name(inst,"P003-INST");w16(inst,0);
     name(inst,"EOI");w16(inst,1);
     w16(ibag,0);w16(ibag,0);w16(ibag,1);w16(ibag,0);
@@ -77,6 +88,9 @@ Result render(const std::filesystem::path& rom,const B& sf2){
     const auto note=p003CandidatePhysicalNoteFromVerifiedRawPool(
         chip,sf2,upload,0u,7u,60u,100u);
     if(!note || note->count!=1u)throw std::runtime_error("MIDI RAM address resolution");
+    if(p003CandidatePhysicalNoteFromVerifiedRawPool(
+           chip,sf2,upload,0u,63u,60u,100u))
+        throw std::runtime_error("absent MIDI program illegally mapped");
     const auto& physical=note->layers[0];
     OriginalSf2FullNoteOnVoice voice{};
     voice.played_midi_key=60;voice.physical_voice=0;
@@ -129,14 +143,18 @@ int main(){
         const auto a=render(rom,makeSf2(false));
         const auto repeated=render(rom,makeSf2(false));
         const auto inverted=render(rom,makeSf2(true));
+        const auto reordered=render(rom,makeSf2(false,true));
         std::error_code ec;std::filesystem::remove(rom,ec);
         CHECK(a.nonzero>100u);
         CHECK(a.hash==repeated.hash && a.nonzero==repeated.nonzero);
         CHECK(a.hash!=inverted.hash);
+        CHECK(a.hash==reordered.hash &&
+              a.nonzero==reordered.nonzero);
         std::cout<<"P003_REAL_EMU8000_RAM_SF2_NOTE_PCM_PASS"
             <<" selected_MIDI_program=7 selected_sample_id=0"
             <<" original_61_OUT_chip=TRUE"
             <<" deterministic_pcm=TRUE source_mutation_changes_pcm=TRUE"
+            <<" nonordered_PHDR_same_midi_sound=TRUE"
             <<" original_Win95_pcm_parity=NOT_PROVEN"
             <<" production_VST3=NOT_CONNECTED\n";
         return 0;
