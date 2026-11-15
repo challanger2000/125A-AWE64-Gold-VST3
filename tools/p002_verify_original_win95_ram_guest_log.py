@@ -386,7 +386,7 @@ def audit(raw: bytes, source_sf2: bytes,
                 "source phase/order invalid")
     if "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF" not in lines:
         raise ValueError("Guest no-hardware-proof caveat missing")
-    return {
+    result = {
         "status": "ORIGINAL_CREATIVE_WIN95_API_GUEST_LOG_CONTRACT_PASS",
         "source_guest_log_sha256": hashlib.sha256(raw).hexdigest(),
         "source_sf2_sha256": hashlib.sha256(source_sf2).hexdigest(),
@@ -438,6 +438,21 @@ def audit(raw: bytes, source_sf2: bytes,
         "original_creative_dll_vxd_provenance": "REQUIRES_INDEPENDENT_VERIFICATION",
         "release_approved": False,
     }
+    result["p003_second_original_sf2_present"] = second_present
+    if second_present:
+        result["p003_second_source_sf2_sha256"] = hashlib.sha256(second_sf2).hexdigest()
+        result["p003_second_original_driver_allocated_words"] = (
+            seen["P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA"])
+        result["p003_second_original_driver_free_before_words"] = (
+            seen["P003_BEFORE_SECOND_FREE_16BIT_WORDS"])
+        result["p003_second_original_driver_free_after_words"] = (
+            seen["P003_AFTER_SECOND_FREE_16BIT_WORDS"])
+        result["p003_second_original_driver_free_after_clear_words"] = (
+            seen["P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS"])
+        result["p003_second_original_RAM_placement"] = (
+            "REQUIRES_INDEPENDENT_SOURCE_EMU8K_TRACE")
+        result["p003_candidate_allocator_original_parity"] = "NOT_PROVEN"
+    return result
 
 
 def main():
