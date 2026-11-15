@@ -1,5 +1,6 @@
-"""P003: synthetic tests for original-fork CPU/I/O probe fail-closed patcher.
-No Creative ROM, driver, VM or audio material used in public CI.
+"""P003: synthetic tests for original-fork physical 16-bit callback probe.
+Check OUTL/INL physical split hooks, not merely guest OUTW/INW.
+No Creative ROM, Win95 driver, VM or audio used in public CI.
 """
 import sys
 from pathlib import Path
@@ -13,30 +14,51 @@ ORIGINAL_SHAPED_SYNTHETIC = (
     '#include <86box/timer.h>\n'
     '#include "cpu.h"\n'
     + HEADER + '\n'
-    + 'uint16_t inw(uint16_t port) {\n    '
-    + IN_HOOK + '\n    return ret;\n}\n'
-    + 'void outw(uint16_t port, uint16_t val) {\n    '
-    + OUT_HOOK + '\n    return;\n}\n'
+    + 'uint16_t inw(uint16_t port) {\n'
+    + '    ret &= p->inw(port, p->priv);\n'
+    + '    ' + IN_HOOK + '\n    return ret;\n}\n'
+    + 'void outw(uint16_t port, uint16_t val) {\n'
+    + '    p->outw(port, val, p->priv);\n'
+    + '    ' + OUT_HOOK + '\n    return;\n}\n'
+    + 'uint32_t inl(uint16_t port) {\n'
+    + '    ret16[0] &= p->inw(port, p->priv);\n'
+    + '    ret16[1] &= p->inw(port + 2, p->priv);\n'
+    + '    return ret;\n}\n'
+    + 'void outl(uint16_t port, uint32_t val) {\n'
+    + '    p->outw(port + i, val >> (i << 3), p->priv);\n'
+    + '    return;\n}\n'
 ).encode("utf-8")
 
-class TestOriginal86BoxPortOnlyProbe(unittest.TestCase):
-    def test_original_only_patch(self):
+class TestPhysical16CallbackProbe(unittest.TestCase):
+    def test_original_source_only_patch(self):
         original = ORIGINAL_SHAPED_SYNTHETIC
         patched = instrument(original, git_blob_sha(original))
         self.assertIn(MARKER.encode(), patched)
         self.assertIn(b'AWE64_P003_CPU_IO_TRACE', patched)
-        self.assertIn(b'p003_cpu_io_note(\'R\', port, ret)', patched)
-        self.assertIn(b'p003_cpu_io_note(\'W\', port, val)', patched)
+        self.assertIn(b"p003_cpu_io_note('R', port, value)", patched)
+        self.assertIn(b"p003_cpu_io_note('W', port, value)", patched)
         self.assertIn(b'CS, (unsigned) cpu_state.pc', patched)
         self.assertIn(b'(unsigned long long) tsc', patched)
         self.assertIn(b'(int) cycles', patched)
         self.assertEqual(original.count(b'io_log('), patched.count(b'io_log('))
         self.assertNotIn(b'emu8k_outw(', patched)
+        # Ordinary word handler, two word handlers in guest INL,
+        # guest OUTL physically splits into two word callbacks.
+        self.assertEqual(patched.count(b'p003_physical_inw('), 4)
+        self.assertEqual(patched.count(b'p003_physical_outw('), 3)
+        self.assertIn(
+            b'p003_physical_outw(port + i, val >> (i << 3), p->priv, p->outw)',
+            patched)
+        self.assertIn(
+            b'p003_physical_inw(port + 2, p->priv, p->inw)', patched)
+        # Never record only the guest OUTW/INW at the END of the routine.
+        self.assertNotIn(b"p003_cpu_io_note('W', port, val);", patched)
+        self.assertNotIn(b"p003_cpu_io_note('R', port, ret);", patched)
     def test_wrong_fork_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "hash differs"):
             instrument(ORIGINAL_SHAPED_SYNTHETIC)
     def test_changed_source_fails_closed(self):
-        original = ORIGINAL_SHAPED_SYNTHETIC + b"\n// intentional mutation"
+        original = ORIGINAL_SHAPED_SYNTHETIC + b"\n// mutation"
         with self.assertRaisesRegex(ValueError, "hash differs"):
             instrument(original, git_blob_sha(ORIGINAL_SHAPED_SYNTHETIC))
     def test_cannot_instrument_twice(self):
@@ -51,6 +73,18 @@ class TestOriginal86BoxPortOnlyProbe(unittest.TestCase):
             b'#include <86box/timer.h>\n', b'')
         with self.assertRaisesRegex(ValueError, "prerequisites"):
             instrument(changed, None)
+    def test_missing_guest_outl_split_refused(self):
+        changed = ORIGINAL_SHAPED_SYNTHETIC.replace(
+            b'p->outw(port + i, val >> (i << 3), p->priv)',
+            b'/* missing outl word dispatch */')
+        with self.assertRaisesRegex(ValueError,"Unexpected original callback count"):
+            instrument(changed,None)
+    def test_crlf_pinned_original_source_matches_git_hash(self):
+        original=ORIGINAL_SHAPED_SYNTHETIC
+        crlf=original.replace(b'\n',b'\r\n')
+        self.assertEqual(git_blob_sha(original),git_blob_sha(crlf))
+        self.assertEqual(instrument(original,git_blob_sha(original)),
+                         instrument(crlf,git_blob_sha(original)))
 
 if __name__ == "__main__":
     unittest.main()
