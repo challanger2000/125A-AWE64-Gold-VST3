@@ -89,3 +89,48 @@ observed mapping, not proof for all SF2 input classes.
 **Native VST3-vs-actual Win95 dry PCM bit parity remains unverified**.
 The original EMU8000 core was not changed. P003 is not a general
 release GO.
+
+
+## Source-anchored native 44.1 kHz C4/D4 PCM diagnostic (15 Nov)
+
+The authentic original 2026-11-15 C4/D4 source note segments contain
+**exactly 324 original Creative hardware WRITE events** (152/8/156/8),
+extracted from the same source trace, with no generated/hypothesized
+register values. The 2026-11-15 event values for all 324 writes
+match the previously independently captured 2026-11-14 Creative note
+register sequence exactly; within-note relative source chip frames
+are allowed to differ and remain recorded exactly.
+
+- Original C4 NoteOn **1,632,237**, NoteOff **1,650,400** frames
+- Original D4 NoteOn **1,679,469**, NoteOff **1,697,634** frames
+- SHA256 of owner-private exact source note fixture (5,683 bytes):
+  `5a7b6bc04a42eece523619e02571c67313b4a02877e244e8b52390bbb2e2d3bb`
+- First-bank source physical SMALW/SMLD filtered RAM port trace
+  (8,894,094 bytes) SHA256:
+  `f4d833a01173e6879a990669f430bc7e91d3df07ba1ee2b91c6bcf8af03d993d`
+- Final 260,921 native source RAM sample words (521,842 bytes)
+  SHA256:
+  `ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470`
+- The corrected exported Windows VST3 **pins both new source SHA256
+  values** in the actual original RAM startup and note clock loader.
+- For a **non-auto-aligned diagnostic only**, the original AWE32_WAV
+  is cropped to 96,000 PCM16 stereo frames starting **at the exact
+  original Creative NoteOn source chip frame 1,632,237** and stopping
+  before the independent second-bank NoteOn. Original WAV crop SHA256:
+  `3c0fe297c2e5e89fd39e3f4d0c14610590badda35b15e20288ca23c1b581d2cf`.
+- Native MIDI test schedule: NoteOn C4 frame 137, C4 Off 18,300;
+  D4 On 47,369, D4 Off 65,534; render exactly 96,137 frames at
+  44,100 Hz. Compare source frame `1632237+i` to native frame
+  `137+i`, for `i=0..95999`. No time searching, silence removal,
+  gain matching or resampling is permitted.
+- This packet uses the original ROM, original 83-sample first SF2,
+  original VXD resource digest, and the exact original source RAM
+  port recording. Its strict native clocked-mode test verifies
+  generated original source MIDI OUT values/timing before PCM parity.
+  An unclocked baseline failure/mismatch is diagnostic only.
+
+**Important:** The private Windows owner must still run the newly
+compiled genuine exported x64 VST3 PCM testhost to obtain an independent
+native WAV. This report does NOT claim that a SHA of an original note
+capture, a previous Windows-CI test, or the extracted reference WAV
+proves Win95-versus-native PCM bit equality.
