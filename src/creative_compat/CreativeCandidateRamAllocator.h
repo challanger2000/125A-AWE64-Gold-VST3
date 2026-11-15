@@ -81,7 +81,7 @@ public:
         // A stale handle may never release a new occupant of this slot.
         ++s.generation;
         if(s.generation==0u)++s.generation;
-        s.base=address;s.words=words;s.active=true;
+        s.base=address;s.words=words;s.pins=0u;s.active=true;
         return P003CandidateRamAllocation{
             s.base,s.words,s.generation,
             static_cast<std::uint32_t>(freeSlot)};
@@ -101,9 +101,26 @@ public:
         return s.active && s.generation==h.generation &&
                s.base==h.base && s.words==h.words;
     }
+    // Prevent a still-playing voice from referencing RAM recycled for
+    // another bank. The caller must pin on successful NoteOn and unpin
+    // only after the original VXD voice has fully terminated.
+    [[nodiscard]] bool pin(const P003CandidateRamAllocation& h) noexcept {
+        if(!contains(h) || slots_[h.id].pins==0xffffffffu)return false;
+        ++slots_[h.id].pins;
+        return true;
+    }
+    [[nodiscard]] bool unpin(const P003CandidateRamAllocation& h) noexcept {
+        if(!contains(h) || slots_[h.id].pins==0u)return false;
+        --slots_[h.id].pins;
+        return true;
+    }
+    [[nodiscard]] std::uint32_t activePins(
+        const P003CandidateRamAllocation& h) const noexcept {
+        return contains(h) ? slots_[h.id].pins : 0u;
+    }
     [[nodiscard]] bool release(const P003CandidateRamAllocation& h)
         noexcept {
-        if(!contains(h))return false;
+        if(!contains(h) || slots_[h.id].pins!=0u)return false;
         slots_[h.id].active=false;
         return true;
     }
@@ -112,7 +129,7 @@ public:
     // and explicitly release each bank before reusing its address.
 private:
     struct Slot {
-        std::uint32_t base=0,words=0,generation=0;
+        std::uint32_t base=0,words=0,generation=0,pins=0;
         bool active=false;
     };
     std::array<Slot,kMaxBanks> slots_{};
