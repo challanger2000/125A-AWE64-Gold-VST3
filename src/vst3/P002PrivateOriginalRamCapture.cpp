@@ -32,14 +32,14 @@ namespace {
 // No Creative DSP, sample data or guest binary is embedded.
 constexpr std::string_view kOwnerSf2Sha =
     "d5b99ec38fddf59f53f66b90921e170d207bf3bbd73960f6e4175c39ef68349b";
-// TWO source-proven genuine Win95 Creative sessions, no private bytes.
+// Multiple source-proven genuine Win95 Creative sessions, no private bytes.
 struct ExactSourceRamCapture {
     std::size_t bytes;
     std::string_view sha256;
     std::size_t port_events;
     std::size_t original_smlD_word_writes;
 };
-constexpr std::array<ExactSourceRamCapture,3> kOriginalCaptures{{
+constexpr std::array<ExactSourceRamCapture,4> kOriginalCaptures{{
     // Historical original session recorded and reviewed on 2026-11-13.
     {9422232u,
      "fd782a9cad8a05dbe1e6e9167d8c77288fc2a24af0c7736a8501dac1afd4f84d",
@@ -60,6 +60,20 @@ constexpr std::array<ExactSourceRamCapture,3> kOriginalCaptures{{
     {9422232u,
      "6674b2034dfa59c6ff6e69bdb4f4cdfbb9202294fc7f8ac5e1a3dd0f8d183805",
      523467u,261264u},
+    // Independently captured ORIGINAL 2026-11-15 Win95/Creative user
+    // SoundFont 1 RAM upload from the user's successful 2-bank run.
+    // Full source trace SHA256:
+    // 181b2bc29a0a3118ea6eb8bc6d921b5447b2c9bf5714356b85d1176e4a6e9548
+    // Guest log SHA256:
+    // 10a50fdb5b5faaff84b11e6c830e2399532a493ce1d41e6807fdd2787c178441
+    // Pre-card original WAV SHA256:
+    // 35315175420592f5424bbcd9f7d0d73a151fb49989f7b8ec69aa5138c99a8e12
+    // Observed original first-bank SMALW start: frame 1603578.
+    // All 260921 original words, 255 overwritten addresses and
+    // final RAM SHA match independent historical original capture.
+    {8894094u,
+     "f4d833a01173e6879a990669f430bc7e91d3df07ba1ee2b91c6bcf8af03d993d",
+     523182u,261207u},
 }};
 constexpr std::string_view kOriginalFinalRamWordsSha =
     "ff3ce73a1898ef586312d368ad3abdc2cfad47e3cfe07dd6d460a32845d8c470";
@@ -230,7 +244,7 @@ bool preloadOriginalCreativeCapturedRamSource(
         }
     }
     if(!realSession) {
-        error="original 2026-11-13/14 Creative RAM ports original "
+        error="original 2026-11-13/14/15 Creative RAM ports original "
               "session length/SHA256 mismatch";
         return false;
     }
