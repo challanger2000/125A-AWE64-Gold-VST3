@@ -348,6 +348,29 @@ bool P002PrivateRomBank::noteOn(
     held_keys_[key]=true;
     return true;
 }
+bool P002PrivateRomBank::selectExactSf2Bank(
+    const std::uint16_t bank) noexcept {
+    if(!ready_ || bank>128u)return false;
+    // A change without a matching real PHDR record is a no-op.
+    // Do not alias drum-bank 128 to ordinary bank zero.
+    const auto found=std::find_if(presets_.begin(),presets_.end(),
+        [&](const awe64::creative::Sf2PresetIdentity& preset) noexcept {
+            return preset.bank==bank;
+        });
+    if(found==presets_.end())return false;
+    const auto nextProgram=hasExactSoundFontPreset(presets_,bank,program_)
+        ? program_:found->program;
+    // Change one cached logical MIDI program before the next NoteOn.
+    // No hardware writes, release or voice stealing occurs here.
+    MidiMessage program{};
+    program.kind=MidiKind::Program;
+    program.channel=channel_;
+    program.data1=nextProgram;
+    midi_.apply(program);
+    bank_number_=bank;
+    program_=nextProgram;
+    return true;
+}
 bool P002PrivateRomBank::programChange(
     const std::uint8_t program) noexcept {
     if(!ready_ || program>127u ||
