@@ -11,6 +11,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
+      - name: Checkout independent P003 source-only fingerprint tool
+        uses: actions/checkout@v4
+        with:
+          path: audit-source
+          persist-credentials: false
       - name: Checkout archival Creative Developer Information Package (read-only)
         uses: actions/checkout@v4
         with:
@@ -118,4 +123,17 @@ jobs:
             print('PUBDEF_COUNT',len(pub),'PUBLICS',pub[:180])
             print('EXTDEF_COUNT',len(ext),'EXTERNALS',ext[:110])
           print('ORIGINAL_CREATIVE_DOS_LIBRARY_STRUCTURE_RESEARCH_DONE')
-          PY
+          PY      - name: Generate derived fingerprints without redistributing Creative code
+        shell: bash
+        run: |
+          python audit-source/tools/p003_public_dos_omf_fingerprints.py \
+            --sf2 creative-dip/DOS/LIB/SF2LIB/FLAT/PAWE32.LIB \
+            --sbk creative-dip/DOS/LIB/SBKLIB/FLAT/PAWE32.LIB \
+            --output creative-dos-omf-fingerprints.json
+      - name: Save non-proprietary derived fingerprint evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: P003-Creative-OMF-fingerprint-evidence
+          path: creative-dos-omf-fingerprints.json
+          retention-days: 3
+          if-no-files-found: error
