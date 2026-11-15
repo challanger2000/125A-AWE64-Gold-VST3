@@ -1,0 +1,36 @@
+name: P003 original 86Box guest CPU I/O clock probe source contract
+on:
+  push:
+    branches:
+      - develop/p002-creative-register-oracle
+    paths:
+      - 'tools/p003_instrument_86box_io.py'
+      - 'tests/test_p003_instrument_86box_io.py'
+      - '.github/workflows/p003-86box-guest-cpu-io-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pinned_original_fork_port_clock_instrumentation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prove original fork SHA and negative controls
+        run: |
+          python -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
+          python tools/p003_instrument_86box_io.py \
+            --original-io-c third_party/86box-awe32/src/io.c --verify-only
+      - name: Generate CPU TSC/CS:EIP IO trace hooks into NEW copy only
+        run: |
+          python tools/p003_instrument_86box_io.py \
+            --original-io-c third_party/86box-awe32/src/io.c \
+            --output-io-c "$RUNNER_TEMP/p003-instrumented-io.c"
+          test -s "$RUNNER_TEMP/p003-instrumented-io.c"
+          grep -q 'P003_CPU_GUEST_OUTW_V1' "$RUNNER_TEMP/p003-instrumented-io.c"
+          grep -q 'p003_cpu_io_note' "$RUNNER_TEMP/p003-instrumented-io.c"
+          test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
+          echo 'P003_ORIGINAL_FORK_IO_LAYER_RESEARCH_TRACE_PROBE_READY'
+          echo 'original_emu8000_core_modified=FALSE guest_run=NOT_PERFORMED'
