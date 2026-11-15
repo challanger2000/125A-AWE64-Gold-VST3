@@ -211,6 +211,12 @@ bool P002PrivateRomBank::load(
         clear();return false;
     }
     if(ramSourceMode) {
+        if(captured && !p003CapturedRamMatchesExactSourceSf2(
+                bank_bytes_,*original_source_captured_ram)) {
+            error="P003 original Creative physical RAM capture belongs to "
+                  "a different SF2 source (SHA256 mismatch)";
+            clear();return false;
+        }
         // The byte-exact original owner profile remains SHA-gated.
         // For another SF2, only an already SOURCE-CAPTURED physical
         // pool with externally verified original Win95 provenance may
