@@ -361,13 +361,21 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
                 "P002_WIN95_ORIGINAL_PRELUDE_REPLAYED "
                 "writes=%u reads=%u INIT=%u HWCF=%u "
                 "read_differences=%u source_clock_at_native_activation=%llu "
+                "first_read_frame=%u first_read_port=0x%04x "
+                "first_read_selector=0x%04x original_value=0x%04x "
+                "native_value=0x%04x "
                 "real_original_vs_native_audio=NOT_YET_COMPARED\n",
                 result.physical_writes,result.physical_reads,
                 result.source_init_writes,
                 result.source_hardware_config_writes,
                 result.read_disagreements,
                 static_cast<unsigned long long>(
-                    result.source_chip_clock_at_activation));
+                    result.source_chip_clock_at_activation),
+                result.first_read_disagreement_frame,
+                static_cast<unsigned>(result.first_read_disagreement_port),
+                static_cast<unsigned>(result.first_read_disagreement_selector),
+                static_cast<unsigned>(result.first_read_disagreement_source),
+                static_cast<unsigned>(result.first_read_disagreement_native));
         }
         // This explicitly does NOT route NoteOn through the P001 ROM
         // voice or guess the Creative source VXD RAM voice descriptors.
