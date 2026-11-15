@@ -226,6 +226,19 @@ int main() {
           capturedResult.physical_word_base==recordedBase &&
           capturedResult.source_pool_words==8u &&
           capturedResult.sample_headers==2u);
+    CHECK(capturedResult.source_sf2_sha256_verified);
+    CHECK(p003CapturedRamMatchesExactSourceSf2(bank,capturedResult));
+    // A different bank with identical sample headers/PCM pool geometry
+    // cannot borrow another Creative driver's physical RAM attestation.
+    auto differentBank=bank;
+    differentBank[poolPosition]^=1u;
+    CHECK(!p003CapturedRamMatchesExactSourceSf2(
+        differentBank,capturedResult));
+    CHECK(!p003CandidatePhysicalNoteFromOriginalSourceCapture(
+        chip,differentBank,capturedResult,originalFinal,0u,7u,60u,100u));
+    auto forgedCapture=capturedResult;
+    forgedCapture.source_sf2_sha256_verified=false;
+    CHECK(!p003CapturedRamMatchesExactSourceSf2(bank,forgedCapture));
     const auto mappedCaptured=p003CandidatePhysicalNoteFromOriginalSourceCapture(
         chip,bank,capturedResult,originalFinal,0u,7u,60u,100u);
     CHECK(mappedCaptured && mappedCaptured->count==1u);
@@ -373,6 +386,7 @@ int main() {
         <<"boundary_last_word=0xffffdf"
         <<" negative_controls="<<rejected
         <<" generic_original_captured_port_upload=TRUE"
+        <<" captured_sf2_SHA256_misbinding_rejected=TRUE"
         <<" original_creative_allocator=NOT_CLAIMED"
         <<" external_proprietary_assets=NONE\n";
     return 0;
