@@ -226,6 +226,32 @@ int main() {
     CHECK(sparseBank.currentProgram()==77u);
     CHECK(sparseBank.programChange(0u));
     CHECK(sparseBank.currentProgram()==0u);
+    // Actual PHDR bank switch, without guessed Win95 CC bank formulas.
+    // Missing bank is a strict no-op; bank128 retains its own program.
+    CHECK(sparseBank.currentBank()==0u);
+    CHECK(!sparseBank.selectExactSf2Bank(1u));
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==0u);
+    CHECK(sparseBank.selectExactSf2Bank(128u));
+    CHECK(sparseBank.currentBank()==128u &&
+          sparseBank.currentProgram()==2u);
+    CHECK(!sparseBank.programChange(77u));
+    CHECK(sparseBank.currentProgram()==2u);
+    CHECK(sparseBank.selectExactSf2Bank(0u));
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==0u);
+    CHECK(sparseBank.programChange(77u));
+    CHECK(sparseBank.selectExactSf2Bank(0u));
+    CHECK(sparseBank.currentProgram()==77u);
+    CHECK(!sparseBank.selectExactSf2Bank(129u));
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==77u);
+    CHECK(sparseBank.beginNativeNoteCheckpoint());
+    CHECK(sparseBank.selectExactSf2Bank(128u));
+    CHECK(sparseBank.currentBank()==128u);
+    sparseBank.rollbackNativeNoteCheckpoint();
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==77u);
     sparseBank.clear();
     CHECK(sparseBank.presetCount()==0u);
     CHECK(!sparseBank.programChange(77u));
