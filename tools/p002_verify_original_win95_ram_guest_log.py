@@ -50,6 +50,28 @@ SUCCESS = "P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK"
 NO_EVIDENCE = "GUEST_CAPTURE_EMU8000_RAM_REGISTER_AND_PCM_EVIDENCE_NOT_ASSERTED_BY_API"
 DIRECT_BEGIN = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_BEGIN"
 DIRECT_END = "ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END"
+SECOND_MARKERS = (
+    "P003_ORIGINAL_SECOND_BANK_EXPERIMENT_BEGIN",
+    "P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN",
+    "P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_END",
+    "P003_ORIGINAL_SECOND_BANK_EXPERIMENT_FINISHED",
+)
+SECOND_KEYS = (
+    "P003_SECOND_SF2_SIZE",
+    "P003_SECOND_SF2_FNV1A32",
+    "P003_BEFORE_SECOND_RESULT",
+    "P003_BEFORE_SECOND_TOTAL_16BIT_WORDS",
+    "P003_BEFORE_SECOND_FREE_16BIT_WORDS",
+    "P003_ORIGINAL_SECOND_BANK_LOAD_RC",
+    "P003_AFTER_SECOND_RESULT",
+    "P003_AFTER_SECOND_TOTAL_16BIT_WORDS",
+    "P003_AFTER_SECOND_FREE_16BIT_WORDS",
+    "P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA",
+    "P003_ORIGINAL_SECOND_BANK_CLEAR_RC",
+    "P003_AFTER_SECOND_CLEAR_RESULT",
+    "P003_AFTER_SECOND_CLEAR_TOTAL_16BIT_WORDS",
+    "P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS",
+)
 REQUIRED = MUST_ZERO + (
     "PRIVATE_WIN95_SF2_SIZE",
     "PRIVATE_WIN95_SF2_FNV1A32",
@@ -83,7 +105,8 @@ def fnv1a32(original: bytes) -> int:
     return value
 
 
-def audit(raw: bytes, source_sf2: bytes) -> dict:
+def audit(raw: bytes, source_sf2: bytes,
+          second_sf2: bytes | None = None) -> dict:
     if not 32 < len(raw) <= MAX_LOG:
         raise ValueError("Missing or oversized private original Creative guest log")
     if (not 96 <= len(source_sf2) <= MAX_BANK or
@@ -112,6 +135,21 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             lines.index(DIRECT_END) < lines.index(SUCCESS)):
         raise ValueError("Original Creative WinMM vs AWE_SEND_MIDI phase ordering invalid")
 
+    second_present = SECOND_MARKERS[0] in lines
+    if second_present != (second_sf2 is not None):
+        raise ValueError("P003 independent second SF2 and its original guest log must agree")
+    if second_present:
+        if any(lines.count(marker) != 1 for marker in SECOND_MARKERS):
+            raise ValueError("P003 original second-bank marker missing/duplicated")
+        if not (lines.index(DIRECT_END) <
+                lines.index(SECOND_MARKERS[0]) <
+                lines.index(SECOND_MARKERS[1]) <
+                lines.index(SECOND_MARKERS[2]) <
+                lines.index(SECOND_MARKERS[3]) <
+                lines.index(SUCCESS)):
+            raise ValueError("P003 original second-bank load/clear marker order")
+    elif any(marker in lines for marker in SECOND_MARKERS[1:]):
+        raise ValueError("P003 orphan second-bank capture marker")
     seen: dict[str, int] = {}
     dll_path: str | None = None
     for line in lines[1:]:
@@ -135,7 +173,7 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
                 raise ValueError("Duplicated original Creative guest result: " + key)
             seen[key] = int(word, 16)
         elif line not in (CAPTURE_BEGIN, CAPTURE_END, DIRECT_BEGIN, DIRECT_END,
-                          SUCCESS, NO_EVIDENCE,
+                          SUCCESS, NO_EVIDENCE, *SECOND_MARKERS,
                           "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF",
                           "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6") and not (
                           line.startswith("LOADED_CREATIVE_MODULE_PATH=") or
@@ -143,6 +181,53 @@ def audit(raw: bytes, source_sf2: bytes) -> dict:
             raise ValueError("Unrecognized original Creative guest log line: " + line[:80])
     if dll_path is None:
         raise ValueError("Original Creative AWEMAN32 loaded DLL path absent")
+    if second_present:
+        if (not 96 <= len(second_sf2) <= MAX_BANK or
+                second_sf2[:4] != b"RIFF" or
+                second_sf2[8:12] != b"sfbk" or
+                int.from_bytes(second_sf2[4:8], "little") != len(second_sf2) - 8 or
+                hashlib.sha256(source_sf2).digest() == hashlib.sha256(second_sf2).digest()):
+            raise ValueError("P003 second SF2 missing/invalid/identical to first")
+        for key in SECOND_KEYS:
+            if key not in seen:
+                raise ValueError("P003 second-bank original driver result missing: " + key)
+        if seen["P003_SECOND_SF2_SIZE"] != len(second_sf2) or (
+            seen["P003_SECOND_SF2_FNV1A32"] != fnv1a32(second_sf2)):
+            raise ValueError("P003 second SF2 guest whole-file identity mismatch")
+        for prefix in ("P003_BEFORE_SECOND", "P003_AFTER_SECOND",
+                       "P003_AFTER_SECOND_CLEAR"):
+            if seen[prefix+"_RESULT"] != 0:
+                raise ValueError("P003 original driver DRAM query failed: "+prefix)
+            if seen[prefix+"_TOTAL_16BIT_WORDS"] != (
+                seen["PRE_LOAD_TOTAL_16BIT_WORDS"]):
+                raise ValueError("P003 original multi-bank total DRAM changed")
+        if (seen["P003_ORIGINAL_SECOND_BANK_LOAD_RC"] != 0 or
+                seen["P003_ORIGINAL_SECOND_BANK_CLEAR_RC"] != 0):
+            raise ValueError("P003 original Creative second-bank load/clear failure")
+        start = seen["P003_BEFORE_SECOND_FREE_16BIT_WORDS"]
+        after = seen["P003_AFTER_SECOND_FREE_16BIT_WORDS"]
+        cleared = seen["P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS"]
+        if not (0 <= after < start <= MAX_RAM_WORDS and
+                cleared == start and
+                seen["P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA"] == start-after):
+            raise ValueError("P003 original Creative second-bank allocation/release mismatch")
+        # All driver API markers must bracket the exact second bank.
+        key_line=lambda key: next(i for i,x in enumerate(lines)
+                                  if x.startswith(key+"="))
+        if not (lines.index(SECOND_MARKERS[0]) <
+                key_line("P003_SECOND_SF2_FNV1A32") <
+                key_line("P003_BEFORE_SECOND_FREE_16BIT_WORDS") <
+                lines.index(SECOND_MARKERS[1]) <
+                key_line("P003_ORIGINAL_SECOND_BANK_LOAD_RC") <
+                lines.index(SECOND_MARKERS[2]) <
+                key_line("P003_AFTER_SECOND_FREE_16BIT_WORDS") <
+                key_line("P003_ORIGINAL_SECOND_BANK_CLEAR_RC") <
+                key_line("P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS") <
+                lines.index(SECOND_MARKERS[3])):
+            raise ValueError("P003 original multi-bank query/load/clear order invalid")
+    elif any(key.startswith("P003_") for key in seen):
+        raise ValueError("P003 second-bank data without original source recording")
+
     for key in REQUIRED:
         if key not in seen:
             raise ValueError("Missing original Creative result: " + key)
@@ -359,6 +444,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--private-guest-log", type=Path, required=True)
     parser.add_argument("--private-sf2", type=Path, required=True)
+    parser.add_argument("--private-second-sf2", type=Path,
+                        help="Required to audit the optional P003 genuine Win95 bank2 capture")
     parser.add_argument("--private-report", type=Path, required=True)
     args = parser.parse_args()
     path = args.private_report.resolve()
@@ -367,7 +454,9 @@ def main():
         parser.error("Private source report must be new and outside Git")
     log = args.private_guest_log.read_bytes()
     source = args.private_sf2.read_bytes()
-    report = audit(log, source)
+    second = (args.private_second_sf2.read_bytes()
+              if args.private_second_sf2 else None)
+    report = audit(log, source, second)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x", encoding="ascii") as f:
         json.dump(report, f, indent=2)
