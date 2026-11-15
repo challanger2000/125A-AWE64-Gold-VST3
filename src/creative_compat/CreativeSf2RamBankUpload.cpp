@@ -171,7 +171,46 @@ bool p003ReplaySourceCapturedMonoSf2Bank(
         replay->original_port_upload.original_sample_words;
     result.original_distinct_overwritten_words=
         replay->source_sample_distinct_rewritten_words;
+    result.original_source_port_replay_verified=true;
     return true;
+}
+std::optional<OriginalSf2RamPhysicalNotePlan>
+p003CandidatePhysicalNoteFromOriginalSourceCapture(
+    const awe64::Chip& chip,
+    const std::span<const std::uint8_t> sf2,
+    const P003RamUploadResult& capture,
+    const std::span<const std::uint16_t> final_words,
+    const std::uint16_t bank,const std::uint8_t program,
+    const std::uint8_t key,const std::uint8_t velocity) noexcept {
+    if(!chip.ready() || chip.nativeNoteOutTransactionActive() ||
+       !capture.entire_pool_readback_equal ||
+       !capture.original_source_port_replay_verified ||
+       capture.original_port_writes==0u ||
+       capture.original_sample_word_writes<capture.source_pool_words ||
+       final_words.empty() ||
+       final_words.size()!=capture.source_pool_words ||
+       capture.physical_word_base<awe64::kSampleRamBase+4u ||
+       capture.physical_word_base>=awe64::kFmReservedBase ||
+       capture.source_pool_words>
+          std::size_t(awe64::kFmReservedBase-capture.physical_word_base))
+        return std::nullopt;
+    const auto pool=candidateStandardSf2WholeMonoRamPool(sf2);
+    if(!pool || pool->sample_headers!=capture.sample_headers ||
+       pool->whole_smpl_pcm_le16.size()/2u!=final_words.size())
+        return std::nullopt;
+    const auto* raw=chip.rawForContractTesting();
+    if(!raw || !raw->ram)return std::nullopt;
+    const auto start=std::size_t(capture.physical_word_base-
+                                  awe64::kSampleRamBase);
+    // The captured Creative loader may transform every single PCM
+    // word; comparing chip RAM to raw smpl would reject valid source.
+    // Demand exact match against the WHOLE independent final snapshot.
+    for(std::size_t i=0;i<final_words.size();++i)
+        if(std::bit_cast<std::uint16_t>(raw->ram[start+i])!=final_words[i])
+            return std::nullopt;
+    return candidateOriginalSf2RamPhysicalNotePlan(
+        sf2,bank,program,key,velocity,
+        capture.physical_word_base,capture.source_pool_words,true);
 }
 #ifdef _WIN32
 namespace {
