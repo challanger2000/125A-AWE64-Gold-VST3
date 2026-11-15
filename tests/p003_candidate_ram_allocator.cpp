@@ -12,6 +12,13 @@ int main(){
     const auto one=a.allocate(260921u);
     CHECK(one && one->base==0x200010u && one->words==260921u);
     CHECK(a.contains(*one));
+    CHECK(a.pin(*one) && a.pin(*one) && a.activePins(*one)==2u);
+    CHECK(!a.release(*one));
+    CHECK(!a.unpin({one->base,one->words,one->generation+1u,one->id}));
+    CHECK(a.unpin(*one) && a.activePins(*one)==1u);
+    CHECK(!a.release(*one));
+    CHECK(a.unpin(*one) && a.activePins(*one)==0u);
+    CHECK(!a.unpin(*one));
     const auto two=a.allocate(345u);
     CHECK(two && two->base==one->base+one->words);
     const auto three=a.allocate(18u);
@@ -68,6 +75,7 @@ int main(){
     std::cout<<"P003_CANDIDATE_SF2_MEMORY_ALLOCATOR_PASS"
              <<" multiple_banks=TRUE"
              <<" released_gap_reuse=TRUE"
+             <<" live_voice_pins_block_bank_reuse=TRUE"
              <<" stale_handle_rejected=TRUE"
              <<" physical_ram_tail_guard=TRUE"
              <<" free_space=TRUE"
