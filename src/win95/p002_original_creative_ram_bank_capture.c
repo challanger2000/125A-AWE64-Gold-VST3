@@ -496,7 +496,7 @@ void WINAPI p002_ram_entry(void) {
          * that the chosen chip voice addresses this RAM bank. Record
          * EMU8K_TRACE and dry WAV separately to establish real routing.
          * Reverb/chorus sends remain zero throughout this comparison. */
-        emit("P003_ORIGINAL_SECOND_BANK_MIDI_BEGIN\\r\\n");
+        emit("P003_ORIGINAL_SECOND_BANK_MIDI_BEGIN\r\n");
         if(!original_send_midi(manager,handle,ORIGINAL_MIDI_CC(0u,0u,2u),
                                "P003_ORIGINAL_SECOND_BANK_CC0_2_RC"))
             goto done;
@@ -520,7 +520,7 @@ void WINAPI p002_ram_entry(void) {
                                "P003_ORIGINAL_SECOND_BANK_NOTE60_OFF_RC"))
             goto done;
         Sleep(440);
-        emit("P003_ORIGINAL_SECOND_BANK_MIDI_END\\r\\n");
+        emit("P003_ORIGINAL_SECOND_BANK_MIDI_END\r\n");
         rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,2u,0);
         report("P003_ORIGINAL_SECOND_BANK_CLEAR_RC=",(DWORD)rc);
         if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
