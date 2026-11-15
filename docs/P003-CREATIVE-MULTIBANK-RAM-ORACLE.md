@@ -24,6 +24,18 @@ python tools/p002_stage_original_win95_ram_probe.py `
 
 Boot the *clone*, run `C:\P002RAM.EXE` with the original installed Creative driver and **record the complete EMU8K_TRACE** for both uploads. Keep both SF2s, the guest log, original chip trace, ROM hash, original VXD provenance and the final physical RAM snapshots linked by SHA256. Expected private guest events include `P003_ORIGINAL_SECOND_BANK_EXPERIMENT_BEGIN`, `P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_BEGIN/END`, `P003_ORIGINAL_SECOND_BANK_LOAD_RC=0`, `P003_ORIGINAL_SECOND_BANK_CLEAR_RC=0`, and `P003_ORIGINAL_SECOND_BANK_EXPERIMENT_FINISHED`. These labels indicate API success and boundaries only; **physical addresses require the separate EMU8K_TRACE**.
 
+After the guest shuts down, audit the guest log against **both exact SF2 files**; missing, reordered, duplicate or inconsistent multi-bank observations must fail:
+
+```powershell
+python tools/p002_verify_original_win95_ram_guest_log.py `
+  --private-guest-log "PRIVATE\\P002RAM.LOG" `
+  --private-sf2 "PRIVATE\\bank-one.sf2" `
+  --private-second-sf2 "PRIVATE\\bank-two.sf2" `
+  --private-report "PRIVATE\\p003-original-two-bank-api.json"
+```
+
+The audit cryptographically binds the host-side two SF2 inputs to its report and independently checks original guest whole-file FNV values, Creative API 204/205 results, 308 DRAM word deltas and release results. API success alone does **NOT** prove the Creative physical address allocator; the separately captured EMU8K_TRACE is mandatory.
+
 Compare predicted addresses with *each real capture*. Repeat with swapped load order, release/reload, sizes near boundaries and known source-preserved voice activity. **Do not mark original allocator equivalence until original-vs-native SMALW/SMLD address, word counts, ordering, chip RAM and matched DRY PCM all pass.** The custom first-fit allocator is never silently substituted into the strict original-native playback mode.
 
 ## Current limitations
