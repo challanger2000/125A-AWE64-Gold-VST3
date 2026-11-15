@@ -129,7 +129,8 @@ add_test(NAME p002_native_original_chip_passive_port_trace
 # The executor does not invent driver timing; external measured offsets
 # remain mandatory for any original-Win95 equivalence claim.
 add_library(awe64_p002_sample_clock_ports STATIC
-    src/creative_compat/CreativeSampleClockPorts.cpp)
+    src/creative_compat/CreativeSampleClockPorts.cpp
+    src/creative_compat/CreativeAutonomousOutTiming.cpp)
 target_include_directories(awe64_p002_sample_clock_ports PUBLIC
     src/creative_compat)
 target_link_libraries(awe64_p002_sample_clock_ports PUBLIC awe64_fork_chip)
@@ -140,6 +141,14 @@ target_link_libraries(awe64_p002_sample_clock_ports_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p002_source_clocked_original_chip_outs_and_pcm
     COMMAND awe64_p002_sample_clock_ports_test)
+# Synthetic independently generated port transactions; NO private
+# Original Win95 ROM, VXD, trace or SoundFont enters this regression.
+add_executable(awe64_p003_autonomous_out_timing_test
+    tests/p003_autonomous_out_timing.cpp)
+target_link_libraries(awe64_p003_autonomous_out_timing_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p003_autonomous_bus_pacing_candidate_negative_controls
+    COMMAND awe64_p003_autonomous_out_timing_test)
 
 # Adversarial test for the *actual* private Creative VST3 bank state
 # checkpoint. The source is the same one exported by the real VST3;
