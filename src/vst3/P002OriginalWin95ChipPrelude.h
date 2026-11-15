@@ -15,6 +15,10 @@ struct OriginalChipPreludeResult {
     std::uint32_t source_hardware_config_writes=0;
     std::uint32_t read_disagreements=0;
     std::uint32_t first_read_disagreement_frame=0;
+    std::uint16_t first_read_disagreement_port=0;
+    std::uint16_t first_read_disagreement_selector=0;
+    std::uint16_t first_read_disagreement_source=0;
+    std::uint16_t first_read_disagreement_native=0;
     std::uint64_t source_chip_clock_at_activation=0;
 };
 // Runs ONLY on the VST3 activation thread before audio and before arming
