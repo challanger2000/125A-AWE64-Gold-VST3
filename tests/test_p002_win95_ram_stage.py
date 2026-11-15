@@ -86,6 +86,37 @@ class OriginalCreativeGuestStageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"must be new"):
                 stage.stage(original,clone,exe,sf2)
 
+    def test_optional_second_original_bank_staged_and_sha_verified(self):
+        with tempfile.TemporaryDirectory(prefix="P003-two-banks-") as td:
+            root=Path(td)
+            original,exe,sf2=write_inputs(root)
+            second=root/"other-independent.sf2"
+            data=bytearray(sf2.read_bytes())
+            data[-1]^=0x5A
+            second.write_bytes(data)
+            before=stage.sha256(original)
+            clone=root/"separate-two-bank-guest.img"
+            result=stage.stage(original,clone,exe,sf2,second)
+            self.assertEqual(result["guest_second_sf2"],"C:\\\\P003BANK.SF2")
+            self.assertEqual(result["second_sf2_sha256"],
+                hashlib.sha256(second.read_bytes()).hexdigest())
+            self.assertNotEqual(result["second_sf2_sha256"],
+                                result["sf2_sha256"])
+            self.assertFalse(result["guest_original_driver_executed"])
+            self.assertEqual(stage.sha256(original),before)
+            with clone.open("rb") as disk:
+                disk.seek((63+1)*512)
+                self.assertEqual(disk.read(256*512),
+                                 disk.read(256*512))
+                disk.seek((63+1+512)*512)
+                root_entries=disk.read(3*32)
+                self.assertEqual(root_entries[:11],b"P002RAM EXE")
+                self.assertEqual(root_entries[32:43],b"P002RAM SF2")
+                self.assertEqual(root_entries[64:75],b"P003BANKSF2")
+            with self.assertRaisesRegex(ValueError,"must differ"):
+                stage.stage(original,root/"reject-same.img",exe,sf2,sf2)
+            self.assertFalse((root/"reject-same.img").exists())
+
     def test_bad_bank_rejected_before_private_image_copy(self):
         with tempfile.TemporaryDirectory(prefix="P002-synthetic-") as td:
             root=Path(td)
