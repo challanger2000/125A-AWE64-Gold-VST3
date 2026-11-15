@@ -1,6 +1,7 @@
 #include "P002PrivateOriginalRamCapture.h"
 #include "CreativeOriginalRamPortReplay.h"
 #include "CreativeSf2RamSamplePcm.h"
+#include "CreativeSf2RamBankUpload.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -280,6 +281,26 @@ bool preloadOriginalCreativeCapturedRamSource(
             error="original chip DRAM final bank word readback differs";
             return false;
         }
+    }
+    // P003 integration into the REAL exported VST3 activation path.
+    // This independent source->driver-transformed PCM16 converter is
+    // allowed only for the same SHA-pinned owner bank AND authenticated
+    // final Win95 physical RAM snapshot. It must agree with EVERY word
+    // already deposited through authentic Win95 SMALW/SMLD port replay.
+    // A disagreement is a hard activation failure, not a fallback to
+    // guessed sample coordinates or a replacement DSP.
+    awe64::creative::P003RamUploadResult p003{};
+    std::string p003Error;
+    if(!awe64::creative::p003UploadExactOriginalWin95ConvertedOwnerBank(
+           chip,ownerBank,observedFinalBytes,p003,p003Error) ||
+       !p003.entire_pool_readback_equal ||
+       !p003.original_creative_source_transformation_verified ||
+       p003.physical_word_base!=kSourceObservedWordBase ||
+       p003.source_pool_words!=kFinalOriginalSampleWords ||
+       p003.sample_headers!=kOriginalMonoSampleHeaders) {
+        error="P003 original source-converted VST3 RAM activation refused: "+
+              p003Error;
+        return false;
     }
     return true;
 }
