@@ -4,19 +4,22 @@
 #include <cstdint>
 namespace awe64::creative {
 namespace {
-// Preliminary 200 MHz guest-bus CPU-cycle model fitted to observed 86Box
-// port pacing. E22 index writes and data-port transfers have distinct
-// costs; additional initial voice allocation reads require CPU budget.
-// These are empirical RESEARCH parameters, NOT original Creative
-// instruction-cycle counts, verified driver logic or a production clock.
-// In particular: same Creative MIDI sequence in distinct Win95 sessions
-// can have a different clock phase and a different exact frame pattern.
-constexpr std::uint64_t kGuestCpuHz=200000000u;
+// P003 original owner's SHA-pinned VM/86box.cfg actually runs the
+// Pentium P54C at 133333333 Hz (not 200MHz). The authentic guest CPU
+// TSC to 44100Hz EMU8000 frame differential independently measured
+// 133333330.6 Hz on the P003-20261115-181229 capture.
+// Earlier experimental coefficients were incorrectly labeled as
+// 200MHz guest CPU cycles. They were fitted to the SAME source sample
+// clock and have been rescaled by 2/3 solely to preserve the existing
+// provisional sample-frame candidate. These are still NOT actual
+// 1996 Creative VXD instruction timings. No validated autonomous
+// multi-run PCM equivalence is claimed; private research flag ONLY.
+constexpr std::uint64_t kGuestCpuHz=133333333u;
 constexpr std::uint64_t kChipHz=44100u;
-constexpr std::uint64_t kIndexOutCycles=20u;
-constexpr std::uint64_t kDataOutCycles=67u;
-constexpr std::uint64_t kInitialBusPhaseCycles=2020u;
-constexpr std::uint64_t kExtraInitialWriteCycles=291u;
+constexpr std::uint64_t kIndexOutCycles=13u;
+constexpr std::uint64_t kDataOutCycles=45u;
+constexpr std::uint64_t kInitialBusPhaseCycles=1347u;
+constexpr std::uint64_t kExtraInitialWriteCycles=194u;
 constexpr std::size_t kObservedMinPreludeWrites=12u;
 constexpr std::size_t kMaxPreludeWrites=24u;
 
