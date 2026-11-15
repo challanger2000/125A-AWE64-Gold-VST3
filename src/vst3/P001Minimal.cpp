@@ -92,6 +92,9 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
     const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
     const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
                                    clockEnv[1]=='\0';
+    const char* paceEnv=std::getenv("AWE64_P003_AUTONOMOUS_OUT_PACING");
+    const bool autonomousPacing=paceEnv && paceEnv[0]=='1' &&
+                                paceEnv[1]=='\0';
 
     const char* privateResetEnv=
         std::getenv("AWE64_P002_PRIVATE_WIN95_SOURCE_RESET");
@@ -102,12 +105,13 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
             nullptr,1,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateWin95ResetParam));
     }
-    if(!clockedRamRequested &&
+    if(!clockedRamRequested && !autonomousPacing &&
        ((diag && *diag) || (bank && *bank) || nativeRamRequested))
         parameters.addParameter(STR16("P002 private CC64 sustain"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateDiagnosticCc64Param));
-    if(!clockedRamRequested && ((bank && *bank) || nativeRamRequested)) {
+    if(!clockedRamRequested && !autonomousPacing &&
+       ((bank && *bank) || nativeRamRequested)) {
         parameters.addParameter(STR16("P002 source SF2 program"),
             nullptr,127,0.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateProgramParam));
@@ -179,6 +183,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002OriginalRamNotes_.clear();
         nativeRamClock_.clear();
         clockedNativeRam_=false;
+        autonomousNativeRam_=false;
         clockedNativeRamFailed_=false;
         p002RomBank_.clear(); // non-RT activation thread only
         p002DiagnosticEnabled_=false;
@@ -220,6 +225,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     p002OriginalRamNotes_.clear();
     nativeRamClock_.clear();
     clockedNativeRam_=false;
+    autonomousNativeRam_=false;
     clockedNativeRamFailed_=false;
     privateWin95SourceReset_=false;
     privateWin95SourceResetDone_=false;
@@ -271,6 +277,9 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
     const char* clockEnv=std::getenv("AWE64_P002_CLOCKED_NATIVE_ORIGINAL_RAM");
     const bool clockedRamRequested=clockEnv && clockEnv[0]=='1' &&
                                    clockEnv[1]=='\0';
+    const char* paceEnv=std::getenv("AWE64_P003_AUTONOMOUS_OUT_PACING");
+    const bool autonomousPacing=paceEnv && paceEnv[0]=='1' &&
+                                paceEnv[1]=='\0';
     const char* tracePath=std::getenv("AWE64_P002_NATIVE_REGISTER_OUT_PATH");
     const bool traceRequested=tracePath && *tracePath;
     const char* dryWavPath=std::getenv("AWE64_P002_NATIVE_DRY_PCM_WAV_PATH");
@@ -293,6 +302,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
 
     if((nativeRam && *nativeRam && !nativeRamRequested) ||
        (clockEnv && *clockEnv && !clockedRamRequested) ||
+       (paceEnv && *paceEnv && !autonomousPacing) ||
+       (autonomousPacing &&
+        (!nativeRamRequested || clockedRamRequested ||
+         sourceRamNoteRequested)) ||
        (clockedRamRequested && !nativeRamRequested) ||
        ((traceRequested || dryWavRequested) && !nativeRamRequested) ||
        modeConflict || (originalPreludeRequested && !nativeRamRequested) ||
@@ -414,14 +427,15 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         }
         p002BankEnabled_=true;
         privateWin95SourceReset_=sourceResetRequested;
-        if(clockedRamRequested) {
+        if(clockedRamRequested || autonomousPacing) {
             // Snapshot reservation is on setActive, never in process().
-            if(!p002OriginalRamNotes_.ready() ||
+            if((clockedRamRequested && !p002OriginalRamNotes_.ready()) ||
                !chip_.armNativeNoteOutTransaction()) {
                 std::fputs("P002 native original clock capture cannot be armed\n",stderr);
                 chip_.close();return kResultFalse;
             }
             clockedNativeRam_=true;
+            autonomousNativeRam_=autonomousPacing;
         }
         // Arm only AFTER the authentic Win95 Creative source RAM upload
         // and the private VXD table/state SHA gates have succeeded.
@@ -503,8 +517,12 @@ bool Minimal::stagePrivateClockedNote(
     // SHA-pinned owner captures. Normal VST3 MIDI/SF2 notes remain
     // fully independent and are not spuriously limited to C4/D4.
     if(!clockedNativeRam_ || clockedNativeRamFailed_ ||
-       !p002OriginalRamNotes_.ready() || channel!=0 ||
-       (pitch!=60 && pitch!=62) || (!release && velocity!=100) ||
+       (!autonomousNativeRam_ && !p002OriginalRamNotes_.ready()) ||
+       channel<0 || channel>15 || pitch<0 || pitch>127 ||
+       (!release && (velocity<=0 || velocity>127)) ||
+       (!autonomousNativeRam_ &&
+        (channel!=0 || (pitch!=60 && pitch!=62) ||
+         (!release && velocity!=100))) ||
        nativeRamClock_.pending()!=0 || nativeRamClock_.missedDeadline()) {
         clockedNativeRamFailed_=true;
         return false;
@@ -542,10 +560,16 @@ bool Minimal::stagePrivateClockedNote(
     std::array<awe64::creative::SourceClockedPort,
                awe64::creative::SourceClockedPortPlayer::kMaxEvents> native{};
     std::size_t count=0u;
-    if(!p002OriginalRamNotes_.verifiedNativeClockPlan(
-           release,channel,pitch,velocity,
-           chip_.nativeNoteOutTransaction(),native,count) ||
-       !nativeRamClock_.stage(
+    // The autonomous model uses only independently generated native
+    // MIDI-to-register words; original port-clock clips are never read.
+    // The exact original-source comparison mode remains unchanged.
+    const bool planOk=autonomousNativeRam_
+        ? awe64::creative::p003CandidateAutonomousNoteTimeline(
+              chip_.nativeNoteOutTransaction(),release,native,count)
+        : p002OriginalRamNotes_.verifiedNativeClockPlan(
+              release,channel,pitch,velocity,
+              chip_.nativeNoteOutTransaction(),native,count);
+    if(!planOk || !nativeRamClock_.stage(
            chip_,std::span<const awe64::creative::SourceClockedPort>(
                native.data(),count))) {
         // The original chip state has already been restored. Restore
