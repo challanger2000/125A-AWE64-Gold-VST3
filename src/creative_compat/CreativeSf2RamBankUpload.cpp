@@ -206,6 +206,16 @@ p003CandidatePhysicalNoteFromVerifiedRawPool(
     const auto bytes=pool->whole_smpl_pcm_le16;
     const auto offset=std::size_t(upload.physical_word_base-
                                   awe64::kSampleRamBase);
+    // Verify the complete bank, not merely the currently requested layer.
+    // A forged/stale upload result or corruption in another layer must
+    // not be accepted as a verified physical SoundFont mapping.
+    for(std::size_t word=0;word<upload.source_pool_words;++word) {
+        const std::uint16_t original=static_cast<std::uint16_t>(
+            std::uint16_t(bytes[word*2u]) |
+            (std::uint16_t(bytes[word*2u+1u])<<8u));
+        if(std::bit_cast<std::uint16_t>(raw->ram[offset+word])!=original)
+            return std::nullopt;
+    }
     for(std::size_t voice=0;voice<note->count;++voice) {
         const auto& v=note->layers[voice];
         const auto start=std::size_t(v.physical_sample_start-
