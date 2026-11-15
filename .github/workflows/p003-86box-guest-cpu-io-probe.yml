@@ -33,7 +33,7 @@ jobs:
             --original-io-c third_party/86box-awe32/src/io.c \
             --output-io-c "$RUNNER_TEMP/p003-instrumented-io.c"
           test -s "$RUNNER_TEMP/p003-instrumented-io.c"
-          grep -q 'P003_CPU_GUEST_PHYSICAL16_V2' "$RUNNER_TEMP/p003-instrumented-io.c"
+          grep -q 'P003_CPU_GUEST_PHYSICAL_8_16_32_V3' "$RUNNER_TEMP/p003-instrumented-io.c"
           grep -q 'p003_cpu_io_note' "$RUNNER_TEMP/p003-instrumented-io.c"
           test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
           echo 'P003_ORIGINAL_FORK_IO_LAYER_RESEARCH_TRACE_PROBE_READY'
