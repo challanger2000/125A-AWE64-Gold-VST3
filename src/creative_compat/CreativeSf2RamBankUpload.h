@@ -51,6 +51,19 @@ struct P003RamUploadResult {
     bool original_driver_and_sf2_hashes_independently_verified,
     P003RamUploadResult& result,std::string& error);
 
+// Derive the BANK BASE from actual original Creative SMALW/SMLD
+// physical writes, instead of requiring the caller to supply or guess
+// 0x200010 or another address. The verified complete original trace
+// and final physical DRAM image remain mandatory. No 1996 allocation
+// algorithm is conjectured. Activation thread only.
+[[nodiscard]] bool p003ReplaySourceCapturedMonoSf2BankAtObservedAddress(
+    awe64::Chip& chip,
+    std::span<const std::uint8_t> sf2,
+    std::span<const OriginalRamUploadPortWrite> original_ports,
+    std::span<const std::uint16_t> original_final_words,
+    bool original_driver_and_sf2_hashes_independently_verified,
+    P003RamUploadResult& result,std::string& error);
+
 // Source-captured physical SF2 note address resolver. Unlike raw
 // pool resolver this accepts original driver TRANSFORMED RAM bytes,
 // provided the FULL final original chip RAM image still matches the
