@@ -182,6 +182,43 @@ int main() {
         CHECK(original->ram[
             awe64::kFmReservedBase-awe64::kSampleRamBase+i]==
             reservedBefore[i]);
+    // Automatic candidate multi-bank allocation (NOT driver parity):
+    // two different SF2 banks coexist without physical overlap.
+    P003CandidateRamAllocator allocator(
+        awe64::kSampleRamBase+1024u,awe64::kSampleRamBase+1280u);
+    P003CandidateRamAllocation firstLease{},secondLease{};
+    P003RamUploadResult firstAuto{},secondAuto{};
+    CHECK(p003CandidateAllocateAndUploadMonoSf2(
+        chip,allocator,bank,firstLease,firstAuto,error));
+    CHECK(firstLease.base==awe64::kSampleRamBase+1024u &&
+          firstAuto.entire_pool_readback_equal &&
+          allocator.contains(firstLease));
+    CHECK(p003CandidateAllocateAndUploadMonoSf2(
+        chip,allocator,damaged,secondLease,secondAuto,error));
+    CHECK(secondLease.base==firstLease.base+firstLease.words &&
+          allocator.contains(secondLease));
+    const auto firstAutoAt=firstLease.base-awe64::kSampleRamBase;
+    const auto savedFirstAuto=original->ram[firstAutoAt];
+    CHECK(!p003CandidateAllocateAndUploadMonoSf2(
+        chip,allocator,sf2(true),firstLease,firstAuto,error));
+    CHECK(allocator.usedBanks()==2u &&
+          original->ram[firstAutoAt]==savedFirstAuto);
+    CHECK(allocator.release(firstLease)==false); // failed call cleared handle
+    CHECK(allocator.release(secondLease));
+    CHECK(allocator.usedBanks()==1u);
+    // Explicit cleanup via the first lease's known verified location,
+    // not by a reset that could incorrectly stop active sample voices.
+    P003CandidateRamAllocation recovered{};
+    for(std::uint32_t i=0;i<P003CandidateRamAllocator::kMaxBanks;++i) {
+        // first occupies slot 0, generation 1.
+        const P003CandidateRamAllocation candidate{
+            awe64::kSampleRamBase+1024u,8u,1u,i};
+        if(allocator.contains(candidate)) {recovered=candidate;break;}
+    }
+    CHECK(allocator.contains(recovered));
+    CHECK(allocator.release(recovered));
+    CHECK(allocator.usedBanks()==0u);
+
     // General P003 driver-CAPTURED loader: different physical base,
     // independent final words and original Creative SMALW/SMLD register
     // writes. This models a second source recording, never a guessed
