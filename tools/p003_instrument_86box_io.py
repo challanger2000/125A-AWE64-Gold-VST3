@@ -11,16 +11,20 @@ from pathlib import Path
 import sys
 
 ORIGINAL_IO_BLOB_SHA1 = "dbb3530af572426f3ef9e990d3158142c9bf841f"
-MARKER = "P003_CPU_GUEST_PHYSICAL16_V2"
+MARKER = "P003_CPU_GUEST_PHYSICAL_8_16_32_V3"
 HEADER = "#define NPORTS 65536 /* PC/AT supports 64K ports */"
 IN_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) in w(%04X) = %04X\\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);'
 OUT_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) outw(%04X, %04X)\\n", CS, cpu_state.pc, in_smm, found, qfound, port, val);'
 LOGGER = r'''
-/* P003 V2: monitor the physical 16-bit callback dispatch, NOT just
- * guest OUTW/INW. Original Creative uses 32-bit OUTL/INL, which 86Box
- * dispatches through p->outw / p->inw as the AWE32 handler has no
- * outl/inl registration. The physical handler logs the same 16-bit
- * register writes as the UNMODIFIED EMU8000 core.
+/* P003 V3: monitor the physical byte and 16-bit callback dispatch, NOT just
+ * guest OUTW/INW. Original Creative uses byte index OUTB, 16-bit
+ * and 32-bit OUTL/INL, which 86Box dispatches through the registered
+ * p->outb/inb and p->outw/inw handlers. Record the effective word
+ * callback address/value for BYTE OUTB exactly as in emu8k_outb.
+ * BYTE INB triggers emu8k_inw, but returns only a byte, so mark that
+ * value as unknown ('r') while preserving CPU-clock, port and order.
+ * The source EMU8K trace independently contains full 16-bit read values.
+ * Chip model, original Creative driver and sound device remain intact.
  * No original DSP source, driver or sound card handler is modified. */
 static FILE *p003_cpu_io_file;
 static int p003_cpu_io_initialized;
@@ -45,7 +49,7 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
         if (path && *path) {
             p003_cpu_io_file = fopen(path, "wb");
             if (p003_cpu_io_file) {
-                fputs("# P003_CPU_GUEST_PHYSICAL16_V2 "
+                fputs("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "
                       "CPU_TSC_AND_REMAINING_CYCLES_NOT_YET_CLOCK_CALIBRATED\n",
                       p003_cpu_io_file);
                 atexit(p003_cpu_io_close);
@@ -58,6 +62,24 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
                 direction, (unsigned long long) tsc, (int) cycles,
                 (unsigned) CS, (unsigned) cpu_state.pc,
                 (unsigned) port, (unsigned) value, p003_cpu_io_seq++);
+}
+/* Exact EMU8K byte-handler calling semantics, from the SHA-pinned original:
+ * outb(even,val) -> outw(even,val); outb(odd,val) -> outw(even,val<<8).
+ * inb(even/odd) -> inw(even) -> only a byte returned. */
+static uint8_t p003_physical_inb(uint16_t port, void *priv,
+                                uint8_t (*cb)(uint16_t, void *))
+{
+    uint8_t value = cb(port, priv);
+    p003_cpu_io_note('r', port & (uint16_t) ~1u, (uint16_t) value);
+    return value;
+}
+static void p003_physical_outb(uint16_t port, uint8_t value, void *priv,
+                              void (*cb)(uint16_t, uint8_t, void *))
+{
+    cb(port, value, priv);
+    p003_cpu_io_note('W', port & (uint16_t) ~1u,
+                     (uint16_t) ((port & 1u) ?
+                         ((uint16_t) value << 8) : value));
 }
 static uint16_t p003_physical_inw(uint16_t port, void *priv,
                                  uint16_t (*cb)(uint16_t, void *))
@@ -116,6 +138,12 @@ def instrument(raw: bytes, pin: str | None = ORIGINAL_IO_BLOB_SHA1) -> bytes:
          "p003_physical_outw(port, val, p->priv, p->outw)", 1),
         ("p->outw(port + i, val >> (i << 3), p->priv)",
          "p003_physical_outw(port + i, val >> (i << 3), p->priv, p->outw)", 1),
+        # Direct BYTE callbacks are the missing E22 index selects in V2.
+        # The original EMU8000 has separate inb/outb and inw/outw handlers.
+        ("p->inb(port, p->priv)",
+         "p003_physical_inb(port, p->priv, p->inb)", 1),
+        ("p->outb(port, val, p->priv)",
+         "p003_physical_outb(port, val, p->priv, p->outb)", 1),
     ):
         if source.count(before) != n:
             raise ValueError("Unexpected original callback count: " + before)
