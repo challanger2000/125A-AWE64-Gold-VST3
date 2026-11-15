@@ -20,6 +20,7 @@ import struct
 ORIGINAL_DISK_BYTES = 536_870_912
 GUEST_BOOTSTRAP = b"P002RAM EXE"    # Windows 95 8.3 FAT root entry
 GUEST_SOUNDFONT = b"P002RAM SF2"
+GUEST_SECOND_SOUNDFONT = b"P003BANKSF2"  # Optional original Creative bank slot 2
 
 
 def require(condition: bool, problem: str):
@@ -36,11 +37,12 @@ def sha256(path: Path) -> str:
 
 
 def stage(original: Path, destination: Path, win95_exe: Path,
-          private_sf2: Path) -> dict:
+          private_sf2: Path, second_sf2: Path | None = None) -> dict:
     original = original.resolve()
     destination = destination.resolve()
     win95_exe = win95_exe.resolve()
     private_sf2 = private_sf2.resolve()
+    second_sf2 = second_sf2.resolve() if second_sf2 else None
     repository = Path(__file__).resolve().parents[1]
     require(original.is_file() and
             original.stat().st_size == ORIGINAL_DISK_BYTES,
@@ -51,7 +53,7 @@ def stage(original: Path, destination: Path, win95_exe: Path,
     require(private_sf2.is_file() and
             96 <= private_sf2.stat().st_size <= 32 * 1024 * 1024,
             "Private SoundFont absent/outside checked research size")
-    require(destination not in (original, win95_exe, private_sf2) and
+    require(destination not in (original, win95_exe, private_sf2, second_sf2) and
             not destination.exists() and repository not in destination.parents,
             "Private disposable clone must be new, distinct and outside Git")
     with win95_exe.open("rb") as source:
@@ -65,9 +67,25 @@ def stage(original: Path, destination: Path, win95_exe: Path,
                 private_sf2.stat().st_size - 8,
                 "Private SF2 RIFF length mismatch")
 
+    if second_sf2 is not None:
+        require(second_sf2.is_file() and
+                96 <= second_sf2.stat().st_size <= 32 * 1024 * 1024 and
+                second_sf2 not in (original, win95_exe, private_sf2),
+                "P003 second independent SF2 missing, same source or invalid size")
+        with second_sf2.open("rb") as source:
+            head = source.read(12)
+            require(head[:4] == b"RIFF" and head[8:] == b"sfbk" and
+                    struct.unpack_from("<I", head, 4)[0] ==
+                    second_sf2.stat().st_size - 8,
+                    "P003 second bank invalid RIFF/sfbk identity")
+
     # Hard private source identity and original disk safety gates.
     disk_sha = sha256(original)
     sf2_sha = sha256(private_sf2)
+    second_sha = sha256(second_sf2) if second_sf2 else None
+    if second_sha is not None:
+        require(second_sha != sf2_sha,
+                "P003 second bank must differ from first original bank")
     exe_sha = sha256(win95_exe)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(original, destination)
@@ -127,11 +145,15 @@ def stage(original: Path, destination: Path, win95_exe: Path,
                 ent = root[i:i+32]
                 if ent[0] in (0, 0xE5):
                     slots.append(i)
-                elif ent[:11] in (GUEST_BOOTSTRAP, GUEST_SOUNDFONT):
+                elif ent[:11] in (GUEST_BOOTSTRAP, GUEST_SOUNDFONT,
+                                     GUEST_SECOND_SOUNDFONT):
                     raise ValueError("Private guest already contains P002RAM file")
-            require(len(slots) >= 2, "FAT16 root has insufficient free entries")
             payloads = [(GUEST_BOOTSTRAP, win95_exe),
                         (GUEST_SOUNDFONT, private_sf2)]
+            if second_sf2 is not None:
+                payloads.append((GUEST_SECOND_SOUNDFONT, second_sf2))
+            require(len(slots) >= len(payloads),
+                    "FAT16 root has insufficient free entries")
             needed = [((p.stat().st_size + cluster_bytes - 1) //
                        cluster_bytes) for _, p in payloads]
             selected = []
@@ -179,6 +201,8 @@ def stage(original: Path, destination: Path, win95_exe: Path,
             "private_clone": str(destination),
             "guest_exe": "C:\\P002RAM.EXE",
             "guest_sf2": "C:\\P002RAM.SF2",
+            "guest_second_sf2": "C:\\P003BANK.SF2" if second_sf2 else None,
+            "second_sf2_sha256": second_sha,
             "win95_original_disk_sha256_unchanged": disk_sha,
             "sf2_sha256": sf2_sha,
             "guest_exe_sha256": exe_sha,
@@ -197,9 +221,13 @@ def main():
     parser.add_argument("--private-clone",type=Path,required=True)
     parser.add_argument("--win95-p002ram-exe",type=Path,required=True)
     parser.add_argument("--private-sf2",type=Path,required=True)
+    parser.add_argument("--private-second-sf2",type=Path,
+                        help="Optional genuine Creative 1996 multi-bank"
+                             " allocation/release comparison bank")
     args=parser.parse_args()
     print(stage(args.private_win95_disk,args.private_clone,
-                args.win95_p002ram_exe,args.private_sf2))
+                args.win95_p002ram_exe,args.private_sf2,
+                args.private_second_sf2))
 
 
 if __name__=="__main__":
