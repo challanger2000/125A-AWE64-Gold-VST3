@@ -33,4 +33,12 @@ namespace awe64::vst3 {
     const std::filesystem::path& originalFilteredCapturedRamPorts,
     const std::filesystem::path& observedOriginalFinalBankWordsPcm16,
     std::string& error);
+// After an authenticated full Win95 prelude recreates the chip, re-run
+// the independent P003 SHA-pinned owner converter against THAT final
+// physical chip state. No conjectural RAM allocator or DSP processing.
+[[nodiscard]] bool p003ReattestOwnerRamAfterOriginalPrelude(
+    awe64::Chip& unchangedOriginalEmu8000,
+    const std::filesystem::path& privateOwnerSf2,
+    const std::filesystem::path& observedOriginalFinalBankWordsPcm16,
+    std::string& error);
 } // namespace awe64::vst3
