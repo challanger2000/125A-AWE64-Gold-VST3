@@ -56,6 +56,20 @@ SECOND_MARKERS = (
     "P003_ORIGINAL_SECOND_BANK_PORT_CAPTURE_END",
     "P003_ORIGINAL_SECOND_BANK_EXPERIMENT_FINISHED",
 )
+SECOND_MIDI_MARKERS = (
+    "P003_ORIGINAL_SECOND_BANK_MIDI_BEGIN",
+    "P003_ORIGINAL_SECOND_BANK_MIDI_END",
+)
+SECOND_MIDI_KEYS = (
+    "P003_ORIGINAL_SECOND_BANK_CC0_2_RC",
+    "P003_ORIGINAL_SECOND_BANK_PROGRAM7_RC",
+    "P003_ORIGINAL_SECOND_BANK_CC91_ZERO_RC",
+    "P003_ORIGINAL_SECOND_BANK_CC93_ZERO_RC",
+    "P003_SECOND_BANK_NOTE_ON_TICK_MS",
+    "P003_ORIGINAL_SECOND_BANK_NOTE60_ON_RC",
+    "P003_SECOND_BANK_NOTE_OFF_TICK_MS",
+    "P003_ORIGINAL_SECOND_BANK_NOTE60_OFF_RC",
+)
 SECOND_KEYS = (
     "P003_SECOND_SF2_SIZE",
     "P003_SECOND_SF2_FNV1A32",
@@ -139,16 +153,20 @@ def audit(raw: bytes, source_sf2: bytes,
     if second_present != (second_sf2 is not None):
         raise ValueError("P003 independent second SF2 and its original guest log must agree")
     if second_present:
-        if any(lines.count(marker) != 1 for marker in SECOND_MARKERS):
+        if any(lines.count(marker) != 1 for marker in
+               (*SECOND_MARKERS, *SECOND_MIDI_MARKERS)):
             raise ValueError("P003 original second-bank marker missing/duplicated")
         if not (lines.index(DIRECT_END) <
                 lines.index(SECOND_MARKERS[0]) <
                 lines.index(SECOND_MARKERS[1]) <
                 lines.index(SECOND_MARKERS[2]) <
+                lines.index(SECOND_MIDI_MARKERS[0]) <
+                lines.index(SECOND_MIDI_MARKERS[1]) <
                 lines.index(SECOND_MARKERS[3]) <
                 lines.index(SUCCESS)):
             raise ValueError("P003 original second-bank load/clear marker order")
-    elif any(marker in lines for marker in SECOND_MARKERS[1:]):
+    elif any(marker in lines for marker in
+             (*SECOND_MARKERS[1:], *SECOND_MIDI_MARKERS)):
         raise ValueError("P003 orphan second-bank capture marker")
     seen: dict[str, int] = {}
     dll_path: str | None = None
@@ -174,6 +192,7 @@ def audit(raw: bytes, source_sf2: bytes,
             seen[key] = int(word, 16)
         elif line not in (CAPTURE_BEGIN, CAPTURE_END, DIRECT_BEGIN, DIRECT_END,
                           SUCCESS, NO_EVIDENCE, *SECOND_MARKERS,
+                          *SECOND_MIDI_MARKERS,
                           "GUEST_DRAM_ALLOCATION_API_ALONE_NOT_HARDWARE_UPLOAD_PROOF",
                           "ORIGINAL_USER_BANK_CC0_VALUE1_ORIGINAL_FAQ_F6") and not (
                           line.startswith("LOADED_CREATIVE_MODULE_PATH=") or
@@ -188,7 +207,7 @@ def audit(raw: bytes, source_sf2: bytes,
                 int.from_bytes(second_sf2[4:8], "little") != len(second_sf2) - 8 or
                 hashlib.sha256(source_sf2).digest() == hashlib.sha256(second_sf2).digest()):
             raise ValueError("P003 second SF2 missing/invalid/identical to first")
-        for key in SECOND_KEYS:
+        for key in (*SECOND_KEYS, *SECOND_MIDI_KEYS):
             if key not in seen:
                 raise ValueError("P003 second-bank original driver result missing: " + key)
         if seen["P003_SECOND_SF2_SIZE"] != len(second_sf2) or (
@@ -211,6 +230,13 @@ def audit(raw: bytes, source_sf2: bytes,
                 cleared == start and
                 seen["P003_ORIGINAL_SECOND_BANK_DRIVER_WORD_DELTA"] == start-after):
             raise ValueError("P003 original Creative second-bank allocation/release mismatch")
+        for key in SECOND_MIDI_KEYS:
+            if key.endswith("_RC") and seen[key]!=0:
+                raise ValueError("P003 original Creative second-bank MIDI call failed: "+key)
+        start_note=seen["P003_SECOND_BANK_NOTE_ON_TICK_MS"]
+        end_note=seen["P003_SECOND_BANK_NOTE_OFF_TICK_MS"]
+        if end_note<start_note+350 or end_note>start_note+5000:
+            raise ValueError("P003 original second-bank note duration invalid")
         # All driver API markers must bracket the exact second bank.
         key_line=lambda key: next(i for i,x in enumerate(lines)
                                   if x.startswith(key+"="))
@@ -221,6 +247,14 @@ def audit(raw: bytes, source_sf2: bytes,
                 key_line("P003_ORIGINAL_SECOND_BANK_LOAD_RC") <
                 lines.index(SECOND_MARKERS[2]) <
                 key_line("P003_AFTER_SECOND_FREE_16BIT_WORDS") <
+                lines.index(SECOND_MIDI_MARKERS[0]) <
+                key_line("P003_ORIGINAL_SECOND_BANK_CC0_2_RC") <
+                key_line("P003_ORIGINAL_SECOND_BANK_PROGRAM7_RC") <
+                key_line("P003_SECOND_BANK_NOTE_ON_TICK_MS") <
+                key_line("P003_ORIGINAL_SECOND_BANK_NOTE60_ON_RC") <
+                key_line("P003_SECOND_BANK_NOTE_OFF_TICK_MS") <
+                key_line("P003_ORIGINAL_SECOND_BANK_NOTE60_OFF_RC") <
+                lines.index(SECOND_MIDI_MARKERS[1]) <
                 key_line("P003_ORIGINAL_SECOND_BANK_CLEAR_RC") <
                 key_line("P003_AFTER_SECOND_CLEAR_FREE_16BIT_WORDS") <
                 lines.index(SECOND_MARKERS[3])):
