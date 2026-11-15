@@ -4,6 +4,7 @@
 // allocator, sample remapper or sound-parity certificate.
 #include "Chip.h"
 #include "CreativeSf2RamSamplePcm.h"
+#include "CreativeOriginalRamPortReplay.h"
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -23,6 +24,24 @@ struct P003RamUploadResult {
     awe64::Chip& chip,std::span<const std::uint8_t> sf2,
     std::uint32_t explicit_physical_word_base,
     P003RamUploadResult& result,std::string& error);
+// P003 generic source-CAPTURED SF2 RAM bank. For any structurally
+// valid mono SF2, the caller supplies a separately authenticated Win95
+// Creative SMALW/SMLD upload trace, physical base and final DRAM image.
+// The actual Creative trace is the ONLY hardware write path. No assumed
+// 0x200010 address, no blind raw smpl memcpy, no one-bank-only SHA gate.
+// "source_verified" must be established externally with true original
+// Win95 provenance and hashes: this API does NOT perform that audit or
+// independently synthesize the original Creative RAM allocator.
+// Rejects mismatched/truncated/overlapping source evidence BEFORE writing.
+[[nodiscard]] bool p003ReplaySourceCapturedMonoSf2Bank(
+    awe64::Chip& chip,
+    std::span<const std::uint8_t> sf2,
+    std::span<const OriginalRamUploadPortWrite> original_ports,
+    std::uint32_t original_physical_base,
+    std::span<const std::uint16_t> original_final_words,
+    bool original_driver_and_sf2_hashes_independently_verified,
+    P003RamUploadResult& result,std::string& error);
+
 // Strict original-Win95-owner profile: SHA-attest BOTH the authentic
 // 555,754-byte source SF2 and the authentic 521,842-byte physical RAM
 // word snapshot; run the 3-tap original-driver-observed conversion and
