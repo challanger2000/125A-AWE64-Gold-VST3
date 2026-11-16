@@ -125,6 +125,40 @@ int main() {
     CHECK(catalog.sourceSlotCount()==0u);
     put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0xffffu);
 
+    // Full owner-observed GM bank shape: 76-byte pointer header, 128
+    // melodic programs plus program 128 (Standard drums), then FFFF.
+    // The bytes are synthetic and do not assert owner attestation.
+    constexpr std::size_t nOriginalPrograms=129u;
+    std::vector<std::uint8_t> gmBlock(
+        76u+(nOriginalPrograms+1u)*Importer::kOriginalRowBytes);
+    for(std::size_t i=0u;i<7u;++i)
+        put32(gmBlock,i*4u,bankRoot+76u+static_cast<std::uint32_t>(
+            i*(nOriginalPrograms+1u)*Importer::kOriginalRowBytes));
+    for(std::size_t i=0u;i<nOriginalPrograms;++i) {
+        const auto at=76u+i*Importer::kOriginalRowBytes;
+        put16(gmBlock,at,1u);
+        gmBlock[at+2u]=static_cast<std::uint8_t>(i);
+        gmBlock[at+3u]=0u;
+    }
+    put16(gmBlock,
+        76u+nOriginalPrograms*Importer::kOriginalRowBytes,0xffffu);
+    const std::array<P005OriginalGuestMemorySegment,1> gmMemory{{
+        {bankRoot,gmBlock}
+    }};
+    CHECK(Importer::importNonRealtime(
+        catalog,indirectDevice,gmMemory,true)==Result::Ok);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==130u);
+    CHECK(catalog.sourceRowCountNonRealtime(6u)==130u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)
+        ->original_program_byte==0u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,127u)
+        ->original_program_byte==127u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,128u)
+        ->original_program_byte==128u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,129u)
+        ->original_source_marker==0xffffu);
+    CHECK(catalog.resetNonRealtime());
+
     CHECK(Importer::importNonRealtime(
         catalog,sourceDevice,memory,true)==Result::Ok);
     CHECK(catalog.sourceSlotCount()==original_program_bank_slots);
