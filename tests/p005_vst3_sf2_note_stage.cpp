@@ -93,8 +93,9 @@ int main(){
     CHECK(stage.prepareNonRealtime(file,1u,7u,60u,100u,original,states,true)==Sf2BuildStatus::Ok);
     Chip chip{};
     P005OriginalCreativeHostAdapter<Chip> host{};
-    auto sourceBank=stage.view();
-    CHECK(host.activate(chip,sourceBank,true));
+    // Stage::view() is a PRVALUE. The original MIDI callback opaque
+    // MUST point to an adapter-owned bank snapshot, NOT to a temporary.
+    CHECK(host.activate(chip,stage.view(),true));
     CHECK(host.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(host.program(0u,7u)==MidiResult::Applied);
     const auto before=chip.writes;
@@ -104,6 +105,48 @@ int main(){
     CHECK(host.noteOff(0u,60u)==MidiResult::Applied);
     host.resetNonRealtime();
     CHECK(!host.active());
+    // Original Creative device directory is 288 slots, NOT 77 PHDR
+    // entries padded to 128. Bind the authenticated PHDR-derived source
+    // to the physical VXD slot+row identity, then use the ORIGINAL
+    // ProgramChange resolver to reach that exact zone on NoteOn.
+    std::array<OriginalProgramBankSlot,original_program_bank_slots> slots{};
+    std::array<OriginalPresetTableRow,2> slot5{{
+        {1u,7u,1u},{0xffffu,0u,0u}}};
+    slots[5].rows=slot5;
+    OriginalProgramBankMap originalDirectory{true,slots};
+    Chip chip2{};
+    P005OriginalCreativeHostAdapter<Chip> sourceMatched{};
+    auto malformedDirectory=originalDirectory;
+    malformedDirectory.slots=std::span<const OriginalProgramBankSlot>(
+        slots.data(),10u);
+    CHECK(!sourceMatched.activate(
+        chip2,stage.view(malformedDirectory),true));
+    CHECK(!sourceMatched.active());
+    slot5[0].original_bank_byte=2u;
+    CHECK(!sourceMatched.activate(
+        chip2,stage.view(originalDirectory),true));
+    CHECK(!sourceMatched.active());
+    slot5[0].original_bank_byte=1u;
+    slots[5].rows=std::span<const OriginalPresetTableRow>(
+        slot5.data(),1u); // missing original EOP-style VXD sentinel
+    CHECK(!sourceMatched.activate(
+        chip2,stage.view(originalDirectory),true));
+    CHECK(!sourceMatched.active());
+    slots[5].rows=slot5;
+    CHECK(sourceMatched.activate(
+        chip2,stage.view(originalDirectory),true));
+    CHECK(sourceMatched.controller(0u,0u,1u)==MidiResult::Applied);
+    CHECK(sourceMatched.program(0u,7u)==MidiResult::Applied);
+    CHECK(sourceMatched.sharedRuntime()->midi.channel[0]
+        .original_selected_bank_slot==5u);
+    CHECK(sourceMatched.sharedRuntime()->midi.channel[0]
+        .original_selected_preset_row==0u);
+    CHECK(sourceMatched.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(sourceMatched.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(sourceMatched.program(0u,9u)==MidiResult::MissingSource);
+    sourceMatched.resetNonRealtime();
+    CHECK(!sourceMatched.active());
     std::puts("P005_REAL_SOURCE_READER_RESOURCE_BUILDER_TO_VST3_MIDI_PASS synthetic_source_only=TRUE original_win95_parity=NOT_PROVEN");
+    std::puts("P005_ORIGINAL_288_SLOT_BANK_ROW_IDENTITY_PASS ephemeral_view_lifetime_safe=TRUE 77_PHDR_PRESERVED=TRUE");
     return 0;
 }
