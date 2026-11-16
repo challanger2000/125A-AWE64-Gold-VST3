@@ -169,7 +169,6 @@ public:
                 if(ordinal==0u && !followedBankHeader) {
                     const auto a=read32(joined.data());
                     const auto b=read32(joined.data()+4u);
-                    const auto c=read32(joined.data()+8u);
                     bool ordered=true;
                     for(std::size_t i=0u;i<6u;++i)
                         if(read32(joined.data()+4u*i)>=
