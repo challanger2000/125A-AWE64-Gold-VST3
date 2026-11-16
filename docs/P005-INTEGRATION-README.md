@@ -137,3 +137,54 @@ Fällen, 100 Takte in insgesamt 3.526 Fällen; jeweils folgt ein
 Original-REA-Funktionszweige erzeugtes Timing darf die autonome
 CPU-Taktplanung steuern. Diese Arbeit bleibt beim Kontrollchat, um
 eine doppelte eigene Schedulerimplementierung zu vermeiden.
+
+
+## P005 – unveränderlicher Original-288-Slot-Katalog (16.11.2026)
+
+Zusätzlich zur bisherigen Einzelnote-Stage steht jetzt
+\`src/vst3/P005OriginalCreativeBankCatalog.hpp\` bereit:
+
+- Der Original-Programmkatalog wird **nur mit exakt 288 authentifizierten
+  VXD-Slot-Einträgen** übernommen. Leere ursprüngliche Pointer-Slots
+  bleiben leer; existierende 26-Byte-Records bleiben in der übergebenen
+  Reihenfolge; der abschließende FFFF-Eintrag ist verpflichtend.
+- Der Catalog übernimmt **die tatsächlichen Quelldatensätze in eigenen
+  Besitz**, statt sie aus einer temporären privaten Import-Datei
+  zu referenzieren. So können die externen Parse-Puffer nach Abschluss
+  der Vorbereitung freigegeben werden.
+- Die Original-\`P005OriginalCreativeSf2NoteStage\` liefert mehrere
+  bereits quellverifizierte Bank-/Program-/Key-/Velocity-Kontexte.
+  Der Catalog sammelt deren echte \`VerifiedSf2Zone\`-Descriptoren bis
+  zu einem ausdrücklich begrenzten Budget von 16.384 Source-Zonen.
+  Es gibt weder einen MIDI-DSP-Algorithmus noch eine automatische
+  77→128-Bankauffüllung.
+- Eine vollständig geprüfte Quelle wird **vor dem ersten Audiocallback**
+  durch \`sealNonRealtime()\` gesperrt. Das unveränderliche
+  \`VerifiedSf2Bank\`-View verwendet weiterhin die portierte original
+  Creative-ProgramChange- und NoteOn-/NoteOff-MIDI-Runtime.
+- Auf Deaktivierung wird zuerst die originale MIDI-Runtime gelöst,
+  dann Bank-/Note-View gelöscht, erst danach der Originalchip
+  geschlossen. Alle Mutationen und Vektor-Allokationen sind nicht-RT.
+- Ergänzender synthetischer C++23-Regressionstest: Echte ursprüngliche
+  SF2-RIFF-Layer-Auswahl, C4 + D4 separat vorbereitet, 288-Bank-Slots
+  kopiert, VXD-Ausgangszeilen *nach dem Import* absichtlich verändert
+  (Negativbeweis für die Lebensdauer), anschließend Original-C0,
+  2× NoteOn/Off über denselben DeviceState und Chip. Kein Klangersatz.
+
+### Fünf Original-PCM-Ausführungspfade (Kontrollchat P003)
+
+Der Kontrollchat hat inzwischen fünf Quellkontrollwege mit typischen
+Abständen **100, 104, 110, 114 CPU-Takten** rekonstruiert; in den
+beiden echten SoundFonts lassen sich **326.080 von 326.138**
+PCM-Wort-Zeitabständen erklären. **58** Abstände bleiben offen,
+davon 23 längere Ausführungspausen und 35 kleinere Differenzen.
+Für 25 originale Stereo-NoteOns liegen die CPU-Taktphasen zwischen
+**10.918 und 15.822** Takten: kein konstanter NoteOn-Budgetwert.
+
+Dieser neueste Forschungscode wurde **noch nicht** vom Kontrollchat
+als neues C++23-Quellpaket übergeben. Er ist daher auch nicht in
+P005 integriert. P005 darf keine feste NoteOn-Kostenfunktion,
+keine verallgemeinerte RAM-TSC-Heuristik und keine aus CPU-Schnellpfaden
+erratene Audioframe-Verschiebung einführen. Nur Originaltreiber-REA
+und ihre eigenen source-verifizierten TSC-Abläufe gehen später in
+den autonomen Scheduler.
