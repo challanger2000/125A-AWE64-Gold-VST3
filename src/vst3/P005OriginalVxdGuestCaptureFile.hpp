@@ -99,9 +99,12 @@ public:
                         if(read32(raw,offset+4u*i)>=
                            read32(raw,offset+4u*(i+1u)))
                             ordered=false;
-                    indirect=(a>pointer && a-pointer>=28u &&
-                        a-pointer<=4096u && ordered &&
-                        (a&0xff000000u)==(pointer&0xff000000u));
+                    const bool header=a>pointer && a-pointer>=28u &&
+                        a-pointer<=4096u && a<b &&
+                        (a&0xff000000u)==(pointer&0xff000000u);
+                    if(header && !ordered)
+                        return Result::InvalidSourceRows;
+                    indirect=header;
                     if(indirect)prefix=a-pointer;
                 }
                 if(length<prefix+26u ||
