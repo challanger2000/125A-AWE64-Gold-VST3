@@ -82,20 +82,41 @@ public:
                            [pointer](auto p){return p==pointer;}) ||
                    lists.contains(pointer) ||
                    length<P005OriginalVxdDirectoryImporter::kOriginalRowBytes ||
-                   length%P005OriginalVxdDirectoryImporter::kOriginalRowBytes ||
                    length>raw.size()-offset ||
                    std::uint64_t{pointer}+length>(std::uint64_t{1}<<32u))
                     return Result::InvalidSourceRows;
-                const auto nRows=
-                    length/P005OriginalVxdDirectoryImporter::kOriginalRowBytes;
+                // An original VXD bank may point first to a nested
+                // pointer HEADER. The 26-byte list starts at its first
+                // internal guest pointer; old legacy captures can
+                // include unrelated bytes after its authentic sentinel.
+                std::size_t prefix=0u;
+                bool indirect=false;
+                if(length>=28u) {
+                    const auto a=read32(raw,offset);
+                    const auto b=read32(raw,offset+4u);
+                    const auto c=read32(raw,offset+8u);
+                    indirect=(a>pointer && a-pointer>=28u &&
+                        a-pointer<=4096u && a<b && b<c &&
+                        (a&0xff000000u)==(pointer&0xff000000u));
+                    if(indirect)prefix=a-pointer;
+                }
+                if(length<prefix+26u ||
+                   (!indirect && length%26u!=0u))
+                    return Result::InvalidSourceRows;
+                std::size_t nRows=0u;
+                bool terminated=false;
+                for(std::size_t ri=0u;
+                    ri<(length-prefix)/26u;++ri) {
+                    const auto marker=read16(raw,offset+prefix+ri*26u);
+                    ++nRows;
+                    if(marker==0xffffu) {
+                        terminated=true;break;
+                    }
+                }
+                if(!terminated || (!indirect && prefix+nRows*26u!=length))
+                    return Result::InvalidSourceRows;
                 if(nRows>65536u || rows>65536u-nRows)
                     return Result::ResourceLimit;
-                for(std::size_t ri=0u;ri<nRows;++ri) {
-                    const auto marker=read16(raw,offset+ri*26u);
-                    if((ri==nRows-1u && marker!=0xffffu) ||
-                       (ri<nRows-1u && marker==0xffffu))
-                        return Result::InvalidSourceRows;
-                }
                 rows+=nRows;
                 lists.emplace(pointer,std::vector<std::uint8_t>(
                     raw.begin()+offset,raw.begin()+offset+length));
