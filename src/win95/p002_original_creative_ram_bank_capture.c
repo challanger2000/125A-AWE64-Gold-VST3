@@ -163,6 +163,9 @@ static int original_send_midi(CREATIVE_AWEMANAGER manager,
     report(label,(DWORD)rc);
     return rc==ORIGINAL_AWE_NO_ERR;
 }
+#ifdef P003_ORIGINAL_MODE_STRESS
+#include "p003_original_win95_mode_stress.inc"
+#endif
 /* Original WINAWE32.C ID_QUERY_SYNTH uses AWE_GET_SYN_BANK and
  * CBufferObject.m_Flag to read current enum SBANK. This is only a
  * READ-ONLY observation; it does not select or map any MIDI bank.
@@ -447,6 +450,11 @@ void WINAPI p002_ram_entry(void) {
                            "ORIGINAL_AWEMAN32_DIRECT_D4_OFF_RC"))goto done;
     Sleep(500);
     emit("ORIGINAL_WIN95_AWEMAN32_DIRECT_MIDI_PHASE_END\r\n");
+#ifdef P003_ORIGINAL_MODE_STRESS
+    if(!p003_start_stress())goto done;
+    if(!p003_stress_bank(manager,handle,0u))goto done;
+    if(!p003_stress_bank(manager,handle,1u))goto done;
+#endif
     /* P003 optional TRUE ORIGINAL Win95 multi-bank allocator experiment.
      * The staged second SF2 is never shipped in the repository.
      * When absent, preserve the original single-bank capture unchanged.
@@ -521,6 +529,9 @@ void WINAPI p002_ram_entry(void) {
             goto done;
         Sleep(440);
         emit("P003_ORIGINAL_SECOND_BANK_MIDI_END\r\n");
+#ifdef P003_ORIGINAL_MODE_STRESS
+        if(!p003_stress_bank(manager,handle,2u))goto done;
+#endif
         rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,2u,0);
         report("P003_ORIGINAL_SECOND_BANK_CLEAR_RC=",(DWORD)rc);
         if(rc!=ORIGINAL_AWE_NO_ERR)goto done;
@@ -542,6 +553,9 @@ void WINAPI p002_ram_entry(void) {
     }
     success=1;
 done:
+#ifdef P003_ORIGINAL_MODE_STRESS
+    p003_stop_stress(success && p003_mode_error==0u);
+#endif
     if(loadedSecond) {
         rc=manager(handle,ORIGINAL_AWE_CLEAR_USER_BANK,2u,0);
         report("P003_ORIGINAL_SECOND_BANK_CLEANUP_RC=",(DWORD)rc);
