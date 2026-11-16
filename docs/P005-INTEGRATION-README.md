@@ -33,3 +33,54 @@ Das vorliegende Paket kann als separate Source-Library kompiliert und in den ech
 Fehlt weiterhin: autonomer Win95-x86-/CPU-TSC-Zeitplan, kompletter Bank2-Vorzustand aus ursprünglichem MIDI, bitidentischer nativer Register-/DRY-PCM-Gegentest. Kein Release/keine VST3-Freigabe.
 
 Dieses Paket ist daher ein eigenständiger, getesteter Integrationsschritt, **kein vollständiger Treiberport und kein getesteter Windows-VST3-Endpunkt**.
+
+## 16.11.2026 – korrigierter originaler Bank-2-Vorzustand und CPU-TSC
+
+Der Kontrollchat hat die Reihenfolge der originalen Windows-95-Gastaufrufe
+korrigiert. **Die 4.176 MIDI-Stressaufrufe fanden erst NACH dem zweiten
+RAM-SoundFont-Upload statt.** Die Reproduktion von Bank 2 darf deshalb
+niemals einen vorherigen 4.176-Meldungen-Stresstest voraussetzen oder als
+dessen Folge simulieren. Vor Bank 2 relevant ist die kurze originale
+C4-/D4-Sequenz nach dem ersten RAM-Bank-Upload:
+
+1. Original Creative Bank 1 laden; Original-MIDI-Reset/CC121, CC0=1,
+   Program 0, Reverb-/Chorus-Sends=0.
+2. WinMM C4 NoteOn (MIDI 60, Velocity 100), NoteOff.
+3. Direkter Creative-MIDI-Pfad: CC0=1, Program 0, CC91=0,
+   CC93=0, D4 NoteOn (MIDI 62, Velocity 100), NoteOff.
+4. **Erst dann** Original-RAM-Bank 2 laden; anschließend die
+   gesonderte MIDI-Stressphase, die nichts am Bank-2-Eingangszustand
+   nachträglich ändern darf.
+
+Dies ist ein **Test-/Integrationsziel**, kein Nachweis, dass der jetzige
+P005-VST3-Adapter schon dieselben Vorzustands-/Hardware-Registerwerte
+autonom erzeugt. Der Port verwendet dafür einen gemeinsamen
+`OriginalCreativeMidiRamRuntime` mit genau einem `MidiEngine.device`.
+
+Der neue unabhängige Originalbefund verwendet eine effektive CPU-Taktbasis
+von **133 1/3 MHz** (400.000.000/3 Takte/s), nicht 200 MHz. Die
+CPU-TSC-zu-EMU8000-Projektion bei 44.100 Audioframes/s ordnet nach
+Kontrollbericht **1.533.303 von 1.533.305** ursprünglichen
+Hardwareereignissen auf einen einzigen ganzzahligen Frame-/Phasenmaßstab
+ab. Zwei sehr frühe E22-Leseereignisse bleiben Ausnahmen
+(413 Frames Abweichung im unabhängigen Prüfer).
+
+**Nicht daraus ableiten:** eigenständig bekannte CPU-Zeitpunkte
+einzelner Creative-Funktionen. Der angekündigte separate C++23-Baustein
+für den Zeitphasen-Nachweis wurde noch nicht als neue Quelle in diesem
+P005-Quellzweig übergeben. Bis zum Import des source-authentifizierten
+Bausteins, ihrer originalen CPU-Arbeitskosten und zum VST3-Gegentest
+wird in P005 keine eigene 133-MHz-Heuristik und auch kein
+200-MHz-Fallback zur angeblichen Originaltaktung erzeugt.
+Keine stillschweigende Herkunftsbehauptung gegenüber dem Win95-Trace.
+
+## Native Windows-Abnahme des Quellintegrationszweigs
+
+Im GitHub-Windows-Runner mit `AWE64_ENABLE_P005_ORIGINAL_CREATIVE=ON`
+haben **69/69 CTests** bestanden. Alle 24 originalen Portierungs-Tests,
+der P005-Adaptertest und die bestehenden VST3-Source-/Chip-Tests
+waren Teil dieses Laufes. Das originale EMU8000-/CT1745-Differential
+ist ebenfalls bestanden. Dies belegt den Windows-x64-C++23-Quellbau
+und die getestete gemeinsame MIDI/RAM-State-Grenze, **nicht** die
+vollständige native VST3-Register-/PCM-Parität.
+
