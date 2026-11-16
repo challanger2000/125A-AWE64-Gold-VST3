@@ -188,3 +188,43 @@ keine verallgemeinerte RAM-TSC-Heuristik und keine aus CPU-Schnellpfaden
 erratene Audioframe-Verschiebung einführen. Nur Originaltreiber-REA
 und ihre eigenen source-verifizierten TSC-Abläufe gehen später in
 den autonomen Scheduler.
+
+
+## P005 – Original-MIDI-Liverouting im exportierten VST3 (16.11.2026)
+
+Der tatsächliche `Minimal::noteOn`-, `noteOff`- und VST3-`process()`-
+Ablauf besitzt nun eine **strikte, compile-time-abgesicherte**
+P005-Verzweigung. Bei einer aktivierten, extern **source-authentifizierten**
+`P005OriginalCreativeHostAdapter`-Instanz gehen folgende Ereignisse
+in den **portierten** `OriginalCreativeMidiRamRuntime`, nicht in den alten
+P001-Testton-/P002-Research-Allocator:
+
+- NoteOn/NoteOff der MIDI-Kanäle 0 bis 15 (VST3 `Event`).
+- Program Change auf Kanal 0 als samplegenaues VST3-Parameterereignis.
+- CC7 (Volume), CC10 (Pan), CC11 (Expression) und CC64 (Sustain) auf
+  Kanal 0 mit unveränderter VST3-Parameterreihenfolge.
+
+`sourceBound()` hält die Quellenbesitz-Grenze **auch bei gelatchtem
+Original-MIDI-/Chip-Fehler** aufrecht. Der Fehler führt niemals dazu,
+dass die VST3 plötzlich den alternativen P001-ROM-Testton oder
+P002-Research-RAM-Synth abspielt. Der Originalport kann den Zugriff
+fehlerhaft ablehnen, aber es findet kein stiller Soundersatz statt.
+
+Die neuen Original-MIDI-Ereignisse werden auch auf MIDI-Kanal 15
+regressionsgeprüft. Der P005-Test prüft ausdrücklich, dass bei
+`MidiEngine::fault` **kein Rückfall auf den anderen Synthesizer**
+stattfindet. Die compile-time-Flag `AWE64_ENABLE_P005_ORIGINAL_CREATIVE`
+bleibt standardmäßig OFF.
+
+**Wichtig, noch kein Produktiv-GO:** Es ist noch **kein** Non-RT-Loader
+für die vollständigen, extern beglaubigten Original-VXD-Programmzeilen,
+SF2-Generator-/Modulatortabellen und alle Tasten-/Velocity-Kontexte
+aktiviert. Folglich erreicht ein normales Benutzerinstrument derzeit
+noch nicht den neuen `sourceBound()`-Zustand. Das hier ist die fertige
+VST3-Routing-Verzweigung **für die spätere verifizierte Originalquelle**,
+nicht bereits ein vollständig spielbares, natives AWE64-Gold-VST3.
+
+Die fünf neuen x86-PCM-Taktpfade, die 58 noch offenen Original-RAM-Abstände
+und die Original-Stereo-Allocator-Zähler bleiben bis zur tatsächlichen
+Übergabe der Kontrollchat-C++23-Quellen getrennt; P005 führt kein
+zweites originales Timing/Voice-Modell ein.
