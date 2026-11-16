@@ -110,10 +110,11 @@ public:
             if(ptr==0u)continue; // REAL NULL source bank pointer
             ++nonzeroPointers;
             bool terminated=false;
+            std::uint64_t recordPointer=ptr;
+            bool followedBankHeader=false;
             for(std::size_t ordinal=0u;
-                ordinal<P005OriginalCreativeBankCatalog::kMaxRowsPerSlot;
-                ++ordinal) {
-                const auto vaddr=std::uint64_t{ptr}+
+                ordinal<P005OriginalCreativeBankCatalog::kMaxRowsPerSlot;) {
+                const auto vaddr=recordPointer+
                                  std::uint64_t{ordinal}*kOriginalRowBytes;
                 if(vaddr+kOriginalRowBytes>kGuestAddressSpace)
                     return Result::InvalidGuestMapping;
@@ -160,16 +161,20 @@ public:
                 if(totalRows==kMaxTotalNormalizedRows)
                     return Result::TooManyRows;
                 const auto marker=read16(joined.data());
-                // Real captures can place a bank header here, with
-                // increasing nested guest pointers to its row arrays.
-                // Never publish that pointer directory as MIDI rows.
-                if(ordinal==0u) {
+                // The original Win95 bank can begin with an indirect
+                // pointer header, not a flat 26-byte program list.
+                // Follow its first internal pointer once; preserve the
+                // original DEVICE slot pointer and the original rows.
+                if(ordinal==0u && !followedBankHeader) {
                     const auto a=read32(joined.data());
                     const auto b=read32(joined.data()+4u);
                     const auto c=read32(joined.data()+8u);
                     if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
-                       a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u))
-                        return Result::InvalidGuestMapping;
+                       a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u)) {
+                        recordPointer=a;
+                        followedBankHeader=true;
+                        continue; // restart ordinal zero at real row list
+                    }
                 }
                 // This is the source's 26-byte row byte 0..3 ONLY.
                 // No synthesizer metadata is inferred from the tail.
@@ -180,6 +185,7 @@ public:
                     terminated=true;
                     break;
                 }
+                ++ordinal;
             }
             if(!terminated)return Result::MissingSentinel;
             views[slot].rows=rows[slot];
