@@ -251,6 +251,18 @@ int main(){
     CHECK(!catalog.resetNonRealtime());
     reboundOwner.resetNonRealtime();
     CHECK(!catalog.runtimeLeased());
+    {
+        // Unusual host teardown: the adapter destructor must also
+        // detach its runtime and release the catalog lease; the host
+        // may omit the usual explicit deactivate() callback.
+        Chip teardownChip{};
+        P005OriginalCreativeHostAdapter<Chip> teardownOwner{};
+        CHECK(teardownOwner.activateOwnedOriginalCatalogNonRealtime(
+            teardownChip,catalog,true));
+        CHECK(catalog.runtimeLeased());
+        CHECK(!catalog.resetNonRealtime());
+    }
+    CHECK(!catalog.runtimeLeased());
     CHECK(catalog.resetNonRealtime());
     CHECK(!catalog.ready() && catalog.zoneCount()==0u);
     CHECK(catalog.sourceSlotCount()==0u);
