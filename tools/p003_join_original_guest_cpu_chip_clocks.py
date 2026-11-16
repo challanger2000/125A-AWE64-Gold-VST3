@@ -61,14 +61,15 @@ def guest_events(lines):
     if first.startswith("# P003_CPU_GUEST_PHYSICAL16_V2 "):
         raise ValueError("Legacy V2 physical16 CPU trace omits "
                          "EMU8000 byte index OUTB and byte INB callbacks")
-    if not first.startswith("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "):
+    v4=first.startswith("# P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK ")
+    if not v4 and not first.startswith("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "):
         raise ValueError("Wrong guest physical x86 I/O callback trace header")
     expected_seq = 0
     for number, line in enumerate(lines, 2):
         if not line.strip() or line.startswith("#"):
             continue
         parts = line.split()
-        if len(parts) != 8:
+        if len(parts) != (17 if v4 else 8):
             raise ValueError(f"Guest x86 I/O event has wrong width at line {number}")
         try:
             direction = parts[0]
@@ -76,15 +77,21 @@ def guest_events(lines):
             remaining_cycles = int(parts[2], 10)
             cs, eip, port, value = (int(v, 16) for v in parts[3:7])
             seq = int(parts[7], 10)
+            # V4 original CPU-frame evidence: guest EBP, four 32-bit
+            # return-address hints, EAX/EBX/ECX/EDX. A hint of
+            # FFFFFFFF means unavailable; NEVER fabricate a caller.
+            cpu_stack=(tuple(int(v,16) for v in parts[8:17])
+                       if v4 else ())
         except ValueError as exc:
             raise ValueError(f"Bad guest x86 CPU field at line {number}") from exc
         if (direction not in ("R", "W", "r") or tsc < 0 or
             port not in PORTS or not 0 <= value <= 65535 or
             not 0 <= cs <= 65535 or not 0 <= eip <= 0xffffffff or
-            seq != expected_seq):
+            seq != expected_seq or
+            any(not 0<=v<=0xffffffff for v in cpu_stack)):
             raise ValueError(f"Guest CPU event invalid/out of order at line {number}")
         expected_seq += 1
-        yield (direction, port, value, tsc, remaining_cycles, cs, eip)
+        yield (direction, port, value, tsc, remaining_cycles, cs, eip, cpu_stack)
 
 def note_fixture(lines):
     groups: dict[str, list[tuple[int,int,int]]] = {}
@@ -123,6 +130,9 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
     reg_count = 0
     tsc_regressions = 0
     observed_byte_reads = 0
+    callstack_probe_events=0
+    first_return_eips=Counter()
+    no_caller_frames=0
     old_tsc = None
     first_tsc = None
     last_tsc = None
@@ -134,7 +144,7 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
         if chip is None or cpu is None:
             raise ValueError(f"Original chip and CPU I/O trace count differs after {seen} events")
         direction, frame, port, value = chip
-        cd, cp, cv, tsc, cycles, cs, eip = cpu
+        cd, cp, cv, tsc, cycles, cs, eip, cpu_stack = cpu
         # 'r' is a guest byte read: the CPU I/O layer sees only the
         # returned 8-bit value. The unchanged EMU8000 chip trace has
         # the authentic 16-bit register read value. Match order,
@@ -148,6 +158,15 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
         elif (direction,port,value) != (cd,cp,cv):
             raise ValueError(f"Original chip/guest CPU register mismatch at event {seen}")
         seen += 1
+        if cpu_stack:
+            callstack_probe_events+=1
+            # CPU stack words are untrusted until x86 CALL opcode
+            # validation against the SHA-pinned original SBAWE.VXD.
+            ret0=cpu_stack[1]
+            if ret0==0xffffffff:
+                no_caller_frames+=1
+            else:
+                first_return_eips[f"{ret0:08X}"]+=1
         if old_tsc is not None and tsc < old_tsc:
             tsc_regressions += 1
         old_tsc = tsc
@@ -163,7 +182,9 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
                     found[name].append({
                         "frame": frame, "port": port, "value": value,
                         "tsc": tsc, "cycles": cycles,
-                        "cs": cs, "eip": eip})
+                        "cs": cs, "eip": eip,
+                        "guest_return_eip_hint":
+                            cpu_stack[1] if cpu_stack else None})
     if seen == 0:
         raise ValueError("Original chip/CPU I/O traces are empty")
     result = {
@@ -179,6 +200,11 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
         "cpu_trace_granularity": "PHYSICAL_BYTE_AND_16BIT_CALLBACKS_FROM_GUEST_8_16_32_BIT_IO",
         "byte_read_full_word_value_not_visible_in_cpu_layer": observed_byte_reads,
         "guest_cpu_to_chip_clock_calibrated": False,
+        "guest_stack_probe_event_count":callstack_probe_events,
+        "guest_stack_top_return_eip_unavailable":no_caller_frames,
+        "top_guest_return_eip_hints_unverified":
+            dict(first_return_eips.most_common(128)),
+        "guest_caller_addresses_validated_against_vxd":False,
         "original_emu8000_modified": False,
         "note_groups": {}
     }
@@ -196,6 +222,10 @@ def join_traces(chip_lines, cpu_lines, original_notes=None):
             "end_guest_tsc": tscs[-1],
             "guest_tsc_delta": tscs[-1]-tscs[0],
             "guest_x86_call_sites": dict(eips),
+            "guest_return_eip_hints_unverified":
+                dict(Counter(f"{x['guest_return_eip_hint']:08X}"
+                     for x in observed if x["guest_return_eip_hint"] is not None
+                     and x["guest_return_eip_hint"]!=0xffffffff)),
             "first_8_port_tsc": tscs[:8],
             "last_8_port_tsc": tscs[-8:],
             "guest_cpu_remaining_cycles_first_last":
