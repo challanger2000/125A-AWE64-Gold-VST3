@@ -55,6 +55,21 @@ public:
     [[nodiscard]] std::uint8_t currentProgram() const noexcept {
         return program_;
     }
+    // Project recall affects ONLY future MIDI note compilation. Existing
+    // voices are never retriggered/released, and a missing real PHDR row
+    // rejects the whole selection before changing anything.
+    [[nodiscard]] bool restoreSelection(
+        std::uint16_t bank,std::uint8_t program,
+        std::uint8_t cc7,std::uint8_t cc10,std::uint8_t cc11) noexcept;
+    [[nodiscard]] std::uint8_t currentCc7() const noexcept {
+        return midi_.channel(channel_).cc7_volume;
+    }
+    [[nodiscard]] std::uint8_t currentCc10() const noexcept {
+        return midi_.channel(channel_).cc10_pan;
+    }
+    [[nodiscard]] std::uint8_t currentCc11() const noexcept {
+        return midi_.channel(channel_).cc11_expression;
+    }
     // Exact PHDR inventory; no 77->128 padding and no invented preset.
     // Valid from setActive()/loaded bank; stable for browser/Prev/Next.
     [[nodiscard]] std::size_t presetCount() const noexcept {return presets_.size();}
