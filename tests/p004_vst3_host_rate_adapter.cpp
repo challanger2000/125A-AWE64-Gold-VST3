@@ -1,5 +1,6 @@
 #include "P004HostRateAdapter.h"
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
