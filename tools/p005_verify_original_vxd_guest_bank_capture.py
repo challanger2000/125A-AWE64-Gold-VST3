@@ -101,13 +101,38 @@ def parse_capture(raw:bytes)->dict:
                     "Creative source FFFF sentinel not at real program boundary")
         rows_total+=count
         require(rows_total<=ROW_LIMIT,"source row count exceeds capture bound")
+        # Program-row validity is NOT full Creative bank completeness.
+        # The owner-observed Win95 root contains seven distinct internal
+        # guest pointers. Adjacent pointers bound six nested regions;
+        # the final region's end is not known from these seven pointers.
+        nested_inventory=None
+        if indirect and size>=28:
+            nested_ptrs=struct.unpack_from("<7I",blob,0)
+            if all(nested_ptrs[i]<nested_ptrs[i+1] for i in range(6)) and (
+                nested_ptrs[0]==first
+            ):
+                captured_end=address+size
+                complete=sum(
+                    int(nested_ptrs[i+1]<=captured_end)
+                    for i in range(6)
+                )
+                nested_inventory={
+                    "nested_pointers":len(nested_ptrs),
+                    "bounded_regions":6,
+                    "bounded_regions_fully_captured":complete,
+                    "bounded_regions_not_fully_captured":6-complete,
+                    "last_region_end_unknown":True,
+                    "last_pointer_within_capture":nested_ptrs[6]<captured_end,
+                    "entire_nested_bank_attested":False
+                }
         seen[address]={
             "total_rows_including_sentinel":count,
             "active_rows":count-1,
             "bytes_sha256":sha(blob),
             "source_layout":"indirect_bank_header" if indirect else "direct_rows",
             "nested_program_guest_pointer":f"0x{first:08x}" if indirect else None,
-            "legacy_trailing_unclassified_bytes":size-(start+count*ROW_BYTES)
+            "legacy_trailing_unclassified_bytes":size-(start+count*ROW_BYTES),
+            "additional_nested_regions":nested_inventory
         }
     require(set(seen)==pointers and at==len(raw),
             "incomplete, trailing or mismatched guest source regions")
