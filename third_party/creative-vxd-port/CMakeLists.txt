@@ -106,3 +106,20 @@ add_test(NAME original_creative_ram_65_busy_cycles_live_chip_reads COMMAND test_
 add_executable(test_original_creative_midi_ram_runtime tests/test_original_creative_midi_ram_runtime.cpp)
 target_link_libraries(test_original_creative_midi_ram_runtime PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_shared_midi_ram_device_state COMMAND test_original_creative_midi_ram_runtime)
+
+# Original P003 x86 source live-allocator call telemetry. Do not derive
+# CPU instruction timings from these hardware port callback counts.
+add_executable(test_original_creative_stereo_allocator_callback_profile
+    tests/test_original_creative_stereo_allocator_callback_profile.cpp)
+target_link_libraries(test_original_creative_stereo_allocator_callback_profile
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_stereo_allocator_source_callback_profile
+    COMMAND test_original_creative_stereo_allocator_callback_profile)
+
+# Original x86 helper-call order from live C++23 allocator control flow.
+add_executable(test_original_creative_stereo_allocator_helper_order
+    tests/test_original_creative_stereo_allocator_helper_order.cpp)
+target_link_libraries(test_original_creative_stereo_allocator_helper_order
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_stereo_allocator_helper_order
+    COMMAND test_original_creative_stereo_allocator_helper_order)
