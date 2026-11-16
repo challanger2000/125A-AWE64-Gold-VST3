@@ -197,6 +197,15 @@ add_executable(awe64_direct_fork_fixture tests/direct_fork_fixture.cpp)
 target_link_libraries(awe64_direct_fork_fixture PRIVATE awe64_fork_chip)
 target_include_directories(awe64_direct_fork_fixture PRIVATE src/chip_adapter/shim_include)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+# Host-only fixed-size project recall. Neither Creative driver nor EMU8000
+# DSP code is changed. This test also runs without the private ROM/VXD.
+add_executable(awe64_p003_vst_bank_state_test
+    tests/p003_vst3_bank_state.cpp)
+target_include_directories(awe64_p003_vst_bank_state_test
+    PRIVATE src/vst3)
+target_compile_features(awe64_p003_vst_bank_state_test PRIVATE cxx_std_23)
+add_test(NAME p003_vst3_project_state_crc_and_legacy
+    COMMAND awe64_p003_vst_bank_state_test)
 # P003 independent 86Box/CALL+5/LE-reloctarget REA handoff; synthetic CI
 # always runs. The private VXD + original CPU/chip trace are never in CI.
 add_test(NAME p003_rea_three_object_original_driver_synthetic_contract
