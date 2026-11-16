@@ -6,6 +6,7 @@
 #include "P002PrivateRomBank.h"
 #include "P002PrivateOriginalRamNotes.h"
 #include "P003VstBankState.h"
+#include "P004HostRateAdapter.h"
 #include "CreativeSampleClockPorts.h"
 #include "CreativeAutonomousOutTiming.h"
 #include "CreativeSf2VxdSourceRelease.h"
@@ -47,6 +48,7 @@ public:
         Steinberg::Vst::SpeakerArrangement* inputs, Steinberg::int32 numInputs,
         Steinberg::Vst::SpeakerArrangement* outputs, Steinberg::int32 numOutputs) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup& setup) override;
+    Steinberg::uint32 PLUGIN_API getLatencySamples() override;
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32 symbolicSampleSize) override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
     Steinberg::tresult PLUGIN_API setProcessing(Steinberg::TBool state) override;
@@ -86,10 +88,16 @@ private:
     void applyPendingBankState() noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
+    // Host-rate output only; chip/register clock stays exactly 44,100 Hz.
+    void renderHost(Steinberg::int32 begin, Steinberg::int32 end,
+                    float* left, float* right) noexcept;
     void write(uint16_t reg, uint16_t voice, uint16_t port, uint16_t value) noexcept;
     void write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t value) noexcept;
 
     awe64::Chip chip_;
+    P004HostRateAdapter hostRateAdapter_{};
+    // Negotiated VST3 sample representation, never alter chip DSP words.
+    Steinberg::int32 hostSampleFormat_=Steinberg::Vst::kSample32;
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
     // (the pinned EMU8000 chip processing itself is unchanged).
     awe64::card::OriginalCt1745WavetableMixer originalGoldCard_{};

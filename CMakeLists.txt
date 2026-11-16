@@ -206,6 +206,15 @@ target_include_directories(awe64_p003_vst_bank_state_test
 target_compile_features(awe64_p003_vst_bank_state_test PRIVATE cxx_std_23)
 add_test(NAME p003_vst3_project_state_crc_and_legacy
     COMMAND awe64_p003_vst_bank_state_test)
+# P004 resampling is host-only; this independent test never changes or
+# compiles the original 86Box EMU8000 chip DSP.
+add_executable(awe64_p004_host_rate_adapter_test
+    tests/p004_vst3_host_rate_adapter.cpp)
+target_include_directories(awe64_p004_host_rate_adapter_test
+    PRIVATE src/vst3)
+target_compile_features(awe64_p004_host_rate_adapter_test PRIVATE cxx_std_23)
+add_test(NAME p004_host_rate_48_882_96_clock_partition_and_sine
+    COMMAND awe64_p004_host_rate_adapter_test)
 # P003 independent 86Box/CALL+5/LE-reloctarget REA handoff; synthetic CI
 # always runs. The private VXD + original CPU/chip trace are never in CI.
 add_test(NAME p003_rea_three_object_original_driver_synthetic_contract
