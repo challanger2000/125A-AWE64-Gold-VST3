@@ -74,6 +74,12 @@ public:
     // Exact PHDR inventory; no 77->128 padding and no invented preset.
     // Valid from setActive()/loaded bank; stable for browser/Prev/Next.
     [[nodiscard]] std::size_t presetCount() const noexcept {return presets_.size();}
+    // PHDR index is the real SoundFont row, NOT bank*128+program.
+    // All three entry points use one exact preset path so Browser,
+    // Prev/Next, automation and VST3 recall cannot disagree.
+    [[nodiscard]] bool selectPresetIndex(std::size_t index) noexcept;
+    [[nodiscard]] bool stepPreset(int direction) noexcept;
+    [[nodiscard]] std::size_t currentPresetIndex() const noexcept;
     [[nodiscard]] const awe64::creative::Sf2PresetIdentity* presetAt(
         std::size_t index) const noexcept {
         return index<presets_.size()?&presets_[index]:nullptr;
