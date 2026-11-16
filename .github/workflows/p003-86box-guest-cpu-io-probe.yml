@@ -7,6 +7,8 @@ on:
       - 'tools/p003_instrument_86box_io.py'
       - 'tools/p003_join_original_guest_cpu_chip_clocks.py'
       - 'tools/p003_verify_original_vxd_live_callers.py'
+      - 'tools/p003_audit_original_v4_allocator_modes.py'
+      - 'tests/test_p003_audit_original_v4_allocator_modes.py'
       - 'tests/test_p003_verify_original_vxd_live_callers.py'
       - 'tests/test_p003_instrument_86box_io.py'
       - 'tests/test_p003_join_original_guest_cpu_chip_clocks.py'
@@ -27,7 +29,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
           python -m unittest discover -s tests -p 'test_p003_join_original_guest_cpu_chip_clocks.py' -v
           python -m unittest discover -s tests -p 'test_p003_verify_original_vxd_live_callers.py' -v
-          python -m py_compile tools/p003_instrument_86box_io.py tools/p003_join_original_guest_cpu_chip_clocks.py tools/p003_verify_original_vxd_live_callers.py
+          python -m unittest discover -s tests -p 'test_p003_audit_original_v4_allocator_modes.py' -v
+          python -m py_compile tools/p003_instrument_86box_io.py tools/p003_join_original_guest_cpu_chip_clocks.py tools/p003_verify_original_vxd_live_callers.py tools/p003_audit_original_v4_allocator_modes.py
           python tools/p003_instrument_86box_io.py \
             --original-io-c third_party/86box-awe32/src/io.c --verify-only
       - name: Generate CPU TSC/CS:EIP IO trace hooks into NEW copy only
