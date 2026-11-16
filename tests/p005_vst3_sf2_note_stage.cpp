@@ -166,6 +166,13 @@ int main(){
     CHECK(catalog.appendVerifiedNoteContext(stage));
     CHECK(!catalog.appendVerifiedNoteContext(stage));
     CHECK(catalog.zoneCount()==2u);
+    // A full 288-slot directory alone is not proof that its note
+    // contexts are sealed and immutable.
+    Chip presealChip{};
+    P005OriginalCreativeHostAdapter<Chip> presealHost{};
+    CHECK(!presealHost.activateOwnedOriginalCatalogNonRealtime(
+        presealChip,catalog,true));
+    CHECK(!presealHost.sourceBound());
     CHECK(catalog.sealNonRealtime());
     CHECK(catalog.ready());
     CHECK(!catalog.sealNonRealtime());
@@ -181,7 +188,14 @@ int main(){
     CHECK(catalog.zoneCount()==2u && catalog.view().zones.size()==2u);
     Chip chip3{};
     P005OriginalCreativeHostAdapter<Chip> originalFullBank{};
-    CHECK(originalFullBank.activate(chip3,catalog.view(),true));
+    // A mere "source verified" assertion must NOT permit activation
+    // when the caller has not yet completed its independent SHA gate.
+    CHECK(!originalFullBank.activateOwnedOriginalCatalogNonRealtime(
+        chip3,catalog,false));
+    CHECK(!originalFullBank.sourceBound());
+    CHECK(originalFullBank.activateOwnedOriginalCatalogNonRealtime(
+        chip3,catalog,true));
+    CHECK(originalFullBank.sourceBound());
     CHECK(originalFullBank.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(originalFullBank.program(0u,7u)==MidiResult::Applied);
     CHECK(originalFullBank.noteOn(0u,60u,100u)==MidiResult::Applied);
