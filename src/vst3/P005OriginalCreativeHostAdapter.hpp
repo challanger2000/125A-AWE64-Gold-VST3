@@ -24,8 +24,15 @@ public:
         const P005OriginalCreativeHostAdapter&)=delete;
     // OFF THE AUDIO THREAD, after physical voices have stopped.
     void resetNonRealtime() noexcept {
+        // First detach all original MIDI callbacks, then release the
+        // owner lease. No catalog vector may be freed while the live
+        // Creative source contains non-owning spans into that catalog.
         runtime_.reset();chip_=nullptr;bankSnapshot_={};
         bankBound_=false;source_={};
+        if(ownedCatalog_) {
+            ownedCatalog_->releaseRuntimeLeaseNonRealtime();
+            ownedCatalog_=nullptr;
+        }
     }
     // A passed flag alone is NOT authenticity proof. The VST3 owner
     // must first SHA-authenticate its external Creative source tables
@@ -99,7 +106,7 @@ public:
     // Source checksum provenance itself is verified by the loader, not
     // by this adapter, and must never be represented by a fabricated flag.
     [[nodiscard]] bool activateOwnedOriginalCatalogNonRealtime(
-        ChipT& chip,P005OriginalCreativeBankCatalog const& catalog,
+        ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
         bool independentShaAttestation) noexcept {
         if(!independentShaAttestation || !catalog.ready() ||
            catalog.sourceSlotCount()!=
@@ -110,7 +117,13 @@ public:
            view.original_program_map.slots.size()!=
               awe64::original_vxd::original_program_bank_slots)
             return false;
-        return activate(chip,view,true);
+        if(!catalog.acquireRuntimeLeaseNonRealtime())return false;
+        if(!activate(chip,view,true)) {
+            catalog.releaseRuntimeLeaseNonRealtime();
+            return false;
+        }
+        ownedCatalog_=&catalog;
+        return true;
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
@@ -170,5 +183,8 @@ private:
     SourceBank bankSnapshot_{};
     bool bankBound_=false;
     Source source_{};
+    // Non-owning pointer; original source catalog is physically owned
+    // by the VST3 instance and must outlive this adapter.
+    P005OriginalCreativeBankCatalog* ownedCatalog_=nullptr;
 };
 } // namespace awe64::vst3
