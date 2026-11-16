@@ -111,7 +111,11 @@ public:
                     }
                 }
                 if(record.empty())
-                    return Result::InvalidGuestMapping;
+                    // A missing FIRST row indicates an unmapped pointer.
+                    // A missing LATER row indicates that the captured
+                    // source table stopped before its 0xFFFF sentinel.
+                    return ordinal==0u ? Result::InvalidGuestMapping :
+                                         Result::MissingSentinel;
                 if(totalRows==kMaxTotalNormalizedRows)
                     return Result::TooManyRows;
                 const auto marker=read16(record.data());
