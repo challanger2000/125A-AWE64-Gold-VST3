@@ -179,6 +179,12 @@ int main() {
     CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
     CHECK(catalog.resetNonRealtime());
 
+    // The full original Creative VXD image includes the source 1MGM
+    // device signature and 32 physical EMU8000 voice capacity.
+    // The standalone raw-pointer importer does not require these,
+    // but the private owner CAPTURE FILE verifier correctly does.
+    put32(sourceDevice,0x158eu,0x4d474d31u);
+    put16(sourceDevice,6u,32u);
     // Owner PRIVATE binary "125AVXD1" -> C++ parser -> original 288
     // VXD guest pointer importer. File bytes are wholly SYNTHETIC.
     // The binary schema itself never establishes original provenance.
