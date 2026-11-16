@@ -1327,7 +1327,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                 clockedNativeRamFailed_=true;
                 return kInvalidArgument;
             }
-            if(!p002RomBank_.ready())return kInvalidArgument;
+            // A source-bound P005 instance uses the original Creative
+            // MIDI engine, not the prior P002 research bank object.
+            if(!originalP005Bound && !p002RomBank_.ready())
+                return kInvalidArgument;
             const auto bank=static_cast<std::uint16_t>(
                 bankNormalized*128. + 0.5);
 #ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
