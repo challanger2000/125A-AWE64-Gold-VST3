@@ -411,6 +411,33 @@ bool P002PrivateRomBank::noteOn(
     held_keys_[key]=true;
     return true;
 }
+std::size_t P002PrivateRomBank::currentPresetIndex() const noexcept {
+    if(!ready_)return presets_.size();
+    for(std::size_t i=0;i<presets_.size();++i)
+        if(presets_[i].bank==bank_number_ &&
+           presets_[i].program==program_)
+            return i;
+    return presets_.size(); // no phantom soundbank entries
+}
+bool P002PrivateRomBank::selectPresetIndex(
+    const std::size_t index) noexcept {
+    if(!ready_ || index>=presets_.size())return false;
+    const auto& row=presets_[index];
+    // This preserves CC7, CC10 and CC11. A genuine MIDI Bank+Program
+    // selection remains a single validated logical update.
+    return restoreSelection(row.bank,row.program,
+                            currentCc7(),currentCc10(),currentCc11());
+}
+bool P002PrivateRomBank::stepPreset(const int direction) noexcept {
+    if((direction!=1 && direction!=-1) ||
+       !ready_ || presets_.empty())return false;
+    const auto selected=currentPresetIndex();
+    if(selected==presets_.size())return false;
+    const auto next=direction==1?
+        (selected+1u==presets_.size()?0u:selected+1u):
+        (selected==0u?presets_.size()-1u:selected-1u);
+    return selectPresetIndex(next);
+}
 bool P002PrivateRomBank::restoreSelection(
     const std::uint16_t bank,const std::uint8_t program,
     const std::uint8_t cc7,const std::uint8_t cc10,
