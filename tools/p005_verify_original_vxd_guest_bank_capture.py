@@ -80,10 +80,15 @@ def parse_capture(raw:bytes)->dict:
         if len(blob)>=28:
             nested_header=struct.unpack_from("<7I",blob,0)
             first,second,third=nested_header[:3]
-            indirect=(first>address and 28<=first-address<=4096 and
-                      all(nested_header[i]<nested_header[i+1]
-                          for i in range(6)) and
-                      (first&0xff000000)==(address&0xff000000))
+            looks_like_header=(first>address and
+                               28<=first-address<=4096 and
+                               first<second and
+                               (first&0xff000000)==(address&0xff000000))
+            if looks_like_header:
+                require(all(nested_header[i]<nested_header[i+1]
+                            for i in range(6)),
+                        "out-of-order Creative bank header pointer")
+            indirect=looks_like_header
         start=first-address if indirect else 0
         require((size-start)>=ROW_BYTES and
                 (indirect or size%ROW_BYTES==0),
