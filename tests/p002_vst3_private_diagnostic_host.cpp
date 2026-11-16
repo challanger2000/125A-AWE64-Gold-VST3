@@ -729,7 +729,7 @@ Audio renderBankProgramChange(
     bool playSecond=true,bool tieWithSecondNote=false,
     int sourceController=-1,int sourceValue=127,
     bool sourceControllerSameSample=false,
-    int exactSf2Bank=-1) {
+    int exactSf2Bank=-1,int actualPhdrOrdinal=-1) {
     Instance instance(factory,true);
     Audio audio{};
     const auto event=[&](EventList& list,bool on,int key,int offset) {
@@ -756,7 +756,22 @@ Audio renderBankProgramChange(
         if(block==2)event(events,false,60,71);
         if(playSecond && block==5)event(events,true,64,79);
         if(playSecond && block==11)event(events,false,64,91);
-        ParameterChanges changes(3);
+        ParameterChanges changes(4);
+        const bool phdrAtThisBlock=actualPhdrOrdinal>=0 &&
+            block==(tieWithSecondNote?5:4);
+        if(phdrAtThisBlock) {
+            // This test bank has exactly 3 real PHDRs in source order:
+            // ordinary program7, ordinary program9, drum-bank program0.
+            require(actualPhdrOrdinal<=2,"invalid PHDR test ordinal");
+            int32 index=0;
+            auto* queue=changes.addParameterData(0x125A00D0u,index);
+            require(queue!=nullptr,"actual PHDR ordinal queue absent");
+            int32 point=0;
+            require(queue->addPoint(tieWithSecondNote?79:29,
+                static_cast<Steinberg::Vst::ParamValue>(
+                    actualPhdrOrdinal)/2.,point)==kResultOk,
+                "actual PHDR ordinal automation point invalid");
+        }
         const bool bankAtThisBlock=exactSf2Bank>=0 && block==4;
         if(bankAtThisBlock) {
             require(exactSf2Bank<=128,"invalid exact SF2 bank test");
@@ -1485,6 +1500,12 @@ int wmain(int argc,wchar_t** argv){
         const auto program9=renderBankProgramChange(factory,9);
         const auto program9AtSameSample=renderBankProgramChange(
             factory,9,true,true);
+        const auto phdr9AtSameSample=renderBankProgramChange(
+            factory,-1,true,true,-1,127,false,-1,1);
+        const auto phdrDrumAtBlock4=renderBankProgramChange(
+            factory,-1,true,false,-1,127,false,-1,2);
+        const auto phdrDefaultAtBlock4=renderBankProgramChange(
+            factory,-1,true,false,-1,127,false,-1,0);
         const auto nonexistentProgram0=renderBankProgramChange(factory,0);
         // Select literal bank128/PHDR from the actual exported VST3
         // (not a guessed Creative CC0 hardware mapping).
@@ -1512,6 +1533,12 @@ int wmain(int argc,wchar_t** argv){
                 "ROM SF2 actual second preset did not change chip PCM");
         require(program9AtSameSample.hash==program9.hash,
                 "same-sample VST3 program selection was not applied before MIDI");
+        require(phdr9AtSameSample.hash==program9AtSameSample.hash &&
+                phdr9AtSameSample.nonzero==program9AtSameSample.nonzero,
+                "actual PHDR ordinal missed same-sample NoteOn or selected wrong patch");
+        require(phdrDefaultAtBlock4.hash==defaultProgram7.hash &&
+                phdrDrumAtBlock4.hash==drumBank.hash,
+                "real PHDR ordinal did not map exact source Bank/Program across banks");
         require(noSecondNoSwitch.hash==noSecondButSwitch.hash,
                 "program change incorrectly modified sounding original voice");
         require(nonexistentProgram0.hash==defaultProgram7.hash &&
