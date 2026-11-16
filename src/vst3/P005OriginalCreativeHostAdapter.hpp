@@ -5,6 +5,7 @@
 // No original chip DSP, guessed controller formula or CPU timeline here.
 #include "OriginalCreativeMidiRamRuntime.hpp"
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
+#include "P005OriginalCreativeBankCatalog.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -90,6 +91,26 @@ public:
         source_=awe64::original_vxd::original_verified_sf2_bank_source(
             bankSnapshot_);
         return true;
+    }
+    // Strict non-realtime entry point for the FUTURE source-authenticated
+    // VST3 production loader. In contrast to activate()'s low-level
+    // research fixture interface this requires a sealed, OWNED original
+    // 288-slot directory and an externally authenticated source pack.
+    // Source checksum provenance itself is verified by the loader, not
+    // by this adapter, and must never be represented by a fabricated flag.
+    [[nodiscard]] bool activateOwnedOriginalCatalogNonRealtime(
+        ChipT& chip,P005OriginalCreativeBankCatalog const& catalog,
+        bool independentShaAttestation) noexcept {
+        if(!independentShaAttestation || !catalog.ready() ||
+           catalog.sourceSlotCount()!=
+              awe64::original_vxd::original_program_bank_slots)
+            return false;
+        const auto view=catalog.view();
+        if(!view.original_program_map.authentic_driver_records_verified ||
+           view.original_program_map.slots.size()!=
+              awe64::original_vxd::original_program_bank_slots)
+            return false;
+        return activate(chip,view,true);
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
