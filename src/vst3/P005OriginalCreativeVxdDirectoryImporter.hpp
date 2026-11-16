@@ -38,6 +38,9 @@ public:
     static constexpr std::size_t kGuestPointerOffset=0x6cau;
     static constexpr std::size_t kGuestPointerBytes=4u;
     static constexpr std::size_t kOriginalRowBytes=0x1au;
+    // Original Win95 Creative VXD DEVICE image supplied by the
+    // source owner; do not authenticate only a truncated pointer slice.
+    static constexpr std::size_t kOriginalDeviceImageBytes=0x1592u;
     static constexpr std::size_t kOriginalSlotCount=
         P005OriginalCreativeBankCatalog::kSourceSlots;
     static constexpr std::size_t kMaxTotalNormalizedRows=65536u;
@@ -59,8 +62,9 @@ public:
         using Slot=P005OriginalCreativeBankCatalog::Slot;
         if(!deviceAndGuestMemoryIndependentlyAuthenticated)
             return Result::Unverified;
-        if(authenticatedDeviceImage.size()<
-           kGuestPointerOffset+kOriginalSlotCount*kGuestPointerBytes)
+        static_assert(kOriginalDeviceImageBytes>=
+            kGuestPointerOffset+kOriginalSlotCount*kGuestPointerBytes);
+        if(authenticatedDeviceImage.size()!=kOriginalDeviceImageBytes)
             return Result::MalformedDeviceImage;
         if(catalog.sourceSlotCount()!=0u || catalog.ready() ||
            catalog.runtimeLeased() || catalog.zoneCount()!=0u)
