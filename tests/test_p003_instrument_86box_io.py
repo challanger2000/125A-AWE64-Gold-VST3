@@ -11,6 +11,7 @@ from p003_instrument_86box_io import (
 
 ORIGINAL_SHAPED_SYNTHETIC = (
     '#include <stdio.h>\n'
+    '#include <86box/86box.h>\n'
     '#include <86box/timer.h>\n'
     '#include "cpu.h"\n'
     + HEADER + '\n'
