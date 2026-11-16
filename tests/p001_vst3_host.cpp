@@ -172,6 +172,38 @@ std::vector<float> play(IPluginFactory* factory,bool release,
                             [](float s){return s==0.f;}),
                 "late invalid VST3 MIDI event partially rendered PCM");
     }
+    // Real exported VST3: structurally invalid NoteOff is not an
+    // ordinary unmatched note. A late invalid semantic payload must
+    // reject the WHOLE block even if a valid NoteOn was earlier.
+    {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=buffers;
+        EventList events;
+        event(events,true,137);
+        Event malformed{};
+        malformed.type=Event::kNoteOffEvent;
+        malformed.busIndex=0;
+        malformed.sampleOffset=255;
+        malformed.noteOff.channel=0;
+        malformed.noteOff.pitch=128; // invalid note pitch
+        malformed.noteOff.velocity=0.f;
+        malformed.noteOff.noteId=60;
+        require(events.addEvent(malformed)==kResultOk,
+                "invalid semantic NoteOff enqueue failed");
+        ProcessData invalid{};
+        invalid.processMode=kRealtime;invalid.symbolicSampleSize=kSample32;
+        invalid.numSamples=512;invalid.numOutputs=1;invalid.outputs=&bus;
+        invalid.inputEvents=&events;
+        require(synth.audio->process(invalid)!=kResultOk,
+                "late invalid NoteOff accepted after valid NoteOn");
+        require(std::all_of(left.begin(),left.end(),
+                            [](float x){return x==0.f;}) &&
+                std::all_of(right.begin(),right.end(),
+                            [](float x){return x==0.f;}),
+                "invalid NoteOff left partially rendered chip PCM");
+    }
     std::vector<float> output;
     output.reserve(512u*36u);
     if(capturedStereo) {
