@@ -162,6 +162,12 @@ public:
                 const auto marker=read16(joined.data());
                 // This is the source's 26-byte row byte 0..3 ONLY.
                 // No synthesizer metadata is inferred from the tail.
+                // A page-resolved pointer may still identify unrelated
+                // guest data. Do not import impossible MIDI program/bank
+                // values merely because a later 0xFFFF was encountered.
+                if(marker!=0xffffu &&
+                   (joined[2u]>127u || joined[3u]>128u))
+                    return Result::InvalidGuestMapping;
                 rows[slot].push_back(
                     Row{marker,joined[2],joined[3]});
                 ++totalRows;
