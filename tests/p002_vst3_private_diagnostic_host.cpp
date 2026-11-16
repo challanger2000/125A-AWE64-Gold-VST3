@@ -1826,6 +1826,7 @@ int wmain(int argc,wchar_t** argv){
         verifyActualSf2HostProgramNames(factory);
         verifyRealSf2ProjectRecall(factory);
         verifyRealSf2ProjectAudioRoundtrip(factory);
+        verifyRealSf2SuspendResume(factory);
         const auto defaultProgram7=renderBankProgramChange(factory,-1);
         const auto program9=renderBankProgramChange(factory,9);
         const auto program9AtSameSample=renderBankProgramChange(
