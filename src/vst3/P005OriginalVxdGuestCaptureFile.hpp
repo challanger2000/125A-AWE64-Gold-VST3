@@ -95,8 +95,13 @@ public:
                     const auto a=read32(raw,offset);
                     const auto b=read32(raw,offset+4u);
                     const auto c=read32(raw,offset+8u);
+                    bool ordered=true;
+                    for(std::size_t i=0u;i<6u;++i)
+                        if(read32(raw,offset+4u*i)>=
+                           read32(raw,offset+4u*(i+1u)))
+                            ordered=false;
                     indirect=(a>pointer && a-pointer>=28u &&
-                        a-pointer<=4096u && a<b && b<c &&
+                        a-pointer<=4096u && ordered &&
                         (a&0xff000000u)==(pointer&0xff000000u));
                     if(indirect)prefix=a-pointer;
                 }
