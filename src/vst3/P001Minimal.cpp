@@ -1060,6 +1060,28 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
            incoming.sampleOffset<0 ||
            incoming.sampleOffset>data.numSamples)
             return kInvalidArgument;
+        // An invalid LATE NoteOn/NoteOff must not leave an earlier
+        // valid note sounding, nor partially write original EMU8000
+        // registers. Validate the entire callback before rendering.
+        // This is VST3 host-payload validation, NOT a new Creative
+        // driver formula or altered pinned EMU8000 source.
+        if(incoming.type==Event::kNoteOnEvent) {
+            const auto& n=incoming.noteOn;
+            if(incoming.busIndex!=0 || n.channel<0 || n.channel>=16 ||
+               n.pitch<0 || n.pitch>=128 ||
+               !std::isfinite(n.velocity) ||
+               n.velocity<0.f || n.velocity>1.f ||
+               !std::isfinite(n.tuning))
+                return kInvalidArgument;
+        }else if(incoming.type==Event::kNoteOffEvent) {
+            const auto& n=incoming.noteOff;
+            if(incoming.busIndex!=0 || n.channel<0 || n.channel>=16 ||
+               n.pitch<0 || n.pitch>=128 ||
+               !std::isfinite(n.velocity) ||
+               n.velocity<0.f || n.velocity>1.f ||
+               !std::isfinite(n.tuning))
+                return kInvalidArgument;
+        }
         previousMidi=incoming.sampleOffset;
     }
     // The last potentially malformed timestamp is now behind us:
