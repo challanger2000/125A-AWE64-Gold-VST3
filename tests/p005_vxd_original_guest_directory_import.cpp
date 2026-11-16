@@ -91,6 +91,40 @@ int main() {
         catalog,sourceDevice,noSentinel,true)==Result::MissingSentinel);
     CHECK(catalog.sourceSlotCount()==0u);
 
+    // The actual 16-Nov Win95 owner capture shows a bank HEADER whose
+    // first internal pointer leads to an aligned 26-byte program array.
+    // Exercise that extra pointer level with SYNTHETIC bytes only.
+    constexpr std::uint32_t bankRoot=0xc11b891cu;
+    std::array<std::uint8_t,76u+3u*Importer::kOriginalRowBytes>
+        indirectBank{};
+    for(std::uint32_t i=0u;i<7u;++i)
+        put32(indirectBank,i*4u,bankRoot+76u+200u*i);
+    put16(indirectBank,76u,1u);
+    indirectBank[76u+2u]=7u;
+    indirectBank[76u+3u]=1u;
+    put16(indirectBank,76u+Importer::kOriginalRowBytes,1u);
+    indirectBank[76u+Importer::kOriginalRowBytes+2u]=9u;
+    indirectBank[76u+Importer::kOriginalRowBytes+3u]=1u;
+    put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0xffffu);
+    auto indirectDevice=sourceDevice;
+    put32(indirectDevice,ptrOffset+5u*4u,bankRoot);
+    put32(indirectDevice,ptrOffset+6u*4u,bankRoot);
+    const std::array<P005OriginalGuestMemorySegment,1> indirectMemory{{
+        {bankRoot,indirectBank}
+    }};
+    CHECK(Importer::importNonRealtime(
+        catalog,indirectDevice,indirectMemory,true)==Result::Ok);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
+    CHECK(catalog.resetNonRealtime());
+    put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0u);
+    CHECK(Importer::importNonRealtime(
+        catalog,indirectDevice,indirectMemory,true)==Result::MissingSentinel);
+    CHECK(catalog.sourceSlotCount()==0u);
+    put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0xffffu);
+
     CHECK(Importer::importNonRealtime(
         catalog,sourceDevice,memory,true)==Result::Ok);
     CHECK(catalog.sourceSlotCount()==original_program_bank_slots);
