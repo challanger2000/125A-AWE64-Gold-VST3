@@ -483,6 +483,24 @@ add_test(NAME p002_native_original_vxd_mono_voice_priority
          COMMAND awe64_p002_vxd_mono_priority_test)
 
 
+# P003: original SHA-pinned SBAWE.VXD LCOD +0x3FE8/+0x416C
+# research-only voice ranking for mode1 adjacent pairs and mode2 range.
+# No runtime integration, no modification of original EMU8000 DSP.
+# Original driver state+real chip reads must be supplied by the caller.
+add_library(awe64_p003_vxd_allocator_additional STATIC
+    src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp)
+target_include_directories(awe64_p003_vxd_allocator_additional PUBLIC
+    src/creative_compat)
+target_link_libraries(awe64_p003_vxd_allocator_additional PUBLIC
+    awe64_p002_vxd_mono_priority)
+target_compile_features(awe64_p003_vxd_allocator_additional PUBLIC cxx_std_23)
+add_executable(awe64_p003_vxd_additional_allocator_modes_test
+    tests/p003_original_vxd_additional_allocator_modes.cpp)
+target_link_libraries(awe64_p003_vxd_additional_allocator_modes_test PRIVATE
+    awe64_p003_vxd_allocator_additional)
+add_test(NAME p003_original_vxd_mode1_pair_mode2_bounded_range_candidate
+    COMMAND awe64_p003_vxd_additional_allocator_modes_test)
+
 # P002 independently derived forced original VXD group-voice termination.
 # True original per-group/voice flags required; NOT general MIDI NoteOff.
 add_library(awe64_p002_vxd_voice_termination STATIC
