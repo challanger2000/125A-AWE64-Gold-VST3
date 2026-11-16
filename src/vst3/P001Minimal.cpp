@@ -1304,6 +1304,20 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
 }
+tresult PLUGIN_API Minimal::getUnitByBus(
+    const MediaType type,const BusDirection dir,
+    const int32 busIndex,const int32 channel,UnitID& unitId) {
+    // The instrument has precisely ONE 16-channel MIDI input bus and
+    // one authentic SoundFont root program list. Do not claim routing
+    // for audio outputs, absent MIDI channels or unloaded P001 mode.
+    if(type!=kEvent || dir!=kInput || busIndex!=0 ||
+       channel<0 || channel>=16 ||
+       !getProgramList(static_cast<ProgramListID>(
+           sf2host::kProgramListId)))
+        return kResultFalse;
+    unitId=kRootUnitId;
+    return kResultOk;
+}
 ParamValue PLUGIN_API Minimal::getParamNormalized(
     const ParamID tag) {
     if(tag==kP003Sf2PresetOrdinalParam) {
