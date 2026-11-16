@@ -274,3 +274,48 @@ TSC-Projektions-/Gruppierungs-/PCM-Zweigtests. Es gibt weiterhin
 freigegebene automatische NoteOn/Off-Taktberechnung. Die vorhandene
 P005-SF2-MIDI-/EMU8000-Schnittstelle, Original-Turican0-EMU8000-Kern
 und CT1745-Mixer-Quelle bleiben unverändert.
+
+
+## P003 Stereo-CPU-Budget / Branch-Diagnostik – neues ZIP-Paket (16.11.2026)
+
+Tatsächlich entpackte Nutzerdatei:
+\`125A-P003-Creative-Cpp23-Stereo-CPU-Budget-Branch-Diagnostik-20261116(1).zip\`
+(30 eigenständige C++23-Port-Tests; alle 30 GCC Release sowie
+Clang + AddressSanitizer/UBSan lokal bestanden).
+
+**Neu direkt in OriginalCreativeVxdLive übernommen:**
+\`StereoDecisionKind\`, \`StereoDecisionEvent\` und der optional
+beobachtete, standardmäßig deaktivierte
+\`PortIo::stereo_decision_observer\`. Er meldet nur die vom laufenden
+originalportierten Modus-1-Allocator tatsächlich abgeschlossenen
+Entscheidungen: SkippedVoice, ScoredVoice, CursorNotRead,
+CursorReadNotFinished, CursorReadFinished, PriorityReplaced,
+PriorityRetained, ImmediatePair. Keine Schätzwerte für CPU-Takte,
+keine gespeicherten Originalregister, kein Replay.
+
+Der unveränderte synthetische Vollscan in
+\`test_original_creative_stereo_allocator_decision_path\` belegt
+**32 ausgewertete Stimmen und 96 Entscheidungsereignisse**,
+**245 physische Portcallbacks** und die Auswahl 9/10. Für ein
+tatsächlich gelesenes fertiggelaufenes Sample wird
+CursorReadFinished markiert, bei frühem Chip-I/O-Fehler dagegen
+kein angeblich abgeschlossener Score/Cursor/Priority emittiert.
+Der native Windows-2022-Testlauf kompiliert auch diesen 30. Test.
+
+**Unabhängige private Original-V4-Gegenprobe, nicht auf GitHub:**
+Das übergebene Original-Audit
+\`tools/audit_original_v4_stereo_cycle_budget_private.py\`
+wurde mit der ursprünglichen privaten SHA-gepinnten V4-ZIP ausgeführt:
+**819/819** aufeinanderfolgende CPU-TSC-/cycles_remaining-Helfergruppen
+konsistent, davon **95** Budgetauffüllungen um 666 Takte; **83/91**
+Übergangspositionen mit gleichbleibendem Zeitabstand; **8/91**
+variierend, ausschließlich CCCA→VTFT; **14** Intervalle weichen
+vom häufigsten Abstand ihrer Position ab, davon **13 ohne** Budgetwechsel.
+**3/3** mutierte Messungen erkannt.
+
+**Schlussfolgerung aus dem Original-Audit:** Die 666-Takte-
+Budgetauffüllung erklärt nicht die variierenden x86-Ausführungskosten.
+Ein aus den gemessenen CPU-Abständen zusammengestellter
+Lookup-Timing-Scheduler bleibt verboten, solange die ursächlichen
+ursprünglichen x86-Zweige nicht quellgerecht rekonstruiert sind.
+Der EMU8000- und CT1745-Kern bleibt unverändert.
