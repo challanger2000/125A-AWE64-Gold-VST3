@@ -1038,3 +1038,44 @@ if(AWE64_BUILD_P001_VST3)
     target_compile_features(awe64_p001_vst3_rt_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_rt_host AWE64_Gold_P001)
 endif()
+
+# P005 Control-Chat ORIGINAL C++23 Creative-VXD port. Disabled until
+# original owner ZIP sources have been provided outside GitHub.
+# This integrates one existing source library, not an alternate DSP.
+option(AWE64_ENABLE_P005_ORIGINAL_CREATIVE
+    "Link original Creative C++23 port (research)" OFF)
+set(AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/creative-vxd-port"
+    CACHE PATH "Root of original Creative port source bundle")
+if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
+    if(NOT EXISTS
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/CMakeLists.txt" OR
+       NOT EXISTS
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/include/OriginalCreativeMidiRamRuntime.hpp")
+        message(FATAL_ERROR
+            "P005 original port source absent; no invented MIDI/DSP fallback")
+    endif()
+    add_subdirectory(
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/p005-original-creative-port")
+    add_executable(awe64_p005_original_creative_host_adapter_test
+        tests/p005_vst3_original_port_adapter.cpp)
+    target_include_directories(awe64_p005_original_creative_host_adapter_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_original_creative_host_adapter_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_original_creative_host_adapter_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p005_one_original_midi_ram_state_no_fallback
+        COMMAND awe64_p005_original_creative_host_adapter_test)
+    if(AWE64_BUILD_P001_VST3)
+        target_link_libraries(AWE64_Gold_P001
+            PRIVATE original_creative_vxd_live)
+        target_include_directories(AWE64_Gold_P001
+            PRIVATE "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/include")
+        target_compile_definitions(AWE64_Gold_P001
+            PRIVATE AWE64_P005_ORIGINAL_CREATIVE_LINKED=1)
+        target_sources(AWE64_Gold_P001 PRIVATE
+            src/vst3/P005OriginalCreativeHostAdapter.hpp)
+    endif()
+endif()
