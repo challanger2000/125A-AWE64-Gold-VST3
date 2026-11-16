@@ -172,7 +172,9 @@ jobs:
           # The NEW private owner-side guest memory reader must also
           # compile and self-test with no proprietary Win95 media.
           cmake --build build-gold-source --parallel 2 --target awe64_p005_original_win95_guest_bank_capture
-          ctest --test-dir build-gold-source -R '^p005_readonly_win95_guest_vxd_bank_capture_selftest
+          ctest --test-dir build-gold-source -R p005_readonly_win95_guest_vxd_bank_capture_selftest --output-on-failure -V
+          echo 'P005_GUEST_BANK_READ_ONLY_SOURCE_TOOL_SELFTEST_PASS'
+          echo 'P002_PINNED_ORIGINAL_86BOX_CT1745_C_VS_VST3_CXX_1TO1_DIFFERENTIAL_PASS'
       - name: Run three independently reported RAM SMALW/SMLD trace counterexample regressions
         run: |
           python -m unittest discover -s tests -p 'test_p002_original_ram_trace_probe.py' -v
