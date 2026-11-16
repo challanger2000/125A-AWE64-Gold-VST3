@@ -21,6 +21,7 @@ from hashlib import sha256
 import io
 import itertools
 import json
+import struct
 from pathlib import Path
 import sys
 import zipfile
@@ -75,6 +76,43 @@ def classify_original_hints(
         }
     return result
 
+# The original SHA-pinned LCOD explicitly calls the mode dispatcher
+# at these three sites. 0x5522 is the descriptor-flag-0x04 branch's
+# pair-mode call; 0x5560 is its alternate single-mode call.
+# Original return EIP should be CALL+5, but V4 hint seems CALL+4.
+ORIGINAL_DISPATCH_CALLS={
+    "mono_caller_4BB4":(0x4c40,0),
+    "descriptor_flag04_branch_pair_mode1":(0x5522,1),
+    "descriptor_flag04_branch_single_mode0":(0x5560,0),
+}
+def classify_original_descriptor_dispatch_calls(
+    authentic_lcod:bytes, lcod_bias:int,
+    observed_hints:list[Counter[int]],
+) -> dict:
+    if len(observed_hints)!=4:
+        raise ValueError("Original V4 EBP return-depth data required")
+    result={}
+    for name,(call,mode) in ORIGINAL_DISPATCH_CALLS.items():
+        if call+5>len(authentic_lcod) or authentic_lcod[call]!=0xe8:
+            raise ValueError("Original dispatcher CALL missing at "+hex(call))
+        rel=struct.unpack_from("<i",authentic_lcod,call+1)[0]
+        if call+5+rel!=0x3d6f:
+            raise ValueError("Original descriptor dispatch CALL wrong target at "+hex(call))
+        expected_call_end=(lcod_bias+call+5)&0xffffffff
+        observed_minus_one=(lcod_bias+call+4)&0xffffffff
+        actual=sum(c.get(expected_call_end,0) for c in observed_hints)
+        one_less=sum(c.get(observed_minus_one,0) for c in observed_hints)
+        result[name]={
+            "original_lcod_call_offset_hex":f"0x{call:04X}",
+            "statically_verified_x86_call_target_hex":"0x3D6F",
+            "original_dispatch_mode":mode,
+            "architectural_next_pc_return_hint_events":actual,
+            "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY":one_less,
+            "one_byte_displacement_cause":"UNKNOWN",
+            "full_function_execution_proven":False,
+        }
+    return result
+
 def file_sha(f) -> str:
     h = sha256()
     while True:
@@ -86,7 +124,7 @@ def file_sha(f) -> str:
 def audit(private_vxd: bytes, result_zip: Path) -> dict:
     # Includes original Creative driver SHA256, LE LCOD and 12 genuine
     # hardware opcode anchors. There is no original binary in this repo.
-    original_lcod(private_vxd)
+    code=original_lcod(private_vxd)
     with zipfile.ZipFile(result_zip) as z:
         required = ("P003-BERICHT.json", "Original-Register.trace",
                     "Original-CPU-IO.trace")
@@ -161,6 +199,8 @@ def audit(private_vxd: bytes, result_zip: Path) -> dict:
             "runner_up_opcode_bias_support":runner,
             "unavailable_top_return_hint_events":unrecorded_top,
             "regions":classify_original_hints(bias,returns),
+            "descriptor_dispatch_call_hints":
+                classify_original_descriptor_dispatch_calls(code,bias,returns),
             "no_proprietary_original_binary_embedded":True,
             "original_emu8000_dsp_modified":False,
             "source_clocked_pcm_reference_preserved":True,
@@ -171,6 +211,7 @@ def audit(private_vxd: bytes, result_zip: Path) -> dict:
                 "Zero matched return hints does not prove unexecuted code",
                 "No function entry/exit CPU cycle measurements",
                 "No original mode-1/mode-2 MIDI demonstration in this recording",
+                "Original descriptor CALL+4 hint is not a proven architectural return EIP",
             ],
         }
 
