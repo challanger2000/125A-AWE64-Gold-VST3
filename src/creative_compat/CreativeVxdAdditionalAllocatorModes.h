@@ -54,7 +54,7 @@ candidateOriginalWin95Mode1Pair(
 
 // LCOD +0x416C: packed lower byte=start, remaining bits=exclusive upper,
 // clamped to original device capacity; evaluates ORIGINAL individual
-// scoring, zero-velocity/idle and sample end early exits.
+// scoring, fully idle voice and sample-end early exits.
 // No read, return or side effect is synthesized when required inputs
 // are incomplete.
 [[nodiscard]] std::optional<OriginalWin95MonoSelection>
