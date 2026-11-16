@@ -32,14 +32,37 @@ Die Auswertung `tools/p107_audit_executed_jcc_private.py` ermittelt tatsächlich
 
 Die erweiterte Windows-UCRT64-Linkzeile für das inzwischen von `libcrypto` geforderte `bcrypt` wird ausschließlich im kopierten Emulator-Build ergänzt; am Produkt-VST3 und ursprünglichen 86Box-Submodul ändert sich nichts. In der öffentlichen CI werden **nur der Open-Source-Emulator und synthetische Testdaten** verarbeitet, keine Original-Win95-Dateien, VxD-Binärdaten, ROMs, SF2-Samples oder Audioaufnahmen.
 
-## Tatsächliche private Original-Windows-95-Ausführung
+## Authentische private Windows-95-Ausführung – endgültiger Original-Stresstest
 
-Eine getrennte private **512-MiB-Kopie** der Besitzer-Win95-FAT16-VM wurde in der Linux-Prüfumgebung bis zum Windows-95-Desktop gestartet. Die physische `P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK`-I/O-Spur wurde dabei tatsächlich erzeugt. Das ursprüngliche Guest-Programm `P002RAM.EXE` wurde in der Gast-VM ausgeführt: Sein originaler Creative-API-Abschlussmarker lautete `P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK`; Original-Windows-95-Ladevorgang von Bank 1/Bank 2 und MIDI-Notenmeldungen waren im vom **Originaltreiber selbst** geschriebenen Gastprotokoll erfolgreich. Für den ursprünglich fehlenden zweiten Vergleichsbankinhalt wurde eine neue, **nur private** FAT16-VM-Kopie erstellt.
+**Die private Originalausführung war erfolgreich; kein Originalfile wurde nach GitHub übertragen.** Die ursprüngliche Windows-95-FAT16-Disk und original Creative VxD/ROM wurden ausschließlich in einer wegwerfbaren **512-MiB-Kopie** gestartet. Bei der ersten Ausführung fehlte die zweite Stereo-Bank; das normale 2-Bank-RAM-/MIDI-Testprogramm beendete zwar mit `P002_WIN95_ORIGINAL_CREATIVE_RAM_LOAD_API_SENT_OK`, übte den Stereo-Allocator jedoch nicht aus.
 
-Zum Vergleich mit den 25 ursprünglichen Stereo-Allocator-Fällen ist zwingend genau der **separate Stimmenmodus-Stresstest** erforderlich. Die relevante, bereits vorliegende Gast-EXE trägt SHA-256 `3c9306261ed599073f80d9695a8d73140ea65e2de101dc431169c2e6b3f6bc9f`; die originale, vom Benutzer aufgezeichnete **stereo-verkettete** zweite Bank ist `131574` Bytes und SHA-256 `cfeea9897fce687f97160e069f01ae785e7e736798290a0e07ce56af7d8326fb`. Beide wurden ausschließlich auf eine neue **private** Gast-Kopie vorbereitet; das ursprüngliche VM-Disk-Image blieb unverändert.
+Deshalb wurde separat die originale, speziell dafür gebaute 3-Bank-Stresstest-Gastdatei (SHA-256 `3c9306261ed599073f80d9695a8d73140ea65e2de101dc431169c2e6b3f6bc9f`) zusammen mit der tatsächlich stereo-verlinkten 131.574-Byte-Vergleichsbank (SHA-256 `cfeea9897fce687f97160e069f01ae785e7e736798290a0e07ce56af7d8326fb`) **ausschließlich in eine weitere neue Disk-Kopie** eingesetzt. Private Pfade und Inhalte bleiben dort.
 
-**Wichtige Beweisgrenze:** Der erfolgreiche Gastboot, das erfolgreiche 2-Bank-Original-API-Protokoll, der native Build und die synthetischen Jcc-Gegentests bedeuten noch **keinen** beobachteten P107-Sprungausgang. Solange die private P107-Ausführung keinen vollständigen ausgeführten-PC-Mitschnitt mit den fünf erwarteten Jcc-Standorten liefert, bleiben die fünf offenen P106-Entscheidungen **nicht gemessen**. Ein leeres Mitschnitt-File ist ausdrücklich ein **NO-GO** für einen Original-Branch-Beweis. Ebenso darf zusätzlicher JIT-Logger-Hostaufwand die ursprünglichen Programm-/Emulator-Timings verändern; jede positive Branchevidenz muss separat gegen die ursprüngliche uninstrumentierte Hardware-/PCM-Spur gegengeprüft werden.
+Das originale Win95-Gastprotokoll `P003MODE.LOG` bestätigt:
+- `ORIGINAL_BANK_PHASES_COMPLETED=0x3` (**3 von 3 Bänken**),
+- `ORIGINAL_MIDI_CALLS_TOTAL=0x1050` (**4.176 Creative-Aufrufe**),
+- `ORIGINAL_MIDI_CALL_ERRORS=0x0`,
+- Abschlussmarker `P003_ORIGINAL_WIN95_ALLOCATOR_STRESS_COMPLETED`.
 
-**Ergebnisziel nach erfolgreichem Gastmitschnitt:** Die tatsächlichen fünf x86-Jcc-Pfade mit Original-`[EBP−0x18]` ermitteln und anschließend den quellbasierten Pentium-P54C-U/V/AGI-Zyklusrechner und die 44,1-kHz-Subsample-Phase validieren. Die fünf Jcc sind keine pauschal paartaktsicheren Instruktionen.
+**Echtes neues Original-executed-PC-Ergebnis:** Der private, unveröffentlichte Mitschnitt `P107-EXECUTED-X86-STEREO-EXACT.trace` wurde nach dem Gastlauf vollständig gelesen (36.667 Ereignisse, 1.969.058 Byte, SHA-256 `b96eaa2b4cb7537e82cf843b07664d8815e05d68c8d543f439f3451e71cb1a12`, **0** CS-/Adressfensterfehler und **0** CPU-TSC-Regressionsmeldungen). Physischer CPU-I/O-V4-Mitschnitt wurde ebenfalls erstellt (ca. 189 MiB). Beide Dateien verbleiben ausschließlich privat.
 
-Produktbranch, originaler EMU8000-Kern und P003-VST3-Laufzeitpfad bleiben unberührt; keine vorzeitige DAW-/Studio-One-Abnahme, kein Merge. **Keine Benutzerhandlung erforderlich.**
+| Originaler Original-x86-Jcc-Ausführungspunkt | Genommen (direkt bestätigter nächster PC) | Nicht genommen (direkt bestätigt) | **Ungeklärt wegen übersprungenem Observer-Callback** |
+|---|---:|---:|---:|
+| `+0x4027 JNE` / lokaler Modusindikator | **739** | 0 | **7** |
+| `+0x40CB JA` / CCCA-Samplevergleich | **452** | 0 | **8** |
+| `+0x40E4 JE` / Bewertungs-Strafwert | **756** | 0 | **3** |
+| `+0x40F1 JAE` / Vergleich mit bisheriger Stimme | **474** | **251** | **40** |
+| `+0x4107 JB` / Auswahl bisheriger bester Paar-Kandidaten | **640** | **75** | **22** |
+| **Summe** | **3.061** | **326** | **80** |
+
+Von den **746** Original-Ereignissen an `LCOD+0x4027` war der ausschließlich per Gast-RAM-Cache gelesene **tatsächliche lokale Wert `[EBP-0x18]=1`** in allen 746 lesbar. Bei **739** Events war der nächste aufgezeichnete PC exakt der Original-`JNE`-Sprungziel-PC `+0x4048`; die übrigen **7** bleiben **ungeklärt** und dürfen nicht als identisch behauptet werden. Der Originalwert ist ein **lokales Stack-DWORD**, **nicht direkt der Geräte-RAM-Wert `[device+0x18]`**. Die beiden dürfen keinesfalls gleichgesetzt werden.
+
+## Nachweisumfang und präzise Grenze
+
+Der P107-Observer emittiert aktuell den Callback im alten x64-JIT-Generator. Nicht jeder für die P106-Kontrollflussgrafik relevante Zwischenbefehl wird durch diese erste Version zuverlässig protokolliert. **Wenn unmittelbar nach einer beobachteten Jcc-Stelle nicht genau der Original-Ziel-PC oder Fallthrough-PC im Trace folgt, lautet das Ergebnis `UNKNOWN_SPARSE_OBSERVER` – weder `taken` noch `not_taken`.** Genau deshalb wurden die 80 unklaren Fälle gesondert ausgewiesen. Der Quell-Auditor `tools/p107_audit_executed_jcc_private.py` wurde auf diese fail-closed-Behandlung korrigiert; öffentliche CI nutzt nur synthetische Gegenproben.
+
+Die echten 3.387 direkten Jcc-Nachfolger sind ein **positiver Beobachtungsbefund**, jedoch **noch kein originalgetreues vollständiges CPU-Instruktions-/EFLAGS-Protokoll**. JIT-Instrumentierung kann die Hostausführungszeit und unter Umständen Abhängigkeiten/Flags beeinflussen. Der im Callback abgelesene TSC-Wert ist **nicht** automatisch die exakte originale TSC-Zeit jedes x86-Befehls. Daher auch **noch keine** Erklärung der ursprünglichen variablen 91/93/95-Taktabstände und **keine** selbständig aus MIDI erreichte register- bzw. bitgenaue PCM-Parität.
+
+**Weiteres P003-Gate:** vollständige bzw. nachweislich lückenlose x86-Instruktionssequenz im passenden ALTEN Dynarec; dann unabhängige Bewertung von P54C-U/V-Pairing, AGI, tatsächlichem dynamischem x86-State und 44,1-kHz-Subsample-Phase; zuletzt neue Win95-gegen-VST3-PCM-Holdouts. Keine synthetischen TSC-Konstanten oder nachträglich übernommene Original-Zeitstempel in die Engine.
+
+Öffentliche Reproduzierbarkeit: GitHub-Actions Windows/Linux reale Emulator-Builds [#43928377855](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43928377855). **Kein AWE64-Gold-VST3-Produktcode geändert**, kein Merge, keine DAW-Vorabprüfung, **keine Handlung des Nutzers erforderlich**.
