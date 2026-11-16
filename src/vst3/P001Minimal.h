@@ -96,6 +96,8 @@ private:
 
     awe64::Chip chip_;
     P004HostRateAdapter hostRateAdapter_{};
+    // Negotiated VST3 sample representation, never alter chip DSP words.
+    Steinberg::int32 hostSampleFormat_=Steinberg::Vst::kSample32;
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
     // (the pinned EMU8000 chip processing itself is unchanged).
     awe64::card::OriginalCt1745WavetableMixer originalGoldCard_{};
