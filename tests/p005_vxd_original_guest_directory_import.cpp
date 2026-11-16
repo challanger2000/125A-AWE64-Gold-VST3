@@ -148,6 +148,25 @@ int main() {
         catalog,sourceDevice,missingSecondRow,true)==Result::MissingSentinel);
     CHECK(catalog.sourceSlotCount()==0u && catalog.zoneCount()==0u);
 
-    std::puts("P005_GUEST_288_VXD_POINTER_RECORD_IMPORT_PASS no_phdr_padding=TRUE original_guest_bytes_required=TRUE cross_page=TRUE missing_bytes_rejected=TRUE");
+    // Real capture tools can deliver guest memory pages out of order.
+    // Stress the sorted index with every original VXD record BYTE
+    // independently mapped and a permutation of its virtual address.
+    constexpr std::size_t nBytes=3u*Importer::kOriginalRowBytes;
+    std::array<P005OriginalGuestMemorySegment,nBytes> shuffled{};
+    for(std::size_t i=0u;i<nBytes;++i) {
+        const auto sourceIndex=(i*5u)%nBytes; // permutation: gcd(5,78)=1
+        shuffled[i]={guestAddress+static_cast<std::uint32_t>(sourceIndex),
+                     std::span<const std::uint8_t>(
+                         sourceRows.data()+sourceIndex,1u)};
+    }
+    CHECK(Importer::importNonRealtime(
+        catalog,sourceDevice,shuffled,true)==Result::Ok);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
+    CHECK(catalog.resetNonRealtime());
+
+    std::puts("P005_GUEST_288_VXD_POINTER_RECORD_IMPORT_PASS no_phdr_padding=TRUE original_guest_bytes_required=TRUE cross_page=TRUE missing_bytes_rejected=TRUE shuffled_byte_pages=TRUE");
     return 0;
 }
