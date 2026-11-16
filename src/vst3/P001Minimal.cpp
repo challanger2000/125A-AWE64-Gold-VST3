@@ -962,7 +962,14 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             continue;
         }
         int32 midiOffset=std::numeric_limits<int32>::max();
-        if(haveMidi)midiOffset=std::clamp(e.sampleOffset,int32(0),data.numSamples);
+        if(haveMidi) {
+            // Never silently retime malformed MIDI to the beginning or
+            // end of a buffer. That hides lost/out-of-order events in
+            // exact Creative original-register and VST3 automation tests.
+            if(e.sampleOffset<0 || e.sampleOffset>data.numSamples)
+                return kInvalidArgument;
+            midiOffset=e.sampleOffset;
+        }
         int32 ccOffset=std::numeric_limits<int32>::max();
         ParamValue ccNormalized=0.;
         const bool haveCc=ccIndex<ccCount;
