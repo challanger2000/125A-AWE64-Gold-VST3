@@ -8,11 +8,13 @@ on:
       - '.github/workflows/p105-pentium-dynarec-pairing.yml'
       - 'src/creative_compat/P105PentiumDynarecPairing.hpp'
       - 'tests/p105_pentium_dynarec_pairing_only.cpp'
+      - 'tools/p106_original_vxd_stereo_cfg_private.py'
   pull_request:
     paths:
       - '.github/workflows/p105-pentium-dynarec-pairing.yml'
       - 'src/creative_compat/P105PentiumDynarecPairing.hpp'
       - 'tests/p105_pentium_dynarec_pairing_only.cpp'
+      - 'tools/p106_original_vxd_stereo_cfg_private.py'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +38,8 @@ jobs:
             grep -q 'P105_PENTIUM_DYNAREC_SOURCE_PAIRING_PASS' "/tmp/p105-$compiler.out"
           done
           python3 tools/p105_original_stereo_dynarec_private.py --selftest
+          python3 -m py_compile tools/p106_original_vxd_stereo_cfg_private.py
+          python3 tools/p106_original_vxd_stereo_cfg_private.py --selftest
           echo "P105 86Box P54C Dynarec pairing-only source contract PASS; original Win95 timing NOT verified"
 
   windows-clang:
@@ -54,6 +58,7 @@ jobs:
           & $exe
           if($LASTEXITCODE -ne 0) {throw "Win64 pairing contract failed"}
           python tools/p105_original_stereo_dynarec_private.py --selftest
+          python tools/p106_original_vxd_stereo_cfg_private.py --selftest
           if($LASTEXITCODE -ne 0) {throw "Win64 Python negative-control audit failed"}
           "P105 native Win64 paired-clock contract PASS (NO VST3/audio/timing parity implied)" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
