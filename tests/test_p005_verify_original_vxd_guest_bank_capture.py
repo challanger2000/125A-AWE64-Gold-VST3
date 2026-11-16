@@ -71,6 +71,12 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         self.bad(lambda x:struct.pack_into("<I",x,36+DEVICE_BYTES+4,53))
     def test_untrusted_guest_device_address(self):
         self.bad(lambda x:struct.pack_into("<I",x,12,0x4000))
+    def test_indirect_bank_pointer_header_must_not_pass_as_rows(self):
+        def mutation(x):
+            at=36+DEVICE_BYTES+8
+            ptr=0xc30c0ff0
+            struct.pack_into('<III',x,at,ptr+32,ptr+64,ptr+96)
+        self.bad(mutation)
     def test_wrong_source_row_marker_count(self):
         self.bad(lambda x:struct.pack_into("<I",x,28,0))
     def test_claimed_unreferenced_source_list(self):
