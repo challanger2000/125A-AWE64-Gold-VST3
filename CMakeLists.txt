@@ -219,8 +219,7 @@ if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
         COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/p003_rea_three_object_audit.py"
             --original-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
-            --original-v4-zip "$ENV{AWE64_P003_PRIVATE_ORIGINAL_V4_ZIP}"
-            --output "${CMAKE_BINARY_DIR}/p003-private-original-three-object-result.json")
+            --original-v4-zip "$ENV{AWE64_P003_PRIVATE_ORIGINAL_V4_ZIP}")
 endif()
 add_test(NAME p001_direct_fork_pcm_and_negative_controls
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_replay.py"
