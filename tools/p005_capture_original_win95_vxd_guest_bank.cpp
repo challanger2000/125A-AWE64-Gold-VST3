@@ -122,9 +122,11 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
         for(std::size_t i=0;i<6u;++i)
             if(u32(header.data()+4u*i)>=u32(header.data()+4u*(i+1u)))
                 ordered=false;
-        const bool indirect=child>ptr && child-ptr>=28u &&
-            child-ptr<=4096u && ordered &&
+        const bool candidateHeader=child>ptr && child-ptr>=28u &&
+            child-ptr<=4096u && child<second &&
             (child&0xff000000u)==(ptr&0xff000000u);
+        if(candidateHeader && !ordered)return false;
+        const bool indirect=candidateHeader;
         if(indirect) {
             const auto prefix=std::size_t{child-ptr};
             // The second authentic bank-header pointer gives the exact
