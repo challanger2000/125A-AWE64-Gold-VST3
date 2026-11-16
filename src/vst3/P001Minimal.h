@@ -59,7 +59,7 @@ public:
         Steinberg::Vst::ParamID tag,Steinberg::Vst::ParamValue normalized,
         Steinberg::Vst::String128 text) override;
     Steinberg::tresult PLUGIN_API getParamValueByString(
-        Steinberg::Vst::ParamID tag,Steinberg::TChar* text,
+        Steinberg::Vst::ParamID tag,Steinberg::Vst::TChar* text,
         Steinberg::Vst::ParamValue& normalized) override;
 
     OBJ_METHODS(Minimal, SingleComponentEffect)
