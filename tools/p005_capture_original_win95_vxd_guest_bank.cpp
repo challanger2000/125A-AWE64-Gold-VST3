@@ -293,6 +293,48 @@ int selfTest() {
     require(discovered.size()==1u &&
             discovered[0].capture.sameSourceBytes(check),
             "GUEST_DYNAMIC_VXD_DISCOVERY_FAILED");
+    // Independently exercise the real Win95 indirect bank layout:
+    // root header -> first child VA -> second child VA is the exact
+    // end of a 26-byte-aligned list, including the FFFF row.
+    Ram indirectRam(GuestBytes);
+    Device indirectDevice=source;
+    put32(indirectDevice.data()+PointerOffset+5u*4u,list);
+    put32(indirectDevice.data()+PointerOffset+6u*4u,list);
+    mapRegion(indirectRam,cr3,pt,va,0x28000u,
+              indirectDevice.data(),split);
+    mapRegion(indirectRam,cr3,pt,va+static_cast<std::uint32_t>(split),
+              0x71000u,indirectDevice.data()+split,DeviceBytes-split);
+    constexpr std::size_t Prefix=76u;
+    std::array<std::uint8_t,Prefix+2u*RowBytes> nested{};
+    put32(nested.data(),list+static_cast<std::uint32_t>(Prefix));
+    put32(nested.data()+4u,
+          list+static_cast<std::uint32_t>(Prefix+2u*RowBytes));
+    put32(nested.data()+8u,
+          list+static_cast<std::uint32_t>(Prefix+4u*RowBytes));
+    put16(nested.data()+Prefix,1u);
+    nested[Prefix+2u]=7u;
+    nested[Prefix+3u]=1u;
+    put16(nested.data()+Prefix+RowBytes,0xffffu);
+    mapRegion(indirectRam,cr3,pt,list,0x85000u,
+              nested.data(),first);
+    mapRegion(indirectRam,cr3,pt,list+static_cast<std::uint32_t>(first),
+              0x92000u,nested.data()+first,nested.size()-first);
+    Evidence verifiedNested{};
+    require(probe(indirectRam,cr3,va,verifiedNested),
+            "INDIRECT_BANK_HEADER_CAPTURE_FAILED");
+    require(verifiedNested.rows.size()==1u &&
+            verifiedNested.rows.at(list).size()==nested.size(),
+            "INDIRECT_BANK_HEADER_LENGTH_NOT_BOUNDED");
+    // Early FFFF within the child list must never hide later records.
+    put16(indirectRam.data()+0x92000u+Prefix-first,0xffffu);
+    Evidence rejectedNested{};
+    require(!probe(indirectRam,cr3,va,rejectedNested),
+            "EARLY_INDIRECT_SENTINEL_ACCEPTED");
+    put16(indirectRam.data()+0x92000u+Prefix-first,1u);
+    // The final row must remain the end marker.
+    put16(indirectRam.data()+0x92000u+Prefix+RowBytes-first,0u);
+    require(!probe(indirectRam,cr3,va,rejectedNested),
+            "MISSING_INDIRECT_SENTINEL_ACCEPTED");
     // Missing second page: not a permitted original row terminator.
     const auto ti=((list+static_cast<std::uint32_t>(first))>>12u)&1023u;
     put32(ram.data()+pt+4u*ti,0u);
