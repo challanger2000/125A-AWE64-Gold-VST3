@@ -71,6 +71,10 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         self.bad(lambda x:struct.pack_into("<I",x,36+DEVICE_BYTES+4,53))
     def test_untrusted_guest_device_address(self):
         self.bad(lambda x:struct.pack_into("<I",x,12,0x4000))
+    def test_impossible_midi_program_in_captured_rows(self):
+        self.bad(lambda x:x.__setitem__(36+DEVICE_BYTES+8+2,193))
+    def test_impossible_midi_bank_in_captured_rows(self):
+        self.bad(lambda x:x.__setitem__(36+DEVICE_BYTES+8+3,193))
     def test_wrong_source_row_marker_count(self):
         self.bad(lambda x:struct.pack_into("<I",x,28,0))
     def test_claimed_unreferenced_source_list(self):
