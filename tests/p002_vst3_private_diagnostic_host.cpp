@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1088,6 +1089,74 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
                 std::memcmp(afterLateInvalid.getData(),desired.data(),
                             desired.size())==0,
                 "late-invalid program point mutated real SF2 state");
+    }
+
+    // Negative MIDI-semantics regression in the exported DLL:
+    // an early valid Program7 at offset9 must NOT change the source
+    // bank if a later NoteOn is structurally malformed. Offsets alone
+    // are valid here; this catches the previously missed semantic path.
+    {
+        ParameterChanges changes(1);
+        int32 index=0;
+        auto* program=changes.addParameterData(0x125A00C0u,index);
+        require(program!=nullptr,"late-invalid-note queue missing");
+        int32 point=0;
+        require(program->addPoint(9,7./127.,point)==kResultOk,
+                "late-invalid-note program point missing");
+        EventList events;
+        Event note{};
+        note.type=Event::kNoteOnEvent;
+        note.busIndex=0;
+        note.sampleOffset=255;
+        note.noteOn.channel=2;
+        note.noteOn.pitch=128; // invalid MIDI, even though offset is valid
+        note.noteOn.velocity=100.f/127.f;
+        note.noteOn.noteId=60;
+        require(events.addEvent(note)==kResultOk,
+                "late-invalid-note event enqueue failed");
+        std::array<float,512> left{},right{};
+        float* channels[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=channels;
+        ProcessData p{};
+        p.processMode=kRealtime;p.symbolicSampleSize=kSample32;
+        p.numSamples=512;p.numOutputs=1;p.outputs=&bus;
+        p.inputEvents=&events;
+        p.inputParameterChanges=&changes;
+        require(auditedOriginalBankProcess(active.audio,p)!=kResultOk,
+                "late malformed NoteOn was accepted after program change");
+        MemoryStream stateAfter{};
+        require(active.component->getState(&stateAfter)==kResultOk &&
+                stateAfter.getSize()==desired.size() &&
+                std::memcmp(stateAfter.getData(),desired.data(),
+                            desired.size())==0,
+                "late malformed NoteOn partially mutated real SF2 program");
+        require(std::all_of(left.begin(),left.end(),
+                            [](float s){return s==0.f;}) &&
+                std::all_of(right.begin(),right.end(),
+                            [](float s){return s==0.f;}),
+                "late malformed NoteOn partially advanced original EMU8000");
+        // An invalid bus/velocity/NaN must obey the same transactional
+        // rule as an out-of-range pitch.
+        for(int kind=0;kind<4;++kind) {
+            events.clear();
+            note.noteOn.pitch=60;
+            note.busIndex=kind==0?1:0;
+            note.noteOn.channel=kind==1?16:2;
+            note.noteOn.velocity=kind==2?2.f:
+                kind==3?std::numeric_limits<float>::quiet_NaN():
+                100.f/127.f;
+            require(events.addEvent(note)==kResultOk,
+                    "malformed note control event enqueue failed");
+            require(auditedOriginalBankProcess(active.audio,p)!=kResultOk,
+                    "malformed VST3 note payload accepted");
+            MemoryStream check{};
+            require(active.component->getState(&check)==kResultOk &&
+                    check.getSize()==desired.size() &&
+                    std::memcmp(check.getData(),desired.data(),
+                                desired.size())==0,
+                    "malformed VST3 event mutated source SF2 selection");
+        }
     }
 
     // Real Steinberg hosts flush parameter changes with zero audio
