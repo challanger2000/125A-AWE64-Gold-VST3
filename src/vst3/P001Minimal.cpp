@@ -1300,7 +1300,11 @@ tresult PLUGIN_API Minimal::getParamStringByValue(
         return kInvalidArgument;
     auto* list=getProgramList(
         static_cast<ProgramListID>(sf2host::kProgramListId));
-    if(!list || list->getCount()<=0)return kResultFalse;
+    // A host can ask for automation text before a source bank loads.
+    // Preserve the standard numeric display until the real PHDR exists.
+    if(!list || list->getCount()<=0)
+        return SingleComponentEffect::getParamStringByValue(
+            tag,normalized,text);
     const auto count=static_cast<std::size_t>(list->getCount());
     const auto selected=static_cast<int32>(
         normalized*static_cast<ParamValue>(count-1u)+0.5);
@@ -1314,7 +1318,9 @@ tresult PLUGIN_API Minimal::getParamValueByString(
     if(!text)return kInvalidArgument;
     auto* list=getProgramList(
         static_cast<ProgramListID>(sf2host::kProgramListId));
-    if(!list || list->getCount()<=0)return kResultFalse;
+    if(!list || list->getCount()<=0)
+        return SingleComponentEffect::getParamValueByString(
+            tag,text,normalized);
     for(int32 index=0;index<list->getCount();++index) {
         String128 candidate{};
         if(list->getProgramName(index,candidate)!=kResultOk)continue;
