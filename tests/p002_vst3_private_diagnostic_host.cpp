@@ -15,6 +15,7 @@
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstunits.h"
+#include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
@@ -294,6 +295,47 @@ void verifyActualSf2HostProgramNames(IPluginFactory* factory) {
         require(units->getProgramName(list.id,3,wrong)!=kResultOk &&
                 units->getProgramName(0x125A0034,0,wrong)!=kResultOk,
                 "VST3 host exposed nonexistent PHDR program or bank");
+        IEditController* controller=nullptr;
+        require(active.component->queryInterface(
+                IEditController::iid,
+                reinterpret_cast<void**>(&controller))==kResultOk &&
+                controller,"actual combined VST3 editor controller unavailable");
+        try {
+            for(int32 i=0;i<3;++i) {
+                const auto value=static_cast<ParamValue>(i)/2.;
+                String128 formatted{};
+                require(controller->getParamStringByValue(
+                    0x125A00D0u,value,formatted)==kResultOk,
+                    "DAW ordinal automation could not display exact PHDR name");
+                const auto* expectedName=expected[static_cast<std::size_t>(i)];
+                std::size_t at=0;
+                for(;expectedName[at]!=0;++at)
+                    require(formatted[at]==expectedName[at],
+                            "DAW parameter label differed from IUnitInfo list");
+                require(formatted[at]==0,
+                        "DAW parameter had bogus PHDR name suffix");
+                ParamValue parsed=-1.;
+                require(controller->getParamValueByString(
+                    0x125A00D0u,formatted,parsed)==kResultOk &&
+                    parsed==value,
+                    "actual VST3 named PHDR automation did not roundtrip");
+            }
+            String128 invalidName{};
+            invalidName[0]=u'X';
+            ParamValue invalidValue=0.5;
+            require(controller->getParamValueByString(
+                0x125A00D0u,invalidName,invalidValue)!=kResultOk &&
+                invalidValue==0.5,
+                "unknown PHDR name incorrectly changed normalized parameter");
+            String128 invalidNormalized{};
+            require(controller->getParamStringByValue(
+                0x125A00D0u,1.5,invalidNormalized)!=kResultOk,
+                "out-of-range named PHDR automation value was accepted");
+        } catch(...) {
+            controller->release();
+            throw;
+        }
+        controller->release();
         std::cout<<"P003_EXPORTED_VST3_REAL_SF2_HOST_PROGRAM_NAMES_PASS"
                     " exact_phdr_rows=3 fake_128_slots=0"
                     " bank0_program7=TRUE bank0_program9=TRUE"
