@@ -854,6 +854,39 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
             std::memcmp(saved.getData(),desired.data(),desired.size())==0,
             "real loaded SoundFont program/CC project restore mismatch");
 
+    // Negative control for a *late* invalid point. Without whole-
+    // block preflight, the Program7 point at sample9 would already
+    // mutate the real SoundFont before sample513 is discovered.
+    {
+        ParameterChanges changes(1);
+        int32 index=0;
+        auto* program=changes.addParameterData(0x125A00C0u,index);
+        require(program!=nullptr,"late-invalid-program queue missing");
+        int32 point=0;
+        require(program->addPoint(9,7./127.,point)==kResultOk,
+                "valid first source program point missing");
+        require(program->addPoint(513,9./127.,point)==kResultOk,
+                "late-invalid source program point missing");
+        std::array<float,512> left{},right{};
+        float* channels[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=channels;
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;
+        data.numSamples=512;
+        data.numOutputs=1;data.outputs=&bus;
+        data.inputParameterChanges=&changes;
+        require(auditedOriginalBankProcess(active.audio,data)!=kResultOk,
+                "late-invalid program point partially accepted");
+        MemoryStream afterLateInvalid{};
+        require(active.component->getState(&afterLateInvalid)==kResultOk &&
+                afterLateInvalid.getSize()==desired.size() &&
+                std::memcmp(afterLateInvalid.getData(),desired.data(),
+                            desired.size())==0,
+                "late-invalid program point mutated real SF2 state");
+    }
+
     // Real Steinberg hosts flush parameter changes with zero audio
     // frames and NO output buffers. Bank/program changes must survive.
     const auto zeroFrameProgramChange=[&](const unsigned program,
