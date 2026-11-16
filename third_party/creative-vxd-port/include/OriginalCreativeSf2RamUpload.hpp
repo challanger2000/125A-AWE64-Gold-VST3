@@ -73,8 +73,27 @@ struct OriginalCreativeRamBlockHooks {
 // returns only the low signed WORD of the filtered signed integer result.
 // A special zero fast path is retained: it is NOT equivalent to running a
 // generic fixed-coefficient FIR from sample zero without that branch.
+// Source-confirmed five x86 control paths of original PCOD+0x28AC.
+// Their observed 100/104/110/114-TSC spacing is DIAGNOSTIC, not a
+// complete host-independent CPU scheduler.
+enum class OriginalCreativePcmX86Path : std::uint8_t {
+    OrdinaryNonzeroOlder,
+    DirectZero,
+    OrdinaryNonzeroOlder2,
+    OrdinaryNonzeroOlder3,
+    GuardedZero
+};
 struct OriginalCreativePcmFilter {
     std::int32_t recent=0,older=0,older2=0,older3=0;
+    [[nodiscard]] OriginalCreativePcmX86Path original_x86_path(
+        std::int16_t sample) const noexcept;
+    [[nodiscard]] bool will_take_early_zero_branch(std::int16_t sample) const noexcept;
+    // Source-v4 PCM branch observations only; NEVER schedule native
+    // audio Port-I/O directly from these researched typical deltas.
+    [[nodiscard]] std::uint16_t observed_typical_pcm_loop_delta_tsc(
+        std::int16_t next_sample) const noexcept;
+    [[nodiscard]] std::uint16_t observed_control_flow_pcm_loop_delta_tsc(
+        std::int16_t next_sample) const noexcept;
     [[nodiscard]] std::int16_t next(std::int16_t sample) noexcept;
 };
 // Physical write order: first 14 zero words, then blocks of <=1024
