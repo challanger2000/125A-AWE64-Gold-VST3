@@ -196,6 +196,20 @@ int main(){
     CHECK(originalFullBank.noteOff(15u,60u)==MidiResult::Applied);
     CHECK(originalFullBank.sharedRuntime()->midi.channel[15]
         .original_selected_bank_slot==5u);
+    // Real Creative LCOD+0x6D05: CC0 requests another bank, but
+    // the selected physical VXD program row must remain unchanged
+    // until the next C0 ProgramChange (not a PHDR hot swap).
+    CHECK(originalFullBank.controller(0u,0u,2u)==MidiResult::Applied);
+    CHECK(originalFullBank.sharedRuntime()->midi.channel[0].bank_msb==2u);
+    CHECK(originalFullBank.sharedRuntime()->midi.channel[0]
+        .original_selected_bank_slot==5u);
+    // This synthetic source has no real bank2 program-7 record, and
+    // the source resolver is not allowed to fabricate one.
+    CHECK(originalFullBank.program(0u,7u)==MidiResult::MissingSource);
+    CHECK(originalFullBank.controller(0u,0u,1u)==MidiResult::Applied);
+    CHECK(originalFullBank.program(0u,7u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOff(0u,60u)==MidiResult::Applied);
     CHECK(originalFullBank.sharedRuntime()->scratch.device==
           &originalFullBank.sharedRuntime()->midi.device);
     CHECK(chip3.writes>0u);
