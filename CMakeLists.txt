@@ -197,6 +197,22 @@ add_executable(awe64_direct_fork_fixture tests/direct_fork_fixture.cpp)
 target_link_libraries(awe64_direct_fork_fixture PRIVATE awe64_fork_chip)
 target_include_directories(awe64_direct_fork_fixture PRIVATE src/chip_adapter/shim_include)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+# P003 independent 86Box/CALL+5/LE-reloctarget REA handoff; synthetic CI
+# always runs. The private VXD + original CPU/chip trace are never in CI.
+add_test(NAME p003_rea_three_object_original_driver_synthetic_contract
+    COMMAND "${Python3_EXECUTABLE}" -m unittest
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_p003_rea_three_object_audit.py")
+if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
+   EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}" AND
+   DEFINED ENV{AWE64_P003_PRIVATE_ORIGINAL_V4_ZIP} AND
+   EXISTS "$ENV{AWE64_P003_PRIVATE_ORIGINAL_V4_ZIP}")
+    add_test(NAME p003_private_original_creative_rea_three_object_v4
+        COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/p003_rea_three_object_audit.py"
+            --original-vxd "$ENV{AWE64_P002_PRIVATE_VXD}"
+            --original-v4-zip "$ENV{AWE64_P003_PRIVATE_ORIGINAL_V4_ZIP}"
+            --output "${CMAKE_BINARY_DIR}/p003-private-original-three-object-result.json")
+endif()
 add_test(NAME p001_direct_fork_pcm_and_negative_controls
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_replay.py"
   "$<TARGET_FILE:awe64_direct_fork_fixture>" "$<TARGET_FILE:awe64_replay>")
