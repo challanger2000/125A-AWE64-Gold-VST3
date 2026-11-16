@@ -84,8 +84,23 @@ int main() {
     host.resetNonRealtime();
     CHECK(!host.active() && host.sharedRuntime()==nullptr);
     CHECK(host.activate(second,bank,true));
+    CHECK(host.sourceBound() && host.active());
     CHECK(host.sharedRuntime()->attached_to(second));
     CHECK(host.sharedRuntime()->midi.device.voices[0].key_marker==0x0ffeu);
+    // Simulate permanent ORIGINAL Creative source-driver fault. An
+    // inactive/faulted port MUST still own host MIDI routing, otherwise
+    // the exported VST3 could unexpectedly play its old P001 test voice.
+    host.sharedRuntime()->midi.fault=true;
+    CHECK(host.sourceBound() && !host.active());
+    const auto faultWrites=second.writes;
+    CHECK(host.noteOn(0u,60u,100u)==MidiResult::MissingSource);
+    CHECK(host.noteOff(0u,60u)==MidiResult::MissingSource);
+    CHECK(host.program(0u,7u)==MidiResult::MissingSource);
+    CHECK(second.writes==faultWrites);
+    host.resetNonRealtime();
+    CHECK(!host.sourceBound() && !host.active());
+    CHECK(host.sharedRuntime()==nullptr);
+    std::puts("P005_LATCHED_SOURCE_FAULT_NEVER_FALLS_BACK_PASS");
     std::puts("P005_ORIGINAL_CREATIVE_SINGLE_CHIP_SINGLE_DEVICE_MIDI_PASS");
     return 0;
 }
