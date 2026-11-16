@@ -2,6 +2,7 @@
 // Strictly synthetic SF2 bytes / source tables: NOT Win95 driver parity.
 #include "P005OriginalCreativeSf2NoteStage.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
+#include "P005OriginalCreativeVxdDirectoryImporter.hpp"
 #include "P005OriginalCreativeHostAdapter.hpp"
 #include <array>
 #include <cstdint>
@@ -266,6 +267,61 @@ int main(){
     CHECK(catalog.resetNonRealtime());
     CHECK(!catalog.ready() && catalog.zoneCount()==0u);
     CHECK(catalog.sourceSlotCount()==0u);
+
+    // END-TO-END ORIGINAL INTERFACE: decode a 288-slot guest pointer
+    // IMAGE + exact 26-byte source records, then stage a verified SF2
+    // source descriptor and send it through the ORIGINAL C0 / MIDI /
+    // EMU8000 chip-port bridge. All guest bytes here are SYNTHETIC;
+    // genuine private Win95 guest pages must be SHA-attested separately.
+    constexpr std::uint32_t guestPointer=0x12001000u;
+    std::array<std::uint8_t,0x1592u> deviceImage{};
+    auto const at=std::size_t{0x6cau}+5u*4u;
+    for(unsigned i=0u;i<4u;++i)
+        deviceImage[at+i]=static_cast<std::uint8_t>(
+            guestPointer>>(i*8u));
+    std::array<std::uint8_t,52u> guestRows{};
+    guestRows[0]=1u; // real row marker !=0, !=0xFFFF
+    guestRows[2]=7u; // original Program Change C0=7
+    guestRows[3]=1u; // original Creative CC0 bank=1
+    guestRows[26]=0xffu;guestRows[27]=0xffu;
+    const std::array<P005OriginalGuestMemorySegment,1> guestSegments{{
+        {guestPointer,guestRows}
+    }};
+    P005OriginalCreativeBankCatalog guestCatalog{};
+    using ImportResult=P005OriginalVxdDirectoryImportResult;
+    CHECK(P005OriginalVxdDirectoryImporter::importNonRealtime(
+        guestCatalog,deviceImage,guestSegments,false)==ImportResult::Unverified);
+    CHECK(P005OriginalVxdDirectoryImporter::importNonRealtime(
+        guestCatalog,deviceImage,guestSegments,true)==ImportResult::Ok);
+    CHECK(guestCatalog.sourceRowCountNonRealtime(5u)==2u);
+    guestRows[2]=99u; // original externally owned buffer can disappear
+    CHECK(guestCatalog.originalSourceRowNonRealtime(5u,0u)
+          ->original_program_byte==7u);
+    CHECK(stage.prepareNonRealtime(
+        file,1u,7u,60u,100u,original,states,true)==Sf2BuildStatus::Ok);
+    CHECK(guestCatalog.appendVerifiedNoteContext(stage));
+    CHECK(guestCatalog.sealNonRealtime());
+    stage.clearNonRealtime();
+    Chip guestChip{};
+    P005OriginalCreativeHostAdapter<Chip> guestHost{};
+    CHECK(!guestHost.activateOwnedOriginalCatalogNonRealtime(
+        guestChip,guestCatalog,false));
+    CHECK(guestHost.activateOwnedOriginalCatalogNonRealtime(
+        guestChip,guestCatalog,true));
+    CHECK(guestHost.controller(0u,0u,1u)==MidiResult::Applied);
+    CHECK(guestHost.program(0u,7u)==MidiResult::Applied);
+    CHECK(guestHost.sharedRuntime()->midi.channel[0]
+        .original_selected_bank_slot==5u);
+    CHECK(guestHost.sharedRuntime()->midi.channel[0]
+        .original_selected_preset_row==0u);
+    CHECK(guestHost.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(guestHost.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(guestChip.writes>0u);
+    CHECK(!guestCatalog.resetNonRealtime()); // active source lease
+    guestHost.resetNonRealtime();
+    CHECK(guestCatalog.resetNonRealtime());
+    std::puts("P005_GUEST_POINTER_TO_ORIGINAL_C0_NOTEON_NOTE_OFF_PASS synthetic_only=TRUE");
+
     std::puts("P005_SOURCE_288_SLOT_2_NOTE_CATALOG_PASS borrowed_rows_OWNED stable_midi_runtime=TRUE");
 
     std::puts("P005_REAL_SOURCE_READER_RESOURCE_BUILDER_TO_VST3_MIDI_PASS synthetic_source_only=TRUE original_win95_parity=NOT_PROVEN");
