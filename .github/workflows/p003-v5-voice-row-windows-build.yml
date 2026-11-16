@@ -66,6 +66,10 @@ jobs:
           Remove-Item p003-v5-build-source/src/io.v4.c
           $after = (Get-FileHash p003-v5-build-source/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if ($before -ne $after) { throw 'Original EMU8000 core changed' }
+          # OpenSSL's static UCRT64 libcrypto uses BCryptGenRandom; link
+          # the Windows bcrypt import library AFTER the crypto dependency.
+          # Touch only the copied CMake build script, never the pinned fork.
+          Add-Content -Path 'p003-v5-build-source/src/CMakeLists.txt' -Value 'target_link_libraries(86Box PRIVATE bcrypt)'
           Write-Host "P003_V5_ORIGINAL_EMU8000_SOURCE_UNCHANGED sha256=$after"
       - name: Configure original 86Box for Windows
         working-directory: p003-v5-build-source
