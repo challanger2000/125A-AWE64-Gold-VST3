@@ -170,8 +170,13 @@ public:
                     const auto a=read32(joined.data());
                     const auto b=read32(joined.data()+4u);
                     const auto c=read32(joined.data()+8u);
+                    bool ordered=true;
+                    for(std::size_t i=0u;i<6u;++i)
+                        if(read32(joined.data()+4u*i)>=
+                           read32(joined.data()+4u*(i+1u)))
+                            ordered=false;
                     if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
-                       a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u)) {
+                       ordered && (a&0xff000000u)==(ptr&0xff000000u)) {
                         const auto span=std::uint64_t{b}-a;
                         if(span<kOriginalRowBytes ||
                            span%kOriginalRowBytes!=0u ||
