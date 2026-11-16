@@ -64,8 +64,6 @@ candidateOriginalWin95Mode1Pair(
         // live chip read. A skipped voice does not need a complete chip
         // snapshot and must not turn a valid selection into nullopt.
         if(forbiddenByDeviceMode(v,driver_mode_count) ||
-           (i+1u<capacity &&
-            forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) ||
            v.internal_key_marker>=0x2000u) {
             previous=kOriginalMaxPairPriority;
             continue;
@@ -79,7 +77,12 @@ candidateOriginalWin95Mode1Pair(
 
         // Last capacity voice has no adjacent partner; its score
         // seeds the comparison for (capacity-2,capacity-1).
-        if(i+1u<capacity) {
+        if(i+1u<capacity &&
+           !forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) {
+            // A blocked NEXT voice invalidates only THIS pair.
+            // The current voice's genuine score still seeds the next
+            // pair below it. Otherwise a blocked voice31 wrongly
+            // hides a usable voice29+30 pair.
             const std::uint32_t sum=previous+current;
             if(sum==0u) {
                 // +0x40DA -> +0x4167 early zero-pair allocation.
