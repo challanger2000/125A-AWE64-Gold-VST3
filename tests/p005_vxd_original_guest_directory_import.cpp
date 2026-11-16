@@ -47,6 +47,17 @@ int main() {
     CHECK(Importer::importNonRealtime(
         catalog,std::span<const std::uint8_t>(sourceDevice).first(0x100u),
         memory,true)==Result::MalformedDeviceImage);
+    // A forged pointer-only capture has the full bank pointer table
+    // but lacks the remainder of the authentic original VXD image.
+    CHECK(Importer::importNonRealtime(
+        catalog,std::span<const std::uint8_t>(sourceDevice).first(
+            Importer::kGuestPointerOffset+
+            Importer::kOriginalSlotCount*Importer::kGuestPointerBytes),
+        memory,true)==Result::MalformedDeviceImage);
+    std::array<std::uint8_t,Importer::kOriginalDeviceImageBytes+1u>
+        oversizedDevice{};
+    CHECK(Importer::importNonRealtime(
+        catalog,oversizedDevice,memory,true)==Result::MalformedDeviceImage);
     CHECK(catalog.sourceSlotCount()==0u);
     auto missing=sourceDevice;
     put32(missing,ptrOffset+5u*4u,0u);
