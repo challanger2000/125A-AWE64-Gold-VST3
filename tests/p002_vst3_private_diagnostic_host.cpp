@@ -1083,7 +1083,7 @@ void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
         << " physical_emu8000_identical_stereo_pcm=TRUE"
         << " missing_preset_recall_rejected=TRUE"
         << " zero_frame_automation=TRUE"
-        << " original_win95_pcm_parity=NOT_PROVEN\\n";
+        << " original_win95_pcm_parity=NOT_PROVEN\n";
 }
 } // namespace
 int wmain(int argc,wchar_t** argv){
