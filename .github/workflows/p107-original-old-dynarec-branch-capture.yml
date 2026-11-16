@@ -8,6 +8,7 @@ on:
       - '.github/workflows/p107-original-old-dynarec-branch-capture.yml'
       - 'tools/p107_instrument_old_dynarec.py'
       - 'tests/test_p107_instrument_old_dynarec.py'
+      - 'tools/p107_audit_executed_jcc_private.py'
   workflow_dispatch:
 
 permissions:
@@ -26,6 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          python3 tools/p107_audit_executed_jcc_private.py --selftest
           python3 -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
           python3 tools/p107_instrument_old_dynarec.py \
             --original-codegen third_party/86box-awe32/src/codegen/codegen_x86-64.c --verify-only
@@ -136,6 +138,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           python -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          python tools/p107_audit_executed_jcc_private.py --selftest
           if($LASTEXITCODE -ne 0) { throw 'P107 Python guards failed' }
           New-Item -ItemType Directory -Path p107-fork -Force | Out-Null
           Copy-Item -Path "third_party/86box-awe32/*" -Destination "p107-fork" -Recurse -Force
