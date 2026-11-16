@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -250,6 +251,61 @@ std::vector<Candidate> discover(const Ram& ram) {
     }
     return results;
 }
+// Supplementary research capture, never proof that the final nested
+// region is complete. Segments 1..5 have source-defined boundaries;
+// the seventh pointer has no source-defined endpoint.
+struct NestedRegion {
+    std::uint32_t address=0;
+    std::vector<std::uint8_t> data{};
+    bool complete=false;
+    bool operator==(const NestedRegion&) const = default;
+};
+struct NestedEvidence {
+    std::uint32_t root=0;
+    std::array<std::uint32_t,7> pointers{};
+    std::vector<NestedRegion> segments{};
+    bool operator==(const NestedEvidence&) const = default;
+};
+std::optional<NestedEvidence> collectNested(
+    const Ram& ram,const Evidence& evidence) {
+    std::optional<NestedEvidence> collected{};
+    for(const auto& [root,primary]:evidence.rows) {
+        if(primary.size()<28u)continue;
+        const auto a=u32(primary.data()),b=u32(primary.data()+4u);
+        if(!(a>root && a-root>=28u && a-root<=4096u &&
+             a<b && (a&0xff000000u)==(root&0xff000000u)))
+            continue;
+        if(collected)return std::nullopt;
+        NestedEvidence next{};
+        next.root=root;
+        for(std::size_t i=0;i<7;++i)
+            next.pointers[i]=u32(primary.data()+4u*i);
+        for(std::size_t i=0;i<6;++i)
+            if(next.pointers[i]>=next.pointers[i+1u])
+                return std::nullopt;
+        // The first region belongs to the original 125AVXD1 file.
+        for(std::size_t i=1;i<7;++i) {
+            const bool complete=i<6;
+            const auto count=complete?
+                std::uint64_t{next.pointers[i+1]}-next.pointers[i]:
+                std::uint64_t{4096};
+            if(count==0 || count>8u*1024u*1024u ||
+               std::uint64_t{next.pointers[i]}+count>
+                   (std::uint64_t{1}<<32u))
+                return std::nullopt;
+            NestedRegion segment{};
+            segment.address=next.pointers[i];
+            segment.complete=complete;
+            segment.data.resize(static_cast<std::size_t>(count));
+            if(!virtualRead(ram,evidence.cr3,segment.address,
+                            segment.data.data(),segment.data.size()))
+                return std::nullopt;
+            next.segments.push_back(std::move(segment));
+        }
+        collected=std::move(next);
+    }
+    return collected;
+}
 void put16(std::uint8_t* dst,std::uint16_t x) noexcept {
     dst[0]=static_cast<std::uint8_t>(x);
     dst[1]=static_cast<std::uint8_t>(x>>8u);
@@ -425,7 +481,43 @@ std::vector<std::uint8_t> encode(const Evidence& e) {
     }
     return output;
 }
-int capture(DWORD pid,const std::string& path) {
+std::vector<std::uint8_t> encodeNested(
+    const Evidence& e,const NestedEvidence& n) {
+    std::vector<std::uint8_t> out{
+        '1','2','5','A','V','X','R','1'};
+    append32(out,1u);
+    append32(out,e.guestDeviceAddress);
+    append32(out,e.cr3);
+    append32(out,n.root);
+    for(auto ptr:n.pointers)append32(out,ptr);
+    append32(out,static_cast<std::uint32_t>(n.segments.size()));
+    for(const auto& part:n.segments) {
+        append32(out,part.address);
+        append32(out,static_cast<std::uint32_t>(part.data.size()));
+        append32(out,part.complete?1u:0u);
+        out.insert(out.end(),part.data.begin(),part.data.end());
+    }
+    return out;
+}
+void writeNewPrivateFile(const std::string& filename,
+                         const std::vector<std::uint8_t>& encoded) {
+    HANDLE file=CreateFileA(filename.c_str(),GENERIC_WRITE,0,nullptr,
+                   CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(file==INVALID_HANDLE_VALUE)
+        throw std::runtime_error("PRIVATE_OUTPUT_MUST_BE_NEW_FILE");
+    DWORD written=0u;
+    const bool ok=encoded.size()<=std::numeric_limits<DWORD>::max() &&
+        WriteFile(file,encoded.data(),
+                  static_cast<DWORD>(encoded.size()),&written,nullptr) &&
+        written==encoded.size() && FlushFileBuffers(file);
+    CloseHandle(file);
+    if(!ok) {
+        DeleteFileA(filename.c_str());
+        throw std::runtime_error("PRIVATE_GUEST_CAPTURE_SHORT_WRITE");
+    }
+}
+int capture(DWORD pid,const std::string& path,
+            const std::optional<std::string>& nestedPath) {
     HANDLE p=OpenProcess(
         PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,FALSE,pid);
     if(!p)throw std::runtime_error("READ_ONLY_86BOX_ACCESS_DENIED");
@@ -433,6 +525,7 @@ int capture(DWORD pid,const std::string& path) {
     const auto candidates=bases(allRegions);
     std::size_t validRamReads=0u;
     std::vector<Evidence> sources{};
+    std::vector<NestedEvidence> nestedSources{};
     for(auto base:candidates) {
         Ram first(GuestBytes);SIZE_T n=0;
         if(!ReadProcessMemory(p,reinterpret_cast<const void*>(base),
@@ -448,11 +541,21 @@ int capture(DWORD pid,const std::string& path) {
         if(confirm.size()!=1u ||
            !result[0].capture.sameSourceBytes(confirm[0].capture))
             continue;
+        std::optional<NestedEvidence> extra{};
+        if(nestedPath) {
+            auto one=collectNested(first,result[0].capture);
+            auto two=collectNested(second,confirm[0].capture);
+            if(!one || !two || *one!=*two)continue;
+            extra=std::move(one);
+        }
         bool duplicate=false;
         for(auto const& prior:sources)
             if(prior.sameSourceBytes(result[0].capture))
                 duplicate=true;
-        if(!duplicate)sources.push_back(result[0].capture);
+        if(!duplicate) {
+            sources.push_back(result[0].capture);
+            if(extra)nestedSources.push_back(std::move(*extra));
+        }
         if(sources.size()>1u)break;
     }
     CloseHandle(p);
@@ -461,21 +564,21 @@ int capture(DWORD pid,const std::string& path) {
              <<" readable_64mib_images="<<validRamReads
              <<" stable_banks="<<sources.size()<<"\n";
     if(sources.size()!=1u)return 4; // NEVER guess between two VXD banks
+    if(nestedPath && nestedSources.size()!=1u)return 4;
     auto encoded=encode(sources.front());
-    HANDLE file=CreateFileA(path.c_str(),GENERIC_WRITE,0,nullptr,
-                   CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file==INVALID_HANDLE_VALUE)
-        throw std::runtime_error("PRIVATE_OUTPUT_MUST_BE_NEW_FILE");
-    DWORD written=0u;
-    const bool ok=encoded.size()<=
-        std::numeric_limits<DWORD>::max() &&
-        WriteFile(file,encoded.data(),
-                  static_cast<DWORD>(encoded.size()),&written,nullptr) &&
-        written==encoded.size() && FlushFileBuffers(file);
-    CloseHandle(file);
-    if(!ok) {
-        DeleteFileA(path.c_str());
-        throw std::runtime_error("PRIVATE_GUEST_CAPTURE_SHORT_WRITE");
+    writeNewPrivateFile(path,encoded);
+    if(nestedPath) {
+        try {
+            auto companion=encodeNested(sources.front(),nestedSources.front());
+            writeNewPrivateFile(*nestedPath,companion);
+            std::cout<<"P005_NESTED_RESEARCH_CAPTURE_WRITTEN "
+                     <<"source_bounded_regions=5 "
+                     <<"last_region_sample_bytes=4096 "
+                     <<"full_last_region=UNPROVEN\\n";
+        }catch(...) {
+            DeleteFileA(path.c_str());
+            throw;
+        }
     }
     std::cout<<"P005_SOURCE_VXD_GUEST_BANK_PRIVATE_CAPTURE_WRITTEN "
              <<"device_bytes="<<DeviceBytes
@@ -494,16 +597,23 @@ int main(int argc,char** argv) {
         if(argc==2 && std::string(argv[1])=="--self-test")
             return selfTest();
 #ifdef _WIN32
-        if(argc==5 && std::string(argv[1])=="--pid" &&
-           std::string(argv[3])=="--output") {
+        if((argc==5 || argc==7) && std::string(argv[1])=="--pid" &&
+           std::string(argv[3])=="--output" &&
+           (argc==5 || std::string(argv[5])=="--nested-output")) {
             const auto pid=std::stoull(argv[2]);
             if(pid==0u || pid>std::numeric_limits<DWORD>::max())
                 return 2;
-            return capture(static_cast<DWORD>(pid),argv[4]);
+            std::optional<std::string> extra{};
+            if(argc==7) {
+                if(std::string(argv[4])==argv[6])return 2;
+                extra=argv[6];
+            }
+            return capture(static_cast<DWORD>(pid),argv[4],extra);
         }
 #endif
         std::cerr<<"USAGE: --self-test OR --pid <86Box-pid> "
-                    "--output <new-private-local-path>\n";
+                    "--output <new-private-local-path> "
+                    "[--nested-output <new-private-companion-path>]\n";
         return 2;
     }catch(std::exception const& e) {
         std::cerr<<"P005_ORIGINAL_GUEST_CAPTURE_NO_GO "<<e.what()<<"\n";
