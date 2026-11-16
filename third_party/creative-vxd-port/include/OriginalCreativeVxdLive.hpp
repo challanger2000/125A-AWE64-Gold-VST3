@@ -52,6 +52,16 @@ struct StereoHelperEvent {
     StereoHelperKind kind;
     std::uint8_t voice;
 };
+// Optional instrumentation of source-derived MODE-1 decision paths.
+// No original x86 cycles, register payloads, or captured timestamps.
+enum class StereoDecisionKind : std::uint8_t {
+    SkippedVoice, ScoredVoice, CursorNotRead, CursorReadNotFinished,
+    CursorReadFinished, PriorityReplaced, PriorityRetained, ImmediatePair
+};
+struct StereoDecisionEvent {
+    StereoDecisionKind kind;
+    std::uint8_t voice;
+};
 struct PortIo {
     void* opaque = nullptr;
     bool (*out8)(void*, std::uint16_t, std::uint8_t) noexcept = nullptr;
@@ -62,6 +72,10 @@ struct PortIo {
     // Optional zero-heap, no-throw allocator observer. Disabled by default.
     void* stereo_helper_opaque = nullptr;
     void (*stereo_helper_observer)(void*, StereoHelperEvent) noexcept = nullptr;
+    // Non-owning diagnostic; invoked only by allocate_pair_mode1.
+    // Caller must provide a noexcept, allocation-free observer.
+    void* stereo_decision_opaque = nullptr;
+    void (*stereo_decision_observer)(void*, StereoDecisionEvent) noexcept = nullptr;
 };
 
 enum class Status : std::uint8_t {
