@@ -149,12 +149,11 @@ on:
       - 'CMakeLists.txt'
       - '.github/workflows/p002-windows.yml'
   workflow_dispatch:
-# Prevent each intermediate developer commit from consuming a full set
-# of Windows runner minutes. Only the newest P002 revision is validated.
+# Avoid parallel full Windows builds of obsolete intermediate commits.
+# One in-progress run per branch is sufficient; each new push cancels older
+# branch runs so the current HEAD receives the full test budget.
 concurrency:
-  # Include the requested source SHA: delayed webhook delivery from an
-  # older commit must never cancel a newer HEAD verification run.
-  group: p002-windows-${{ github.ref }}-${{ github.sha }}
+  group: p002-windows-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
