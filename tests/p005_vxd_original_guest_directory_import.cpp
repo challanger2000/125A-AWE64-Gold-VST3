@@ -98,7 +98,8 @@ int main() {
     std::array<std::uint8_t,76u+3u*Importer::kOriginalRowBytes>
         indirectBank{};
     for(std::uint32_t i=0u;i<7u;++i)
-        put32(indirectBank,i*4u,bankRoot+76u+200u*i);
+        put32(indirectBank,i*4u,bankRoot+76u+
+            (i==0u?0u:3u*Importer::kOriginalRowBytes+200u*(i-1u)));
     put16(indirectBank,76u,1u);
     indirectBank[76u+2u]=7u;
     indirectBank[76u+3u]=1u;
@@ -133,7 +134,8 @@ int main() {
         76u+(nOriginalPrograms+1u)*Importer::kOriginalRowBytes);
     for(std::size_t i=0u;i<7u;++i)
         put32(gmBlock,i*4u,bankRoot+76u+static_cast<std::uint32_t>(
-            i*(nOriginalPrograms+1u)*Importer::kOriginalRowBytes));
+            i==0u?0u:(nOriginalPrograms+1u)*Importer::kOriginalRowBytes+
+                         200u*(i-1u)));
     for(std::size_t i=0u;i<nOriginalPrograms;++i) {
         const auto at=76u+i*Importer::kOriginalRowBytes;
         put16(gmBlock,at,1u);
