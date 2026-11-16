@@ -176,17 +176,21 @@ tresult PLUGIN_API Minimal::setupProcessing(ProcessSetup& setup) {
     if ((setup.sampleRate!=44100.0 && setup.sampleRate!=48000.0 &&
          setup.sampleRate!=88200.0 && setup.sampleRate!=96000.0) ||
         setup.maxSamplesPerBlock<=0 ||
-        setup.symbolicSampleSize!=kSample32 ||
+        (setup.symbolicSampleSize!=kSample32 &&
+         setup.symbolicSampleSize!=kSample64) ||
         !hostRateAdapter_.configure(
             static_cast<std::uint32_t>(setup.sampleRate)))
         return kResultFalse;
-    return SingleComponentEffect::setupProcessing(setup);
+    const auto result=SingleComponentEffect::setupProcessing(setup);
+    if(result==kResultOk)hostSampleFormat_=setup.symbolicSampleSize;
+    return result;
 }
 uint32 PLUGIN_API Minimal::getLatencySamples() {
     return hostRateAdapter_.latencySamples();
 }
 tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
-    return size==kSample32 ? kResultTrue : kResultFalse;
+    return size==kSample32 || size==kSample64
+        ? kResultTrue : kResultFalse;
 }
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
@@ -944,37 +948,71 @@ void Minimal::renderHost(int32 begin,int32 end,
     }
 }
 tresult PLUGIN_API Minimal::process(ProcessData& data) {
-    if (data.numSamples<0 || data.symbolicSampleSize!=kSample32)
+    if(data.numSamples<0 || data.symbolicSampleSize!=hostSampleFormat_ ||
+       (data.symbolicSampleSize!=kSample32 &&
+        data.symbolicSampleSize!=kSample64))
         return kInvalidArgument;
-    // Hosts are allowed to flush MIDI/parameters at numSamples==0
-    // WITHOUT any audio buses or channel buffers. Process the changes
-    // at sample offset zero, but never render or advance chip time.
-    // A prior early return silently LOST valid Program/Bank/CC changes.
+    // Hosts are allowed a zero-frame flush with no audio buffers,
+    // even when their current negotiated output format is Float64.
     const bool noAudioFrames=data.numSamples==0;
-    float dummyLeft=0.f,dummyRight=0.f;
-    float* left=&dummyLeft;
-    float* right=&dummyRight;
+    float dummy32L=0.f,dummy32R=0.f;
+    double dummy64L=0.,dummy64R=0.;
+    float* left=&dummy32L;
+    float* right=&dummy32R;
+    double* left64=&dummy64L;
+    double* right64=&dummy64R;
     if(!noAudioFrames) {
         if(data.numOutputs!=1 || !data.outputs ||
-           data.outputs[0].numChannels!=2 ||
-           !data.outputs[0].channelBuffers32)
+           data.outputs[0].numChannels!=2)
             return kInvalidArgument;
-        left=data.outputs[0].channelBuffers32[0];
-        right=data.outputs[0].channelBuffers32[1];
-        if(!left || !right)return kInvalidArgument;
-    } else if(data.numOutputs!=0) {
-        // A zero-frame flush may include an output bus, but it must
-        // have the already-negotiated stereo layout if present.
+        const auto& bus=data.outputs[0];
+        if(hostSampleFormat_==kSample32) {
+            if(!bus.channelBuffers32 || !bus.channelBuffers32[0] ||
+               !bus.channelBuffers32[1])return kInvalidArgument;
+            left=bus.channelBuffers32[0];
+            right=bus.channelBuffers32[1];
+        }else {
+            if(!bus.channelBuffers64 || !bus.channelBuffers64[0] ||
+               !bus.channelBuffers64[1])return kInvalidArgument;
+            left64=bus.channelBuffers64[0];
+            right64=bus.channelBuffers64[1];
+        }
+    }else if(data.numOutputs!=0) {
         if(data.numOutputs!=1 || !data.outputs ||
            data.outputs[0].numChannels!=2)return kInvalidArgument;
     }
-    if (!active_ || !processing_ || !chip_.ready()) {
-        std::fill_n(left,data.numSamples,0.f);
-        std::fill_n(right,data.numSamples,0.f);
+    if(!active_ || !processing_ || !chip_.ready()) {
+        if(hostSampleFormat_==kSample32) {
+            std::fill_n(left,data.numSamples,0.f);
+            std::fill_n(right,data.numSamples,0.f);
+        }else {
+            std::fill_n(left64,data.numSamples,0.);
+            std::fill_n(right64,data.numSamples,0.);
+        }
         if(data.outputs && data.numOutputs==1)
             data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
+    // Original source PCM and CT1745 produce float32, exactly as in
+    // 86Box. Float64 output is ONLY a lossless float32 -> double
+    // representation conversion; never a second audio or DSP model.
+    // Use fixed stack stereo blocks for the host, no callback heap.
+    const auto emit=[&](int32 begin,int32 end) noexcept {
+        if(hostSampleFormat_==kSample32) {
+            renderHost(begin,end,left,right);
+            return;
+        }
+        std::array<float,256> tmpL{},tmpR{};
+        while(begin<end) {
+            const auto count=std::min<int32>(256,end-begin);
+            renderHost(0,count,tmpL.data(),tmpR.data());
+            for(int32 i=0;i<count;++i) {
+                left64[begin+i]=static_cast<double>(tmpL[i]);
+                right64[begin+i]=static_cast<double>(tmpR[i]);
+            }
+            begin+=count;
+        }
+    };
     // A host can restore project state after setActive(). Validate
     // the ENTIRE incoming block before consuming that pending state.
     // Rejecting a malformed host block must not partially apply either
@@ -1258,7 +1296,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             (choosePreset?presetOffset:
             (chooseCc?ccOffset:midiOffset)))));
         if(offset<pos)return kInvalidArgument;
-        renderHost(pos,offset,left,right);
+        emit(pos,offset);
         pos=offset;
         if(chooseReset) {
             if(!privateWin95MidiOutReset()) {
@@ -1354,7 +1392,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             noteOff(e.noteOff.channel,e.noteOff.pitch);
         ++midiIndex;
     }
-    renderHost(pos,data.numSamples,left,right);
+    emit(pos,data.numSamples);
     if(data.outputs && data.numOutputs==1)
         data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
