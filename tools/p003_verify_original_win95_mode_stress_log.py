@@ -34,7 +34,7 @@ def validate_original_stress_log(raw:bytes)->dict:
     if lines[-1]!="":
         raise ValueError("Missing final original Win95 CRLF")
     lines.pop()
-    if len(lines)!=22 or lines[0]!=HEADER or lines[-1]!=END:
+    if len(lines)!=20 or lines[0]!=HEADER or lines[-1]!=END:
         raise ValueError("Incomplete/duplicated original 3-bank mode probe")
     at=1
     def key(expected:str)->int:
