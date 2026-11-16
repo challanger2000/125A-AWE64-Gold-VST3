@@ -947,6 +947,46 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     int32 midiIndex=0;
     const int32 events=data.inputEvents?data.inputEvents->getEventCount():0;
     if(events<0)return kInvalidArgument;
+    // Reject an invalid LATE event/point BEFORE rendering any audio or
+    // changing VXD MIDI state. Previously a malformed second point could
+    // fail after the first point had already altered a live SoundFont,
+    // leaving a partially applied DAW buffer. Fixed-size local scan:
+    // no allocation, file I/O, lock or original EMU8000 modification.
+    const auto validQueue=[&](IParamValueQueue* queue,
+                               const bool resetOnly) noexcept -> bool {
+        if(!queue)return true;
+        const int32 count=queue->getPointCount();
+        if(count<0)return false;
+        int32 previous=-1;
+        for(int32 i=0;i<count;++i) {
+            int32 offset=0;
+            ParamValue value=0.;
+            if(queue->getPoint(i,offset,value)!=kResultOk ||
+               offset<previous || offset<0 || offset>data.numSamples ||
+               !std::isfinite(value) ||
+               (resetOnly?value!=1.:(value<0. || value>1.)))
+                return false;
+            previous=offset;
+        }
+        return true;
+    };
+    if(!validQueue(sustainQueue,false) ||
+       !validQueue(win95ResetQueue,true) ||
+       !validQueue(programQueue,false) ||
+       !validQueue(bankQueue,false))
+        return kInvalidArgument;
+    for(auto* queue:controllerQueues)
+        if(!validQueue(queue,false))return kInvalidArgument;
+    int32 previousMidi=-1;
+    for(int32 i=0;i<events;++i) {
+        Event incoming{};
+        if(data.inputEvents->getEvent(i,incoming)!=kResultOk ||
+           incoming.sampleOffset<previousMidi ||
+           incoming.sampleOffset<0 ||
+           incoming.sampleOffset>data.numSamples)
+            return kInvalidArgument;
+        previousMidi=incoming.sampleOffset;
+    }
     int32 pos=0;
     while(midiIndex<events || ccIndex<ccCount ||
           resetIndex<resetCount ||
