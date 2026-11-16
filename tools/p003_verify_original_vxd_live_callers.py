@@ -82,6 +82,41 @@ def validate_direct_return(code:bytes,bias:int,
         return None
     return helper,call
 
+def diagnose_last_byte_call_hint(code:bytes,bias:int,
+                                 physical_eip:int,
+                                 observed_return_hint:int)->tuple[str,int]|None:
+    """NON-PROOF: observed [EBP+4] is ONE BYTE BEFORE normal x86 return.
+
+    A run of genuine original 1996 SHA-pinned driver call sites appears
+    to match a valid near CALL E8 (to the correctly observed helper)
+    if the guest stack word is compared to the LAST BYTE of that CALL,
+    rather than the architecturally valid next-instruction return EIP.
+
+    This is a DIAGNOSTIC ONLY. Never count it as an executed caller or
+    correct any original guest stack byte without independent evidence
+    that the CPU/stack instrument encodes its saved return addresses as
+    call-end-minus-one. It is consistent across 25k+ chip callbacks,
+    but the cause of the discrepancy remains unknown.
+    """
+    if observed_return_hint==UNKNOWN:
+        return None
+    anchor=(physical_eip-bias)&0xffffffff
+    if anchor not in OPCODE_ANCHORS:
+        return None
+    # Expected direct CALL finishes at code offset candidate + 1.
+    next_off=((observed_return_hint-bias)&0xffffffff)+1
+    if next_off<5 or next_off>=len(code):
+        return None
+    call=next_off-5
+    if code[call]!=0xe8:
+        return None
+    dest=next_off+struct.unpack_from("<i",code,call+1)[0]
+    helper=io_helper_for_anchor(anchor)
+    if dest!=EMU8K_IO_HELPERS[helper]:
+        return None
+    return helper,call
+
+
 def audit(vxd_bytes:bytes,lines)->dict:
     code=original_lcod(vxd_bytes)
     # Stream 816K+ events without retaining source bytes or full
@@ -108,11 +143,16 @@ def audit(vxd_bytes:bytes,lines)->dict:
         raise ValueError("Guest trace contains no physical EMU8000 I/O")
     bias,matched,runner=choose_lcod_bias(eips)
     good=Counter()
+    last_byte_candidates=Counter()
     unresolved=0
     for (eip,ret0),amount in ret_pairs.items():
         direct=validate_direct_return(code,bias,eip,ret0)
         if direct is None:
-            unresolved+=amount
+            diagnosis=diagnose_last_byte_call_hint(code,bias,eip,ret0)
+            if diagnosis is not None:
+                last_byte_candidates[diagnosis]+=amount
+            else:
+                unresolved+=amount
         else:
             helper,offset=direct
             good[(helper,offset)]+=amount
@@ -128,6 +168,20 @@ def audit(vxd_bytes:bytes,lines)->dict:
         "stack_return_unknown":no_return,
         "original_direct_e8_call_and_target_verified_events":original_verified,
         "original_stack_hints_not_verified":unresolved,
+        "return_eip_one_byte_before_verified_call_end_candidate_events":
+            sum(last_byte_candidates.values()),
+        "return_eip_one_byte_before_verified_call_end_distinct_sites":
+            len(last_byte_candidates),
+        "return_eip_one_byte_before_verified_call_end_candidates":[
+            {"helper":helper,
+             "original_lcod_call_offset_hex":f"0x{offset:04X}",
+             "physical_io_event_count":amount,
+             "architectural_return_address_validated":False}
+            for (helper,offset),amount in sorted(last_byte_candidates.items())],
+        "one_byte_displacement_cause":"UNKNOWN_NO_AUTOMATIC_NORMALIZATION",
+        "all_stack_return_hints_classified":
+            (no_return+original_verified+sum(last_byte_candidates.values())+
+             unresolved)==seen,
         "original_live_direct_callers":[
             {"helper":helper,"original_lcod_call_offset_hex":f"0x{off:04X}",
              "physical_io_event_count":count}
