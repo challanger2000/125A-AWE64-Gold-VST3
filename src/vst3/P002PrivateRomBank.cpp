@@ -408,6 +408,23 @@ bool P002PrivateRomBank::noteOn(
     held_keys_[key]=true;
     return true;
 }
+bool P002PrivateRomBank::restoreSelection(
+    const std::uint16_t bank,const std::uint8_t program,
+    const std::uint8_t cc7,const std::uint8_t cc10,
+    const std::uint8_t cc11) noexcept {
+    if(!ready_ || bank>128u || program>127u || cc7>127u ||
+       cc10>127u || cc11>127u ||
+       !hasExactSoundFontPreset(presets_,bank,program))
+        return false;
+    // Validate BEFORE changing any bank, program or CC value. Following
+    // calls are deterministic/heap-free and cannot fail after the
+    // successfully verified exact PHDR row and MIDI value bounds.
+    if(!selectExactSf2Bank(bank) || !programChange(program) ||
+       !controller(7u,cc7) || !controller(10u,cc10) ||
+       !controller(11u,cc11))
+        return false;
+    return true;
+}
 bool P002PrivateRomBank::selectExactSf2Bank(
     const std::uint16_t bank) noexcept {
     if(!ready_ || bank>128u)return false;
