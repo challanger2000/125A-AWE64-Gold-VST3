@@ -60,7 +60,9 @@ candidateOriginalWin95Mode1Pair(
     for(std::size_t pos=capacity;pos>0u;--pos) {
         const std::size_t i=pos-1u;
         const auto& v=voices[i];
-        if(!v.complete)return std::nullopt;
+        // Source LCOD tests cheap blocked/marker predicates BEFORE any
+        // live chip read. A skipped voice does not need a complete chip
+        // snapshot and must not turn a valid selection into nullopt.
         if(forbiddenByDeviceMode(v,driver_mode_count) ||
            (i+1u<capacity &&
             forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) ||
@@ -68,6 +70,7 @@ candidateOriginalWin95Mode1Pair(
             previous=kOriginalMaxPairPriority;
             continue;
         }
+        if(!v.complete)return std::nullopt;
 
         std::uint32_t current=scoreOfEligible(v);
         // Original +0x40B3 resets the individual score to zero
@@ -122,8 +125,12 @@ candidateOriginalWin95Mode2Range(
     // a later voice replaces the previous lowest-scored voice.
     for(std::uint32_t voice=begin;voice<end;++voice) {
         const auto& v=voices[voice];
-        if(!v.complete)return std::nullopt;
+        // Blocked voice is skipped in the original BEFORE reading
+        // VTFT/DCYSUSV/CCCA; don't demand snapshot fields never read.
         if(forbiddenByDeviceMode(v,driver_mode_count))continue;
+        // The sample-end test below still needs the actual CCCA even
+        // for a key marker >=0x2000, so only blocked rows are skipped.
+        if(!v.complete)return std::nullopt;
         if(v.internal_key_marker<0x2000u) {
             std::uint32_t score=scoreOfEligible(v);
             // Original +0x423B: marker 0x0FFE + VTFT upper16 zero
@@ -228,8 +235,8 @@ candidateOriginalWin95VxdDispatchAllModes(
         // original VXD state plus live hardware register snapshots.
         // A truncated row is NOT a genuine available physical voice.
         if (capacity<2u) return result; // original no candidate: 0xFF
-        for (std::size_t i=0;i<capacity;++i)
-            if (!voices[i].complete) return std::nullopt;
+        // Do not preflight every voice: the source short-circuits on
+        // blocked/forbidden/idle voices before requiring all live reads.
         const auto chosen=candidateOriginalWin95Mode1Pair(
             voices,capacity,mode_count);
         if (chosen) {
@@ -246,8 +253,8 @@ candidateOriginalWin95VxdDispatchAllModes(
         const auto end=std::min(input.original_mode2_packed_range>>8u,
                                 static_cast<std::uint32_t>(capacity));
         if (begin>=end) return result; // original no candidate: 0xFF
-        for (std::size_t i=begin;i<end;++i)
-            if (!voices[i].complete) return std::nullopt;
+        // The candidate performs source-ordered lazy read validation;
+        // a blocked row must not force a speculative chip snapshot.
         const auto chosen=candidateOriginalWin95Mode2Range(
             voices,input.original_mode2_packed_range,capacity,mode_count);
         if (chosen) {
