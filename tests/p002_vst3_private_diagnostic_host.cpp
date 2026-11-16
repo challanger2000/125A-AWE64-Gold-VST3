@@ -959,6 +959,126 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
             std::memcmp(afterBad.getData(),desired.data(),desired.size())==0,
             "corrupt project state changed real SF2 bank");
 }
+// The audio proof for DAW project recall, not just a saved-byte test:
+// compare the original EMU8000's complete rendered stereo note before
+// and after reloading the saved SF2 program/CC in a fresh VST3 instance.
+void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
+    using namespace awe64::vst3::state;
+    constexpr std::array<std::uint8_t,4> midiControllerNumbers{
+        7u,10u,11u,0xc0u};
+    constexpr std::array<std::uint8_t,4> midiControllerValues{
+        73u,31u,120u,9u};
+    const auto audioHash=[](Instance& synth) -> std::uint64_t {
+        std::uint64_t hash=0xcbf29ce484222325ull;
+        unsigned nonzero=0;
+        for(int block=0;block<24;++block) {
+            std::array<float,512> left{},right{};
+            float* buffers[]{left.data(),right.data()};
+            AudioBusBuffers bus{};
+            bus.numChannels=2;bus.channelBuffers32=buffers;
+            EventList events;
+            if(block==0 || block==5) {
+                Event e{};
+                e.busIndex=0;e.sampleOffset=block==0?59:103;
+                e.type=block==0?Event::kNoteOnEvent:Event::kNoteOffEvent;
+                if(block==0) {
+                    e.noteOn.channel=2;e.noteOn.pitch=60;
+                    e.noteOn.velocity=100.f/127.f;e.noteOn.noteId=60;
+                }else {
+                    e.noteOff.channel=2;e.noteOff.pitch=60;
+                    e.noteOff.velocity=0.f;e.noteOff.noteId=60;
+                }
+                require(events.addEvent(e)==kResultOk,
+                        "project-audio MIDI event enqueue failed");
+            }
+            ProcessData data{};
+            data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+            data.numSamples=512;data.numOutputs=1;data.outputs=&bus;
+            data.inputEvents=&events;
+            require(auditedOriginalBankProcess(synth.audio,data)==kResultOk,
+                    "real project-recall VST3 playback failed");
+            for(int sample=0;sample<512;++sample)
+                for(const auto pcm:{left[sample],right[sample]}) {
+                    require(std::isfinite(pcm),"project-recall PCM nonfinite");
+                    if(pcm!=0.f)++nonzero;
+                    std::uint32_t bits=0u;
+                    std::memcpy(&bits,&pcm,sizeof bits);
+                    for(int byte=0;byte<4;++byte) {
+                        hash^=(bits>>(byte*8))&0xffu;
+                        hash*=0x100000001b3ull;
+                    }
+                }
+        }
+        require(nonzero>1000u,
+                "real SF2 project-recall instrument was silent");
+        return hash;
+    };
+    auto zeroFrameControls=[&](Instance& synth) {
+        ParameterChanges changes(4);
+        for(std::size_t i=0;i<midiControllerNumbers.size();++i) {
+            const auto id=midiControllerNumbers[i]==0xc0u?
+                ParamID(0x125A00C0u):
+                ParamID(0x125A0000u+midiControllerNumbers[i]);
+            int32 index=0;
+            auto* queue=changes.addParameterData(id,index);
+            require(queue!=nullptr,"project-audio CC/program queue missing");
+            int32 point=0;
+            require(queue->addPoint(
+                    0,static_cast<ParamValue>(midiControllerValues[i])/127.,
+                    point)==kResultOk,
+                    "project-audio CC/program flush point missing");
+        }
+        ProcessData data{};
+        data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+        data.numSamples=0;data.numOutputs=0;
+        data.inputParameterChanges=&changes;
+        require(auditedOriginalBankProcess(synth.audio,data)==kResultOk,
+                "real project-audio zero-frame controllers ignored");
+    };
+    std::array<std::uint8_t,kStateSize> saved{};
+    std::uint64_t manuallySelected=0;
+    {
+        Instance source(factory,true);
+        zeroFrameControls(source);
+        MemoryStream project{};
+        require(source.component->getState(&project)==kResultOk &&
+                project.getSize()==kStateSize,
+                "real selected SF2 session did not save V2 project state");
+        std::memcpy(saved.data(),project.getData(),saved.size());
+        const auto decoded=decode(saved);
+        require(decoded && decoded->bank==0u && decoded->program==9u &&
+                decoded->cc7==73u && decoded->cc10==31u &&
+                decoded->cc11==120u,
+                "saved project does not match actual MIDI program/CC");
+        manuallySelected=audioHash(source);
+    }
+    std::uint64_t restored=0;
+    {
+        Instance target(factory,true);
+        MemoryStream incoming(saved.data(),static_cast<TSize>(saved.size()));
+        require(target.component->setState(&incoming)==kResultOk,
+                "fresh VST3 rejected authentic prior project state");
+        ProcessData flush{};
+        flush.processMode=kRealtime;flush.symbolicSampleSize=kSample32;
+        flush.numSamples=0;flush.numOutputs=0;
+        require(auditedOriginalBankProcess(target.audio,flush)==kResultOk,
+                "fresh VST3 zero-frame SF2 project restore failed");
+        MemoryStream roundtrip{};
+        require(target.component->getState(&roundtrip)==kResultOk &&
+                roundtrip.getSize()==saved.size() &&
+                std::memcmp(roundtrip.getData(),saved.data(),saved.size())==0,
+                "fresh VST3 changed saved SF2 program/CC selection");
+        restored=audioHash(target);
+    }
+    require(manuallySelected==restored,
+            "restored VST3 original EMU8000 stereo PCM differs from pre-save");
+    {
+        Instance defaultProgram(factory,true);
+        const auto defaultAudio=audioHash(defaultProgram);
+        require(defaultAudio!=restored,
+                "project recall did not audibly select a distinct PHDR preset");
+    }
+}
 } // namespace
 int wmain(int argc,wchar_t** argv){
     // Preserve the independent pre-CT1745 AWE32_WAV PCM16 tap for
@@ -1316,6 +1436,7 @@ int wmain(int argc,wchar_t** argv){
                            twoProgramSf2Path.c_str())==0,
                 "set multi-program actual ROM SF2 bank");
         verifyRealSf2ProjectRecall(factory);
+        verifyRealSf2ProjectAudioRoundtrip(factory);
         const auto defaultProgram7=renderBankProgramChange(factory,-1);
         const auto program9=renderBankProgramChange(factory,9);
         const auto program9AtSameSample=renderBankProgramChange(
