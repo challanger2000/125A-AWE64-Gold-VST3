@@ -319,3 +319,36 @@ Ein aus den gemessenen CPU-Abständen zusammengestellter
 Lookup-Timing-Scheduler bleibt verboten, solange die ursächlichen
 ursprünglichen x86-Zweige nicht quellgerecht rekonstruiert sind.
 Der EMU8000- und CT1745-Kern bleibt unverändert.
+
+
+## P005 – Laufzeit-Lease für den originalen 288-Slot-Bankkatalog (16.11.2026)
+
+Bei der Non-RT-Originalquellenaktivierung werden durch
+\`OriginalCreativeMidiRamRuntime\` nichtbesitzende \`span\`-Ansichten
+der 288 VXD-Programmslots und aller authentifizierten SF2-Notenzonen
+gehalten. Bisher konnte \`P005OriginalCreativeBankCatalog::resetNonRealtime()\`
+diese Quelle vorzeitig leeren, während ein MIDI-Callback noch ein
+\`SoundFontSource::opaque\` auf die Daten nutzte.
+
+Jetzt wird beim erfolgreichen
+\`activateOwnedOriginalCatalogNonRealtime()\` ein **exklusives
+Laufzeit-Lease** auf den **bereits versiegelten** Originalbank-Katalog
+gesetzt. Ein zweiter Adapter bekommt keinen Zugriff, und
+\`resetNonRealtime()\` schlägt fehl, ohne die Bank zu mutieren.
+\`P005OriginalCreativeHostAdapter::resetNonRealtime()\` löst zuerst
+den originalen MIDI-Runtime-/Opaque-Zeiger, **danach** das Lease.
+Auch der Adapter-Destruktor räumt bei ungewöhnlichem Host-Teardown
+den Quellbesitz auf.
+
+Der native P005-Regressionstest prüft Reset-bei-Lease,
+zweiten Besitzer, Reaktivierung nach Detach, verweigerte
+unauthentifizierte Aktivierung und automatisches Aufräumen beim
+Adapter-Abbau. Dies ist eine **Nicht-RT-Lebensdauerprüfung**, kein
+Beleg für vollständigen autonomen Creative-CPU-Scheduler oder
+verifizierte Original-SoundFont-Klangausgabe.
+
+Gültigkeitsbedingung: Ein originaler Bankkatalog muss als VST3-
+Instanzmitglied bis nach dem MIDI-Adapter leben; \`setActive(false)\`
+und die normale VST3-Teardown-Folge dürfen weder parallel zum
+Audiocallback noch mit vertauschter Objektlebensdauer ausgeführt
+werden. Ein C++-Rohzeiger-Lease ist kein atomarer Inter-Thread-Lock.
