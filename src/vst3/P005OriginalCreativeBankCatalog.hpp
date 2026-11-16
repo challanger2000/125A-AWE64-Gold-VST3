@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -136,6 +137,21 @@ public:
     }
     [[nodiscard]] std::size_t sourceSlotCount() const noexcept {
         return directoryReady_?kSourceSlots:0u;
+    }
+    // Non-realtime inspection uses copies, never a new borrowed span.
+    // Useful to prove that actual original VXD row order survived the
+    // guest-address importer, without exposing mutable directory data.
+    [[nodiscard]] std::optional<Row> originalSourceRowNonRealtime(
+        std::size_t slot,std::size_t ordinal) const noexcept {
+        if(!directoryReady_ || slot>=kSourceSlots ||
+           ordinal>=ownedRows_[slot].size())
+            return std::nullopt;
+        return ownedRows_[slot][ordinal];
+    }
+    [[nodiscard]] std::size_t sourceRowCountNonRealtime(
+        std::size_t slot) const noexcept {
+        return directoryReady_ && slot<kSourceSlots ?
+            ownedRows_[slot].size() : 0u;
     }
     // The adapter copies only this cheap view; its zones and 288 row
     // pointers remain valid as long as this sealed owner lives unchanged.
