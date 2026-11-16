@@ -55,6 +55,15 @@ public:
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* stream) override;
     // The ordinal automation parameter displays the real PHDR label
     // in the DAW instead of a meaningless normalized 0..1 fraction.
+    // Route all 16 actual MIDI event-input channels to the same
+    // original SoundFont root unit. DAWs query IUnitInfo this way to
+    // associate the published program list with a MIDI instrument.
+    Steinberg::tresult PLUGIN_API getUnitByBus(
+        Steinberg::Vst::MediaType type,
+        Steinberg::Vst::BusDirection dir,
+        Steinberg::int32 busIndex,
+        Steinberg::int32 channel,
+        Steinberg::Vst::UnitID& unitId) override;
     Steinberg::Vst::ParamValue PLUGIN_API getParamNormalized(
         Steinberg::Vst::ParamID tag) override;
     Steinberg::tresult PLUGIN_API getParamStringByValue(
