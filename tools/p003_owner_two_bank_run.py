@@ -28,6 +28,7 @@ from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p002_verify_original_win95_ram_guest_log import audit
 from p003_private_fat16_replace import patch_disposable_guest,digest
 from p003_join_original_guest_cpu_chip_clocks import join_traces
+from p003_verify_original_win95_mode_stress_log import validate_original_stress_log
 
 PINNED_FORK_SHA="67ec5e58643e32a6dc4efd6e1b42ce2ce7b7da048d218355a54ff39cdc327f16"
 PINNED_ROM_SHA="4e143b94f758734f594ded78f4e5115635975c16fa37fabeae0baa4938ca710e"
@@ -207,7 +208,8 @@ def check_wav(path:Path)->dict:
 
 def run(archive:Path,guest_exe:Path,comparison:Path|None,
         results_root:Path,cpu_probe_fork:Path|None=None,
-        expected_cpu_probe_sha256:str|None=None)->tuple[Path,dict]:
+        expected_cpu_probe_sha256:str|None=None,
+        original_mode_stress:bool=False)->tuple[Path,dict]:
     require(os.name=="nt",
             "Echter Original-86Box-Zweibanktest braucht Windows 11")
     verified=verify_private_archive(archive)
@@ -223,6 +225,8 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
         require(expected_cpu_probe_sha256 is None,
                 "Kein CPU-Probe-EXE angegeben, SHA allein unzulaessig")
     require(guest_exe.is_file(),"Das neue P003-Gastprogramm fehlt im Paket")
+    require(not original_mode_stress or cpu_probe_fork is not None,
+            "Original-Stimmenmodus-Stresstest nur mit vollem V4-CPU-Probe-Fork")
     guest_bytes=guest_exe.read_bytes()
     second=comparison.read_bytes() if comparison else generated_comparison_sf2()
     stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -245,6 +249,7 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
     wav=media/"ORIGINAL-EMU8000-DRY.wav"
     cpu_trace=media/"ORIGINAL-86BOX-GUEST-CPU-IO.trace"
     guest_log=media/"ORIGINAL-CREATIVE-P002RAM.LOG"
+    mode_log=media/"ORIGINAL-CREATIVE-P003MODE.LOG"
     report={"schema":("125A-P003-OWNER-CPU-IO-TRACE-AND-CHIP-PCM-V1"
                       if cpu_probe_fork is not None else
                       "125A-P003-OWNER-TWO-BANK-CAPTURE-V1"),
@@ -257,6 +262,10 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
              "Creative-Win95-Gast.LOG":guest_log,
              "Original-Bank-1.sf2":original_sf2_path,
              "Vergleichs-Bank-2.sf2":second_sf2_path}
+    if original_mode_stress:
+        deliver["Original-Stimmenmodus-Stress.LOG"]=mode_log
+        report["source_original_voice_mode_probe_enabled"]=True
+        report["source_original_voice_mode_execution_proven"]=False
     if cpu_probe_fork is not None:
         deliver["Original-CPU-IO.trace"]=cpu_trace
         report["original_fork_cpu_io_trace_enabled"]=True
@@ -309,7 +318,13 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
             require(image.read_root_file(b"P003BANKSF2",32*1024*1024)==second,
                     "Zweite SoundFont wurde im Guest veraendert")
             log=image.read_root_file(b"P002RAM LOG",128*1024)
+            mode_raw=(image.read_root_file(b"P003MODELOG",32*1024)
+                      if original_mode_stress else None)
         guest_log.write_bytes(log)
+        if mode_raw is not None:
+            mode_log.write_bytes(mode_raw)
+            report["original_creative_mode_stress_submission"]=(
+                validate_original_stress_log(mode_raw))
         # Original Creative API LOG is NOT enough by itself: demand
         # independently recorded source chip ports and original wav.
         api=audit(log,first,second)
@@ -370,6 +385,8 @@ def main()->int:
     p.add_argument("--results-root",type=Path)
     p.add_argument("--cpu-probe-fork-exe",type=Path)
     p.add_argument("--cpu-probe-fork-sha256")
+    p.add_argument("--original-mode-stress",action="store_true",
+                   help="Authentic original Win95 bank0/1/2 voice mode stimulus")
     args=p.parse_args()
     root=package_directory()
     archive=choose_private_zip(root,args.private_original_archive)
@@ -377,7 +394,8 @@ def main()->int:
     destination=(args.results_root if args.results_root
                  else root).resolve()
     result,report=run(archive,guest,args.second_sf2,destination,
-                      args.cpu_probe_fork_exe,args.cpu_probe_fork_sha256)
+                      args.cpu_probe_fork_exe,args.cpu_probe_fork_sha256,
+                      args.original_mode_stress)
     print("\nP003-Ergebnis: "+str(result))
     print("Status: "+report["status"])
     if "error" in report:print("Fehler: "+report["error"])
