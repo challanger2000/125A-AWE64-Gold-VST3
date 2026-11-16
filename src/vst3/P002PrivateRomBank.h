@@ -43,6 +43,12 @@ public:
     // fabricated by this function.
     [[nodiscard]] bool exportVerifiedCreativeP005SourceTables(
         awe64::original_vxd::OriginalSf2SourceTables& out) const noexcept;
+    // Real 0x1592-byte VXD guest DEVICE image, including the 288
+    // ORIGINAL guest-virtual bank pointers at device+0x6CA.
+    // This does NOT provide the pointed-to external guest memory.
+    // On a failed source/length gate, the entire output is zeroed.
+    [[nodiscard]] bool exportVerifiedCreativeP005VxdDeviceImage(
+        std::span<std::uint8_t> out) const noexcept;
 #endif
     [[nodiscard]] std::uint8_t channel() const noexcept {return channel_;}
     [[nodiscard]] bool noteOn(awe64::Chip& chip,std::uint8_t channel,
