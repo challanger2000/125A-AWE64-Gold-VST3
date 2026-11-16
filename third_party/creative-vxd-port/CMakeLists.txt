@@ -149,3 +149,11 @@ target_link_libraries(test_original_creative_ram_pcm_branch_cadence
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_ram_pcm_conditional_tsc_observation
     COMMAND test_original_creative_ram_pcm_branch_cadence)
+
+# P003 source-port branch decision observer: no live CPU scheduler.
+add_executable(test_original_creative_stereo_allocator_decision_path
+    tests/test_original_creative_stereo_allocator_decision_path.cpp)
+target_link_libraries(test_original_creative_stereo_allocator_decision_path
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_stereo_allocator_decision_path
+    COMMAND test_original_creative_stereo_allocator_decision_path)
