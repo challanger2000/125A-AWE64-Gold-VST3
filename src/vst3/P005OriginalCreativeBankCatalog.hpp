@@ -83,10 +83,24 @@ public:
             return false;
         const auto view=stage.view();
         if(view.zones.size()!=stage.count())return false;
-        // Source identity preflight must complete on all note layers
-        // before the vector can grow. Rejecting one layer is atomic.
+        // Every layer of one SF2 PHDR note MUST resolve to the same
+        // original VXD preset row. Two different rows with the same
+        // bank/program/key/velocity cannot be silently combined.
+        auto const& first=view.zones.front();
+        const NoteContextKey key{
+            first.original_bank_slot,first.original_preset_row,
+            stage.key(),stage.velocity()};
+        for(auto const& existing:noteContexts_)
+            if(existing.source_slot==key.source_slot &&
+               existing.source_row==key.source_row &&
+               existing.key==key.key && existing.velocity==key.velocity)
+                return false; // never trigger double-layered NoteOn
+        // Source identity preflight must complete for ALL layers before
+        // mutation. Never accept half of a layered instrument.
         for(auto const& z:view.zones) {
             if(!zoneMatchesOriginalDirectory(z) ||
+               z.original_bank_slot!=key.source_slot ||
+               z.original_preset_row!=key.source_row ||
                z.key_low!=stage.key() || z.key_high!=stage.key() ||
                z.velocity_low!=stage.velocity() ||
                z.velocity_high!=stage.velocity() ||
@@ -94,14 +108,20 @@ public:
                z.program!=stage.sf2Program())
                 return false;
         }
+        // Allocate BOTH buffers before publishing either new note entry.
+        // After reserve(), Zone/NoteContextKey copy is nonthrowing.
+        noteContexts_.reserve(noteContexts_.size()+1u);
+        zones_.reserve(zones_.size()+view.zones.size());
         zones_.insert(zones_.end(),view.zones.begin(),view.zones.end());
+        noteContexts_.push_back(key);
         return true;
     }
 
     // Verify every stored voice again and lock the entire source bank.
     // Caller is responsible for original private SHA/driver provenance.
     [[nodiscard]] bool sealNonRealtime() noexcept {
-        if(sealed_ || !directoryReady_ || zones_.empty())return false;
+        if(sealed_ || !directoryReady_ || zones_.empty() ||
+           noteContexts_.empty())return false;
         for(auto const& z:zones_)
             if(!zoneMatchesOriginalDirectory(z))return false;
         sealed_=true;return true;
@@ -130,6 +150,7 @@ public:
     void resetNonRealtime() {
         sealed_=false;directoryReady_=false;
         zones_.clear();
+        noteContexts_.clear();
         for(std::size_t i=0u;i<kSourceSlots;++i) {
             slotViews_[i].rows={};
             ownedRows_[i].clear();
@@ -137,6 +158,10 @@ public:
     }
 
 private:
+    struct NoteContextKey {
+        std::uint16_t source_slot=0u,source_row=0u;
+        std::uint8_t key=0u,velocity=0u;
+    };
     [[nodiscard]] bool zoneMatchesOriginalDirectory(
         Zone const& z) const noexcept {
         if(!directoryReady_ || !z.original_zone_verified ||
@@ -159,6 +184,7 @@ private:
     std::array<std::vector<Row>,kSourceSlots> ownedRows_{};
     std::array<Slot,kSourceSlots> slotViews_{};
     std::vector<Zone> zones_{};
+    std::vector<NoteContextKey> noteContexts_{};
     bool directoryReady_=false,sealed_=false;
 };
 } // namespace awe64::vst3
