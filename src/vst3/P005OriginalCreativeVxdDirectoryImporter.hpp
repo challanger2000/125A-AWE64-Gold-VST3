@@ -14,6 +14,7 @@
 // guest pointers, truncated records or absent sentinels do not touch the
 // destination catalog. The catalog itself owns the normalized rows.
 #include "P005OriginalCreativeBankCatalog.hpp"
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -42,9 +43,10 @@ public:
     static constexpr std::size_t kMaxTotalNormalizedRows=65536u;
 
     // Caller provides actual device byte image and captured guest memory
-    // regions. Every nonzero source pointer must be completely mapped,
-    // its 26-byte rows must be contiguous, and the FIRST 0xFFFF row ends
-    // the table. Each nonzero source slot must contain >=1 sentinel row.
+    // regions. Every nonzero source pointer must be completely mapped.
+    // A 26-byte row MAY cross a captured page/segment boundary only
+    // when every intervening guest address is explicitly present.
+    // The FIRST 0xFFFF row ends the table; no fabricated gaps or rows.
     // The source's 288-slot order and row ordinal are never changed.
     [[nodiscard]] static P005OriginalVxdDirectoryImportResult
     importNonRealtime(
@@ -101,30 +103,47 @@ public:
                                  std::uint64_t{ordinal}*kOriginalRowBytes;
                 if(vaddr+kOriginalRowBytes>kGuestAddressSpace)
                     return Result::InvalidGuestMapping;
-                std::span<const std::uint8_t> record{};
-                for(auto const& segment:guestMemory) {
-                    const auto begin=std::uint64_t{segment.guest_address};
-                    if(vaddr>=begin &&
-                       vaddr+kOriginalRowBytes<=
-                           begin+std::uint64_t{segment.bytes.size()}) {
-                        const auto offset=static_cast<std::size_t>(vaddr-begin);
-                        record=segment.bytes.subspan(offset,kOriginalRowBytes);
-                        break;
+                // A VXD record may straddle the end of an original
+                // Windows-95 guest page. Assemble only the ACTUAL
+                // captured bytes at their exact consecutive addresses.
+                // Gaps or conflicting overlapping segments remain
+                // untrusted: never insert filler or guess a PHDR row.
+                std::array<std::uint8_t,kOriginalRowBytes> joined{};
+                std::size_t copied=0u;
+                std::uint64_t address=vaddr;
+                while(copied<kOriginalRowBytes) {
+                    bool mapped=false;
+                    for(auto const& segment:guestMemory) {
+                        const auto begin=std::uint64_t{segment.guest_address};
+                        const auto end=begin+
+                            std::uint64_t{segment.bytes.size()};
+                        if(address>=begin && address<end) {
+                            const auto sourceOffset=
+                                static_cast<std::size_t>(address-begin);
+                            const auto count=std::min(
+                                kOriginalRowBytes-copied,
+                                static_cast<std::size_t>(end-address));
+                            std::copy_n(
+                                segment.bytes.begin()+sourceOffset,count,
+                                joined.begin()+copied);
+                            copied+=count;
+                            address+=count;
+                            mapped=true;
+                            break;
+                        }
                     }
+                    if(!mapped)break;
                 }
-                if(record.empty())
-                    // A missing FIRST row indicates an unmapped pointer.
-                    // A missing LATER row indicates that the captured
-                    // source table stopped before its 0xFFFF sentinel.
+                if(copied!=kOriginalRowBytes)
                     return ordinal==0u ? Result::InvalidGuestMapping :
                                          Result::MissingSentinel;
                 if(totalRows==kMaxTotalNormalizedRows)
                     return Result::TooManyRows;
-                const auto marker=read16(record.data());
+                const auto marker=read16(joined.data());
                 // This is the source's 26-byte row byte 0..3 ONLY.
                 // No synthesizer metadata is inferred from the tail.
                 rows[slot].push_back(
-                    Row{marker,record[2],record[3]});
+                    Row{marker,joined[2],joined[3]});
                 ++totalRows;
                 if(marker==0xffffu) {
                     terminated=true;
