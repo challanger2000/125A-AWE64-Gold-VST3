@@ -1078,6 +1078,12 @@ void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
         require(defaultAudio!=restored,
                 "project recall did not audibly select a distinct PHDR preset");
     }
+    std::cout
+        << "P003_REAL_EXPORTED_VST3_SF2_PROJECT_PCM_RECALL_PASS"
+        << " physical_emu8000_identical_stereo_pcm=TRUE"
+        << " missing_preset_recall_rejected=TRUE"
+        << " zero_frame_automation=TRUE"
+        << " original_win95_pcm_parity=NOT_PROVEN\\n";
 }
 } // namespace
 int wmain(int argc,wchar_t** argv){
