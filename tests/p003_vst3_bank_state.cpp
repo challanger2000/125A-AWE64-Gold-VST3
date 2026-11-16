@@ -1,4 +1,5 @@
 #include "P003VstBankState.h"
+#include "P003Sf2HostProgramNames.h"
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -40,6 +41,33 @@ int main() {
     CHECK(!unpack(pack(BankSelection{0u,0u,0u,128u,0u})));
     CHECK(!unpack(pack(BankSelection{0u,0u,0u,0u,128u})));
     CHECK(!decode(encode(BankSelection{129u,0u,0u,0u,0u})));
+    // Exact SF2 bank/program/name browser label, pure and heapless.
+    // Do not turn one source preset into 128 invented MIDI slots.
+    awe64::creative::Sf2PresetIdentity identity{};
+    identity.bank=0u;
+    identity.program=7u;
+    constexpr char original[]="SYNTHBANK";
+    for(std::size_t i=0;i<sizeof(original);++i)
+        identity.name[i]=original[i];
+    auto label=awe64::vst3::sf2host::labelFor(identity);
+    constexpr char16_t expected[]=u"B00000 P007: SYNTHBANK";
+    for(std::size_t i=0;i<sizeof(expected)/sizeof(char16_t);++i)
+        CHECK(label[i]==expected[i]);
+    identity.bank=128u;
+    identity.program=0u;
+    label=awe64::vst3::sf2host::labelFor(identity);
+    constexpr char16_t expectedDrum[]=u"B00128 P000: SYNTHBANK";
+    for(std::size_t i=0;i<sizeof(expectedDrum)/sizeof(char16_t);++i)
+        CHECK(label[i]==expectedDrum[i]);
+    identity.bank=16383u;identity.program=127u;
+    identity.name[0]=char(0x80u);identity.name[1]=char(0x01u);
+    identity.name[2]='X';identity.name[3]='\0';
+    label=awe64::vst3::sf2host::labelFor(identity);
+    constexpr char16_t expectedMax[]=u"B16383 P127: ";
+    for(std::size_t i=0;i<sizeof(expectedMax)/sizeof(char16_t)-1u;++i)
+        CHECK(label[i]==expectedMax[i]);
+    CHECK(label[13]==char16_t(0x80u) &&
+          label[14]==u'_' && label[15]==u'X' && label[16]==0);
     std::puts("P003_VST3_STATE_CRC_LEGACY_VERSIONED_ATOMIC_PASS");
     return 0;
 }
