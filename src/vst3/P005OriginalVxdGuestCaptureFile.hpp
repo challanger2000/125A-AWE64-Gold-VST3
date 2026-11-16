@@ -95,9 +95,10 @@ public:
                     const auto a=read32(raw,offset);
                     const auto b=read32(raw,offset+4u);
                     bool ordered=true;
-                    for(std::size_t i=0u;i<6u;++i)
-                        if(read32(raw,offset+4u*i)>=
-                           read32(raw,offset+4u*(i+1u)))
+                    for(std::size_t headerIndex=0u;
+                        headerIndex<6u;++headerIndex)
+                        if(read32(raw,offset+4u*headerIndex)>=
+                           read32(raw,offset+4u*(headerIndex+1u)))
                             ordered=false;
                     const bool header=a>pointer && a-pointer>=28u &&
                         a-pointer<=4096u && a<b &&
