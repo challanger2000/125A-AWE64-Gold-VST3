@@ -19,6 +19,8 @@
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
+#include "public.sdk/source/common/memorystream.h"
+#include "P003VstBankState.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -820,6 +822,63 @@ Audio renderBankProgramChange(
     }
     return audio;
 }
+// The actual exported Windows VST3 must restore a REAL existing SF2
+// PHDR program, not merely serialize an arbitrary unbound test number.
+void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
+    using namespace awe64::vst3::state;
+    Instance active(factory,true);
+    const auto desired=encode(BankSelection{0u,9u,73u,31u,120u});
+    MemoryStream source(const_cast<std::uint8_t*>(desired.data()),
+                        static_cast<TSize>(desired.size()));
+    require(active.component->setState(&source)==kResultOk,
+            "valid real-PHDR program9 project state rejected");
+    const auto flush=[&] {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=buffers;
+        EventList events;
+        ProcessData process{};
+        process.processMode=kRealtime;
+        process.symbolicSampleSize=kSample32;
+        process.numSamples=512;
+        process.outputs=&bus;process.numOutputs=1;
+        process.inputEvents=&events;
+        require(auditedOriginalBankProcess(active.audio,process)==kResultOk,
+                "real exported SF2 VST3 failed project-state consumption");
+    };
+    flush(); // Audiothread processes the pending host state.
+    MemoryStream saved{};
+    require(active.component->getState(&saved)==kResultOk &&
+            saved.getSize()==desired.size() &&
+            std::memcmp(saved.getData(),desired.data(),desired.size())==0,
+            "real loaded SoundFont program/CC project restore mismatch");
+
+    // A CRC-valid but absent PHDR must not be substituted for program9.
+    const auto absent=encode(BankSelection{0u,63u,1u,1u,1u});
+    MemoryStream missing(const_cast<std::uint8_t*>(absent.data()),
+                         static_cast<TSize>(absent.size()));
+    require(active.component->setState(&missing)==kResultOk,
+            "correctly serialized missing PHDR state rejected too early");
+    flush();
+    MemoryStream afterMissing{};
+    require(active.component->getState(&afterMissing)==kResultOk &&
+            afterMissing.getSize()==desired.size() &&
+            std::memcmp(afterMissing.getData(),desired.data(),desired.size())==0,
+            "missing PHDR state replaced valid real bank selection");
+
+    // Negative CRC control: no mutation, even before next audio callback.
+    auto damaged=desired;
+    damaged[10]^=1u;
+    MemoryStream bad(damaged.data(),static_cast<TSize>(damaged.size()));
+    require(active.component->setState(&bad)!=kResultOk,
+            "corrupt project state accepted by real exported VST3");
+    MemoryStream afterBad{};
+    require(active.component->getState(&afterBad)==kResultOk &&
+            afterBad.getSize()==desired.size() &&
+            std::memcmp(afterBad.getData(),desired.data(),desired.size())==0,
+            "corrupt project state changed real SF2 bank");
+}
 } // namespace
 int wmain(int argc,wchar_t** argv){
     // Preserve the independent pre-CT1745 AWE32_WAV PCM16 tap for
@@ -1176,6 +1235,7 @@ int wmain(int argc,wchar_t** argv){
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                            twoProgramSf2Path.c_str())==0,
                 "set multi-program actual ROM SF2 bank");
+        verifyRealSf2ProjectRecall(factory);
         const auto defaultProgram7=renderBankProgramChange(factory,-1);
         const auto program9=renderBankProgramChange(factory,9);
         const auto program9AtSameSample=renderBankProgramChange(
