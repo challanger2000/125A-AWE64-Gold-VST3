@@ -170,3 +170,46 @@ verschärften exakten Kindzeiger-2-Endgrenzen-Prüfalgorithmus kontrolliert:
 129 Programme + FFFF, 7.334 separate Nachlaufbytes, 10 lokale
 Original-/Mutations-/Kürzungsproben bestanden. Keine dieser privaten
 Quellbytes wird ins GitHub-Repository übernommen.
+
+
+## P005-Zusatzaufnahme der ursprünglichen verschachtelten Creative-Bankregionen
+
+Der Original-GM-Bankkopf enthält sieben streng aufsteigende 32-Bit-Gastzeiger.
+Die erste, 26-Byte-ausgerichtete Programmtabelle bleibt vollständig im
+unveränderten Besitzerformat `125AVXD1`. Für die zuvor **fehlenden**
+Bereiche schreibt der neue, optionale Modus eine **separate private**
+`125AVXR1`-Datei:
+
+`awe64_p005_original_win95_guest_bank_capture --pid <86Box-PID> --output <neu.125a-private-vxd> --nested-output <neu.125a-private-regions>`
+
+Der automatisch gestartete Besitzer-CMD übergibt beide Pfade. Der
+Exporter liest die zusätzlichen **fünf originalbegrenzt vollständigen**
+Speicherbereiche zwischen den Kindzeigern 2–7 und **4.096 Bytes ab dem
+siebten Zeiger**. Für den siebten Bereich ist im Originalkopf
+*keine Endadresse* enthalten: Er wird **immer als unvollständige
+Teilstichprobe** gekennzeichnet. Weder die Größe noch der Inhalt des
+fehlenden Endes werden geraten. Für beide Besitzerdateien müssen dieselben
+64-MiB-Gast-RAM-Snapshots im Abstand von 100 ms übereinstimmen, andernfalls
+bricht die optionale Aufnahme fail-closed ab.
+
+Das neue private Sidecar-Format verwendet ohne C++-Padding: `125AVXR1`
+(8 Bytes), `version, deviceVA, cr3, root` (4 × u32), die sieben
+Originalzeiger (7 × u32), `regionCount=6` (u32), und je Region
+`guestVA, byteCount, originalRightBoundaryKnown` (3 × u32) gefolgt
+von den Originalbytes. Die ersten fünf `originalRightBoundaryKnown=1`,
+die sechste Region **immer 0**. Diese Formatversion ist kein
+Originaltreiber-Attestierungsverfahren.
+
+`python tools/p005_verify_nested_guest_regions.py --primary <privat.125a-private-vxd> --nested <privat.125a-private-regions>`
+
+prüft die Zusatzdatei unabhängig gegen **das originale 288-Slot-
+Geräteabbild und alle sieben Kopfzeiger** der Basisdatei. Bei falschen
+Adressen, vertauschten Segmenten, abgeschnittenen Regionen oder
+fälschlich als vollständig gekennzeichnetem letzten Bereich folgt
+NO-GO. Die Datei enthält keine Kopie der ROM-/VXD-Quellen im
+öffentlichen GitHub.
+
+Die vorherige Besitzeraufnahme vom 16.11.2026 enthält diese neuen
+Zusatzbytes **nicht**. Ein künftiger vollständigerer Quellenvergleich
+benötigt eine weitere tatsächliche Gast-RAM-Aufnahme. Bis dahin bleiben
+Originaltreiber-Live-Sitzungsbindung, Bank2 und PCM-/CPU-Parität offen.
