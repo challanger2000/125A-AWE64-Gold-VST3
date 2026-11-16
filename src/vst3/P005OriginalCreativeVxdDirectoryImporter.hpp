@@ -112,6 +112,7 @@ public:
             bool terminated=false;
             std::uint64_t recordPointer=ptr;
             bool followedBankHeader=false;
+            std::size_t expectedIndirectRows=0u;
             for(std::size_t ordinal=0u;
                 ordinal<P005OriginalCreativeBankCatalog::kMaxRowsPerSlot;) {
                 const auto vaddr=recordPointer+
@@ -171,6 +172,14 @@ public:
                     const auto c=read32(joined.data()+8u);
                     if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
                        a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u)) {
+                        const auto span=std::uint64_t{b}-a;
+                        if(span<kOriginalRowBytes ||
+                           span%kOriginalRowBytes!=0u ||
+                           span/kOriginalRowBytes>
+                               P005OriginalCreativeBankCatalog::kMaxRowsPerSlot)
+                            return Result::InvalidGuestMapping;
+                        expectedIndirectRows=static_cast<std::size_t>(
+                            span/kOriginalRowBytes);
                         recordPointer=a;
                         followedBankHeader=true;
                         continue; // restart ordinal zero at real row list
@@ -181,6 +190,11 @@ public:
                 rows[slot].push_back(
                     Row{marker,joined[2],joined[3]});
                 ++totalRows;
+                if(followedBankHeader) {
+                    const bool shouldEnd=ordinal+1u==expectedIndirectRows;
+                    if((marker==0xffffu)!=shouldEnd)
+                        return Result::MissingSentinel;
+                }
                 if(marker==0xffffu) {
                     terminated=true;
                     break;
