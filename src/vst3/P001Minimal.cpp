@@ -1,6 +1,7 @@
 #include "P001Minimal.h"
 #include "P002OriginalWin95ChipPrelude.h"
 #include "P002PrivateDryPcmCapture.h"
+#include "P003Sf2HostProgramNames.h"
 #include "pluginterfaces/base/ibstream.h"
 #include "P002PrivateOriginalRamCapture.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -136,6 +137,23 @@ tresult PLUGIN_API Minimal::initialize(FUnknown* context) {
             nullptr,127,1.,ParameterInfo::kCanAutomate,
             static_cast<int32>(kP002PrivateCc11ExpressionParam));
     }
+    // The combined-component VST3 implements IUnitInfo already.
+    // Expose a single stable root ProgramList; only its real PHDR
+    // contents are populated after the source-authorized SF2 loads
+    // on non-realtime activation. The list is *empty*, not 128 fake
+    // programs, before an authentic SoundFont has been accepted.
+    if((bank && *bank) || nativeRamRequested) {
+        if(!addUnit(new Unit(STR16("AWE64 Gold SoundFont"),
+                             kRootUnitId,kNoParentUnitId,
+                             static_cast<ProgramListID>(
+                                 sf2host::kProgramListId))) ||
+           !addProgramList(new ProgramList(
+                             STR16("Original SF2 PHDR Presets"),
+                             static_cast<ProgramListID>(
+                                 sf2host::kProgramListId),
+                             kRootUnitId)))
+            return kResultFalse;
+    }
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::terminate() {
@@ -201,6 +219,12 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         autonomousNativeRam_=false;
         clockedNativeRamFailed_=false;
         p002RomBank_.clear(); // non-RT activation thread only
+        if(auto* list=getProgramList(static_cast<ProgramListID>(
+                             sf2host::kProgramListId))) {
+            list->clearPrograms(); // never from process(), no fake rows
+            (void)notifyProgramListChange(
+                static_cast<ProgramListID>(sf2host::kProgramListId));
+        }
         p002DiagnosticEnabled_=false;
         preCardPcm16DiagnosticTap_=false;
         originalGoldCard_.reset(); // exact original CT1745 reset on the non-RT thread
@@ -507,10 +531,31 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         chip_.writePort(0xa20u,0x0004u);
         p002DiagnosticEnabled_=true;
     }
-    // Restored host state is applied only AFTER loading the real SF2
-    // inventory on this non-RT activation thread. A missing bank/program
-    // leaves the genuine loaded SF2 selection intact, never aliases.
-    if(p002BankEnabled_)applyPendingBankState();
+    // The VST3 ProgramList is a host-facing *copy* of the exact
+    // source-validated SF2 PHDR inventory. No reads from this mutable
+    // vector are performed by the host on the sample callback.
+    // Bxxx/Pxxx prefix preserves real bank/program identity even when
+    // different PHDRs have the same original 20-byte name.
+    if(p002BankEnabled_) {
+        if(auto* list=getProgramList(static_cast<ProgramListID>(
+                             sf2host::kProgramListId))) {
+            list->clearPrograms();
+            for(std::size_t i=0;i<p002RomBank_.presetCount();++i) {
+                const auto* preset=p002RomBank_.presetAt(i);
+                if(!preset) {
+                    chip_.close();return kResultFalse;
+                }
+                const auto label=sf2host::labelFor(*preset);
+                String128 name{};
+                for(std::size_t j=0;j<label.size();++j)
+                    name[j]=static_cast<TChar>(label[j]);
+                list->addProgram(name); // activation thread only
+            }
+            (void)notifyProgramListChange(
+                static_cast<ProgramListID>(sf2host::kProgramListId));
+        }
+        applyPendingBankState();
+    }
     active_=true; playingKey_=-1;
     p002Started_.fill(false);
     p002KeyDown_.fill(false);
