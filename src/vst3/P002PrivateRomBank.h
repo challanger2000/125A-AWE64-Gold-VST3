@@ -14,6 +14,9 @@
 #include "CreativeMidi.h"
 #include "CreativeSf2PresetInventory.h"
 #include "CreativeSf2RamBankUpload.h"
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+#include "OriginalCreativeSf2ResourceBuilder.hpp"
+#endif
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -32,6 +35,15 @@ public:
     void clear() noexcept;
     [[nodiscard]] bool ready() const noexcept {return ready_;}
     [[nodiscard]] bool originalRamMode() const noexcept {return ram_mode_;}
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    // Off-RT: bridge the EXISTING SHA-gated source VXD templates/pitch
+    // and independently attested captured RAM position to the port.
+    // A successful P002 owner-RAM load is required; the original VXD
+    // 288 program-slot directory and per-note voice state are NOT
+    // fabricated by this function.
+    [[nodiscard]] bool exportVerifiedCreativeP005SourceTables(
+        awe64::original_vxd::OriginalSf2SourceTables& out) const noexcept;
+#endif
     [[nodiscard]] std::uint8_t channel() const noexcept {return channel_;}
     [[nodiscard]] bool noteOn(awe64::Chip& chip,std::uint8_t channel,
                               std::uint8_t key,std::uint8_t velocity) noexcept;
