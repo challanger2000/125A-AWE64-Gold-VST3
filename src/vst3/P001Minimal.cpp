@@ -212,6 +212,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p002Started_.fill(false);
         p002KeyDown_.fill(false);
         p002BankEnabled_=false;
+        // The source inventory is about to be cleared on this
+        // activation thread. Never expose its old ordinal to a host.
+        publishedPresetView_.store(kNoPublishedPresetView,
+                                   std::memory_order_release);
         p002PrivateRamPreloaded_=false;
         p002OriginalRamNotes_.clear();
         nativeRamClock_.clear();
@@ -794,6 +798,17 @@ bool Minimal::privateWin95MidiOutReset() noexcept {
 }
 void Minimal::publishBankState() noexcept {
     if(!p002BankEnabled_ || !p002RomBank_.ready())return;
+    // Real PHDR ordinal and its denominator are published as ONE
+    // atomic snapshot. This function runs on the audio/activation
+    // thread; getParamNormalized() never touches mutable bank vectors.
+    const auto count=p002RomBank_.presetCount();
+    const auto ordinal=p002RomBank_.currentPresetIndex();
+    const auto view=(count>0u &&
+                     count<=std::numeric_limits<std::uint32_t>::max() &&
+                     ordinal<count)
+        ? (std::uint64_t(count)<<32u) | std::uint64_t(ordinal)
+        : kNoPublishedPresetView;
+    publishedPresetView_.store(view,std::memory_order_release);
     const state::BankSelection value{
         p002RomBank_.currentBank(),
         p002RomBank_.currentProgram(),
@@ -1288,6 +1303,24 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     if(data.outputs && data.numOutputs==1)
         data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
+}
+ParamValue PLUGIN_API Minimal::getParamNormalized(
+    const ParamID tag) {
+    if(tag==kP003Sf2PresetOrdinalParam) {
+        const auto view=publishedPresetView_.load(
+            std::memory_order_acquire);
+        if(view!=kNoPublishedPresetView) {
+            const auto count=static_cast<std::uint32_t>(view>>32u);
+            const auto index=static_cast<std::uint32_t>(view);
+            if(count>0u && index<count)
+                return count<=1u?0.:
+                    static_cast<ParamValue>(index)/
+                    static_cast<ParamValue>(count-1u);
+        }
+    }
+    // No authenticated SoundFont is active: expose the host's
+    // ordinary controller value (do not invent a synthetic preset).
+    return SingleComponentEffect::getParamNormalized(tag);
 }
 tresult PLUGIN_API Minimal::getParamStringByValue(
     const ParamID tag,const ParamValue normalized,
