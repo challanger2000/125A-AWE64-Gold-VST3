@@ -10,6 +10,8 @@
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
+#include "public.sdk/source/common/memorystream.h"
+#include "P003VstBankState.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -67,6 +69,55 @@ struct Instance {
         if(component){component->setActive(false);component->terminate();component->release();}
     }
 };
+void verifyExportedVst3ProjectState(IPluginFactory* factory) {
+    // Test the REAL exported DLL, not only the standalone codec.
+    // No private SF2/driver/ROM data is serialized into project state.
+    Instance synth(factory);
+    MemoryStream empty{};
+    require(synth.component->getState(&empty)==kResultOk,
+            "initial P001 getState failed");
+    require(empty.getSize()==8u &&
+            std::memcmp(empty.getData(),
+              awe64::vst3::state::kLegacyMagic.data(),8u)==0,
+            "legacy 8-byte P001 project state changed");
+
+    using namespace awe64::vst3::state;
+    auto wanted=encode(BankSelection{128u,67u,99u,22u,120u});
+    MemoryStream incoming(wanted.data(),wanted.size());
+    require(synth.component->setState(&incoming)==kResultOk,
+            "exported VST3 rejected valid versioned state");
+    MemoryStream saved{};
+    require(synth.component->getState(&saved)==kResultOk &&
+            saved.getSize()==kStateSize &&
+            std::memcmp(saved.getData(),wanted.data(),kStateSize)==0,
+            "exported VST3 lost restored SF2 browser/CC snapshot");
+
+    auto mutation=wanted;
+    mutation[12]^=1u; // CC10 data changed without CRC
+    MemoryStream bad(mutation.data(),mutation.size());
+    require(synth.component->setState(&bad)!=kResultOk,
+            "exported VST3 accepted corrupt CRC");
+    MemoryStream afterBad{};
+    require(synth.component->getState(&afterBad)==kResultOk &&
+            afterBad.getSize()==kStateSize &&
+            std::memcmp(afterBad.getData(),wanted.data(),kStateSize)==0,
+            "corrupt state unexpectedly modified the live snapshot");
+
+    MemoryStream truncated(wanted.data(),wanted.size()-1u);
+    require(synth.component->setState(&truncated)!=kResultOk,
+            "truncated VST3 project state accepted");
+    // The existing 8-byte P001 sessions remain readable and writable.
+    auto legacy=kLegacyMagic;
+    MemoryStream oldProject(legacy.data(),legacy.size());
+    require(synth.component->setState(&oldProject)==kResultOk,
+            "legacy P001 project restore rejected");
+    MemoryStream afterLegacy{};
+    require(synth.component->getState(&afterLegacy)==kResultOk &&
+            afterLegacy.getSize()==legacy.size() &&
+            std::memcmp(afterLegacy.getData(),legacy.data(),
+                        legacy.size())==0,
+            "legacy P001 project state round trip changed");
+}
 void event(EventList& events,bool on,int offset) {
     Event e{};
     e.type=on?Event::kNoteOnEvent:Event::kNoteOffEvent;
@@ -184,6 +235,7 @@ int wmain(int argc,wchar_t** argv){
             GetProcAddress(module,"GetPluginFactory"));
         require(get!=nullptr,"actual DLL has no GetPluginFactory");
         factory=get();require(factory!=nullptr,"null factory");
+        verifyExportedVst3ProjectState(factory);
         std::vector<std::int16_t> privatePrecardStereo{};
         auto held=play(factory,false,argc==4?&privatePrecardStereo:nullptr);
         auto off=play(factory,true);
