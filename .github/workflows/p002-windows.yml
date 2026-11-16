@@ -96,6 +96,10 @@ on:
       - 'src/vst3/P005OriginalCreativeBankCatalog.hpp'
       - 'src/vst3/P005OriginalCreativeVxdDirectoryImporter.hpp'
       - 'tools/p005_capture_original_win95_vxd_guest_bank.cpp'
+      - 'tools/p005_verify_original_vxd_guest_bank_capture.py'
+      - 'tests/test_p005_verify_original_vxd_guest_bank_capture.py'
+      - 'tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd'
+      - 'docs/P005-ORIGINAL-GUEST-MEMORY-CAPTURE-TOOL.md'
       - 'tests/p005_vst3_original_port_adapter.cpp'
       - 'tests/p005_vst3_prebank2_source_sequence.cpp'
       - 'tests/p005_vst3_sf2_note_stage.cpp'
@@ -198,6 +202,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'P002 strict oracle Python syntax invalid' }
           python -m unittest discover -s tests -p 'test_p002_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
+          python -m unittest discover -s tests -p 'test_p005_verify_original_vxd_guest_bank_capture.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P005 original guest source capture negative controls FAILED' }
           Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
 
       - name: Export tested public-only private-run auditor sources (no Creative bytes)
@@ -209,6 +215,17 @@ jobs:
             tools/p002_register_oracle.py
             tools/p002_original_ram_trace_probe.py
             build-p002/Release/awe64_p002_private_ram_capture_cli.exe
+          retention-days: 3
+          if-no-files-found: error
+      - name: Export source-only original Win95 owner capture utility (NO PRIVATE BYTES)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P005-Original-Win95-Guest-Bank-Capture-WinX64
+          path: |
+            build-p002/Release/awe64_p005_original_win95_guest_bank_capture.exe
+            tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd
+            tools/p005_verify_original_vxd_guest_bank_capture.py
+            docs/P005-ORIGINAL-GUEST-MEMORY-CAPTURE-TOOL.md
           retention-days: 3
           if-no-files-found: error
   real_125a_test_lab_headless_inventory:
