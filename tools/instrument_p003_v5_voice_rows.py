@@ -76,6 +76,51 @@ static void p003_v5_guest_row(char direction, uint16_t port,
             (unsigned)sample_end,(unsigned)marker,(unsigned)penalty,
             (unsigned)score_m04,(unsigned)score_m0c,(unsigned)score_m14);
 }
+/* Original LCOD+0x3D44 begins "push ebp; mov ebp,esp; push esi".
+ * This is the I/O HELPER EBP, not the calling allocator EBP.
+ * [EBP] is the saved parent frame; [EBP-4] is the saved parent ESI.
+ * Earlier V5_ROW_STATE scores addressed the helper frame and must NOT be
+ * interpreted as allocator's current/previous/best score.
+ * V5_ROW_STATE remains unmodified for backwards compatibility. */
+static void p003_v5_guest_caller(char direction, uint16_t port,
+                                uint32_t ret0, unsigned long long io_seq)
+{
+    uint32_t frame=0, caller=0xffffffffu, esi=0xffffffffu, addr;
+    uint32_t current=0xffffffffu, previous=0xffffffffu;
+    uint32_t best=0xffffffffu, mode=0xffffffffu;
+    uint8_t next0d=0xffu, next2d=0xffu;
+    unsigned valid=0;
+    if (!p003_cpu_io_file || !p003_guest_callstack_enabled ||
+        direction!='R' || port!=0x0a22u || ret0==0xffffffffu)
+        return;
+    if (!p003_v5_linear(cpu_state.seg_ss.base,EBP,0,&frame))return;
+    if (p003_v5_read_ram(frame,&caller,4) && caller>EBP &&
+        caller-EBP<=65536u && !(caller&3u))valid|=1u;
+    if (p003_v5_linear(0,frame,-4,&addr) &&
+        p003_v5_read_ram(addr,&esi,4))valid|=2u;
+    if (valid&1u) {
+        if (p003_v5_linear(cpu_state.seg_ss.base,caller,-4,&addr) &&
+            p003_v5_read_ram(addr,&current,4))valid|=4u;
+        if (p003_v5_linear(cpu_state.seg_ss.base,caller,-12,&addr) &&
+            p003_v5_read_ram(addr,&previous,4))valid|=8u;
+        if (p003_v5_linear(cpu_state.seg_ss.base,caller,-20,&addr) &&
+            p003_v5_read_ram(addr,&best,4))valid|=16u;
+    }
+    if ((valid&2u) &&
+        p003_v5_linear(cpu_state.seg_ds.base,esi,24,&addr) &&
+        p003_v5_read_ram(addr,&mode,4))valid|=32u;
+    if (p003_v5_linear(cpu_state.seg_ds.base,EBX,-19,&addr) &&
+        p003_v5_read_ram(addr,&next0d,1))valid|=64u;
+    if (p003_v5_linear(cpu_state.seg_ds.base,EBX,13,&addr) &&
+        p003_v5_read_ram(addr,&next2d,1))valid|=128u;
+    fprintf(p003_cpu_io_file,
+            "# P003_V5_CALLER_FRAME %llu %llu %08X %08X %08X %08X "
+            "%08X %02X %08X %08X %08X %08X %02X %02X\n",
+            io_seq,(unsigned long long)tsc,(unsigned)ret0,
+            (unsigned)EBX,(unsigned)EBP,(unsigned)caller,(unsigned)esi,
+            valid,(unsigned)current,(unsigned)previous,(unsigned)best,
+            (unsigned)mode,(unsigned)next0d,(unsigned)next2d);
+}
 '''
 
 def instrument_v5(raw:bytes)->bytes:
@@ -92,7 +137,9 @@ def instrument_v5(raw:bytes)->bytes:
     src=src.replace(ANCHOR,READER+'\n'+ANCHOR,1)
     src=src.replace(AFTER, AFTER+'''
             p003_v5_guest_row(direction,port,retn[0],
-                               p003_cpu_io_seq-1u);''',1)
+                               p003_cpu_io_seq-1u);
+            p003_v5_guest_caller(direction,port,retn[0],
+                                p003_cpu_io_seq-1u);''',1)
     # Deliberately do not alter the format of the 17-field original V4 lines.
     return src.encode('utf-8')
 
