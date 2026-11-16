@@ -84,3 +84,56 @@ ist ebenfalls bestanden. Dies belegt den Windows-x64-C++23-Quellbau
 und die getestete gemeinsame MIDI/RAM-State-Grenze, **nicht** die
 vollständige native VST3-Register-/PCM-Parität.
 
+
+
+## P005 – Original-SF2-Layer-Laufzeitstufe (16.11.2026)
+
+\`src/vst3/P005OriginalCreativeSf2NoteStage.hpp\` ist im echten VST3-Prozess
+als **nicht-RT Vorbereitungsstufe** und mit derselben portierten Creative-
+Quellbibliothek verbunden. Die Klasse verwendet ausschließlich
+\`select_sf2_raw_layers\` und \`prepare_original_sf2_zones\` aus dem
+portierten Original-SF2-Reader/Ressourcencompiler. Sie erzeugt selbst
+**keine** Filter-, Pitch-, Hüllkurven- oder Stimmen-Algorithmen.
+
+Ein authentifizierter Note-Kontext kann so im Voraus in maximal sechs
+Original-SF2-Layern vorbereitet und mit \`VerifiedSf2Bank\` unmittelbar
+an \`P005OriginalCreativeHostAdapter\` übergeben werden. Quelle/Map
+werden **nicht** kopiert oder erfunden. Die Vorbereitungsstufe ist
+bewusst nur für eine konkrete Bank-/Programm-/Tasten-/Velocity-Kombination
+freigeschaltet; das ersetzt noch keine vollständige freie 77-Preset-
+Klangbibliothek. Eine nicht authentifizierte Tabelle wird abgewiesen.
+Der komplette Produktions-MIDI-Zweig bleibt so lange ungeschaltet,
+bis die Tabellen für den gesamten geladenen Bankkontext authentifiziert
+und die Original-CPU-Zeitfolge reproduziert sind.
+
+Der unabhängige öffentliche Test
+\`tests/p005_vst3_sf2_note_stage.cpp\` prüft:
+RIFF/SF2-Struktur → 1996-Creative-Quell-Layerreader →
+Originalressourcen-Compiler → feste Quell-Zone →
+gemeinsamen MIDI/VXD-DeviceState → reale ChipPort-Bridge → NoteOff.
+Dafür werden synthetische SF2-Bytes/Tabellen verwendet; private
+Creative-Quelldateien bleiben lokal.
+Die kombinierte C++23-Quell-Suite: GCC/Clang/Clang-ASan/UBSan
+jeweils **27/27 PASS**.
+
+**Lokal, nur mit Originaldateien verifiziert:** Der bestehende portierte
+\`select_sf2_raw_layers\` liefert für die 77-Preset-Original-Bank 1
+bei Program 0 / C4 / D4 jeweils 2 Layer und bei Program 7 jeweils 4
+Layer. Die originale Bank 2 hat für Program 7 bei C4 / D4 jeweils 2
+Layer. Kein privater SF2-Sampleinhalt wurde eingecheckt.
+
+### Ergänzender Kontrollchat-Originalbefund: CPU-TSC und RAM-Upload
+
+Der Kontrollchat meldet **666.041** TSC-Gruppen mit 2–3 Ports;
+**867.254** benachbarte Events teilen denselben aufgezeichneten TSC,
+obwohl feiner aufgelöste CPU-Zyklen innerhalb der Gruppe weiterlaufen.
+Eine unkontrollierte Verfeinerung würde **5.312** Original-Portereignisse
+um ein Audioframe versetzen. Deshalb **nicht** einfach feine Zyklen auf
+den für die Audioframeprojektion maßgebenden Capture-TSC addieren.
+
+Bei aufeinanderfolgenden RAM-Wortzugriffen: 104 Takte in den meisten
+Fällen, 100 Takte in insgesamt 3.526 Fällen; jeweils folgt ein
+0-Samplewort. **Nicht** pauschal 104 Takte einbauen: nur durch
+Original-REA-Funktionszweige erzeugtes Timing darf die autonome
+CPU-Taktplanung steuern. Diese Arbeit bleibt beim Kontrollchat, um
+eine doppelte eigene Schedulerimplementierung zu vermeiden.
