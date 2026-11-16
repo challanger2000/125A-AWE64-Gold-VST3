@@ -252,6 +252,33 @@ int main() {
     sparseBank.rollbackNativeNoteCheckpoint();
     CHECK(sparseBank.currentBank()==0u &&
           sparseBank.currentProgram()==77u);
+    // Real VST3 getState/setState recall: only existing PHDR identities
+    // may commit. Invalid bank/program/range must leave every MIDI
+    // controller and program exactly unchanged.
+    CHECK(!sparseBank.restoreSelection(128u,77u,50u,20u,30u));
+    CHECK(!sparseBank.restoreSelection(9u,0u,50u,20u,30u));
+    CHECK(!sparseBank.restoreSelection(0u,77u,128u,20u,30u));
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==77u &&
+          sparseBank.currentCc7()==100u &&
+          sparseBank.currentCc10()==64u &&
+          sparseBank.currentCc11()==127u);
+    CHECK(sparseBank.restoreSelection(128u,2u,77u,18u,120u));
+    CHECK(sparseBank.currentBank()==128u &&
+          sparseBank.currentProgram()==2u &&
+          sparseBank.currentCc7()==77u &&
+          sparseBank.currentCc10()==18u &&
+          sparseBank.currentCc11()==120u);
+    CHECK(!sparseBank.restoreSelection(128u,63u,1u,1u,1u));
+    CHECK(sparseBank.currentBank()==128u &&
+          sparseBank.currentProgram()==2u &&
+          sparseBank.currentCc7()==77u);
+    CHECK(sparseBank.restoreSelection(0u,77u,100u,64u,127u));
+    CHECK(sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==77u &&
+          sparseBank.currentCc7()==100u &&
+          sparseBank.currentCc10()==64u &&
+          sparseBank.currentCc11()==127u);
     sparseBank.clear();
     CHECK(sparseBank.presetCount()==0u);
     CHECK(!sparseBank.programChange(77u));
