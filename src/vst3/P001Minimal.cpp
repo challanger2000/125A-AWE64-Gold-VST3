@@ -1439,8 +1439,18 @@ tresult PLUGIN_API Minimal::setState(IBStream* stream) {
        count!=static_cast<int32>(prefix.size()))
         return kResultFalse;
     if(prefix==state::kLegacyMagic) {
+        // Legacy P001 projects contain NO SF2 selection. They must
+        // clear a pending (not yet accepted) selection, but must NOT
+        // erase a real live SF2's already accepted bank/program/CC.
+        // Otherwise getState() would falsely save legacy 8 bytes
+        // while the actual SoundFont continues playing program 9.
+        // Use the published atomic PHDR snapshot: no cross-thread
+        // access to the mutable original source bank on a DAW UI call.
         pendingBankState_.store(state::kNoSelection,std::memory_order_release);
-        publishedBankState_.store(state::kNoSelection,std::memory_order_release);
+        if(publishedPresetView_.load(std::memory_order_acquire)==
+                kNoPublishedPresetView)
+            publishedBankState_.store(state::kNoSelection,
+                                      std::memory_order_release);
         return kResultOk;
     }
     if(prefix!=state::kMagic)return kResultFalse;
