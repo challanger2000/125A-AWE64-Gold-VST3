@@ -1,0 +1,174 @@
+name: P107 P54C OLD Dynarec executed x86 observer (no owner media)
+
+on:
+  push:
+    branches:
+      - research/p107-original-x64-dynarec-guest-branch-capture
+    paths:
+      - '.github/workflows/p107-original-old-dynarec-branch-capture.yml'
+      - 'tools/p107_instrument_old_dynarec.py'
+      - 'tests/test_p107_instrument_old_dynarec.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-src-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Execute all safe source-mutation negative controls and original fork pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          python3 -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
+          python3 tools/p107_instrument_old_dynarec.py \
+            --original-codegen third_party/86box-awe32/src/codegen/codegen_x86-64.c --verify-only
+          python3 tools/p003_instrument_86box_io.py \
+            --original-io-c third_party/86box-awe32/src/io.c --verify-only
+          test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
+          echo 'P107_PROBE_SOURCE_PINS_PASS original_dsp_mutated=FALSE private_creative_data=NOT_PRESENT'
+
+  linux-old-dynarec-executable:
+    needs: original-src-guard
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install minimal SDL2 86Box Ubuntu build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential cmake ninja-build pkg-config \
+            libsdl2-dev libfreetype6-dev libopenal-dev libpng-dev zlib1g-dev \
+            libslirp-dev libserialport-dev libfluidsynth-dev \
+            libsamplerate0-dev libpcap-dev libglib2.0-dev \
+            librtmidi-dev libx11-dev libxext-dev \
+            xvfb
+
+      - name: Patch only a fresh copy of unchanged 86Box P54C old Dynarec and existing physical IO
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p107-fork
+          cp -a third_party/86box-awe32/. /tmp/p107-fork/
+          python3 tools/p107_instrument_old_dynarec.py \
+            --original-codegen third_party/86box-awe32/src/codegen/codegen_x86-64.c \
+            --patched-output /tmp/p107-fork/src/codegen/codegen_x86-64.p107.c
+          mv /tmp/p107-fork/src/codegen/codegen_x86-64.p107.c \
+             /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          python3 tools/p003_instrument_86box_io.py \
+            --original-io-c third_party/86box-awe32/src/io.c \
+            --output-io-c /tmp/p107-fork/src/io.p107.c
+          mv /tmp/p107-fork/src/io.p107.c /tmp/p107-fork/src/io.c
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p107-fork/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p107-fork/src/sound/snd_sb.c
+          test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
+          echo 'P107_ORIGINAL_EMU8000_AND_CARD_SOURCE_UNMODIFIED'
+
+      - name: Build actual Linux x86-64 86Box with OLD Dynarec, not new Dynarec
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S /tmp/p107-fork -B /tmp/p107-fork/build-p107 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DNEW_DYNAREC=OFF \
+            -DFLUIDSYNTH=OFF -DRTMIDI=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF
+          grep '^NEW_DYNAREC:BOOL=OFF' /tmp/p107-fork/build-p107/CMakeCache.txt
+          cmake --build /tmp/p107-fork/build-p107 --parallel 4
+          echo 'P107_REAL_LINUX_86BOX_OLD_DYNAREC_COMPILED'
+
+      - name: Stage unmodified resource tree and compiled instrumented public emulator only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p107-linux-artifact
+          find /tmp/p107-fork/build-p107 -type f -name '86Box' -executable -print -exec cp '{}' p107-linux-artifact/86Box \;
+          test -s p107-linux-artifact/86Box
+          sha256sum p107-linux-artifact/86Box > p107-linux-artifact/86Box.sha256
+          ldd p107-linux-artifact/86Box > p107-linux-artifact/linker-deps.txt
+          cp /tmp/p107-fork/COPYING p107-linux-artifact/COPYING || true
+          cat >p107-linux-artifact/README.txt <<'EOF'
+          P107 research instrumented original 86Box fork. No ROM, OS, Creative binary, banks or original guest data included.
+          Compiled OLD x64 Dynarec only; AWE64_P107_EXECUTED_X86_TRACE and AWE64_P107_LCOD_BASE opt-in required.
+          Not a release, not a proof of CPU timing parity. See source workflow.
+          EOF
+          echo 'P107_PUBLIC_86BOX_LINUX_OLD_DYNAREC_EXE_READY'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P107-PUBLIC-LINUX-86BOX-OLD-DYNAREC-EXECUTED-X86-PROBE
+          path: p107-linux-artifact/
+          retention-days: 2
+          if-no-files-found: error
+
+  windows-old-dynarec-executable:
+    needs: original-src-guard
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: UCRT64
+          install: zip
+          pacboy: >-
+            ninja:p cmake:p gcc:p pkgconf:p freetype:p SDL2:p
+            zlib:p libpng:p openal:p rtmidi:p libslirp:p
+            fluidsynth:p libserialport:p qt5-static:p vulkan-headers:p
+            llvm-openmp:p
+      - name: Build pinned original Windows 86Box with extra executed-x86 guest probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          if($LASTEXITCODE -ne 0) { throw 'P107 Python guards failed' }
+          New-Item -ItemType Directory -Path p107-fork -Force | Out-Null
+          Copy-Item -Path "third_party/86box-awe32/*" -Destination "p107-fork" -Recurse -Force
+          python tools/p107_instrument_old_dynarec.py --original-codegen third_party/86box-awe32/src/codegen/codegen_x86-64.c --patched-output p107-fork/src/codegen/codegen_x86-64.p107.c
+          if($LASTEXITCODE -ne 0) { throw 'P107 old dynarec source pin mismatch' }
+          Move-Item p107-fork/src/codegen/codegen_x86-64.p107.c p107-fork/src/codegen/codegen_x86-64.c -Force
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p107-fork/src/io.p107.c
+          if($LASTEXITCODE -ne 0) { throw 'P003 physical I/O instrumentation failed' }
+          Move-Item p107-fork/src/io.p107.c p107-fork/src/io.c -Force
+          $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
+          Write-Output 'P107_WIN64_OLD_DYNAREC_PROBE_SOURCE_PINNED'
+
+      - name: Configure actual old Dynarec P54C original Windows 86Box
+        working-directory: p107-fork
+        run: >-
+          cmake -S . -B build --preset regular
+          --toolchain ./cmake/flags-gcc-x86_64.cmake
+          -DQT=on -DNEW_DYNAREC=OFF
+      - name: Build original Windows 86Box with P107+P003 trace probes
+        working-directory: p107-fork
+        run: cmake --build build --parallel 4
+      - name: Install actual original Windows 86Box research executable
+        working-directory: p107-fork
+        run: |
+          cmake --install build
+          grep '^NEW_DYNAREC:BOOL=OFF' build/CMakeCache.txt
+          test -f build/artifacts/86Box.exe
+          echo 'P107_WIN64_ORIGINAL_86BOX_EXECUTED_X86_PROBE_BUILT'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P107-PUBLIC-WINDOWS-X64-86BOX-OLD-DYNAREC-EXECUTED-X86-PROBE
+          path: p107-fork/build/artifacts/**
+          retention-days: 2
+          if-no-files-found: error
