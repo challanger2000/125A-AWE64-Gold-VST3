@@ -174,8 +174,12 @@ public:
                         if(read32(joined.data()+4u*i)>=
                            read32(joined.data()+4u*(i+1u)))
                             ordered=false;
-                    if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
-                       ordered && (a&0xff000000u)==(ptr&0xff000000u)) {
+                    const bool header=a>ptr && a-ptr>=28u &&
+                        a-ptr<=4096u && a<b &&
+                        (a&0xff000000u)==(ptr&0xff000000u);
+                    if(header && !ordered)
+                        return Result::InvalidGuestMapping;
+                    if(header) {
                         const auto span=std::uint64_t{b}-a;
                         if(span<kOriginalRowBytes ||
                            span%kOriginalRowBytes!=0u ||
