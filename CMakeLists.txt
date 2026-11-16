@@ -1105,6 +1105,26 @@ if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
     endif()
     add_test(NAME p005_original_source_sf2_note_midi_to_chip
         COMMAND awe64_p005_sf2_note_stage_test)
+    # Parse the ACTUAL source 288 guest VXD bank pointers and exact
+    # 26-byte rows. Test data is synthetic; real private guest pages
+    # must arrive from an independently authenticated owner capture.
+    add_executable(awe64_p005_vxd_guest_directory_import_test
+        tests/p005_vxd_original_guest_directory_import.cpp)
+    target_include_directories(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_vxd_guest_directory_import_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_vxd_guest_directory_import_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_source_288_guest_pointer_26byte_record_import
+        COMMAND awe64_p005_vxd_guest_directory_import_test)
     if(AWE64_BUILD_P001_VST3)
         target_link_libraries(AWE64_Gold_P001
             PRIVATE original_creative_vxd_live)
