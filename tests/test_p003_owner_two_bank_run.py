@@ -18,7 +18,7 @@ from test_p002_win95_ram_stage import write_inputs
 import p002_stage_original_win95_ram_probe as stager
 from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p003_private_fat16_replace import patch_disposable_guest
-from p003_owner_two_bank_run import generated_comparison_sf2
+from p003_owner_two_bank_run import generated_comparison_sf2, generated_original_mode_stereo_sf2
 
 def complete_synthetic_partition_mbr(original:Path):
     # The legacy stager's synthetic FAT test does not populate the
@@ -75,6 +75,27 @@ class PrivateOwnerP003TwoBankTests(unittest.TestCase):
         self.assertIn(b"pmod",a)
         self.assertIn(b"imod",a)
         self.assertGreater(len(a),65000)
+
+    def test_private_mode_probe_second_bank_is_valid_linked_stereo(self):
+        a=generated_original_mode_stereo_sf2()
+        self.assertEqual(a[:4],b"RIFF")
+        self.assertEqual(a[8:12],b"sfbk")
+        self.assertEqual(len(a),int.from_bytes(a[4:8],"little")+8)
+        self.assertNotEqual(a,generated_comparison_sf2())
+        self.assertIn(b"P003STEREO",a)
+        self.assertIn(b"STREO-L",a)
+        self.assertIn(b"STREO-R",a)
+        offset=a.index(b"shdr")+8
+        # Original SoundFont sf2.01: each stereo sample header has
+        # a 16-bit sampleLink and sampleType at +42/+44.
+        left=struct.unpack_from("<HH",a,offset+42)
+        right=struct.unpack_from("<HH",a,offset+46+42)
+        self.assertEqual(left,(1,4))
+        self.assertEqual(right,(0,2))
+        self.assertIn(b"igen",a)
+        self.assertIn(b"ibag",a)
+        self.assertGreater(len(a),130000)
+        self.assertLess(len(a),33*1024*1024)
 
     def test_original_vm_clone_alone_is_modified_and_both_banks_read_back(self):
         with tempfile.TemporaryDirectory(prefix="P003-clone-test-") as td:
