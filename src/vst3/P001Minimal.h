@@ -10,6 +10,9 @@
 #include "CreativeAutonomousOutTiming.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "OriginalCt1745WavetableMixer.h"
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+#include "P005OriginalCreativeHostAdapter.hpp"
+#endif
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
 #include <atomic>
@@ -90,6 +93,11 @@ private:
     void write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t value) noexcept;
 
     awe64::Chip chip_;
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    // Exactly one original Creative MIDI and RAM state, bound to chip_.
+    // Never activate without source-authenticated SF2 descriptors.
+    P005OriginalCreativeHostAdapter<awe64::Chip> p005OriginalPort_{};
+#endif
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
     // (the pinned EMU8000 chip processing itself is unchanged).
     awe64::card::OriginalCt1745WavetableMixer originalGoldCard_{};
