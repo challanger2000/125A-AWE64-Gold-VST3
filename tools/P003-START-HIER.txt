@@ -1,0 +1,46 @@
+125A P003 – ORIGINAL CREATIVE WIN95 ZWEIBANKMESSUNG
+==================================================
+
+1. Dieses Paket vollstaendig in einen eigenen Ordner entpacken.
+2. Die bereits vorhandene PRIVATE Archivdatei
+   125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip
+   in denselben Ordner legen. Falls sie woanders liegt, wird beim
+   Start ein Windows-Dateiauswahlfenster angeboten.
+3. START-P003-TEST.bat doppelklicken.
+4. Die kalibrierte 86Box mit Windows 95 startet automatisch.
+   Das originale Creative-Testprogramm wird in der vorhandenen
+   Win95-Installation AUTOMATISCH gestartet. Danach die 86Box
+   ueber ihre Menueleiste regulär BEENDEN; nicht im Taskmanager
+   abbrechen, denn die virtuelle Festplatte muss geschrieben werden.
+5. Die neu entstandene Datei P003-...-ERGEBNIS.zip hier im Chat
+   hochladen. Nur diese ZIP, NICHT die grosse private VM-Kopie.
+
+Das Paket enthaelt die getestete Windows95-32-Bit-P002RAM.EXE
+mit P003-Zweibankmessung und einen eigenstaendigen Windows-11-
+Starter. PYTHON MUSS NICHT INSTALLIERT SEIN.
+
+Die erste Bank stammt ausschliesslich aus der vorhandenen
+privaten Original-VM. Fuer die zweite Bank wird standardmaessig
+automatisch eine kleine, gueltige Mono-SF2 mit einem einzelnen
+Programm 7 generiert. Wer eine andere zweite SF2 nutzen will,
+kann START-P003-TEST.bat mit "--second-sf2 C:\Pfad\bank.sf2"
+starten. Original-VM und originale ZIP bleiben unveraendert.
+
+Im Ergebnis befinden sich (soweit der Gastlauf erfolgreich war):
+- P003-BERICHT.json mit Status, Dateihashes und Fehlerdiagnose
+- Original-Register.trace (echte EMU8000-Portschreibungen)
+- Original-DRY.wav (Original-EMU8000-Audio 44,1 kHz/16 Bit/Stereo)
+- Creative-Win95-Gast.LOG (Originaltreiber-Ausgaben)
+- Original-Bank-1.sf2 und Vergleichs-Bank-2.sf2
+
+Es werden WEDER Windows95-Image, ROM NOCH originaler Creative-
+Treiber in die Ergebnis-ZIP gepackt.
+
+WICHTIG: Ein erfolgreiches Original-Quell-Capture ist NICHT
+automatisch ein bestandenes VST3-gegen-Win95-Audio-Audit.
+Die gespeicherten Original-Register/WAV-Daten muessen nach
+dem Hochladen mit unserem VST3 verglichen werden. Falls der
+originale Creative-Treiber eine SF2 ablehnt, wird das als
+NO-GO mit Fehlermeldung berichtet, nicht als bestanden.
+
+Nur fuer lokale, privat lizenzierte Original-VM/ROM/SF2.

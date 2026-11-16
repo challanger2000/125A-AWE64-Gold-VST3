@@ -1,0 +1,43 @@
+name: P002 public source snapshot for offline source and unit tests
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - '.github/workflows/p002-public-source-snapshot.yml'
+      - 'src/creative_compat/**'
+      - 'tests/p002_native_vxd_sample_address.cpp'
+      - 'tools/p002_verify_original_ram_note_geometry.py'
+      - 'tests/test_p002_verify_original_ram_note_geometry.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source_snapshot_only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Export ONLY repository source and pinned public fork
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f CMakeLists.txt
+          test -d third_party/86box-awe32
+          mkdir -p "$RUNNER_TEMP/p002-source"
+          tar -czf "$RUNNER_TEMP/p002-source/P002-public-source.tar.gz" \
+            --exclude=.git --exclude=.github \
+            --exclude='*.exe' --exclude='*.dll' --exclude='*.sf2' \
+            --exclude='*.sbk' --exclude='*.rom' --exclude='*.raw' \
+            -C "$GITHUB_WORKSPACE" .
+          # grep -q closes a live tar pipe early under pipefail (SIGPIPE).
+          tar -tzf "$RUNNER_TEMP/p002-source/P002-public-source.tar.gz" > "$RUNNER_TEMP/p002-source/files.txt"
+          grep -qx './CMakeLists.txt' "$RUNNER_TEMP/p002-source/files.txt"
+          grep -qx './src/vst3/P001Minimal.cpp' "$RUNNER_TEMP/p002-source/files.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-public-source-no-private-assets
+          path: ${{ runner.temp }}/p002-source/P002-public-source.tar.gz
+          retention-days: 2
+          if-no-files-found: error

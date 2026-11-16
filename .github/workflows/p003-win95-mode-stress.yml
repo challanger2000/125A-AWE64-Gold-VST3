@@ -1,0 +1,71 @@
+name: P003 original Win95 three-bank polyphony voice-mode research guest
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - 'src/win95/p002_original_creative_ram_bank_capture.c'
+      - 'src/win95/p003_original_win95_mode_stress.inc'
+      - 'tools/p003_verify_original_win95_mode_stress_log.py'
+      - 'tests/test_p003_verify_original_win95_mode_stress_log.py'
+      - 'tests/test_p003_owner_two_bank_run.py'
+      - '.github/workflows/p003-win95-mode-stress.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original_creative_i586_stress_guest:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-only original Creative guest log and bank generation negative controls
+        run: |
+          python3 -m py_compile tools/p003_verify_original_win95_mode_stress_log.py tools/p003_owner_two_bank_run.py
+          python3 -m unittest discover -s tests -p 'test_p003_verify_original_win95_mode_stress_log.py' -v
+          python3 -m unittest discover -s tests -p 'test_p003_owner_two_bank_run.py' -v
+      - name: Install genuine Win95-targeted Pentium x86 compiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Build original driver 3-bank multi-program polyphony test guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p original-win95-mode-stress
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -DP003_ORIGINAL_MODE_STRESS=1 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o original-win95-mode-stress/P002RAM.EXE \
+            src/win95/p002_original_creative_ram_bank_capture.c \
+            -lwinmm -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p original-win95-mode-stress/P002RAM.EXE \
+            > original-win95-mode-stress/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' original-win95-mode-stress/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' original-win95-mode-stress/pe-headers.txt
+          if grep -Ei 'DLL Name:' original-win95-mode-stress/pe-headers.txt | \
+              grep -Eiv 'KERNEL32|WINMM'; then
+            echo 'NO-GO: original Win95 guest has an unexpected DLL import';exit 1
+          fi
+          i686-w64-mingw32-objdump -d original-win95-mode-stress/P002RAM.EXE \
+            > original-win95-mode-stress/disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' \
+               original-win95-mode-stress/disassembly.txt; then
+            echo 'NO-GO: guest requires newer-than-original Pentium CPU';exit 1
+          fi
+          sha256sum original-win95-mode-stress/P002RAM.EXE \
+            > original-win95-mode-stress/P002RAM.sha256
+          echo 'P003_ORIGINAL_CREATIVE_WIN95_MODE_STRESS_GUEST_COMPILED'
+          echo 'P003_ORIGINAL_DRIVER_EXECUTED=NOT_YET_REQUIRES_OWNER_PRIVATE_VM'
+          echo 'EMU8000_SOURCE_MODIFIED=NO'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P003-Win95-Original-Creative-3-Bank-Voice-Stress-PE32
+          path: |
+            original-win95-mode-stress/P002RAM.EXE
+            original-win95-mode-stress/P002RAM.sha256
+          retention-days: 7
+          if-no-files-found: error

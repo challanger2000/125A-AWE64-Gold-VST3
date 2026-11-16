@@ -1,0 +1,127 @@
+name: P003 one-click real Creative Win95 two-bank capture package
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - 'tools/p003_owner_two_bank_run.py'
+      - 'tools/p003_join_original_guest_cpu_chip_clocks.py'
+      - 'tests/test_p003_join_original_guest_cpu_chip_clocks.py'
+      - 'tools/p003_private_fat16_replace.py'
+      - 'tools/START-P003-TEST.bat'
+      - 'tools/P003-START-HIER.txt'
+      - 'tools/p002_extract_original_win95_ram_log_fat16.py'
+      - 'tools/p002_verify_original_win95_ram_guest_log.py'
+      - 'tools/p002_stage_original_win95_ram_probe.py'
+      - 'src/win95/p002_original_creative_ram_bank_capture.c'
+      - 'tests/test_p003_owner_two_bank_run.py'
+      - 'tests/test_p002_win95_ram_stage.py'
+      - '.github/workflows/p003-oneclick-original-win95.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  win95_guest:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run synthetic FAT16 two-bank and Creative log negative controls
+        run: |
+          python3 -m unittest discover -s tests -p 'test_p003_owner_two_bank_run.py' -v
+          python3 -m unittest discover -s tests -p 'test_p002_win95_ram_guest_log.py' -v
+      - name: Install Win95-compatible 32-bit Pentium compiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Build actual Windows95 P003 original Creative 2-bank executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p003-win95-guest
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o p003-win95-guest/P002RAM.EXE \
+            src/win95/p002_original_creative_ram_bank_capture.c \
+            -lwinmm -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p p003-win95-guest/P002RAM.EXE \
+            > p003-win95-guest/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' \
+            p003-win95-guest/pe-headers.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' \
+            p003-win95-guest/pe-headers.txt
+          if grep -Ei 'DLL Name:' p003-win95-guest/pe-headers.txt | \
+             grep -Eiv 'KERNEL32|WINMM'; then
+            echo 'P003 FAIL: unexpected Win95 import'; exit 1
+          fi
+          i686-w64-mingw32-objdump -d p003-win95-guest/P002RAM.EXE \
+            > p003-win95-guest/disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' \
+            p003-win95-guest/disassembly.txt; then
+            echo 'P003 FAIL: not Pentium-compatible'; exit 1
+          fi
+          sha256sum p003-win95-guest/P002RAM.EXE \
+            > p003-win95-guest/P002RAM.sha256
+          echo 'P003_ORIGINAL_WIN95_GUEST_TWO_BANK_PE32_BUILT'
+          echo 'AUTHENTIC_1996_DRIVER_RUNTIME=REQUIRES_OWNER_VM'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P003-Win95-Guest-Executable
+          path: |
+            p003-win95-guest/P002RAM.EXE
+            p003-win95-guest/P002RAM.sha256
+          retention-days: 7
+          if-no-files-found: error
+
+  windows_package:
+    needs: win95_guest
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Windows one-click host code compiles
+        run: |
+          python -m py_compile tools/p003_owner_two_bank_run.py tools/p003_private_fat16_replace.py tools/p003_join_original_guest_cpu_chip_clocks.py
+          python -m unittest discover -s tests -p 'test_p003_owner_two_bank_run.py' -v
+          python -m unittest discover -s tests -p 'test_p003_join_original_guest_cpu_chip_clocks.py' -v
+      - name: Install standalone Windows EXE packager
+        run: python -m pip install --disable-pip-version-check pyinstaller==6.16.0
+      - name: Build self-contained Windows 11 P003 starter (Python not required)
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --console `
+            --paths tools --name 125A-P003-TEST tools/p003_owner_two_bank_run.py
+          & "dist/125A-P003-TEST.exe" --help
+          if ($LASTEXITCODE -ne 0) { throw "P003 standalone Windows EXE smoke test failed" }
+      - uses: actions/download-artifact@v4
+        with:
+          name: P003-Win95-Guest-Executable
+          path: p003-downloaded-guest
+      - name: Assemble signed-by-CI metadata and real double-click package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "P003-Ein-Klick" | Out-Null
+          Copy-Item "dist/125A-P003-TEST.exe" "P003-Ein-Klick/125A-P003-TEST.exe"
+          Copy-Item "p003-downloaded-guest/P002RAM.EXE" "P003-Ein-Klick/P002RAM.EXE"
+          Copy-Item "tools/START-P003-TEST.bat" "P003-Ein-Klick/START-P003-TEST.bat"
+          Copy-Item "tools/P003-START-HIER.txt" "P003-Ein-Klick/START-HIER.txt"
+          Get-FileHash "P003-Ein-Klick/125A-P003-TEST.exe" -Algorithm SHA256 |
+            Select-Object Hash | Format-Table -HideTableHeaders |
+            Out-File -Encoding ascii "P003-Ein-Klick/Windows-Starter-SHA256.txt"
+          Get-FileHash "P003-Ein-Klick/P002RAM.EXE" -Algorithm SHA256 |
+            Select-Object Hash | Format-Table -HideTableHeaders |
+            Out-File -Encoding ascii "P003-Ein-Klick/Win95-Gast-SHA256.txt"
+          Compress-Archive -Path "P003-Ein-Klick/*" `
+            -DestinationPath "125A-P003-Win95-Zweibank-Ein-Klick.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 125A-P003-Win95-Zweibank-Ein-Klick-Paket
+          path: 125A-P003-Win95-Zweibank-Ein-Klick.zip
+          retention-days: 7
+          if-no-files-found: error
