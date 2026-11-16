@@ -103,7 +103,7 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
     if(u32(next.device.data()+0x158eu)!=OriginalMgm ||
        u16(next.device.data()+6u)!=32u)
         return false;
-    std::size_t totalRows=0u;
+    std::size_t totalRows=0u,sourceActiveRows=0u;
     for(std::size_t slot=0u;slot<Slots;++slot) {
         const auto ptr=u32(next.device.data()+PointerOffset+4u*slot);
         if(ptr==0u)continue;
@@ -119,19 +119,22 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
                 return false;
             originalBytes.insert(originalBytes.end(),row.begin(),row.end());
             ++totalRows;
-            if(u16(row.data())==0xffffu) {
-                // A nonnull original VXD slot cannot be only an empty
-                // terminator; do not invent a playable program.
-                if(index==0u)return false;
+            const auto marker=u16(row.data());
+            if(marker==0xffffu) {
+                // A non-NULL source pointer CAN reference just a
+                // terminal FFFF row. Preserve that original empty
+                // list instead of inventing a playable PHDR preset.
                 terminated=true;
                 break;
             }
+            if(marker!=0u)++sourceActiveRows;
         }
         if(!terminated)return false;
         next.rows.emplace(ptr,std::move(originalBytes));
     }
-    if(next.rows.empty() || next.nonzeroSlotPointers==0u)
-        return false;
+    if(next.rows.empty() || next.nonzeroSlotPointers==0u ||
+       sourceActiveRows==0u)
+        return false; // no loaded/active original source program evidence
     out=std::move(next);
     return true;
 }
