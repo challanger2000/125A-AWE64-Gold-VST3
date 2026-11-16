@@ -7,6 +7,7 @@ on:
       - '.github/workflows/p003-v5-voice-row-windows-build.yml'
       - 'tools/instrument_p003_v5_voice_rows.py'
       - 'tests/test_p003_v5_ci_smoke.py'
+      - 'tests/test_p003_v5_caller_frame_runtime.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -53,6 +54,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'V4 source tests failed' }
           python -m unittest discover -s tests -p 'test_p003_v5_ci_smoke.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'V5 source smoke tests failed' }
+          python -m unittest discover -s tests -p 'test_p003_v5_caller_frame_runtime.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V5 parent frame C runtime tests failed' }
           python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --verify-only
           if ($LASTEXITCODE -ne 0) { throw 'Pinned src/io.c mismatch' }
           New-Item -ItemType Directory -Path p003-v5-build-source -Force | Out-Null
