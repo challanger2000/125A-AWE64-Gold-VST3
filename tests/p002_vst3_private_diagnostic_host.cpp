@@ -1200,6 +1200,147 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
 // The audio proof for DAW project recall, not just a saved-byte test:
 // compare the original EMU8000's complete rendered stereo note before
 // and after reloading the saved SF2 program/CC in a fresh VST3 instance.
+// Same-instance lifecycle is distinct from the existing fresh-instance
+// save/reopen tests. Real DAWs repeatedly suspend/unload/re-activate a
+// component without destroying its controller or the project state.
+// This checks no stale SoundFont rows, voice allocation or PCM survive
+// deactivation, while the *logical* user selection correctly survives.
+void verifyRealSf2SuspendResume(IPluginFactory* factory) {
+    using namespace awe64::vst3::state;
+    Instance instrument(factory,true);
+    IEditController* controller=nullptr;
+    IUnitInfo* units=nullptr;
+    require(instrument.component->queryInterface(
+                IEditController::iid,
+                reinterpret_cast<void**>(&controller))==kResultOk &&
+            controller,"suspend/resume controller unavailable");
+    require(instrument.component->queryInterface(
+                IUnitInfo::iid,
+                reinterpret_cast<void**>(&units))==kResultOk &&
+            units,"suspend/resume IUnitInfo unavailable");
+    const auto releaseInterfaces=[&]{
+        units->release();
+        controller->release();
+    };
+    try {
+        auto selected=encode(BankSelection{0u,9u,73u,31u,120u});
+        MemoryStream source(selected.data(),static_cast<TSize>(selected.size()));
+        require(instrument.component->setState(&source)==kResultOk,
+                "suspend/resume source bank selection rejected");
+        auto flush=[&] {
+            ProcessData p{};
+            p.processMode=kRealtime;p.symbolicSampleSize=kSample32;
+            p.numSamples=0;p.numOutputs=0;
+            require(auditedOriginalBankProcess(instrument.audio,p)==kResultOk,
+                    "suspend/resume zero-frame DAW state flush rejected");
+        };
+        const auto assertActive=[&] {
+            ProgramListInfo list{};
+            require(units->getProgramListInfo(0,list)==kResultOk &&
+                    list.programCount==3,
+                    "reactivated SoundFont duplicated/dropped real PHDR rows");
+            require(controller->getParamNormalized(0x125A00D0u)==0.5,
+                    "reactivated real preset ordinal did not follow program9");
+            MemoryStream out{};
+            require(instrument.component->getState(&out)==kResultOk &&
+                    out.getSize()==selected.size() &&
+                    std::memcmp(out.getData(),selected.data(),
+                                selected.size())==0,
+                    "reactivated SoundFont state did not preserve CC/program");
+            String128 name{};
+            require(units->getProgramName(0x125A0033,1,name)==kResultOk,
+                    "reactivated SoundFont original preset name not available");
+            constexpr char16_t expected[]=u"B00000 P009: SECOND";
+            for(std::size_t i=0;i<sizeof(expected)/sizeof(expected[0]);++i)
+                require(name[i]==expected[i],
+                        "reactivated SoundFont original preset was renamed");
+        };
+        const auto audioHash=[&] {
+            std::uint64_t hash=0xcbf29ce484222325ull;
+            std::uint32_t sounded=0;
+            for(int block=0;block<14;++block) {
+                std::array<float,512> left{},right{};
+                float* channels[]{left.data(),right.data()};
+                AudioBusBuffers bus{};
+                bus.numChannels=2;bus.channelBuffers32=channels;
+                EventList events;
+                if(block==0 || block==4) {
+                    Event note{};
+                    note.type=block==0?Event::kNoteOnEvent:Event::kNoteOffEvent;
+                    note.busIndex=0;
+                    note.sampleOffset=block==0?69:93;
+                    if(block==0) {
+                        note.noteOn.channel=2;note.noteOn.pitch=60;
+                        note.noteOn.velocity=100.f/127.f;
+                        note.noteOn.noteId=60;
+                    }else {
+                        note.noteOff.channel=2;note.noteOff.pitch=60;
+                        note.noteOff.velocity=0.f;
+                        note.noteOff.noteId=60;
+                    }
+                    require(events.addEvent(note)==kResultOk,
+                            "suspend/resume note event queue rejected");
+                }
+                ProcessData p{};
+                p.processMode=kRealtime;p.symbolicSampleSize=kSample32;
+                p.numSamples=512;p.numOutputs=1;p.outputs=&bus;
+                p.inputEvents=&events;
+                require(auditedOriginalBankProcess(instrument.audio,p)==kResultOk,
+                        "suspend/resume EMU8000 note render failed");
+                for(int i=0;i<512;++i)
+                    for(const auto sample:{left[i],right[i]}) {
+                        require(std::isfinite(sample),
+                                "suspend/resume non-finite PCM");
+                        sounded+=sample!=0.f;
+                        std::uint32_t bits=0u;
+                        std::memcpy(&bits,&sample,sizeof bits);
+                        for(int byte=0;byte<4;++byte) {
+                            hash^=(bits>>(byte*8))&0xffu;
+                            hash*=0x100000001b3ull;
+                        }
+                    }
+            }
+            require(sounded>1000u,
+                    "suspend/resume SoundFont rendered silence");
+            return hash;
+        };
+        flush();
+        assertActive();
+        const auto golden=audioHash();
+        for(int cycle=0;cycle<3;++cycle) {
+            require(instrument.audio->setProcessing(false)==kResultOk,
+                    "suspend/resume setProcessing(false) failed");
+            require(instrument.component->setActive(false)==kResultOk,
+                    "suspend/resume setActive(false) failed");
+            ProgramListInfo dormant{};
+            require(units->getProgramListInfo(0,dormant)==kResultOk &&
+                    dormant.programCount==0,
+                    "dormant source SoundFont exposed stale PHDR names");
+            MemoryStream stored{};
+            require(instrument.component->getState(&stored)==kResultOk &&
+                    stored.getSize()==selected.size() &&
+                    std::memcmp(stored.getData(),selected.data(),
+                                selected.size())==0,
+                    "deactivation silently reset DAW project selection");
+            require(instrument.component->setActive(true)==kResultOk,
+                    "reactivation failed to reopen authentic source SoundFont");
+            require(instrument.audio->setProcessing(true)==kResultOk,
+                    "reactivation setProcessing(true) failed");
+            assertActive();
+            require(audioHash()==golden,
+                    "reactivated original EMU8000 PCM no longer bit-identical");
+        }
+    } catch(...) {
+        releaseInterfaces();
+        throw;
+    }
+    releaseInterfaces();
+    std::cout
+        <<"P003_ACTUAL_VST3_SF2_THREE_ACTIVATION_CYCLES_PCM_PASS"
+        <<" cycles=3 same_instance=TRUE"
+        <<" genuine_phdr_count=3 unchanged_cc_program=TRUE"
+        <<" pcm_bitidentical=TRUE\n";
+}
 void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
     using namespace awe64::vst3::state;
     constexpr std::array<std::uint8_t,4> midiControllerNumbers{
