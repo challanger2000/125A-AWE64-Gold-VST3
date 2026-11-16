@@ -7,6 +7,32 @@
 
 namespace awe64::vst3 {
 struct P002PrivateRomBankCheckpointProbe {
+    static bool validateOriginalIdleImage(
+        const std::uint16_t physical,const std::uint32_t mutableCount,
+        const bool alreadyPlaying=false,
+        const bool invalidRomId=false) {
+        std::array<std::uint8_t,
+            awe64::creative::kOriginalVxdMinDeviceImage> image{};
+        const auto put16=[&](const std::size_t at,
+                             const std::uint16_t value) {
+            image[at]=static_cast<std::uint8_t>(value);
+            image[at+1u]=static_cast<std::uint8_t>(value>>8u);
+        };
+        const auto put32=[&](const std::size_t at,
+                             const std::uint32_t value) {
+            for(unsigned i=0;i<4u;++i)
+                image[at+i]=static_cast<std::uint8_t>(value>>(8u*i));
+        };
+        put16(0x06u,physical);
+        put32(0x18u,mutableCount);
+        put32(awe64::creative::kOriginalVxdRomIdOffset,
+              invalidRomId?0x12345678u:0x4d474d31u);
+        for(unsigned voice=0;voice<30u;++voice)
+            put16(awe64::creative::kOriginalVxdVoiceRowStart+
+                  voice*awe64::creative::kOriginalVxdVoiceRowStride,
+                  voice==4u && alreadyPlaying?0x003cu:0x0ffeu);
+        return P002PrivateRomBank::acceptsOriginalIdleDeviceState(image);
+    }
     static void seed(P002PrivateRomBank& bank) {
         bank.ready_=true;
         bank.state_[0x42u]=0xfeu;
@@ -140,6 +166,16 @@ struct P002PrivateRomBankCheckpointProbe {
 int main() {
     using awe64::vst3::P002PrivateRomBank;
     using Probe=awe64::vst3::P002PrivateRomBankCheckpointProbe;
+    // Source VXD physical capacity is 32, but device+0x18 is mutable.
+    // This exercises the *same* validator used by exported SF2 loader,
+    // not a copied test-only approximation of the old ==32 gate.
+    for(const auto count:{30u,31u,32u,33u})
+        CHECK(Probe::validateOriginalIdleImage(32u,count));
+    for(const auto physical:{0u,30u,31u,33u})
+        CHECK(!Probe::validateOriginalIdleImage(
+            static_cast<std::uint16_t>(physical),32u));
+    CHECK(!Probe::validateOriginalIdleImage(32u,32u,true));
+    CHECK(!Probe::validateOriginalIdleImage(32u,32u,false,true));
     P002PrivateRomBank bank;
     CHECK(!bank.beginNativeNoteCheckpoint());
     CHECK(!bank.nativeNoteCheckpointActive());
