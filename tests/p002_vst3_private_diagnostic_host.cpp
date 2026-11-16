@@ -854,6 +854,53 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
             std::memcmp(saved.getData(),desired.data(),desired.size())==0,
             "real loaded SoundFont program/CC project restore mismatch");
 
+    // Real Steinberg hosts flush parameter changes with zero audio
+    // frames and NO output buffers. Bank/program changes must survive.
+    const auto zeroFrameProgramChange=[&](const unsigned program,
+                                          const int offset=0) {
+        ParameterChanges params(1);
+        int32 index=0;
+        auto* q=params.addParameterData(0x125A00C0u,index);
+        require(q!=nullptr,"zero-frame ProgramChange queue missing");
+        int32 point=0;
+        require(q->addPoint(offset,
+                static_cast<ParamValue>(program)/127.,point)==kResultOk,
+                "zero-frame ProgramChange point missing");
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;
+        data.numSamples=0;
+        data.numOutputs=0;
+        data.outputs=nullptr;
+        data.inputParameterChanges=&params;
+        return auditedOriginalBankProcess(active.audio,data);
+    };
+    require(zeroFrameProgramChange(7u)==kResultOk,
+            "VST3 lost legal zero-frame ProgramChange flush");
+    const auto program7=encode(BankSelection{0u,7u,73u,31u,120u});
+    MemoryStream afterZero{};
+    require(active.component->getState(&afterZero)==kResultOk &&
+            afterZero.getSize()==program7.size() &&
+            std::memcmp(afterZero.getData(),program7.data(),
+                        program7.size())==0,
+            "real exported VST3 did not apply zero-frame MIDI program");
+    require(zeroFrameProgramChange(9u,1)!=kResultOk,
+            "out-of-range zero-frame MIDI offset unexpectedly accepted");
+    MemoryStream afterInvalidZero{};
+    require(active.component->getState(&afterInvalidZero)==kResultOk &&
+            afterInvalidZero.getSize()==program7.size() &&
+            std::memcmp(afterInvalidZero.getData(),program7.data(),
+                        program7.size())==0,
+            "invalid zero-frame program mutated existing SF2 selection");
+    require(zeroFrameProgramChange(9u)==kResultOk,
+            "VST3 failed to restore zero-frame SF2 ProgramChange");
+    MemoryStream afterZeroRestore{};
+    require(active.component->getState(&afterZeroRestore)==kResultOk &&
+            afterZeroRestore.getSize()==desired.size() &&
+            std::memcmp(afterZeroRestore.getData(),desired.data(),
+                        desired.size())==0,
+            "zero-frame ProgramChange did not restore the active SF2");
+
     // A CRC-valid but absent PHDR must not be substituted for program9.
     auto absent=encode(BankSelection{0u,63u,1u,1u,1u});
     MemoryStream missing(absent.data(),
