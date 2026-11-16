@@ -203,8 +203,19 @@ int main(){
           dispatched->physical_voices[0]==kOriginalWin95NoVoice);
     source.original_mode2_packed_range=(32u<<8u)|30u;
     dispatchVoices[31].complete=false;
+    // The genuine original mode-2 scorer RETURNS IMMEDIATELY on
+    // physically idle voice30. It never reads later voice31; requiring
+    // that unused snapshot would incorrectly reject a valid source hit.
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==1u &&
+          dispatched->physical_voices[0]==30u);
+    // Force mode-2 to CONTINUE past voice30. Now voice31's incomplete
+    // original register snapshot is genuinely needed and must fail.
+    dispatchVoices[30].volume_target_hi16=300u;
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
+    dispatchVoices[30].volume_target_hi16=0u;
     dispatchVoices[31].complete=true;
     source.original_x86_dispatch_mode=1u;
     dispatchVoices[31].complete=false;
