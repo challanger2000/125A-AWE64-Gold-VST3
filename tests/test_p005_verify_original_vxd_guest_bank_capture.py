@@ -86,7 +86,8 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         base=36+DEVICE_BYTES
         nested=bytearray(76+2*ROW_BYTES)
         for i in range(7):
-            struct.pack_into("<I",nested,4*i,root+76+200*i)
+            struct.pack_into("<I",nested,4*i,
+                             root+76+(0 if i==0 else 2*ROW_BYTES+200*(i-1)))
         struct.pack_into("<HBB",nested,76,1,7,1)
         struct.pack_into("<H",nested,76+ROW_BYTES,0xffff)
         struct.pack_into("<I",source,base+4,len(nested))
@@ -128,11 +129,29 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         base=36+DEVICE_BYTES
         header=bytearray(76)
         for i in range(7):
-            struct.pack_into("<I",header,i*4,root+76+100*i)
+            struct.pack_into("<I",header,i*4,
+                             root+76+(0 if i==0 else 2*ROW_BYTES+100*(i-1)))
         rows=bytearray(2*ROW_BYTES)
         struct.pack_into("<H",rows,0,1)
         struct.pack_into("<H",rows,ROW_BYTES,0)
         data=header+rows
+        struct.pack_into("<I",source,base+4,len(data))
+        source[base+8:]=data
+        with self.assertRaises(CaptureError):
+            parse_capture(bytes(source))
+    def test_indirect_early_sentinel_rejected_even_with_valid_later_marker(self):
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        base=36+DEVICE_BYTES
+        table=bytearray(3*ROW_BYTES)
+        struct.pack_into("<H",table,0,1)
+        struct.pack_into("<H",table,ROW_BYTES,0xffff)
+        struct.pack_into("<H",table,2*ROW_BYTES,0xffff)
+        header=bytearray(76)
+        for i in range(7):
+            struct.pack_into("<I",header,i*4,root+76+
+                             (0 if i==0 else 3*ROW_BYTES+100*(i-1)))
+        data=header+table
         struct.pack_into("<I",source,base+4,len(data))
         source[base+8:]=data
         with self.assertRaises(CaptureError):
