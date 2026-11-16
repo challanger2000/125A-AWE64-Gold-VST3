@@ -124,27 +124,27 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
             (child&0xff000000u)==(ptr&0xff000000u);
         if(indirect) {
             const auto prefix=std::size_t{child-ptr};
-            bool terminated=false;
-            std::size_t rowCount=0u;
-            for(;rowCount<MaxRows;++rowCount) {
-                if(totalRows+rowCount>=MaxRows)return false;
-                const std::uint64_t address=
-                    std::uint64_t{child}+rowCount*RowBytes;
-                std::array<std::uint8_t,RowBytes> row{};
-                if(!virtualRead(ram,cr3,address,row.data(),row.size()))
-                    return false;
-                if(u16(row.data())==0xffffu) {
-                    terminated=true;
-                    ++rowCount;break;
-                }
-                if(u16(row.data())!=0u)++sourceActiveRows;
-            }
-            if(!terminated || rowCount>MaxRows-totalRows)return false;
-            totalRows+=rowCount;
-            const auto byteCount=prefix+rowCount*RowBytes;
+            // The second authentic bank-header pointer gives the exact
+            // end of the first program list. Do not scan until a later
+            // coincidental 0xFFFF in another bank allocation.
+            const auto span=std::uint64_t{second}-child;
+            if(span<RowBytes || span%RowBytes!=0u ||
+               span/RowBytes>MaxRows ||
+               span/RowBytes>MaxRows-totalRows)
+                return false;
+            const auto rowCount=static_cast<std::size_t>(span/RowBytes);
+            if(rowCount>MaxRows-sourceActiveRows) return false;
+            const auto byteCount=prefix+static_cast<std::size_t>(span);
             std::vector<std::uint8_t> originalBytes(byteCount);
             if(!virtualRead(ram,cr3,ptr,originalBytes.data(),byteCount))
                 return false;
+            for(std::size_t i=0u;i<rowCount;++i) {
+                const auto marker=u16(originalBytes.data()+prefix+i*RowBytes);
+                const bool last=i+1u==rowCount;
+                if((marker==0xffffu)!=last)return false;
+                if(!last && marker!=0u)++sourceActiveRows;
+            }
+            totalRows+=rowCount;
             next.rows.emplace(ptr,std::move(originalBytes));
             continue;
         }
