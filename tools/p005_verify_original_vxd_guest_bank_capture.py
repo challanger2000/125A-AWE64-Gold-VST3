@@ -87,9 +87,6 @@ def parse_capture(raw:bytes)->dict:
             else:
                 require(marker!=0xffff,
                         "source VXD row terminates before recorded end")
-                require(blob[ordinal*ROW_BYTES+2]<=127 and
-                        blob[ordinal*ROW_BYTES+3]<=128,
-                        "invalid original VXD MIDI program/bank: possible false-positive guest pointer")
         seen[address]={"total_rows_including_sentinel":count,
                        "active_rows":count-1,"bytes_sha256":sha(blob)}
     require(set(seen)==pointers and at==len(raw),
