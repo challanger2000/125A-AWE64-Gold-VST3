@@ -95,6 +95,7 @@ on:
       - 'src/vst3/P005OriginalCreativeSf2NoteStage.hpp'
       - 'src/vst3/P005OriginalCreativeBankCatalog.hpp'
       - 'src/vst3/P005OriginalCreativeVxdDirectoryImporter.hpp'
+      - 'src/vst3/P005OriginalVxdGuestCaptureFile.hpp'
       - 'tools/p005_capture_original_win95_vxd_guest_bank.cpp'
       - 'tools/p005_verify_original_vxd_guest_bank_capture.py'
       - 'tools/p005_verify_win95_disk_vxd.py'
