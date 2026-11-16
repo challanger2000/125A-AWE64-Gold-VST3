@@ -291,6 +291,7 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
         env.update({"EMU8K_TRACE":str(trace),"AWE32_WAV":str(wav)})
         if cpu_probe_fork is not None:
             env["AWE64_P003_CPU_IO_TRACE"]=str(cpu_trace)
+            env["AWE64_P003_GUEST_CALLSTACK"]="1"
         print("\n125A P003: Original-Windows-95 und Creative-Treiber starten.")
         print("In der VM muss der Test automatisch starten.")
         print("Sobald er fertig ist, 86Box ueber Datei > Beenden schliessen.")
@@ -324,6 +325,9 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
             with trace.open(encoding="utf-8") as chip_source, \
                  cpu_trace.open(encoding="utf-8") as cpu_source:
                 joined=join_traces(chip_source,cpu_source)
+            require(joined["guest_stack_probe_event_count"]==
+                    joined["matched_io_events"],
+                    "V4 Gast-CPU Ruecksprungadressen fehlen/alt-V3-Messung")
             require(joined["matched_io_events"]>1000 and
                     joined["physical_write_events"]>1000 and
                     joined["event_sequence_exact"],
@@ -332,6 +336,10 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
                 "matched_port_events":joined["matched_io_events"],
                 "physical_writes":joined["physical_write_events"],
                 "cpu_tsc_regressions":joined["guest_tsc_regressions"],
+                "unverified_guest_top_ret_eip_unavailable":
+                    joined["guest_stack_top_return_eip_unavailable"],
+                "guest_caller_direct_call_opcode_proven":False,
+                "guest_return_stack_v4_enabled":True,
                 "cpu_clock_to_chip_sample_calibrated":False,
                 "emu8000_original_core_unchanged":True,
             }
