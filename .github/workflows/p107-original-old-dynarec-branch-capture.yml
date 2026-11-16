@@ -9,6 +9,8 @@ on:
       - 'tools/p107_instrument_old_dynarec.py'
       - 'tests/test_p107_instrument_old_dynarec.py'
       - 'tools/p107_audit_executed_jcc_private.py'
+      - 'tools/p107_patch_old_dynarec_interpreter_fallback.py'
+      - 'tests/test_p107_interpreter_fallback.py'
   workflow_dispatch:
 
 permissions:
@@ -27,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          python3 -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
           python3 tools/p107_audit_executed_jcc_private.py --selftest
           python3 -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
           python3 tools/p107_instrument_old_dynarec.py \
@@ -71,6 +74,12 @@ jobs:
             --original-io-c third_party/86box-awe32/src/io.c \
             --output-io-c /tmp/p107-fork/src/io.p107.c
           mv /tmp/p107-fork/src/io.p107.c /tmp/p107-fork/src/io.c
+          # First-time guest-x86 instructions are genuinely interpreted
+          # while compiling an old Dynarec block; capture those too.
+          python3 tools/p107_patch_old_dynarec_interpreter_fallback.py \
+            --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c \
+            --copy-dynarec /tmp/p107-fork/src/cpu/386_dynarec.c \
+            --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
           cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p107-fork/src/sound/snd_emu8k.c
           cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p107-fork/src/sound/snd_sb.c
           test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
@@ -99,7 +108,7 @@ jobs:
           ldd p107-linux-artifact/86Box > p107-linux-artifact/linker-deps.txt
           cp /tmp/p107-fork/COPYING p107-linux-artifact/COPYING || true
           cat >p107-linux-artifact/README.txt <<'EOF'
-          P107 research instrumented original 86Box fork. No ROM, OS, Creative binary, banks or original guest data included.
+          P107 research instrumented original 86Box fork: OLD Dynarec JIT and first-execution interpreted guest paths. No ROM, OS, Creative binary, banks or original guest data included.
           Compiled OLD x64 Dynarec only; AWE64_P107_EXECUTED_X86_TRACE and AWE64_P107_LCOD_BASE opt-in required.
           Not a release, not a proof of CPU timing parity. See source workflow.
           EOF
@@ -138,6 +147,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           python -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
+          python -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
           python tools/p107_audit_executed_jcc_private.py --selftest
           if($LASTEXITCODE -ne 0) { throw 'P107 Python guards failed' }
           New-Item -ItemType Directory -Path p107-fork -Force | Out-Null
@@ -148,6 +158,8 @@ jobs:
           python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p107-fork/src/io.p107.c
           if($LASTEXITCODE -ne 0) { throw 'P003 physical I/O instrumentation failed' }
           Move-Item p107-fork/src/io.p107.c p107-fork/src/io.c -Force
+          python tools/p107_patch_old_dynarec_interpreter_fallback.py --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c --copy-dynarec p107-fork/src/cpu/386_dynarec.c --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
+          if($LASTEXITCODE -ne 0) { throw 'P107 interpreted original x86 path patch failed' }
           $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
