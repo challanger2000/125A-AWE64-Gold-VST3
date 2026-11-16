@@ -145,3 +145,28 @@ Besitzeraufnahme** abgeleitet und werden nicht ins öffentliche Repo
 übernommen. Eine zweite Original-Sitzungs-/VXD-Treiberattestierung,
 SoundFont-Bank2, zusätzliche Modulator-/Key-/Velocity-Ketten und
 CPU-TSC-/DRY-PCM-Parität bleiben ausdrücklich offen.
+
+
+## Read-only Prüfung des Originaltreibers aus der vorhandenen Win95-Disk
+
+Die private Besitzer-VM aus dem früheren P003-Gesamtpaket enthält eine
+FAT16-Festplatte `VM/win95.img` (512 MiB). Offline aus
+`C:\\WINDOWS\\SYSTEM\\SBAWE.VXD` gelesen: **77.370 Bytes**,
+SHA-256 `d343f2428ab3e593c9e42a668cf521b7801e1239792eaf7f2b11b5f179bc7c9a`.
+Die zweite Kopie unter `C:\\AWE32\\SBAWE.VXD` besitzt denselben Hash.
+
+Der öffentliche, rein lesende Prüfer
+`tools/p005_verify_win95_disk_vxd.py --win95-image <private-win95.img>`
+kontrolliert FAT16 und die installierte Treiberdatei. Er enthält **keine**
+Originaltreiber-/VM-Daten und liefert ausdrücklich
+`DISK_VXD_SHA256_MATCH_SESSION_PROVENANCE_UNPROVEN`.
+Die Dateiintegrität des vorhandenen VM-Datenträgers ist nachgewiesen;
+dies beweist **nicht**, dass genau diese Treiberabbildung während der
+P005-Gast-RAM-Aufnahme aktiv geladen war oder welcher SoundFont-
+Ladezeitpunkt galt.
+
+Die Besitzeraufnahme vom 16.11.2026 wurde lokal außerdem mit dem
+verschärften exakten Kindzeiger-2-Endgrenzen-Prüfalgorithmus kontrolliert:
+129 Programme + FFFF, 7.334 separate Nachlaufbytes, 10 lokale
+Original-/Mutations-/Kürzungsproben bestanden. Keine dieser privaten
+Quellbytes wird ins GitHub-Repository übernommen.
