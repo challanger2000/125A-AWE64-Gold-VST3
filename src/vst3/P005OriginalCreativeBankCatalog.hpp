@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace awe64::vst3 {
+template<class ChipT> class P005OriginalCreativeHostAdapter;
 class P005OriginalCreativeBankCatalog final {
 public:
     using Row=awe64::original_vxd::OriginalPresetTableRow;
@@ -146,8 +147,11 @@ public:
         return v;
     }
 
-    // OFF audio thread, AFTER original MIDI runtime has been detached.
-    void resetNonRealtime() {
+    // OFF audio thread only. A live original Creative source may hold
+    // spans into zone/row vectors. Do NOT clear a leased directory.
+    // Returning false preserves the entire sealed bank unchanged.
+    [[nodiscard]] bool resetNonRealtime() noexcept {
+        if(runtimeLeased_)return false;
         sealed_=false;directoryReady_=false;
         zones_.clear();
         noteContexts_.clear();
@@ -155,9 +159,23 @@ public:
             slotViews_[i].rows={};
             ownedRows_[i].clear();
         }
+        return true;
+    }
+
+    [[nodiscard]] bool runtimeLeased() const noexcept {
+        return runtimeLeased_;
     }
 
 private:
+    template<class ChipT> friend class P005OriginalCreativeHostAdapter;
+    [[nodiscard]] bool acquireRuntimeLeaseNonRealtime() noexcept {
+        if(!ready() || runtimeLeased_)return false;
+        runtimeLeased_=true;
+        return true;
+    }
+    void releaseRuntimeLeaseNonRealtime() noexcept {
+        runtimeLeased_=false;
+    }
     struct NoteContextKey {
         std::uint16_t source_slot=0u,source_row=0u;
         std::uint8_t key=0u,velocity=0u;
@@ -185,6 +203,6 @@ private:
     std::array<Slot,kSourceSlots> slotViews_{};
     std::vector<Zone> zones_{};
     std::vector<NoteContextKey> noteContexts_{};
-    bool directoryReady_=false,sealed_=false;
+    bool directoryReady_=false,sealed_=false,runtimeLeased_=false;
 };
 } // namespace awe64::vst3
