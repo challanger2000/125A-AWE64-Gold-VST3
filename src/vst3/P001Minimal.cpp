@@ -229,6 +229,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         p005OriginalPort_.resetNonRealtime();
         p005OriginalNoteStage_.clearNonRealtime();
         p005OriginalBankCatalog_.resetNonRealtime();
+        p005OriginalSourceTables_={};
 #endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
                              sf2host::kProgramListId))) {
@@ -475,6 +476,21 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             chip_.writePort(0xe22u,(1u<<5u)|31u);
             chip_.writePort(0xa20u,0x0004u);
         }
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+        // Reuse the EXISTING authenticated P002 source loader: its
+        // original 1996 Creative VXD templates, pitch tables and
+        // physically attested RAM bank are now available to the
+        // original C++23 SF2 resource builder without duplicate parsing.
+        // This is strictly a non-RT PREPARATION step, not activation of
+        // the incomplete 288-slot/NoteOn source path. Preserve the
+        // previous P002 diagnostic behavior if this staging fails.
+        if(p002RomBank_.exportVerifiedCreativeP005SourceTables(
+               p005OriginalSourceTables_)) {
+            std::fputs("P005_ORIGINAL_SOURCE_TABLE_BRIDGE_READY "
+                       "SHA_GATED=TRUE RAM_PLACEMENT=VERIFIED "
+                       "ORIGINAL_PROGRAM_MAP=NOT_YET_BOUND\n",stderr);
+        }
+#endif
         p002BankEnabled_=true;
         privateWin95SourceReset_=sourceResetRequested;
         if(clockedRamRequested || autonomousPacing) {
