@@ -57,6 +57,10 @@ Das originale Win95-Gastprotokoll `P003MODE.LOG` bestätigt:
 
 Von den **746** Original-Ereignissen an `LCOD+0x4027` war der ausschließlich per Gast-RAM-Cache gelesene **tatsächliche lokale Wert `[EBP-0x18]=1`** in allen 746 lesbar. Bei **739** Events war der nächste aufgezeichnete PC exakt der Original-`JNE`-Sprungziel-PC `+0x4048`; die übrigen **7** bleiben **ungeklärt** und dürfen nicht als identisch behauptet werden. Der Originalwert ist ein **lokales Stack-DWORD**, **nicht direkt der Geräte-RAM-Wert `[device+0x18]`**. Die beiden dürfen keinesfalls gleichgesetzt werden.
 
+### Original-CPU-Abgleich: Stresstestpfade sind nicht identisch
+
+Die neue private physische V4-CPU-I/O-Spur enthält **25** abgeschlossene Stereo-Paar-Allokationen. Der letzte voll ausgedehnte Laufabschnitt hat hier **90** originale Hardware-Helfergruppen je Allocation (insgesamt **10** derartige 90er-Läufe). In der älteren, separaten originalen Besitzer-V4-Aufzeichnung waren es für die neun untersuchten vollständigen Scans **92** Helfergruppen. Das sind **unterschiedliche Originalabläufe** trotz gleichem veröffentlichtem Treiber und gleicher VM-Klasse. Ein direkter Timing-Anspruch über dieselben CCCA→VTFT-TSC-Intervalle wäre nicht zulässig. Die neu erfassten Jcc-Ausgänge sind daher eigenständige Originalbeobachtungen und kein kalibriertes Replay der früheren 91/93/95-Taktwerte.
+
 ## Nachweisumfang und präzise Grenze
 
 Der P107-Observer emittiert aktuell den Callback im alten x64-JIT-Generator. Nicht jeder für die P106-Kontrollflussgrafik relevante Zwischenbefehl wird durch diese erste Version zuverlässig protokolliert. **Wenn unmittelbar nach einer beobachteten Jcc-Stelle nicht genau der Original-Ziel-PC oder Fallthrough-PC im Trace folgt, lautet das Ergebnis `UNKNOWN_SPARSE_OBSERVER` – weder `taken` noch `not_taken`.** Genau deshalb wurden die 80 unklaren Fälle gesondert ausgewiesen. Der Quell-Auditor `tools/p107_audit_executed_jcc_private.py` wurde auf diese fail-closed-Behandlung korrigiert; öffentliche CI nutzt nur synthetische Gegenproben.
