@@ -77,6 +77,16 @@ def parse_capture(raw:bytes)->dict:
         blob=raw[at:at+size]
         at+=size
         count=size//ROW_BYTES
+        # A bank structure may contain seven nested guest pointers,
+        # followed by 26-byte rows at the first pointer's TARGET.
+        # The former scanner treated the header itself as row zero.
+        # Catch that observed false-positive explicitly, without
+        # imposing invalid MIDI-7-bit restrictions on percussion.
+        if len(blob)>=12:
+            a,b,c=struct.unpack_from('<3I',blob)
+            require(not (a>address and 28<=a-address<=4096 and
+                         a<b<c and (a&0xff000000)==(address&0xff000000)),
+                    "indirect Creative bank header was mistaken for 26-byte program rows")
         rows_total+=count
         require(rows_total<=ROW_LIMIT,"source row count exceeds capture bound")
         for ordinal in range(count):
