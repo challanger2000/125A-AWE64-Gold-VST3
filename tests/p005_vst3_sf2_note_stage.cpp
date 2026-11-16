@@ -157,9 +157,14 @@ int main(){
     CHECK(catalog.importAuthenticatedOriginalDirectory(slots,true));
     CHECK(catalog.sourceSlotCount()==288u && catalog.zoneCount()==0u);
     CHECK(catalog.appendVerifiedNoteContext(stage));
+    // Same original physical preset/row/key/velocity must NOT register
+    // twice: the original MIDI resolver would trigger doubled voices.
+    CHECK(!catalog.appendVerifiedNoteContext(stage));
+    CHECK(catalog.zoneCount()==1u);
     CHECK(stage.prepareNonRealtime(file,1u,7u,62u,100u,original,states,true)==
           Sf2BuildStatus::Ok);
     CHECK(catalog.appendVerifiedNoteContext(stage));
+    CHECK(!catalog.appendVerifiedNoteContext(stage));
     CHECK(catalog.zoneCount()==2u);
     CHECK(catalog.sealNonRealtime());
     CHECK(catalog.ready());
