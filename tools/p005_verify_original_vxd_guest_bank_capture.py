@@ -86,20 +86,19 @@ def parse_capture(raw:bytes)->dict:
         require((size-start)>=ROW_BYTES and
                 (indirect or size%ROW_BYTES==0),
                 "original guest program records misaligned")
-        count=0
-        terminated=False
-        for ordinal in range((size-start)//ROW_BYTES):
+        if indirect:
+            span=second-first
+            require(span>=ROW_BYTES and span%ROW_BYTES==0 and
+                    start+span<=size and span//ROW_BYTES<=ROW_LIMIT,
+                    "indirect Creative header has invalid child program boundary")
+            count=span//ROW_BYTES
+        else:
+            count=size//ROW_BYTES
+        for ordinal in range(count):
             pos=start+ordinal*ROW_BYTES
             marker=struct.unpack_from("<H",blob,pos)[0]
-            count+=1
-            if marker==0xffff:
-                terminated=True
-                break
-        require(terminated and (start+(count*ROW_BYTES)<=size),
-                "original VXD nested/direct program list missing FFFF sentinel")
-        if not indirect:
-            require(start+count*ROW_BYTES==size,
-                    "source VXD row terminates before recorded end")
+            require((marker==0xffff)==(ordinal==count-1),
+                    "Creative source FFFF sentinel not at real program boundary")
         rows_total+=count
         require(rows_total<=ROW_LIMIT,"source row count exceeds capture bound")
         seen[address]={
