@@ -388,6 +388,30 @@ int selfTest() {
     require(verifiedNested.rows.size()==1u &&
             verifiedNested.rows.at(list).size()==nested.size(),
             "INDIRECT_BANK_HEADER_LENGTH_NOT_BOUNDED");
+    // Full supplementary probe: six original child pointers include five
+    // bounded regions, followed by a precisely labelled 4 KiB sample
+    // with no invented final-region endpoint.
+    std::array<std::uint8_t,1u> extraPage{};
+    mapRegion(indirectRam,cr3,pt,
+              list+static_cast<std::uint32_t>(first)+4096u,
+              0xa3000u,extraPage.data(),extraPage.size());
+    auto nestedEvidence=collectNested(indirectRam,verifiedNested);
+    require(nestedEvidence && nestedEvidence->segments.size()==6u,
+            "NESTED_ADDITIONAL_REGIONS_MISSING");
+    require(nestedEvidence->segments[0].complete &&
+            !nestedEvidence->segments[5].complete &&
+            nestedEvidence->segments[5].data.size()==4096u,
+            "NESTED_REGION_BOUNDARY_PROVENANCE_INCORRECT");
+    auto nestedAgain=collectNested(indirectRam,verifiedNested);
+    require(nestedAgain && *nestedAgain==*nestedEvidence,
+            "NESTED_DOUBLE_SNAPSHOT_NOT_STABLE");
+    // Change the sixth pointer ordering without touching actual rows:
+    // must reject the entire supplementary capture.
+    auto corruptEvidence=verifiedNested;
+    put32(corruptEvidence.rows.at(list).data()+5u*4u,
+          list+static_cast<std::uint32_t>(Prefix+2u*RowBytes));
+    require(!collectNested(indirectRam,corruptEvidence),
+            "CORRUPT_NESTED_POINTERS_ACCEPTED");
     // Early FFFF within the child list must never hide later records.
     put16(indirectRam.data()+0x92000u+Prefix-first,0xffffu);
     Evidence rejectedNested{};
