@@ -965,9 +965,9 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
 void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
     using namespace awe64::vst3::state;
     constexpr std::array<std::uint8_t,4> midiControllerNumbers{
-        7u,10u,11u,0xc0u};
+        7u,10u,11u,0xd0u};
     constexpr std::array<std::uint8_t,4> midiControllerValues{
-        73u,31u,120u,9u};
+        73u,31u,120u,0u};
     const auto audioHash=[](Instance& synth) -> std::uint64_t {
         std::uint64_t hash=0xcbf29ce484222325ull;
         unsigned nonzero=0;
@@ -1016,16 +1016,19 @@ void verifyRealSf2ProjectAudioRoundtrip(IPluginFactory* factory) {
     auto zeroFrameControls=[&](Instance& synth) {
         ParameterChanges changes(4);
         for(std::size_t i=0;i<midiControllerNumbers.size();++i) {
-            const auto id=midiControllerNumbers[i]==0xc0u?
-                ParamID(0x125A00C0u):
+            const auto id=midiControllerNumbers[i]==0xd0u?
+                ParamID(0x125A00D0u):
                 ParamID(0x125A0000u+midiControllerNumbers[i]);
             int32 index=0;
             auto* queue=changes.addParameterData(id,index);
             require(queue!=nullptr,"project-audio CC/program queue missing");
             int32 point=0;
-            require(queue->addPoint(
-                    0,static_cast<ParamValue>(midiControllerValues[i])/127.,
-                    point)==kResultOk,
+            // Three actual PHDRs: row 0=program7, row 1=program9,
+            // row 2=drum128. Normalized 0.5 selects the second REAL
+            // row and must be preserved as bank0/program9 by VST3 state.
+            const auto normalized=midiControllerNumbers[i]==0xd0u?
+                0.5:static_cast<ParamValue>(midiControllerValues[i])/127.;
+            require(queue->addPoint(0,normalized,point)==kResultOk,
                     "project-audio CC/program flush point missing");
         }
         ProcessData data{};
