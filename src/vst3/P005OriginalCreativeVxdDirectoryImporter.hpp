@@ -169,16 +169,45 @@ public:
                 if(ordinal==0u && !followedBankHeader) {
                     const auto a=read32(joined.data());
                     const auto b=read32(joined.data()+4u);
-                    bool ordered=true;
-                    for(std::size_t i=0u;i<6u;++i)
-                        if(read32(joined.data()+4u*i)>=
-                           read32(joined.data()+4u*(i+1u)))
-                            ordered=false;
                     const bool header=a>ptr && a-ptr>=28u &&
                         a-ptr<=4096u && a<b &&
                         (a&0xff000000u)==(ptr&0xff000000u);
-                    if(header && !ordered)
-                        return Result::InvalidGuestMapping;
+                    if(header) {
+                        // Seven 32-bit guest pointers occupy 28 bytes,
+                        // whereas a program row is only 26 bytes.
+                        // Fetch BOTH remaining bytes from authenticated
+                        // contiguous guest memory, never beyond joined[].
+                        std::array<std::uint8_t,28u> headerBytes{};
+                        std::copy(joined.begin(),joined.end(),
+                                  headerBytes.begin());
+                        for(std::size_t byte=26u;byte<28u;++byte) {
+                            const auto guestByte=vaddr+byte;
+                            auto found=std::upper_bound(
+                                indexed.begin(),indexed.end(),guestByte,
+                                [](std::uint64_t target,
+                                   const P005OriginalGuestMemorySegment* s)
+                                   noexcept {
+                                    return target<
+                                        std::uint64_t{s->guest_address};
+                                });
+                            if(found==indexed.begin())
+                                return Result::InvalidGuestMapping;
+                            --found;
+                            const auto* region=*found;
+                            const auto offset=guestByte-
+                                std::uint64_t{region->guest_address};
+                            if(offset>=region->bytes.size())
+                                return Result::InvalidGuestMapping;
+                            headerBytes[byte]=region->bytes[
+                                static_cast<std::size_t>(offset)];
+                        }
+                        bool ordered=true;
+                        for(std::size_t i=0u;i<6u;++i)
+                            if(read32(headerBytes.data()+4u*i)>=
+                               read32(headerBytes.data()+4u*(i+1u)))
+                                ordered=false;
+                        if(!ordered)return Result::InvalidGuestMapping;
+                    }
                     if(header) {
                         const auto span=std::uint64_t{b}-a;
                         if(span<kOriginalRowBytes ||
