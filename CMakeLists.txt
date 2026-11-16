@@ -982,8 +982,11 @@ if(AWE64_BUILD_P001_VST3)
         bcrypt)
     target_compile_features(AWE64_Gold_P001 PRIVATE cxx_std_23)
     smtg_target_configure_version_file(AWE64_Gold_P001)
-    add_executable(awe64_p001_vst3_host tests/p001_vst3_host.cpp)
-    target_include_directories(awe64_p001_vst3_host PRIVATE "${AWE64_VST3_SDK_ROOT}")
+    add_executable(awe64_p001_vst3_host
+        tests/p001_vst3_host.cpp
+        "${AWE64_VST3_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
+    target_include_directories(awe64_p001_vst3_host PRIVATE
+        "${AWE64_VST3_SDK_ROOT}" src/vst3)
     target_link_libraries(awe64_p001_vst3_host PRIVATE sdk sdk_hosting)
     target_compile_features(awe64_p001_vst3_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_host AWE64_Gold_P001)
