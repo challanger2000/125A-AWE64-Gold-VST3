@@ -205,7 +205,7 @@ def patch(raw: bytes, source_blob_sha: str | None = PINNED_UPSTREAM_SOURCE_BLOB)
         raise ValueError("Missing or duplicated original generator timing anchor")
     if source.count("void\ncodegen_generate_call(")!=1:
         raise ValueError("The original old Dynarec compiler structure changed")
-    if source.count("    codegen_accumulate(ACCREG_cycles, -codegen_block_cycles);")!=1:
+    if source.count("    codegen_accumulate(ACCREG_cycles, -codegen_block_cycles);")!=2:
         raise ValueError("Old Dynarec timing sites unexpectedly modified")
     if "USE_NEW_DYNAREC" in source:
         raise ValueError("Unexpected NEW-DYNAREC source")
