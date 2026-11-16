@@ -876,10 +876,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
-    // A host can restore project state after setActive(). Consume the
-    // lock-free handoff only on this audio thread, before MIDI offsets.
-    // No heap/file/chip-register work is introduced by project recall.
-    if(p002BankEnabled_)applyPendingBankState();
+    // A host can restore project state after setActive(). Validate
+    // the ENTIRE incoming block before consuming that pending state.
+    // Rejecting a malformed host block must not partially apply either
+    // its automation OR a pending project recall.
     // Merge MIDI note events with the genuine VST3 IParameterChanges
     // CC64 stream in original sample-offset order. P001 receives exactly
     // the previous no-parameter path, while P002 private diagnostic can
@@ -987,6 +987,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             return kInvalidArgument;
         previousMidi=incoming.sampleOffset;
     }
+    // The last potentially malformed timestamp is now behind us:
+    // apply an already validated DAW project recall at sample zero,
+    // before any new legitimate MIDI/parameter in this block.
+    if(p002BankEnabled_)applyPendingBankState();
     int32 pos=0;
     while(midiIndex<events || ccIndex<ccCount ||
           resetIndex<resetCount ||
