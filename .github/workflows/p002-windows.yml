@@ -98,6 +98,8 @@ on:
       - 'src/vst3/P005OriginalVxdGuestCaptureFile.hpp'
       - 'tools/p005_capture_original_win95_vxd_guest_bank.cpp'
       - 'tools/p005_verify_original_vxd_guest_bank_capture.py'
+      - 'tools/p005_verify_nested_guest_regions.py'
+      - 'tests/test_p005_verify_nested_guest_regions.py'
       - 'tools/p005_verify_win95_disk_vxd.py'
       - 'tests/test_p005_verify_original_vxd_guest_bank_capture.py'
       - 'tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd'
@@ -209,6 +211,8 @@ jobs:
           python -m py_compile tools/p005_verify_win95_disk_vxd.py
           if ($LASTEXITCODE -ne 0) { throw 'P005 read-only original Win95 disk VXD verifier syntax failed' }
           python -m unittest discover -s tests -p 'test_p005_verify_original_vxd_guest_bank_capture.py' -v
+          python -m unittest discover -s tests -p 'test_p005_verify_nested_guest_regions.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P005 nested original guest region owner capture controls FAILED' }
           if ($LASTEXITCODE -ne 0) { throw 'P005 original guest source capture negative controls FAILED' }
           Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
 
