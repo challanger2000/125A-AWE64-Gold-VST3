@@ -45,6 +45,24 @@ std::uint32_t u32(std::span<const std::uint8_t> b,
            (static_cast<std::uint32_t>(u16(b,offset+2u))<<16u);
 }
 }
+bool P002PrivateRomBank::acceptsOriginalIdleDeviceState(
+    const std::span<const std::uint8_t> image) noexcept {
+    if(image.size()<kOriginalVxdMinDeviceImage ||
+       u32(image,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
+       u16(image,0x12u)!=0u ||
+       u16(image,0x06u)!=32u)
+        return false;
+    // Source driver device+0x18 is a changing voice-status DWORD.
+    // The original increment/decrement branches prove it is NOT
+    // a second immutable 32-voice hardware capacity field.
+    // A higher/lower count does not invalidate the physical scan.
+    for(std::size_t voice=0;voice<kOriginalCreativeMusicVoices;++voice) {
+        const auto at=kOriginalVxdVoiceRowStart+
+            voice*kOriginalVxdVoiceRowStride;
+        if(u16(image,at)!=0x0ffeu)return false;
+    }
+    return true;
+}
 void P002PrivateRomBank::clear() noexcept {
     native_checkpoint_active_=false;
     ready_=false;
@@ -115,27 +133,12 @@ bool P002PrivateRomBank::load(
     }
     std::copy_n(bytes.begin()+offset,state_.size(),state_.begin());
     offset+=state_.size();
-    if(u32(state_,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
-       u16(state_,0x12u)!=0u ||
-       u16(state_,0x06u)!=32u ||
-       u32(state_,0x18u)!=32u) {
-        // A real 1996 Win95 SBAWE.VXD memory read established
-        // 32 PHYSICAL chip voices at both state+06 and state+18;
-        // the Creative music allocator still owns only 0..29.
-        // Never invent a 30-physical-voice source state.
-        error="P002 original dry VXD 32-physical-voice state unsupported";
+    // Accept an authenticated original idle image without confusing
+    // mutable device+0x18 with the fixed 32-voice physical capacity.
+    // No playing source voice can enter this initialization path.
+    if(!acceptsOriginalIdleDeviceState(state_)) {
+        error="P002 original dry VXD physical capacity or idle state invalid";
         clear();return false;
-    }
-    // The source-proven 30-slot allocator cannot be initialized from
-    // an unknown already-playing voice without its associated original
-    // SF2 descriptors. Accept an all-idle guest capture only.
-    for(std::size_t voice=0;voice<kOriginalCreativeMusicVoices;++voice) {
-        const auto at=kOriginalVxdVoiceRowStart+
-            voice*kOriginalVxdVoiceRowStride;
-        if(u16(state_,at)!=0x0ffeu) {
-            error="P002 original VXD state not fully idle";
-            clear();return false;
-        }
     }
     for(auto& word:resources_.preset_template) {
         word=static_cast<std::int16_t>(u16(bytes,offset));offset+=2u;
