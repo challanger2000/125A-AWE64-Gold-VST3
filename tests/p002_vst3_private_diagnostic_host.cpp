@@ -1255,20 +1255,23 @@ void verifyRealSf2SuspendResume(IPluginFactory* factory) {
                 require(name[i]==expected[i],
                         "reactivated SoundFont original preset was renamed");
         };
-        const auto audioHash=[&] {
+        const auto audioHash=[&](const int phase) {
             std::uint64_t hash=0xcbf29ce484222325ull;
             std::uint32_t sounded=0;
-            for(int block=0;block<14;++block) {
+            // Match the already proven native ROM-SF2 audio window.
+            // Shorter tests can wrongly call a slow original envelope
+            // silent before any audible samples appear.
+            for(int block=0;block<24;++block) {
                 std::array<float,512> left{},right{};
                 float* channels[]{left.data(),right.data()};
                 AudioBusBuffers bus{};
                 bus.numChannels=2;bus.channelBuffers32=channels;
                 EventList events;
-                if(block==0 || block==4) {
+                if(block==0 || block==5) {
                     Event note{};
                     note.type=block==0?Event::kNoteOnEvent:Event::kNoteOffEvent;
                     note.busIndex=0;
-                    note.sampleOffset=block==0?69:93;
+                    note.sampleOffset=block==0?59:103;
                     if(block==0) {
                         note.noteOn.channel=2;note.noteOn.pitch=60;
                         note.noteOn.velocity=100.f/127.f;
@@ -1300,13 +1303,20 @@ void verifyRealSf2SuspendResume(IPluginFactory* factory) {
                         }
                     }
             }
-            require(sounded>1000u,
-                    "suspend/resume SoundFont rendered silence");
+            // Distinguish invalid test setup / original slow attack
+            // from a true reactivation failure. One baseline must
+            // render first before reactivation parity is meaningful.
+            if(phase==0)
+                require(sounded>1000u,
+                        "baseline original SF2 note silent in 24-block window");
+            else
+                require(sounded>1000u,
+                        "reactivated SF2 note silent in 24-block window");
             return hash;
         };
         flush();
         assertActive();
-        const auto golden=audioHash();
+        const auto golden=audioHash(0);
         for(int cycle=0;cycle<3;++cycle) {
             require(instrument.audio->setProcessing(false)==kResultOk,
                     "suspend/resume setProcessing(false) failed");
@@ -1327,7 +1337,7 @@ void verifyRealSf2SuspendResume(IPluginFactory* factory) {
             require(instrument.audio->setProcessing(true)==kResultOk,
                     "reactivation setProcessing(true) failed");
             assertActive();
-            require(audioHash()==golden,
+            require(audioHash(cycle+1)==golden,
                     "reactivated original EMU8000 PCM no longer bit-identical");
         }
     } catch(...) {
