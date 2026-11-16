@@ -147,6 +147,31 @@ std::vector<float> play(IPluginFactory* factory,bool release,
     flush.outputs=nullptr;
     require(synth.audio->process(flush)==kResultOk,
             "exported VST3 refused zero-frame host flush");
+    // A late invalid MIDI event must be detected BEFORE the early
+    // NoteOn starts the genuine EMU8000 chip. Verify strict rejection
+    // with no consumed samples or partial output/voice state.
+    {
+        std::array<float,512> left{},right{};
+        float* buffers[]{left.data(),right.data()};
+        AudioBusBuffers bus{};
+        bus.numChannels=2;bus.channelBuffers32=buffers;
+        EventList malformed;
+        event(malformed,true,137);
+        event(malformed,false,513);
+        ProcessData invalid{};
+        invalid.processMode=kRealtime;
+        invalid.symbolicSampleSize=kSample32;
+        invalid.numSamples=512;
+        invalid.numOutputs=1;invalid.outputs=&bus;
+        invalid.inputEvents=&malformed;
+        require(synth.audio->process(invalid)!=kResultOk,
+                "late malformed VST3 MIDI offset was accepted");
+        require(std::all_of(left.begin(),left.end(),
+                            [](float s){return s==0.f;}) &&
+                std::all_of(right.begin(),right.end(),
+                            [](float s){return s==0.f;}),
+                "late invalid VST3 MIDI event partially rendered PCM");
+    }
     std::vector<float> output;
     output.reserve(512u*36u);
     if(capturedStereo) {
