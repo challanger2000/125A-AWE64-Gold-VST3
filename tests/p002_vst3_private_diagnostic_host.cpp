@@ -827,8 +827,8 @@ Audio renderBankProgramChange(
 void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
     using namespace awe64::vst3::state;
     Instance active(factory,true);
-    const auto desired=encode(BankSelection{0u,9u,73u,31u,120u});
-    MemoryStream source(const_cast<std::uint8_t*>(desired.data()),
+    auto desired=encode(BankSelection{0u,9u,73u,31u,120u});
+    MemoryStream source(desired.data(),
                         static_cast<TSize>(desired.size()));
     require(active.component->setState(&source)==kResultOk,
             "valid real-PHDR program9 project state rejected");
@@ -855,8 +855,8 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
             "real loaded SoundFont program/CC project restore mismatch");
 
     // A CRC-valid but absent PHDR must not be substituted for program9.
-    const auto absent=encode(BankSelection{0u,63u,1u,1u,1u});
-    MemoryStream missing(const_cast<std::uint8_t*>(absent.data()),
+    auto absent=encode(BankSelection{0u,63u,1u,1u,1u});
+    MemoryStream missing(absent.data(),
                          static_cast<TSize>(absent.size()));
     require(active.component->setState(&missing)==kResultOk,
             "correctly serialized missing PHDR state rejected too early");
