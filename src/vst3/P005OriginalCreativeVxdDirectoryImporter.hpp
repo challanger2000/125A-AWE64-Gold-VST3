@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include <span>
 #include <vector>
 
@@ -29,7 +30,7 @@ struct P005OriginalGuestMemorySegment {
 };
 enum class P005OriginalVxdDirectoryImportResult : std::uint8_t {
     Ok, Unverified, MalformedDeviceImage, MissingOriginalRows,
-    InvalidGuestMapping, MissingSentinel, TooManyRows, CatalogBusy
+    InvalidGuestMapping, MissingSentinel, TooManyRows, ResourceLimit, CatalogBusy
 };
 class P005OriginalVxdDirectoryImporter final {
 public:
@@ -83,6 +84,7 @@ public:
             }
         }
 
+        try {
         std::array<std::vector<Row>,kOriginalSlotCount> rows{};
         std::array<Slot,kOriginalSlotCount> views{};
         std::size_t totalRows=0u,nonzeroPointers=0u;
@@ -139,6 +141,11 @@ public:
                 views,deviceAndGuestMemoryIndependentlyAuthenticated))
             return Result::CatalogBusy;
         return Result::Ok;
+        } catch(const std::bad_alloc&) {
+            // Never bubble an allocation failure across a VST3 host
+            // boundary: a partial guest directory must remain unusable.
+            return Result::ResourceLimit;
+        }
     }
 
 private:

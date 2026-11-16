@@ -66,9 +66,15 @@ public:
         }
         // These vectors are now the OWNER of actual original rows,
         // not the caller's temporary/per-file import buffers.
+        // Build a complete COPY first. A failed allocation must never
+        // publish half of the VXD program directory, or mutate a
+        // previously reusable catalog. Swapping whole vectors commits
+        // only after ALL 288 source tables were copied successfully.
+        std::array<std::vector<Row>,kSourceSlots> candidateRows{};
         for(std::size_t i=0u;i<kSourceSlots;++i)
-            ownedRows_[i].assign(authenticSource[i].rows.begin(),
-                                 authenticSource[i].rows.end());
+            candidateRows[i].assign(authenticSource[i].rows.begin(),
+                                    authenticSource[i].rows.end());
+        ownedRows_.swap(candidateRows);
         for(std::size_t i=0u;i<kSourceSlots;++i)
             slotViews_[i].rows=ownedRows_[i];
         directoryReady_=true;
