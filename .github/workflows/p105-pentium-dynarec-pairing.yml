@@ -35,6 +35,7 @@ jobs:
             "/tmp/p105-$compiler" | tee "/tmp/p105-$compiler.out"
             grep -q 'P105_PENTIUM_DYNAREC_SOURCE_PAIRING_PASS' "/tmp/p105-$compiler.out"
           done
+          python3 tools/p105_original_stereo_dynarec_private.py --selftest
           echo "P105 86Box P54C Dynarec pairing-only source contract PASS; original Win95 timing NOT verified"
 
   windows-clang:
@@ -52,5 +53,7 @@ jobs:
           if($LASTEXITCODE -ne 0) {throw "Win64 C++23 build failed"}
           & $exe
           if($LASTEXITCODE -ne 0) {throw "Win64 pairing contract failed"}
+          python tools/p105_original_stereo_dynarec_private.py --selftest
+          if($LASTEXITCODE -ne 0) {throw "Win64 Python negative-control audit failed"}
           "P105 native Win64 paired-clock contract PASS (NO VST3/audio/timing parity implied)" |
             Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
