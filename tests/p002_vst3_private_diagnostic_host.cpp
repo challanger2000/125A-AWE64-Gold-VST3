@@ -1058,6 +1058,50 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
             std::memcmp(saved.getData(),desired.data(),desired.size())==0,
             "real loaded SoundFont program/CC project restore mismatch");
 
+    // A P001-era project has no SF2 selection. If the host loads
+    // that legacy chunk while an authentic source-backed bank is
+    // already playing, it must not destroy the LIVE Bank/Program/CC
+    // metadata. Otherwise the next DAW save would lie about the
+    // instrument it will restore. Only unconsumed pending V2 changes
+    // are cancelled by legacy recall; the actual playing sound remains.
+    {
+        const auto legacy=kLegacyMagic;
+        MemoryStream oldSession(legacy.data(),
+                                static_cast<TSize>(legacy.size()));
+        require(active.component->setState(&oldSession)==kResultOk,
+                "real SF2 VST3 rejected legacy P001 project chunk");
+        MemoryStream afterLegacy{};
+        require(active.component->getState(&afterLegacy)==kResultOk &&
+                afterLegacy.getSize()==desired.size() &&
+                std::memcmp(afterLegacy.getData(),desired.data(),
+                            desired.size())==0,
+                "legacy P001 project erroneously erased ACTIVE SF2 program");
+        // Also cancel a pending but NOT YET PLAYED versioned program7
+        // before the audio thread has consumed it.
+        auto other=encode(BankSelection{0u,7u,11u,20u,99u});
+        MemoryStream incoming(other.data(),
+                              static_cast<TSize>(other.size()));
+        require(active.component->setState(&incoming)==kResultOk,
+                "pending program7 source project chunk rejected");
+        MemoryStream pendingSource{};
+        require(active.component->getState(&pendingSource)==kResultOk &&
+                pendingSource.getSize()==other.size() &&
+                std::memcmp(pendingSource.getData(),other.data(),
+                            other.size())==0,
+                "pending versioned program7 was not staged correctly");
+        MemoryStream clearPending(legacy.data(),
+                                  static_cast<TSize>(legacy.size()));
+        require(active.component->setState(&clearPending)==kResultOk,
+                "legacy P001 did not cancel pending, unplayed V2 selection");
+        flush();
+        MemoryStream afterCancel{};
+        require(active.component->getState(&afterCancel)==kResultOk &&
+                afterCancel.getSize()==desired.size() &&
+                std::memcmp(afterCancel.getData(),desired.data(),
+                            desired.size())==0,
+                "legacy P001 allowed cancelled V2 selection to reach chip");
+    }
+
     // Negative control for a *late* invalid point. Without whole-
     // block preflight, the Program7 point at sample9 would already
     // mutate the real SoundFont before sample513 is discovered.
