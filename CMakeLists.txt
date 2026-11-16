@@ -409,6 +409,16 @@ if(WIN32)
 endif()
 
 
+# P005 owner-side READ-ONLY 86Box source guest-memory capture.
+# The actual Win95/Creative bytes remain in the OWNER'S private process:
+# this target only ships a CPU-paging/26-byte-record parser and selftest.
+add_executable(awe64_p005_original_win95_guest_bank_capture
+    tools/p005_capture_original_win95_vxd_guest_bank.cpp)
+target_compile_features(awe64_p005_original_win95_guest_bank_capture
+    PRIVATE cxx_std_23)
+add_test(NAME p005_readonly_win95_guest_vxd_bank_capture_selftest
+    COMMAND awe64_p005_original_win95_guest_bank_capture --self-test)
+
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
 # -> genuine ROM word-address descriptors, without voice/allocation guesses.
 add_library(awe64_p002_rom_note_plan STATIC
