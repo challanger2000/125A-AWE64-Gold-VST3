@@ -38,15 +38,16 @@ candidateOriginalSf2LiveVxdMonoVoice(
        le32(state,kOriginalVxdRomIdOffset)!=0x4d474d31u ||
        le16(state,0x12u)!=0u)
         return std::nullopt;
-    // VERIFIED from the real 2026-11-14 original Win95 SBAWE.VXD
-    // resident memory: device+0x06 = 32 and device+0x18 = 32 are
-    // the PHYSICAL EMU8000 capacity, NOT the 30-slot music budget.
-    // The unchanged original LCOD music allocator scans rows 0..29;
-    // physical voices 30 and 31 remain reserved. Previous code
-    // wrongly rejected authentic 32-voice VXD state as >30.
+    // Original x86 LCOD derives the scan ceiling from device+0x06
+    // (32 physical voices, of which music mode 0 scans 0..29).
+    // device+0x18 is a MUTABLE driver voice-state counter, NOT another
+    // physical capacity constant: genuine NoteOn paths INC/DEC it when
+    // per-voice state changes. Source mode-0 selection only uses it for
+    // the low-count (<=2) blocked-voice gate. Valid original snapshots
+    // with 31/33 must not be rejected or clamped to 32.
     const auto capacity=le16(state,0x06u);
     const auto mode_count=le32(state,0x18u);
-    if(capacity!=32u || mode_count!=32u)return std::nullopt;
+    if(capacity!=32u)return std::nullopt;
     constexpr auto usable=kOriginalCreativeMusicVoices;
     // Original Win95 C4 allocated physical0 then physical3; the
     // second layer's scan did NOT reissue VTFT0. On D4 after voice6
