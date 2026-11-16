@@ -113,14 +113,17 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
         // further guest VAs. The first points to the 26-byte preset table.
         // Preserve the original root VA and all original bytes between
         // root and the final aligned child-table sentinel.
-        std::array<std::uint8_t,12> header{};
+        std::array<std::uint8_t,28> header{};
         if(!virtualRead(ram,cr3,ptr,header.data(),header.size()))
             return false;
         const auto child=u32(header.data());
         const auto second=u32(header.data()+4u);
-        const auto third=u32(header.data()+8u);
+        bool ordered=true;
+        for(std::size_t i=0;i<6u;++i)
+            if(u32(header.data()+4u*i)>=u32(header.data()+4u*(i+1u)))
+                ordered=false;
         const bool indirect=child>ptr && child-ptr>=28u &&
-            child-ptr<=4096u && child<second && second<third &&
+            child-ptr<=4096u && ordered &&
             (child&0xff000000u)==(ptr&0xff000000u);
         if(indirect) {
             const auto prefix=std::size_t{child-ptr};
@@ -309,8 +312,10 @@ int selfTest() {
     put32(nested.data(),list+static_cast<std::uint32_t>(Prefix));
     put32(nested.data()+4u,
           list+static_cast<std::uint32_t>(Prefix+2u*RowBytes));
-    put32(nested.data()+8u,
-          list+static_cast<std::uint32_t>(Prefix+4u*RowBytes));
+    for(std::size_t i=2u;i<7u;++i)
+        put32(nested.data()+4u*i,
+              list+static_cast<std::uint32_t>(Prefix+2u*RowBytes+
+                        (i-1u)*100u));
     put16(nested.data()+Prefix,1u);
     nested[Prefix+2u]=7u;
     nested[Prefix+3u]=1u;
