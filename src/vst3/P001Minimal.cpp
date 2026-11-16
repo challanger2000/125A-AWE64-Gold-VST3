@@ -228,6 +228,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         // activation. Both resets are OFF process() and BEFORE chip.close().
         p005OriginalPort_.resetNonRealtime();
         p005OriginalNoteStage_.clearNonRealtime();
+        p005OriginalBankCatalog_.resetNonRealtime();
 #endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
                              sf2host::kProgramListId))) {
