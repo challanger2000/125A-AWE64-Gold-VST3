@@ -102,6 +102,59 @@ def generated_comparison_sf2()->bytes:
     body=b"sfbk"+info+sdta+pdta
     return b"RIFF"+struct.pack("<I",len(body))+body
 
+def generated_original_mode_stereo_sf2()->bytes:
+    """Distinct synthetic stereo-linked SF2 for an ORIGINAL Win95 guest.
+
+    Source-clean RIFF/sfbk, no Creative ROM/sample bytes. Two *different*
+    playable 16-bit sample zones are mutually linked LEFT (type 4)
+    and RIGHT (type 2), both in preset 7 of user bank 2. This increases
+    coverage of the real Creative VXD descriptor-flag pair path but
+    DOES NOT establish that descriptor flag 0x04 means stereo or
+    guarantee that the original 1996 driver supports this SF2.
+    A rejected original AWE_LOAD_USER_BANK must remain NO-GO.
+    """
+    words=32768
+    pcm=bytearray()
+    for channel in range(2):
+        for i in range(words):
+            if i<128 or i>=words-128:
+                value=0
+            else:
+                value=((8200 if channel==0 else 6100)
+                       if (i//(83 if channel==0 else 103))%2==0
+                       else (-8200 if channel==0 else -6100))
+            pcm.extend(struct.pack("<h",value))
+    info=list_chunk(b"INFO",[
+        chunk(b"ifil",struct.pack("<HH",2,1)),
+        chunk(b"isng",b"EMU8000\x00"),
+        chunk(b"INAM",b"125A P003 Win95 Mode Stereo\x00"),
+    ])
+    sdta=list_chunk(b"sdta",[chunk(b"smpl",bytes(pcm))])
+    def ph(name:str,program:int,bag:int)->bytes:
+        return sf_name(name)+struct.pack("<HHHIII",program,0,bag,0,0,0)
+    def inst(name:str,bag:int)->bytes:
+        return sf_name(name)+struct.pack("<H",bag)
+    def sh(name:str,start:int,end:int,link:int,kind:int)->bytes:
+        return (sf_name(name)+struct.pack("<IIIII",
+                 start,end,start+128,end-128,44100)
+                +struct.pack("<BBHH",60,0,link,kind))
+    pdta=list_chunk(b"pdta",[
+        chunk(b"phdr",ph("P003STEREO",7,0)+ph("EOP",0,1)),
+        chunk(b"pbag",struct.pack("<HHHH",0,0,1,0)),
+        chunk(b"pmod",bytes(10)),
+        chunk(b"pgen",struct.pack("<HH",41,0)),
+        chunk(b"inst",inst("P003 STREO",0)+inst("EOI",2)),
+        chunk(b"ibag",struct.pack("<HHHHHH",0,0,1,0,2,0)),
+        chunk(b"imod",bytes(10)),
+        chunk(b"igen",struct.pack("<HHHH",53,0,53,1)),
+        chunk(b"shdr",sh("STREO-L",0,words,1,4)+
+                      sh("STREO-R",words,2*words,0,2)+
+                      sf_name("EOS")+bytes(26)),
+    ])
+    body=b"sfbk"+info+sdta+pdta
+    return b"RIFF"+struct.pack("<I",len(body))+body
+
+
 def package_directory()->Path:
     return (Path(sys.executable) if getattr(sys,"frozen",False)
             else Path(__file__)).resolve().parent
@@ -228,7 +281,9 @@ def run(archive:Path,guest_exe:Path,comparison:Path|None,
     require(not original_mode_stress or cpu_probe_fork is not None,
             "Original-Stimmenmodus-Stresstest nur mit vollem V4-CPU-Probe-Fork")
     guest_bytes=guest_exe.read_bytes()
-    second=comparison.read_bytes() if comparison else generated_comparison_sf2()
+    second=(comparison.read_bytes() if comparison else
+            (generated_original_mode_stereo_sf2() if original_mode_stress
+             else generated_comparison_sf2()))
     stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     nonce=secrets.token_hex(4)
     session=f"P003-{stamp}-{nonce}"
