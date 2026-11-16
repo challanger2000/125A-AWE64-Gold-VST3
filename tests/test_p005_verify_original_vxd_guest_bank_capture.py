@@ -77,6 +77,26 @@ class OriginalGuestCaptureTests(unittest.TestCase):
             ptr=0xc30c0ff0
             struct.pack_into('<III',x,at,ptr+32,ptr+64,ptr+96)
         self.bad(mutation)
+    def test_valid_indirect_bank_header_with_aligned_child_rows(self):
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        device_at=36
+        # The capture stores the ORIGINAL root pointer, not the nested
+        # child address. A 76-byte header precedes the real 26-byte rows.
+        base=36+DEVICE_BYTES
+        nested=bytearray(76+2*ROW_BYTES)
+        for i in range(7):
+            struct.pack_into("<I",nested,4*i,root+76+200*i)
+        struct.pack_into("<HBB",nested,76,1,7,1)
+        struct.pack_into("<H",nested,76+ROW_BYTES,0xffff)
+        struct.pack_into("<I",source,base+4,len(nested))
+        source[base+8:]=nested
+        report=parse_capture(bytes(source))
+        self.assertEqual(
+            report["source_rows_content_hashes"][0]["source_layout"],
+            "indirect_bank_header")
+        self.assertEqual(
+            report["source_rows_content_hashes"][0]["active_rows"],1)
     def test_wrong_source_row_marker_count(self):
         self.bad(lambda x:struct.pack_into("<I",x,28,0))
     def test_claimed_unreferenced_source_list(self):
