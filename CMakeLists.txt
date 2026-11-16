@@ -1068,6 +1068,25 @@ if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
         PRIVATE cxx_std_23)
     add_test(NAME p005_one_original_midi_ram_state_no_fallback
         COMMAND awe64_p005_original_creative_host_adapter_test)
+    # Original guest pre-Bank2 source MIDI order. Public fixture is
+    # synthetic; exact Win95 register/timing parity is separately gated.
+    add_executable(awe64_p005_prebank2_source_sequence_test
+        tests/p005_vst3_prebank2_source_sequence.cpp)
+    target_include_directories(awe64_p005_prebank2_source_sequence_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_prebank2_source_sequence_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_prebank2_source_sequence_test
+        PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_prebank2_source_sequence_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_prebank2_source_sequence_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_C4_D4_original_prebank2_no_stress
+        COMMAND awe64_p005_prebank2_source_sequence_test)
     if(AWE64_BUILD_P001_VST3)
         target_link_libraries(AWE64_Gold_P001
             PRIVATE original_creative_vxd_live)
