@@ -14,6 +14,7 @@
 #endif
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
+#include "pluginterfaces/vst/ivstunits.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
@@ -247,6 +248,62 @@ struct Instance {
         if(component){component->setActive(false);component->terminate();component->release();}
     }
 };
+void verifyActualSf2HostProgramNames(IPluginFactory* factory) {
+    // Query the *actual Windows VST3 IUnitInfo*, not an internal C++
+    // inventory or synthetic SF2 parser approximation.
+    Instance active(factory,true);
+    IUnitInfo* units=nullptr;
+    require(active.component->queryInterface(
+            IUnitInfo::iid,reinterpret_cast<void**>(&units))==kResultOk &&
+            units,"VST3 IUnitInfo program browser interface unavailable");
+    try {
+        require(units->getUnitCount()==1,
+                "actual SF2 host unit hierarchy missing");
+        UnitInfo root{};
+        require(units->getUnitInfo(0,root)==kResultOk &&
+                root.id==kRootUnitId &&
+                root.parentUnitId==kNoParentUnitId &&
+                root.programListId==0x125A0033,
+                "actual SF2 root unit/program-list binding wrong");
+        require(units->getProgramListCount()==1,
+                "loaded source SF2 does not present exactly one program list");
+        ProgramListInfo list{};
+        require(units->getProgramListInfo(0,list)==kResultOk &&
+                list.id==0x125A0033 && list.programCount==3,
+                "host exposed missing/phantom 128 SF2 program entries");
+        const std::array<const char16_t*,3> expected{
+            u"B00000 P007: SYNTHBANK",
+            u"B00000 P009: SECOND",
+            u"B00128 P000: DRUM"};
+        for(int32 i=0;i<3;++i) {
+            String128 name{};
+            require(units->getProgramName(list.id,i,name)==kResultOk,
+                    "real VST3 host could not query PHDR preset name");
+            const auto* check=expected[static_cast<std::size_t>(i)];
+            std::size_t off=0;
+            while(check[off]!=0) {
+                require(off<128u &&
+                        name[off]==static_cast<TChar>(check[off]),
+                        "real VST3 unit program name/bank/program mismatch");
+                ++off;
+            }
+            require(off<128u && name[off]==0,
+                    "real VST3 PHDR name contains phantom suffix");
+        }
+        String128 wrong{};
+        require(units->getProgramName(list.id,3,wrong)!=kResultOk &&
+                units->getProgramName(0x125A0034,0,wrong)!=kResultOk,
+                "VST3 host exposed nonexistent PHDR program or bank");
+        std::cout<<"P003_EXPORTED_VST3_REAL_SF2_HOST_PROGRAM_NAMES_PASS"
+                    " exact_phdr_rows=3 fake_128_slots=0"
+                    " bank0_program7=TRUE bank0_program9=TRUE"
+                    " bank128_program0=TRUE original_names=TRUE\n";
+    } catch(...) {
+        units->release();
+        throw;
+    }
+    units->release();
+}
 void addNoteOffEvent(EventList& list,int channel,int pitch) {
     Event e{};
     e.type=Event::kNoteOffEvent;e.busIndex=0;e.sampleOffset=101;
@@ -1494,6 +1551,7 @@ int wmain(int argc,wchar_t** argv){
         require(_wputenv_s(L"AWE64_P002_PRIVATE_ROM_BANK_PATH",
                            twoProgramSf2Path.c_str())==0,
                 "set multi-program actual ROM SF2 bank");
+        verifyActualSf2HostProgramNames(factory);
         verifyRealSf2ProjectRecall(factory);
         verifyRealSf2ProjectAudioRoundtrip(factory);
         const auto defaultProgram7=renderBankProgramChange(factory,-1);
