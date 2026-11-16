@@ -1,6 +1,7 @@
 // P005: actual source-port RIFF -> resource builder -> MIDI chip port.
 // Strictly synthetic SF2 bytes / source tables: NOT Win95 driver parity.
 #include "P005OriginalCreativeSf2NoteStage.hpp"
+#include "P005OriginalCreativeBankCatalog.hpp"
 #include "P005OriginalCreativeHostAdapter.hpp"
 #include <array>
 #include <cstdint>
@@ -9,6 +10,7 @@
 using namespace awe64::original_vxd;
 using awe64::vst3::P005OriginalCreativeSf2NoteStage;
 using awe64::vst3::P005OriginalCreativeHostAdapter;
+using awe64::vst3::P005OriginalCreativeBankCatalog;
 #define CHECK(x) do{if(!(x)){std::fprintf(stderr,"P005_NOTE_STAGE_FAIL:%d %s\n",__LINE__,#x);return 1;}}while(false)
 using B=std::vector<std::uint8_t>;
 struct Chip {
@@ -146,6 +148,50 @@ int main(){
     CHECK(sourceMatched.program(0u,9u)==MidiResult::MissingSource);
     sourceMatched.resetNonRealtime();
     CHECK(!sourceMatched.active());
+
+    // Multi-note bank: stage C4 and D4 independently with the ORIGINAL
+    // SF2 reader/compiler. The catalog must own both source descriptors
+    // and all 288 physical VXD slot-row records before MIDI starts.
+    P005OriginalCreativeBankCatalog catalog{};
+    CHECK(!catalog.importAuthenticatedOriginalDirectory(slots,false));
+    CHECK(catalog.importAuthenticatedOriginalDirectory(slots,true));
+    CHECK(catalog.sourceSlotCount()==288u && catalog.zoneCount()==0u);
+    CHECK(catalog.appendVerifiedNoteContext(stage));
+    CHECK(stage.prepareNonRealtime(file,1u,7u,62u,100u,original,states,true)==
+          Sf2BuildStatus::Ok);
+    CHECK(catalog.appendVerifiedNoteContext(stage));
+    CHECK(catalog.zoneCount()==2u);
+    CHECK(catalog.sealNonRealtime());
+    CHECK(catalog.ready());
+    CHECK(!catalog.sealNonRealtime());
+    CHECK(!catalog.appendVerifiedNoteContext(stage));
+    // Deliberately invalidate the CALLER'S original row array: the
+    // sealed catalog retains its own authenticated source record copy.
+    slot5[0].original_program_byte=17u;
+    CHECK(catalog.view().original_program_map.slots[5].rows[0]
+              .original_program_byte==7u);
+    // Even the stage can now be reused/reset: its descriptor buffers
+    // have already been copied into the stable catalog.
+    stage.clearNonRealtime();
+    CHECK(catalog.zoneCount()==2u && catalog.view().zones.size()==2u);
+    Chip chip3{};
+    P005OriginalCreativeHostAdapter<Chip> originalFullBank{};
+    CHECK(originalFullBank.activate(chip3,catalog.view(),true));
+    CHECK(originalFullBank.controller(0u,0u,1u)==MidiResult::Applied);
+    CHECK(originalFullBank.program(0u,7u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOn(0u,62u,100u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOff(0u,62u)==MidiResult::Applied);
+    CHECK(originalFullBank.sharedRuntime()->scratch.device==
+          &originalFullBank.sharedRuntime()->midi.device);
+    CHECK(chip3.writes>0u);
+    originalFullBank.resetNonRealtime();
+    catalog.resetNonRealtime();
+    CHECK(!catalog.ready() && catalog.zoneCount()==0u);
+    CHECK(catalog.sourceSlotCount()==0u);
+    std::puts("P005_SOURCE_288_SLOT_2_NOTE_CATALOG_PASS borrowed_rows_OWNED stable_midi_runtime=TRUE");
+
     std::puts("P005_REAL_SOURCE_READER_RESOURCE_BUILDER_TO_VST3_MIDI_PASS synthetic_source_only=TRUE original_win95_parity=NOT_PROVEN");
     std::puts("P005_ORIGINAL_288_SLOT_BANK_ROW_IDENTITY_PASS ephemeral_view_lifetime_safe=TRUE 77_PHDR_PRESERVED=TRUE");
     return 0;
