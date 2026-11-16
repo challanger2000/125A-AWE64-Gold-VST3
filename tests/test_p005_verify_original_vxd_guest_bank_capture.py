@@ -123,6 +123,31 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         self.assertEqual(rows["total_rows_including_sentinel"],130)
         self.assertEqual(rows["source_layout"],"indirect_bank_header")
         self.assertEqual(rows["legacy_trailing_unclassified_bytes"],64)
+    def test_original_capture_geometry_exposes_missing_nested_regions(self):
+        # Geometry from the real owner file, all payload bytes synthetic.
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        base=36+DEVICE_BYTES
+        table=bytearray(10790)
+        offsets=(76,3456,4184,5582,5942,8918,19850)
+        for index,offset in enumerate(offsets):
+            struct.pack_into("<I",table,index*4,root+offset)
+        for index in range(129):
+            struct.pack_into("<HBB",table,76+index*ROW_BYTES,
+                             1,index,0)
+        struct.pack_into("<H",table,76+129*ROW_BYTES,0xffff)
+        struct.pack_into("<I",source,base+4,len(table))
+        source[base+8:]=table
+        report=parse_capture(bytes(source))
+        observed=report["source_rows_content_hashes"][0]
+        self.assertEqual(observed["active_rows"],129)
+        self.assertEqual(observed["legacy_trailing_unclassified_bytes"],7334)
+        nested=observed["additional_nested_regions"]
+        self.assertEqual(nested["bounded_regions"],6)
+        self.assertEqual(nested["bounded_regions_fully_captured"],5)
+        self.assertEqual(nested["bounded_regions_not_fully_captured"],1)
+        self.assertFalse(nested["last_pointer_within_capture"])
+        self.assertFalse(nested["entire_nested_bank_attested"])
     def test_legacy_indirect_capture_missing_child_sentinel(self):
         source=bytearray(fake_capture())
         root=0xc30c0ff0
