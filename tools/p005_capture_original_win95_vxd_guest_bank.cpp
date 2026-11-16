@@ -120,11 +120,6 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
             originalBytes.insert(originalBytes.end(),row.begin(),row.end());
             ++totalRows;
             const auto marker=u16(row.data());
-            // A matching memory page and a later FFFF word do not prove
-            // this is a Creative 26-byte program list. Reject impossible
-            // MIDI program/bank fields before accepting any terminator.
-            if(marker!=0xffffu && (row[2u]>127u || row[3u]>128u))
-                return false;
             if(marker==0xffffu) {
                 // A non-NULL source pointer CAN reference just a
                 // terminal FFFF row. Preserve that original empty
