@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 
 ORIGINAL_IO_BLOB_SHA1 = "dbb3530af572426f3ef9e990d3158142c9bf841f"
-MARKER = "P003_CPU_GUEST_PHYSICAL_8_16_32_V3"
+MARKER = "P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK"
 HEADER = "#define NPORTS 65536 /* PC/AT supports 64K ports */"
 IN_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) in w(%04X) = %04X\\n", CS, cpu_state.pc, in_smm, found, qfound, port, ret);'
 OUT_HOOK = 'io_log("[%04X:%08X] (%i, %i, %04i) outw(%04X, %04X)\\n", CS, cpu_state.pc, in_smm, found, qfound, port, val);'
@@ -25,10 +25,54 @@ LOGGER = r'''
  * value as unknown ('r') while preserving CPU-clock, port and order.
  * The source EMU8K trace independently contains full 16-bit read values.
  * Chip model, original Creative driver and sound device remain intact.
+ * V4 optionally snapshots valid guest stack-frame return addresses
+ * and the CPU general registers at the actual physical callback.
+ * If the stack is unreadable or does not grow to higher addresses,
+ * the address is FFFFFFFF (unknown), NEVER guessed.
  * No original DSP source, driver or sound card handler is modified. */
 static FILE *p003_cpu_io_file;
 static int p003_cpu_io_initialized;
 static unsigned long long p003_cpu_io_seq;
+static int p003_guest_callstack_enabled;
+static int p003_guest_stack_usable;
+/* Only read already-MMU-mapped guest RAM pages through the CPU's
+ * translated read cache. Zero guest writes; no MMIO and no x86
+ * instruction emulation. An unmapped page yields UNKNOWN. */
+static int p003_guest_stack_word(uint32_t ebp, uint32_t off,
+                                  uint32_t *value)
+{
+    const uint64_t linear64=(uint64_t) ss + (uint64_t) ebp + off;
+    uintptr_t lookup;
+    uint32_t linear;
+    if (linear64>0xfffffffbULL || (ebp & 3u))
+        return 0;
+    linear=(uint32_t)linear64;
+    if ((linear & 4095u)>4092u)
+        return 0;
+    lookup=readlookup2[linear >> 12];
+    if (lookup==(uintptr_t)-1 || lookup==0)
+        return 0;
+    memcpy(value,(const void *)(lookup+(uintptr_t)linear),4);
+    return 1;
+}
+static void p003_guest_stack_returns(uint32_t *retn)
+{
+    uint32_t frame=EBP;
+    unsigned i;
+    for (i=0;i<4u;++i) retn[i]=0xffffffffu;
+    if (!p003_guest_stack_usable)return;
+    for (i=0;i<4u;++i) {
+        uint32_t next;
+        if (!p003_guest_stack_word(frame,4u,&retn[i]) ||
+            !p003_guest_stack_word(frame,0u,&next)) {
+            retn[i]=0xffffffffu;
+            return;
+        }
+        if (next<=frame || next-frame>65536u ||
+            (next & 3u))return;
+        frame=next;
+    }
+}
 static void p003_cpu_io_close(void)
 {
     if (p003_cpu_io_file) {
@@ -49,19 +93,46 @@ static void p003_cpu_io_note(char direction, uint16_t port, uint16_t value)
         if (path && *path) {
             p003_cpu_io_file = fopen(path, "wb");
             if (p003_cpu_io_file) {
-                fputs("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "
-                      "CPU_TSC_AND_REMAINING_CYCLES_NOT_YET_CLOCK_CALIBRATED\n",
-                      p003_cpu_io_file);
+                const char *stack=getenv("AWE64_P003_GUEST_CALLSTACK");
+                p003_guest_callstack_enabled=stack && stack[0]=='1' &&
+                                            stack[1]=='\0';
+                p003_guest_stack_usable=p003_guest_callstack_enabled;
+                if (p003_guest_callstack_enabled)
+                    fputs("# P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK "
+                          "RETURN_EIP_HINTS_AND_GPRS_UNVERIFIED\n",
+                          p003_cpu_io_file);
+                else
+                    fputs("# P003_CPU_GUEST_PHYSICAL_8_16_32_V3 "
+                          "CPU_TSC_AND_REMAINING_CYCLES_NOT_YET_CLOCK_CALIBRATED\n",
+                          p003_cpu_io_file);
                 atexit(p003_cpu_io_close);
             }
         }
     }
-    if (p003_cpu_io_file)
-        fprintf(p003_cpu_io_file,
-                "%c %llu %d %04X %08X %04X %04X %llu\n",
-                direction, (unsigned long long) tsc, (int) cycles,
-                (unsigned) CS, (unsigned) cpu_state.pc,
-                (unsigned) port, (unsigned) value, p003_cpu_io_seq++);
+    if (p003_cpu_io_file) {
+        if (p003_guest_callstack_enabled) {
+            uint32_t retn[4];
+            p003_guest_stack_returns(retn);
+            fprintf(p003_cpu_io_file,
+                    "%c %llu %d %04X %08X %04X %04X %llu "
+                    "%08X %08X %08X %08X %08X "
+                    "%08X %08X %08X %08X\n",
+                    direction, (unsigned long long) tsc, (int) cycles,
+                    (unsigned) CS, (unsigned) cpu_state.pc,
+                    (unsigned) port, (unsigned) value, p003_cpu_io_seq++,
+                    (unsigned) EBP, (unsigned) retn[0],
+                    (unsigned) retn[1], (unsigned) retn[2],
+                    (unsigned) retn[3],
+                    (unsigned) EAX, (unsigned) EBX,
+                    (unsigned) ECX, (unsigned) EDX);
+        } else {
+            fprintf(p003_cpu_io_file,
+                    "%c %llu %d %04X %08X %04X %04X %llu\n",
+                    direction, (unsigned long long) tsc, (int) cycles,
+                    (unsigned) CS, (unsigned) cpu_state.pc,
+                    (unsigned) port, (unsigned) value, p003_cpu_io_seq++);
+        }
+    }
 }
 /* Exact EMU8K byte-handler calling semantics, from the SHA-pinned original:
  * outb(even,val) -> outw(even,val); outb(odd,val) -> outw(even,val<<8).
@@ -123,6 +194,10 @@ def instrument(raw: bytes, pin: str | None = ORIGINAL_IO_BLOB_SHA1) -> bytes:
     if (source.count('#include <86box/timer.h>') != 1 or
             source.count('#include "cpu.h"') != 1):
         raise ValueError("Pinned guest CPU/TSC header prerequisites missing")
+    if source.count('#include <86box/86box.h>') != 1:
+        raise ValueError("Original 86Box API include anchor missing")
+    source = source.replace('#include <86box/86box.h>',
+                            '#include <86box/86box.h>\n#include <86box/mem.h>',1)
     source = source.replace(HEADER, HEADER + "\n" + LOGGER, 1)
     # The real AWE32/EMU8000 handler registers 16-bit callbacks.
     # Guest OUTL/INL calls enter these same handlers through io.c's
