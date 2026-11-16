@@ -107,21 +107,47 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
     for(std::size_t slot=0u;slot<Slots;++slot) {
         const auto ptr=u32(next.device.data()+PointerOffset+4u*slot);
         if(ptr==0u)continue;
-        // A Win95 SoundFont bank HEADER may start with an array of
-        // increasing guest pointers; it is NOT the 26-byte row list.
-        // Reject this known false-positive layout until its real
-        // indirect directory is handled explicitly.
+        ++next.nonzeroSlotPointers;
+        if(next.rows.contains(ptr))continue;
+        // Real Creative bank slots can point to a bank HEADER containing
+        // further guest VAs. The first points to the 26-byte preset table.
+        // Preserve the original root VA and all original bytes between
+        // root and the final aligned child-table sentinel.
         std::array<std::uint8_t,12> header{};
         if(!virtualRead(ram,cr3,ptr,header.data(),header.size()))
             return false;
-        const auto a=u32(header.data());
-        const auto b=u32(header.data()+4u);
-        const auto c=u32(header.data()+8u);
-        if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
-           a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u))
-            return false; // indirect bank header, not a direct program list
-        ++next.nonzeroSlotPointers;
-        if(next.rows.contains(ptr))continue;
+        const auto child=u32(header.data());
+        const auto second=u32(header.data()+4u);
+        const auto third=u32(header.data()+8u);
+        const bool indirect=child>ptr && child-ptr>=28u &&
+            child-ptr<=4096u && child<second && second<third &&
+            (child&0xff000000u)==(ptr&0xff000000u);
+        if(indirect) {
+            const auto prefix=std::size_t{child-ptr};
+            bool terminated=false;
+            std::size_t rowCount=0u;
+            for(;rowCount<MaxRows;++rowCount) {
+                if(totalRows+rowCount>=MaxRows)return false;
+                const std::uint64_t address=
+                    std::uint64_t{child}+rowCount*RowBytes;
+                std::array<std::uint8_t,RowBytes> row{};
+                if(!virtualRead(ram,cr3,address,row.data(),row.size()))
+                    return false;
+                if(u16(row.data())==0xffffu) {
+                    terminated=true;
+                    ++rowCount;break;
+                }
+                if(u16(row.data())!=0u)++sourceActiveRows;
+            }
+            if(!terminated || rowCount>MaxRows-totalRows)return false;
+            totalRows+=rowCount;
+            const auto byteCount=prefix+rowCount*RowBytes;
+            std::vector<std::uint8_t> originalBytes(byteCount);
+            if(!virtualRead(ram,cr3,ptr,originalBytes.data(),byteCount))
+                return false;
+            next.rows.emplace(ptr,std::move(originalBytes));
+            continue;
+        }
         std::vector<std::uint8_t> originalBytes{};
         bool terminated=false;
         for(std::size_t index=0u;index<MaxRows;++index) {
