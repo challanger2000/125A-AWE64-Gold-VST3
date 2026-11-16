@@ -28,7 +28,6 @@ namespace {
 constexpr int kVoice = 29;      // single test voice, not the Creative P002 allocator
 constexpr uint32_t kStart = 458995u, kLoopBegin = 459001u, kLoopEnd = 467282u;
 // P001 test-only ROM region from the original AWE32 AWETEST tool, NOT GM/SBK.
-constexpr uint8_t kState[8] = {'1','2','5','A','P','0','0','1'};
 // Write-only sample-clock evidence. All I/O at setActive(false), NOT process().
 bool savePrivateNativeRegisterOuts(
     const std::filesystem::path& output,
@@ -158,6 +157,16 @@ tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
 }
 tresult PLUGIN_API Minimal::setActive(TBool state) {
     if (!state) {
+        // Preserve logical bank/program/CC for the next activation, but
+        // never save sounding voices, source timers or VXD heap pointers.
+        // A newer, unconsumed host setState always takes precedence.
+        if(p002BankEnabled_ &&
+           pendingBankState_.load(std::memory_order_acquire)==
+               state::kNoSelection) {
+            const auto latest=publishedBankState_.load(std::memory_order_acquire);
+            if(latest!=state::kNoSelection)
+                pendingBankState_.store(latest,std::memory_order_release);
+        }
         const bool nativeClockVerified=!clockedNativeRamFailed_;
         const bool traceSaved=privateNativeRegisterTracePath_.empty() ||
             savePrivateNativeRegisterOuts(
@@ -492,6 +501,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         chip_.writePort(0xa20u,0x0004u);
         p002DiagnosticEnabled_=true;
     }
+    // Restored host state is applied only AFTER loading the real SF2
+    // inventory on this non-RT activation thread. A missing bank/program
+    // leaves the genuine loaded SF2 selection intact, never aliases.
+    if(p002BankEnabled_)applyPendingBankState();
     active_=true; playingKey_=-1;
     p002Started_.fill(false);
     p002KeyDown_.fill(false);
@@ -728,6 +741,31 @@ bool Minimal::privateWin95MidiOutReset() noexcept {
     privateWin95SourceResetDone_=true;
     return true;
 }
+void Minimal::publishBankState() noexcept {
+    if(!p002BankEnabled_ || !p002RomBank_.ready())return;
+    const state::BankSelection value{
+        p002RomBank_.currentBank(),
+        p002RomBank_.currentProgram(),
+        p002RomBank_.currentCc7(),
+        p002RomBank_.currentCc10(),
+        p002RomBank_.currentCc11()};
+    if(state::valid(value))
+        publishedBankState_.store(state::pack(value),
+                                  std::memory_order_release);
+}
+void Minimal::applyPendingBankState() noexcept {
+    if(!p002BankEnabled_ || !p002RomBank_.ready())return;
+    const auto pending=pendingBankState_.exchange(
+        state::kNoSelection,std::memory_order_acq_rel);
+    if(const auto selection=state::unpack(pending)) {
+        // This only modifies future logical NoteOns (no chip writes).
+        // Exact SF2 PHDR validation happens atomically before mutation.
+        (void)p002RomBank_.restoreSelection(
+            selection->bank,selection->program,
+            selection->cc7,selection->cc10,selection->cc11);
+    }
+    publishBankState();
+}
 bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
     // This exact owner capture contains four MIDI note events only;
     // any additional controller would change register provenance.
@@ -825,6 +863,10 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
+    // A host can restore project state after setActive(). Consume the
+    // lock-free handoff only on this audio thread, before MIDI offsets.
+    // No heap/file/chip-register work is introduced by project recall.
+    if(p002BankEnabled_)applyPendingBankState();
     // Merge MIDI note events with the genuine VST3 IParameterChanges
     // CC64 stream in original sample-offset order. P001 receives exactly
     // the previous no-parameter path, while P002 private diagnostic can
@@ -1019,6 +1061,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             if(!p002RomBank_.controller(
                     controllerNumbers[static_cast<std::size_t>(controllerChoice)],
                     value))return kInvalidArgument;
+            publishBankState();
             ++controllerIndex[static_cast<std::size_t>(controllerChoice)];
             continue;
         }
@@ -1033,6 +1076,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             // Unsupported requested bank is an ignored MIDI selection,
             // never a silent alias and never an invalid DAW audio block.
             (void)p002RomBank_.selectExactSf2Bank(bank);
+            publishBankState();
             ++bankIndex;
             continue;
         }
@@ -1051,6 +1095,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             // Exact Creative 1996 missing-preset policy remains unproved.
             if(!p002RomBank_.ready())return kInvalidArgument;
             (void)p002RomBank_.programChange(value);
+            publishBankState();
             ++programIndex;
             continue;
         }
@@ -1080,19 +1125,56 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::getState(IBStream* stream) {
-    if(!stream) return kInvalidArgument;
+    if(!stream)return kInvalidArgument;
+    const auto pending=pendingBankState_.load(std::memory_order_acquire);
+    const auto published=publishedBankState_.load(std::memory_order_acquire);
+    const auto bits=pending!=state::kNoSelection?pending:published;
+    // Keep original P001 test projects exactly byte-compatible.
+    // Only a real loaded/host-restored SF2 selection uses V2 state.
+    if(const auto selection=state::unpack(bits)) {
+        auto bytes=state::encode(*selection);
+        int32 wrote=0;
+        return stream->write(bytes.data(),static_cast<int32>(bytes.size()),
+                             &wrote)==kResultOk &&
+               wrote==static_cast<int32>(bytes.size())?
+               kResultOk:kResultFalse;
+    }
+    auto legacy=state::kLegacyMagic;
     int32 wrote=0;
-    return stream->write(const_cast<uint8_t*>(kState),sizeof(kState),&wrote)==kResultOk &&
-           wrote==sizeof(kState) ? kResultOk : kResultFalse;
+    return stream->write(legacy.data(),static_cast<int32>(legacy.size()),
+                         &wrote)==kResultOk &&
+           wrote==static_cast<int32>(legacy.size())?
+           kResultOk:kResultFalse;
 }
 tresult PLUGIN_API Minimal::setState(IBStream* stream) {
-    if(!stream) return kInvalidArgument;
-    std::array<uint8_t,8> received{};
+    if(!stream)return kInvalidArgument;
+    std::array<std::uint8_t,8> prefix{};
     int32 count=0;
-    if(stream->read(received.data(),received.size(),&count)!=kResultOk ||
-       count!=static_cast<int32>(received.size()) ||
-       !std::equal(received.begin(),received.end(),std::begin(kState)))
+    if(stream->read(prefix.data(),static_cast<int32>(prefix.size()),
+                    &count)!=kResultOk ||
+       count!=static_cast<int32>(prefix.size()))
         return kResultFalse;
-    return kResultOk; // no bank state promised before P002/P003
+    if(prefix==state::kLegacyMagic) {
+        pendingBankState_.store(state::kNoSelection,std::memory_order_release);
+        publishedBankState_.store(state::kNoSelection,std::memory_order_release);
+        return kResultOk;
+    }
+    if(prefix!=state::kMagic)return kResultFalse;
+    std::array<std::uint8_t,state::kStateSize> bytes{};
+    std::copy(prefix.begin(),prefix.end(),bytes.begin());
+    count=0;
+    if(stream->read(bytes.data()+prefix.size(),
+                    static_cast<int32>(bytes.size()-prefix.size()),
+                    &count)!=kResultOk ||
+       count!=static_cast<int32>(bytes.size()-prefix.size()))
+        return kResultFalse;
+    const auto parsed=state::decode(bytes);
+    if(!parsed)return kResultFalse; // CRC, version and range fail-closed
+    const auto bits=state::pack(*parsed);
+    // No UI-thread manipulation of the live Chip or mutable SoundFont.
+    // Audio thread or the next non-RT activation applies this state.
+    pendingBankState_.store(bits,std::memory_order_release);
+    publishedBankState_.store(bits,std::memory_order_release);
+    return kResultOk;
 }
 }
