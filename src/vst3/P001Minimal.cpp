@@ -1174,7 +1174,9 @@ tresult PLUGIN_API Minimal::setState(IBStream* stream) {
     // No UI-thread manipulation of the live Chip or mutable SoundFont.
     // Audio thread or the next non-RT activation applies this state.
     pendingBankState_.store(bits,std::memory_order_release);
-    publishedBankState_.store(bits,std::memory_order_release);
+    // The bank/audio thread publishes ONLY the actually accepted SF2
+    // selection. Publishing a requested but unavailable program here
+    // would race against the audio callback and misrepresent the state.
     return kResultOk;
 }
 }
