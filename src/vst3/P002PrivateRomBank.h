@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 namespace awe64::vst3 {
@@ -92,6 +93,12 @@ public:
         return native_checkpoint_active_;
     }
 private:
+    // Initial genuine DRY guest image validation. device+0x06 is the
+    // physical capacity (32), device+0x18 is a mutable voice counter.
+    // Requires genuinely idle rows, independent source attestation
+    // still comes from the private pack and SHA-gated tables.
+    [[nodiscard]] static bool acceptsOriginalIdleDeviceState(
+        std::span<const std::uint8_t> original_state) noexcept;
     // Test-only friend has no runtime entry point; uses synthetic state.
     friend struct P002PrivateRomBankCheckpointProbe;
     std::vector<std::uint8_t> bank_bytes_;
