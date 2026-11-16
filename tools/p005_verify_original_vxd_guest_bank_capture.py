@@ -71,7 +71,7 @@ def parse_capture(raw:bytes)->dict:
         at+=8
         require(address in pointers and address not in seen,
                 "unreferenced or duplicate original VXD guest pointer")
-        require(ROW_BYTES*2<=size<=ROW_BYTES*ROW_LIMIT and
+        require(ROW_BYTES<=size<=ROW_BYTES*ROW_LIMIT and
                 size%ROW_BYTES==0 and at+size<=len(raw),
                 "original 26-byte VXD program list truncated/oversized")
         blob=raw[at:at+size]
@@ -91,6 +91,8 @@ def parse_capture(raw:bytes)->dict:
                        "active_rows":count-1,"bytes_sha256":sha(blob)}
     require(set(seen)==pointers and at==len(raw),
             "incomplete, trailing or mismatched guest source regions")
+    require(sum(row["active_rows"] for row in seen.values())>0,
+            "no loaded/active original VXD preset rows captured")
     return {
         "schema":"125A-P005-PRIVATE-VXD-GUEST-CAPTURE-AUDIT-V1",
         "status":"STRUCTURE_VALID_SOURCE_PROVENANCE_STILL_REQUIRED",
