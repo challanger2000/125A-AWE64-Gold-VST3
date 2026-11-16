@@ -23,6 +23,9 @@ inline constexpr Steinberg::Vst::ParamID kP002PrivateDiagnosticCc64Param=0x125A0
 inline constexpr Steinberg::Vst::ParamID kP002PrivateProgramParam=0x125A00C0u;
 // Explicit PHDR bank selection (0..128); not a guessed Win95 CC0 bank map.
 inline constexpr Steinberg::Vst::ParamID kP003ExactSf2BankParam=0x125A00B0u;
+ // Normalized ordinal 0..1 maps across ONLY actual PHDR entries in the
+ // loaded bank. Unlike 0..127 MIDI Program Change this can cross banks.
+inline constexpr Steinberg::Vst::ParamID kP003Sf2PresetOrdinalParam=0x125A00D0u;
 // VST3 carries CC input legally through sample-accurate automation,
 // never LegacyMIDICCOutEvent. Only future original-source bank NoteOns
 // observe these MIDI-state values; existing hardware voices are untouched.
