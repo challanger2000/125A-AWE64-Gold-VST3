@@ -554,6 +554,16 @@ bool P002PrivateRomBank::exportVerifiedCreativeP005SourceTables(
     out=tables;
     return true;
 }
+bool P002PrivateRomBank::exportVerifiedCreativeP005VxdDeviceImage(
+    std::span<std::uint8_t> out) const noexcept {
+    // Source owner image is ONLY from the existing SHA-gated P002 loader.
+    // Failed requests cannot expose a stale device pointer table.
+    std::fill(out.begin(),out.end(),std::uint8_t{0});
+    if(!ready_ || !ram_mode_ || out.size()!=state_.size())
+        return false;
+    std::copy(state_.begin(),state_.end(),out.begin());
+    return true;
+}
 #endif
 
 } // namespace awe64::vst3
