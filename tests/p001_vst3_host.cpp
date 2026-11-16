@@ -53,6 +53,9 @@ struct Instance {
         SpeakerArrangement stereo=SpeakerArr::kStereo;
         require(audio->setBusArrangements(nullptr,0,&stereo,1)==kResultTrue,
                 "stereo bus negotiation failed");
+        require(audio->canProcessSampleSize(kSample32)==kResultTrue &&
+                audio->canProcessSampleSize(kSample64)==kResultTrue,
+                "real DLL does not advertise both output formats");
         ProcessSetup good{kRealtime,kSample32,512,44100.0};
         require(audio->setupProcessing(good)==kResultOk,"44.1k setup");
         for(const double rate:{48000.0,88200.0,96000.0}) {
@@ -260,9 +263,11 @@ std::vector<float> play(IPluginFactory* factory,bool release,
 // Partition-invariance catches resampler resets at process() boundaries.
 std::vector<float> renderActualHostRate(IPluginFactory* factory,
                                         std::uint32_t hostHz,
-                                        int blockFrames) {
+                                        int blockFrames,
+                                        bool float64=false) {
     Instance synth(factory);
-    ProcessSetup setup{kRealtime,kSample32,512,double(hostHz)};
+    ProcessSetup setup{kRealtime,float64?kSample64:kSample32,
+                       512,double(hostHz)};
     require(synth.audio->setupProcessing(setup)==kResultOk,
             "real VST3 rejected P004 host sample rate");
     const auto expectedLatency=
@@ -278,25 +283,38 @@ std::vector<float> renderActualHostRate(IPluginFactory* factory,
     for(int start=0;start<total;) {
         const int n=std::min(blockFrames,total-start);
         std::array<float,512> left{},right{};
-        float* buffers[]{left.data(),right.data()};
+        std::array<double,512> left64{},right64{};
+        float* buffers32[]{left.data(),right.data()};
+        double* buffers64[]{left64.data(),right64.data()};
         AudioBusBuffers bus{};
-        bus.numChannels=2;bus.channelBuffers32=buffers;
+        bus.numChannels=2;
+        if(float64)bus.channelBuffers64=buffers64;
+        else bus.channelBuffers32=buffers32;
         EventList events;
         if(noteOnAt>=start && noteOnAt<start+n)
             event(events,true,noteOnAt-start);
         if(noteOffAt>=start && noteOffAt<start+n)
             event(events,false,noteOffAt-start);
         ProcessData data{};
-        data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=float64?kSample64:kSample32;
         data.numSamples=n;data.numOutputs=1;data.outputs=&bus;
         data.inputEvents=&events;
         require(synth.audio->process(data)==kResultOk,
                 "real VST3 host-rate callback failed");
         for(int i=0;i<n;++i) {
-            require(std::isfinite(left[i]) && std::isfinite(right[i]),
-                    "real host-rate output not finite");
-            output.push_back(left[i]);
-            output.push_back(right[i]);
+            if(float64) {
+                require(std::isfinite(left64[i]) &&
+                        std::isfinite(right64[i]),
+                        "real host-rate double output not finite");
+                output.push_back(static_cast<float>(left64[i]));
+                output.push_back(static_cast<float>(right64[i]));
+            }else {
+                require(std::isfinite(left[i]) && std::isfinite(right[i]),
+                        "real host-rate output not finite");
+                output.push_back(left[i]);
+                output.push_back(right[i]);
+            }
         }
         start+=n;
     }
@@ -311,12 +329,23 @@ std::vector<float> renderActualHostRate(IPluginFactory* factory,
     return output;
 }
 void verifyActualMultiRateHost(IPluginFactory* factory) {
-    for(const auto rate:{48000u,88200u,96000u}) {
+    for(const auto rate:{44100u,48000u,88200u,96000u}) {
         const auto blocks512=renderActualHostRate(factory,rate,512);
         const auto blocks128=renderActualHostRate(factory,rate,128);
         require(blocks512==blocks128,
                 "host-rate PCM depends on DAW audio callback partition");
+        const auto double512=renderActualHostRate(factory,rate,512,true);
+        const auto double128=renderActualHostRate(factory,rate,128,true);
+        require(blocks512==double512 && blocks128==double128,
+                "Float64 changed source PCM compared to Float32");
+        require(double512==double128,
+                "Float64 PCM depends on DAW audio callback partition");
     }
+    std::cout<<"P004_ACTUAL_EXPORTED_VST3_FLOAT64_SOURCE_PCM_IDENTITY_PASS"
+             <<" rates=44100,48000,88200,96000"
+             <<" float32_and_float64_cast_equal=TRUE"
+             <<" original_emu8000_dsp=UNCHANGED"
+             <<" block_partition_independent=TRUE\n";
     std::cout<<"P004_ACTUAL_EXPORTED_VST3_MULTI_RATE_PASS"
              <<" rates=48000,88200,96000"
              <<" original_44100_chip_clock=UNCHANGED"
