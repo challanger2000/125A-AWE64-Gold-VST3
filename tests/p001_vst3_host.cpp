@@ -135,6 +135,18 @@ std::vector<float> play(IPluginFactory* factory,bool release,
                         std::vector<std::int16_t>* capturedStereo=nullptr) {
     Instance synth(factory);
     synth.activate();
+    // Required VST3 host contract: a legal zero-frame flush may omit
+    // every audio buffer. The unchanged original EMU8000 sample clock
+    // cannot advance. Ordinary P001 PCM tests below still compare
+    // the same exact note-on offset and chip-generated samples.
+    ProcessData flush{};
+    flush.processMode=kRealtime;
+    flush.symbolicSampleSize=kSample32;
+    flush.numSamples=0;
+    flush.numOutputs=0;
+    flush.outputs=nullptr;
+    require(synth.audio->process(flush)==kResultOk,
+            "exported VST3 refused zero-frame host flush");
     std::vector<float> output;
     output.reserve(512u*36u);
     if(capturedStereo) {
