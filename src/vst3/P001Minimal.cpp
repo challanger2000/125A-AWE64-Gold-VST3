@@ -847,20 +847,33 @@ void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
 tresult PLUGIN_API Minimal::process(ProcessData& data) {
     if (data.numSamples<0 || data.symbolicSampleSize!=kSample32)
         return kInvalidArgument;
-    // A host may legitimately flush MIDI/parameter changes without an audio
-    // buffer. Do not advance the EMU8000 clock on a zero-frame flush.
-    if (data.numSamples==0 && (!data.outputs || data.numOutputs==0))
-        return kResultOk;
-    if (data.numOutputs!=1 || !data.outputs ||
-        data.outputs[0].numChannels!=2 || !data.outputs[0].channelBuffers32)
-        return kInvalidArgument;
-    auto* left=data.outputs[0].channelBuffers32[0];
-    auto* right=data.outputs[0].channelBuffers32[1];
-    if (!left || !right) return kInvalidArgument;
+    // Hosts are allowed to flush MIDI/parameters at numSamples==0
+    // WITHOUT any audio buses or channel buffers. Process the changes
+    // at sample offset zero, but never render or advance chip time.
+    // A prior early return silently LOST valid Program/Bank/CC changes.
+    const bool noAudioFrames=data.numSamples==0;
+    float dummyLeft=0.f,dummyRight=0.f;
+    float* left=&dummyLeft;
+    float* right=&dummyRight;
+    if(!noAudioFrames) {
+        if(data.numOutputs!=1 || !data.outputs ||
+           data.outputs[0].numChannels!=2 ||
+           !data.outputs[0].channelBuffers32)
+            return kInvalidArgument;
+        left=data.outputs[0].channelBuffers32[0];
+        right=data.outputs[0].channelBuffers32[1];
+        if(!left || !right)return kInvalidArgument;
+    } else if(data.numOutputs!=0) {
+        // A zero-frame flush may include an output bus, but it must
+        // have the already-negotiated stereo layout if present.
+        if(data.numOutputs!=1 || !data.outputs ||
+           data.outputs[0].numChannels!=2)return kInvalidArgument;
+    }
     if (!active_ || !processing_ || !chip_.ready()) {
         std::fill_n(left,data.numSamples,0.f);
         std::fill_n(right,data.numSamples,0.f);
-        data.outputs[0].silenceFlags=0x3;
+        if(data.outputs && data.numOutputs==1)
+            data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
     // A host can restore project state after setActive(). Consume the
@@ -1121,7 +1134,8 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         ++midiIndex;
     }
     render(pos,data.numSamples,left,right);
-    data.outputs[0].silenceFlags=0; // conservative if held note just ended
+    if(data.outputs && data.numOutputs==1)
+        data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
 }
 tresult PLUGIN_API Minimal::getState(IBStream* stream) {
