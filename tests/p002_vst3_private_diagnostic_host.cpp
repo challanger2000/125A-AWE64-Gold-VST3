@@ -266,6 +266,35 @@ void verifyActualSf2HostProgramNames(IPluginFactory* factory) {
                 root.parentUnitId==kNoParentUnitId &&
                 root.programListId==0x125A0033,
                 "actual SF2 root unit/program-list binding wrong");
+        // The DAW must be able to resolve the program list from every
+        // real MIDI input channel, but never from audio/out-of-range
+        // buses. This calls the *exported VST3 IUnitInfo interface*.
+        for(const int32 channel:{0,1,2,15}) {
+            UnitID selected=-1;
+            require(units->getUnitByBus(
+                    kEvent,kInput,0,channel,selected)==kResultOk &&
+                    selected==kRootUnitId,
+                    "actual VST3 MIDI channel not bound to SF2 root unit");
+        }
+        for(const int32 invalid:{-1,16,127}) {
+            UnitID untouched=987;
+            require(units->getUnitByBus(
+                    kEvent,kInput,0,invalid,untouched)!=kResultOk &&
+                    untouched==987,
+                    "invalid MIDI channel fabricated VST3 unit route");
+        }
+        for(const auto type:{kAudio,kEvent}) {
+            UnitID untouched=987;
+            require(units->getUnitByBus(
+                    type,kOutput,0,0,untouched)!=kResultOk &&
+                    untouched==987,
+                    "VST3 output bus fabricated MIDI program root route");
+        }
+        UnitID missingBus=987;
+        require(units->getUnitByBus(
+                kEvent,kInput,1,0,missingBus)!=kResultOk &&
+                missingBus==987,
+                "VST3 non-existent MIDI bus fabricated program unit");
         require(units->getProgramListCount()==1,
                 "loaded source SF2 does not present exactly one program list");
         ProgramListInfo list{};
