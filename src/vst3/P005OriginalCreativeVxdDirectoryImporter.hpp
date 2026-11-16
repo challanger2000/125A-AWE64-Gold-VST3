@@ -160,6 +160,17 @@ public:
                 if(totalRows==kMaxTotalNormalizedRows)
                     return Result::TooManyRows;
                 const auto marker=read16(joined.data());
+                // Real captures can place a bank header here, with
+                // increasing nested guest pointers to its row arrays.
+                // Never publish that pointer directory as MIDI rows.
+                if(ordinal==0u) {
+                    const auto a=read32(joined.data());
+                    const auto b=read32(joined.data()+4u);
+                    const auto c=read32(joined.data()+8u);
+                    if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
+                       a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u))
+                        return Result::InvalidGuestMapping;
+                }
                 // This is the source's 26-byte row byte 0..3 ONLY.
                 // No synthesizer metadata is inferred from the tail.
                 rows[slot].push_back(
