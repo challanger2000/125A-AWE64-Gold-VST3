@@ -147,6 +147,70 @@ int main(){
     CHECK(!candidateOriginalWin95Mode2ReleaseWrites(
         OriginalWin95MonoSelection{32,
         OriginalWin95MonoSelectionReason::CompletelyIdle,0u}));
+    // Guarded ORIGINAL x86 dispatch: never select stereo/pair mode
+    // from a MIDI key, SF2 program or presumed 30-voice budget.
+    std::array<OriginalWin95AllocatorVoiceSnapshot,32> dispatchVoices{};
+    for(auto& v:dispatchVoices) {
+        v.complete=true;
+        v.internal_key_marker=0x0ffeu;
+        v.volume_target_hi16=0u;
+    }
+    OriginalWin95AllocatorDispatchInput source{};
+    source.original_device_physical_capacity=32u;
+    source.original_device_mode_count=32u;
+    source.original_x86_dispatch_mode=1u;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source)); // not verified means NO access
+    source.independently_verified_source_state=true;
+    auto dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==2u &&
+          dispatched->physical_voices[0]==30u &&
+          dispatched->physical_voices[1]==31u &&
+          dispatched->immediate_idle_pair);
+    // The mono legacy 30-music-voice scan cannot silently run on
+    // device+0x06 =32 until its source scan-limit was verified.
+    source.original_x86_dispatch_mode=0u;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source));
+    source.independently_verified_mode0_scan_ceiling=30u;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==1u &&
+          dispatched->physical_voices[0]==0u &&
+          dispatched->physical_voices[1]==kOriginalWin95NoVoice);
+    source.original_x86_dispatch_mode=2u;
+    source.original_mode2_packed_range=(32u<<8u)|30u;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==1u &&
+          dispatched->physical_voices[0]==30u);
+    // Genuine empty range produces original 0xFF NO CANDIDATE,
+    // while an unverifiable region produces nullopt instead.
+    source.original_mode2_packed_range=(32u<<8u)|32u;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==0u &&
+          dispatched->physical_voices[0]==kOriginalWin95NoVoice);
+    source.original_mode2_packed_range=(32u<<8u)|30u;
+    dispatchVoices[31].complete=false;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source));
+    dispatchVoices[31].complete=true;
+    source.original_x86_dispatch_mode=1u;
+    dispatchVoices[31].complete=false;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source));
+    dispatchVoices[31].complete=true;
+    source.original_x86_dispatch_mode=7u;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==0u &&
+          dispatched->physical_voices[0]==kOriginalWin95NoVoice);
+    source.original_x86_dispatch_mode=1u;
+    source.original_device_physical_capacity=33u;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source));
     std::puts("P003_ORIGINAL_X86_MODE1_MODE2_NUMERIC_CONTRACT_PASS"
               " original_emu8000_source_modified=NO"
               " original_driver_runtime_replayed=NO");
