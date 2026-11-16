@@ -1,0 +1,90 @@
+name: P003 V5 original 86Box read-only VoiceRow Windows build
+on:
+  push:
+    branches:
+      - research/p003-v5-voice-row-capture
+    paths:
+      - '.github/workflows/p003-v5-voice-row-windows-build.yml'
+      - 'tools/instrument_p003_v5_voice_rows.py'
+      - 'tests/test_p003_v5_ci_smoke.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  v5_windows_fork:
+    name: Original EMU8000, V4 I/O plus read-only V5 RAM state
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prepare the pinned 86Box compiler
+        uses: msys2/setup-msys2@v2
+        with:
+          release: true
+          update: true
+          msystem: UCRT64
+          install: zip
+          pacboy: >-
+            ninja:p
+            cmake:p
+            gcc:p
+            pkgconf:p
+            freetype:p
+            SDL2:p
+            zlib:p
+            libpng:p
+            openal:p
+            rtmidi:p
+            libslirp:p
+            fluidsynth:p
+            libserialport:p
+            qt5-static:p
+            vulkan-headers:p
+            llvm-openmp:p
+      - name: Verify original fork and create isolated V5 research copy
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V4 source tests failed' }
+          python -m unittest discover -s tests -p 'test_p003_v5_ci_smoke.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V5 source smoke tests failed' }
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --verify-only
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned src/io.c mismatch' }
+          New-Item -ItemType Directory -Path p003-v5-build-source -Force | Out-Null
+          Copy-Item -Path 'third_party/86box-awe32/*' -Destination 'p003-v5-build-source' -Recurse -Force
+          $before = (Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p003-v5-build-source/src/io.v4.c
+          if ($LASTEXITCODE -ne 0) { throw 'V4 instrumentation failed' }
+          python tools/instrument_p003_v5_voice_rows.py --instrumented-v4-io-c p003-v5-build-source/src/io.v4.c --output-v5-io-c p003-v5-build-source/src/io.v5.c
+          if ($LASTEXITCODE -ne 0) { throw 'V5 instrumentation failed' }
+          Move-Item -Path p003-v5-build-source/src/io.v5.c -Destination p003-v5-build-source/src/io.c -Force
+          Remove-Item p003-v5-build-source/src/io.v4.c
+          $after = (Get-FileHash p003-v5-build-source/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          if ($before -ne $after) { throw 'Original EMU8000 core changed' }
+          Write-Host "P003_V5_ORIGINAL_EMU8000_SOURCE_UNCHANGED sha256=$after"
+      - name: Configure original 86Box for Windows
+        working-directory: p003-v5-build-source
+        run: >-
+          cmake -S . -B build --preset regular
+          --toolchain ./cmake/flags-gcc-x86_64.cmake
+          -D QT=on
+      - name: Compile actual instrumented Windows emulator
+        working-directory: p003-v5-build-source
+        run: cmake --build build --parallel 4
+      - name: Verify built executable contains the V5 instrumentation
+        working-directory: p003-v5-build-source
+        run: |
+          cmake --install build
+          python -c "from pathlib import Path; p=Path('build/artifacts/86Box.exe'); b=p.read_bytes(); assert b'P003_V5_ROW_STATE' in b, 'missing compiled V5 hook'; print('P003_V5_WINDOWS_PE_HOOK_CONFIRMED size='+str(len(b)))"
+          sha256sum build/artifacts/86Box.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P003-V5-86Box-original-EMU8000-readonly-VoiceRow-Win64
+          path: p003-v5-build-source/build/artifacts/**
+          retention-days: 3
+          if-no-files-found: error
