@@ -1298,7 +1298,7 @@ tresult PLUGIN_API Minimal::getParamStringByValue(
     if(!text || !std::isfinite(normalized) ||
        normalized<0. || normalized>1.)
         return kInvalidArgument;
-    const auto* list=getProgramList(
+    auto* list=getProgramList(
         static_cast<ProgramListID>(sf2host::kProgramListId));
     if(!list || list->getCount()<=0)return kResultFalse;
     const auto count=static_cast<std::size_t>(list->getCount());
@@ -1312,7 +1312,7 @@ tresult PLUGIN_API Minimal::getParamValueByString(
         return SingleComponentEffect::getParamValueByString(
             tag,text,normalized);
     if(!text)return kInvalidArgument;
-    const auto* list=getProgramList(
+    auto* list=getProgramList(
         static_cast<ProgramListID>(sf2host::kProgramListId));
     if(!list || list->getCount()<=0)return kResultFalse;
     for(int32 index=0;index<list->getCount();++index) {
