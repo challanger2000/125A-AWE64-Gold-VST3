@@ -15,6 +15,10 @@ constexpr std::uint32_t extra_pair_penalty = 0x0c00u;
 struct Live {
     PortIo io;
     Allocation& result;
+    void observe(StereoHelperKind kind,std::uint8_t voice) const noexcept {
+        if(io.stereo_helper_observer)
+            io.stereo_helper_observer(io.stereo_helper_opaque,{kind,voice});
+    }
     [[nodiscard]] bool index(std::uint16_t value) noexcept {
         if(!io.out8(io.opaque,0x0e22,static_cast<std::uint8_t>(value))) return false;
         ++result.io_writes;
@@ -24,24 +28,32 @@ struct Live {
         if(!index(static_cast<std::uint16_t>(0x60u|voice)) ||
            !io.in32(io.opaque,0x0620,out)) return false;
         ++result.io_reads;
+        ++result.vtft_reads;
+        observe(StereoHelperKind::Vtft,voice);
         return true;
     }
     [[nodiscard]] bool dcysusv(std::uint8_t voice, std::uint16_t& out) noexcept {
         if(!index(static_cast<std::uint16_t>(0xa0u|voice)) ||
            !io.in16(io.opaque,0x0a20,out)) return false;
         ++result.io_reads;
+        ++result.dcysusv_reads;
+        observe(StereoHelperKind::Dcysusv,voice);
         return true;
     }
     [[nodiscard]] bool ccca(std::uint8_t voice, std::uint32_t& out) noexcept {
         if(!index(static_cast<std::uint16_t>(0x00u|voice)) ||
            !io.in32(io.opaque,0x0a20,out)) return false;
         ++result.io_reads;
+        ++result.ccca_reads;
+        observe(StereoHelperKind::Ccca,voice);
         return true;
     }
     [[nodiscard]] bool release(std::uint8_t voice) noexcept {
         if(!index(static_cast<std::uint16_t>(0xa0u|voice)) ||
            !io.out16(io.opaque,0x0a20,0x00ffu)) return false;
         ++result.io_writes;
+        ++result.completed_release_writes;
+        observe(StereoHelperKind::Release,voice);
         return true;
     }
 };
