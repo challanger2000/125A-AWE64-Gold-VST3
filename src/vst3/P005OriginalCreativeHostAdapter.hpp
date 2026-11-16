@@ -23,17 +23,31 @@ public:
         const P005OriginalCreativeHostAdapter&)=delete;
     // OFF THE AUDIO THREAD, after physical voices have stopped.
     void resetNonRealtime() noexcept {
-        runtime_.reset();chip_=nullptr;bank_=nullptr;source_={};
+        runtime_.reset();chip_=nullptr;bankSnapshot_={};
+        bankBound_=false;source_={};
     }
     // A passed flag alone is NOT authenticity proof. The VST3 owner
     // must first SHA-authenticate its external Creative source tables
     // and exact SF2 descriptors. Never call with synthetic fixtures
     // on a user audio path.
-    [[nodiscard]] bool activate(ChipT& chip,SourceBank& bank,
+    //
+    // Capture the tiny borrowed BANK VIEW by value. The original source
+    // callbacks keep an opaque pointer to this instance-owned snapshot,
+    // NEVER to a caller stack temporary. The underlying SF2 source,
+    // zones, and original VXD 288-slot rows must still be kept immutable
+    // and alive until resetNonRealtime() (outside process()).
+    [[nodiscard]] bool activate(ChipT& chip,SourceBank bank,
                                 bool independentlyAuthenticated) noexcept {
-        if(runtime_ || chip_ || bank_ || !chip.ready() ||
+        if(runtime_ || chip_ || bankBound_ || !chip.ready() ||
            !independentlyAuthenticated || bank.zones.empty())return false;
-        for(const auto& zone:bank.zones)
+        // When the VXD slot-directory is claimed authentic, every
+        // activated SF2 zone must resolve to its exact ORIGINAL slot/row
+        // identity. A mere set of 77 PHDR rows is not a 288-slot map.
+        const auto& map=bank.original_program_map;
+        if(map.authentic_driver_records_verified &&
+           map.slots.size()!=awe64::original_vxd::original_program_bank_slots)
+            return false;
+        for(const auto& zone:bank.zones) {
             if(!zone.original_zone_verified ||
                !zone.voice.source_verified ||
                !zone.voice.note_start_descriptor_verified ||
@@ -41,16 +55,44 @@ public:
                !zone.original_state.original_device_state_verified ||
                !zone.original_state.original_sample_placement_verified)
                 return false;
+            if(map.authentic_driver_records_verified) {
+                if(!zone.original_preset_identity_verified ||
+                   zone.original_bank_slot>=map.slots.size())
+                    return false;
+                const auto rows=map.slots[zone.original_bank_slot].rows;
+                if(zone.original_preset_row>=rows.size())
+                    return false;
+                const auto& original=rows[zone.original_preset_row];
+                if(original.original_source_marker==0u ||
+                   original.original_source_marker==0xffffu ||
+                   original.original_bank_byte!=zone.bank ||
+                   original.original_program_byte!=zone.program)
+                    return false;
+                // Reject a truncated original VXD row table. Runtime
+                // ProgramChange independently performs its own bounded
+                // source-ordered lookup and fallback.
+                bool terminated=false;
+                for(const auto& row:rows) {
+                    if(row.original_source_marker==0xffffu) {
+                        terminated=true;break;
+                    }
+                }
+                if(!terminated)return false;
+            }
+        }
         runtime_.emplace();
         if(!runtime_->bind_chip(chip)) {
             runtime_.reset();return false;
         }
-        chip_=&chip;bank_=&bank;
-        source_=awe64::original_vxd::original_verified_sf2_bank_source(bank);
+        chip_=&chip;
+        bankSnapshot_=bank;
+        bankBound_=true;
+        source_=awe64::original_vxd::original_verified_sf2_bank_source(
+            bankSnapshot_);
         return true;
     }
     [[nodiscard]] bool active() const noexcept {
-        return runtime_ && chip_ && bank_ &&
+        return runtime_ && chip_ && bankBound_ &&
                runtime_->attached_to(*chip_) &&
                !runtime_->midi.fault && !runtime_->scratch.faulted;
     }
@@ -96,7 +138,10 @@ public:
 private:
     std::optional<Runtime> runtime_{};
     ChipT* chip_=nullptr;
-    SourceBank* bank_=nullptr;
+    // Stable address for the original C++23 callback opaque value.
+    // Neither original port nor host consumes a temporary bank object.
+    SourceBank bankSnapshot_{};
+    bool bankBound_=false;
     Source source_{};
 };
 } // namespace awe64::vst3
