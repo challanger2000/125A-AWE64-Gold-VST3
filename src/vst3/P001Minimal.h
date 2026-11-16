@@ -55,6 +55,8 @@ public:
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* stream) override;
     // The ordinal automation parameter displays the real PHDR label
     // in the DAW instead of a meaningless normalized 0..1 fraction.
+    Steinberg::Vst::ParamValue PLUGIN_API getParamNormalized(
+        Steinberg::Vst::ParamID tag) override;
     Steinberg::tresult PLUGIN_API getParamStringByValue(
         Steinberg::Vst::ParamID tag,Steinberg::Vst::ParamValue normalized,
         Steinberg::Vst::String128 text) override;
@@ -90,6 +92,13 @@ private:
     // selection changes remain on the audio or activation thread.
     std::atomic<std::uint64_t> publishedBankState_{state::kNoSelection};
     std::atomic<std::uint64_t> pendingBankState_{state::kNoSelection};
+    // Only the audio/activation thread reads the mutable SF2 inventory.
+    // The DAW/UI thread reads one coherent lock-free pair: actual PHDR
+    // row (low 32 bits) and exact loaded PHDR count (high 32 bits).
+    // This prevents getParamNormalized() from showing stale 0% after a
+    // real MIDI ProgramChange, cross-bank recall, or PHDR automation.
+    static constexpr std::uint64_t kNoPublishedPresetView=~0ull;
+    std::atomic<std::uint64_t> publishedPresetView_{kNoPublishedPresetView};
     bool p002BankEnabled_=false; // private, original-source ROM-SF2 bank
     // Actual original Creative captured RAM source: loaded off-RT
     // into unchanged EMU8000 but no inferred RAM NoteOn voice plan.
