@@ -287,8 +287,14 @@ int main(){
     guestRows[2]=7u; // original Program Change C0=7
     guestRows[3]=1u; // original Creative CC0 bank=1
     guestRows[26]=0xffu;guestRows[27]=0xffu;
-    const std::array<P005OriginalGuestMemorySegment,1> guestSegments{{
-        {guestPointer,guestRows}
+    // Two original capture pages cover the same exact virtual byte
+    // interval; the first 26-byte VXD row crosses their boundary.
+    // Deliberately pass the source pages in reverse order.
+    const std::array<P005OriginalGuestMemorySegment,2> guestSegments{{
+        {guestPointer+15u,
+         std::span<const std::uint8_t>(guestRows).subspan(15u)},
+        {guestPointer,
+         std::span<const std::uint8_t>(guestRows).first(15u)}
     }};
     P005OriginalCreativeBankCatalog guestCatalog{};
     using ImportResult=P005OriginalVxdDirectoryImportResult;
