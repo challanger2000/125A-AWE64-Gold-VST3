@@ -315,7 +315,42 @@ int main() {
           sparseBank.currentCc7()==100u &&
           sparseBank.currentCc10()==64u &&
           sparseBank.currentCc11()==127u);
+    // EXACT PHDR navigation: sparse source rows [0,76,77] are
+    // logical browser ordinals [0,1,2] without 125 phantom slots.
+    CHECK(sparseBank.presetCount()==3u);
+    CHECK(sparseBank.currentPresetIndex()==1u);
+    CHECK(!sparseBank.selectPresetIndex(3u)); // must not alias bank 0
+    CHECK(sparseBank.currentPresetIndex()==1u);
+    CHECK(!sparseBank.stepPreset(0));
+    CHECK(!sparseBank.stepPreset(2));
+    CHECK(sparseBank.stepPreset(1)); // across bank 0 -> drum 128
+    CHECK(sparseBank.currentPresetIndex()==2u &&
+          sparseBank.currentBank()==128u &&
+          sparseBank.currentProgram()==2u);
+    CHECK(sparseBank.currentCc7()==100u &&
+          sparseBank.currentCc10()==64u &&
+          sparseBank.currentCc11()==127u);
+    CHECK(sparseBank.stepPreset(1)); // wrap to first real preset
+    CHECK(sparseBank.currentPresetIndex()==0u &&
+          sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==0u);
+    CHECK(sparseBank.stepPreset(-1)); // wrap back to drum bank
+    CHECK(sparseBank.currentPresetIndex()==2u &&
+          sparseBank.currentBank()==128u);
+    CHECK(sparseBank.stepPreset(-1));
+    CHECK(sparseBank.currentPresetIndex()==1u &&
+          sparseBank.currentBank()==0u &&
+          sparseBank.currentProgram()==77u);
+    CHECK(sparseBank.selectPresetIndex(0u));
+    CHECK(sparseBank.currentPresetIndex()==0u &&
+          sparseBank.currentProgram()==0u);
+    CHECK(sparseBank.selectPresetIndex(1u));
+    CHECK(sparseBank.currentPresetIndex()==1u &&
+          sparseBank.currentProgram()==77u);
     sparseBank.clear();
+    CHECK(sparseBank.currentPresetIndex()==0u);
+    CHECK(!sparseBank.stepPreset(-1));
+    CHECK(!sparseBank.selectPresetIndex(0u));
     CHECK(sparseBank.presetCount()==0u);
     CHECK(!sparseBank.programChange(77u));
     CHECK(sparseBank.currentProgram()==0u);
