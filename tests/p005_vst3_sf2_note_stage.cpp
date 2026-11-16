@@ -196,6 +196,18 @@ int main(){
     CHECK(originalFullBank.activateOwnedOriginalCatalogNonRealtime(
         chip3,catalog,true));
     CHECK(originalFullBank.sourceBound());
+    CHECK(catalog.runtimeLeased());
+    // The owned 288-slot rows and zone descriptors are in use by
+    // the original C++23 MIDI callbacks. A premature host reset must
+    // FAIL without invalidating any borrowed span.
+    CHECK(!catalog.resetNonRealtime());
+    CHECK(catalog.ready() && catalog.zoneCount()==2u);
+    Chip forbiddenChip{};
+    P005OriginalCreativeHostAdapter<Chip> forbiddenOwner{};
+    CHECK(!forbiddenOwner.activateOwnedOriginalCatalogNonRealtime(
+        forbiddenChip,catalog,true));
+    CHECK(!forbiddenOwner.sourceBound());
+    CHECK(catalog.runtimeLeased() && originalFullBank.active());
     CHECK(originalFullBank.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(originalFullBank.program(0u,7u)==MidiResult::Applied);
     CHECK(originalFullBank.noteOn(0u,60u,100u)==MidiResult::Applied);
@@ -228,7 +240,18 @@ int main(){
           &originalFullBank.sharedRuntime()->midi.device);
     CHECK(chip3.writes>0u);
     originalFullBank.resetNonRealtime();
-    catalog.resetNonRealtime();
+    CHECK(!catalog.runtimeLeased());
+    // Non-RT reactivation against the SAME sealed source must be
+    // possible after detaching the previous original MIDI runtime.
+    Chip reboundChip{};
+    P005OriginalCreativeHostAdapter<Chip> reboundOwner{};
+    CHECK(reboundOwner.activateOwnedOriginalCatalogNonRealtime(
+        reboundChip,catalog,true));
+    CHECK(catalog.runtimeLeased());
+    CHECK(!catalog.resetNonRealtime());
+    reboundOwner.resetNonRealtime();
+    CHECK(!catalog.runtimeLeased());
+    CHECK(catalog.resetNonRealtime());
     CHECK(!catalog.ready() && catalog.zoneCount()==0u);
     CHECK(catalog.sourceSlotCount()==0u);
     std::puts("P005_SOURCE_288_SLOT_2_NOTE_CATALOG_PASS borrowed_rows_OWNED stable_midi_runtime=TRUE");
