@@ -235,6 +235,7 @@ jobs:
             build-p002/Release/awe64_p005_original_win95_guest_bank_capture.exe
             tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd
             tools/p005_verify_original_vxd_guest_bank_capture.py
+            tools/p005_verify_nested_guest_regions.py
             docs/P005-ORIGINAL-GUEST-MEMORY-CAPTURE-TOOL.md
           retention-days: 3
           if-no-files-found: error
