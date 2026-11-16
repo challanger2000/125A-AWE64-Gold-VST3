@@ -120,6 +120,21 @@ int main() {
     CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
     CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
     CHECK(catalog.resetNonRealtime());
+    // The seventh 32-bit header pointer straddles byte 26 of a
+    // 26-byte program-row buffer. Supply that header through three
+    // consecutive guest segments; the parser must fetch all 28 bytes.
+    const std::array<P005OriginalGuestMemorySegment,3> splitHeader{{
+        {bankRoot+27u,
+         std::span<const std::uint8_t>(indirectBank).subspan(27u)},
+        {bankRoot,
+         std::span<const std::uint8_t>(indirectBank).first(26u)},
+        {bankRoot+26u,
+         std::span<const std::uint8_t>(indirectBank).subspan(26u,1u)}
+    }};
+    CHECK(Importer::importNonRealtime(
+        catalog,indirectDevice,splitHeader,true)==Result::Ok);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.resetNonRealtime());
     put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0u);
     CHECK(Importer::importNonRealtime(
         catalog,indirectDevice,indirectMemory,true)==Result::MissingSentinel);
