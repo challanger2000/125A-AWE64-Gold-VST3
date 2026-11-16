@@ -2,6 +2,7 @@
 // these bytes are NOT original Win95, not a Creative driver distribution,
 // not proof of independent SHA authenticity or source-audio parity.
 #include "P005OriginalCreativeVxdDirectoryImporter.hpp"
+#include "P005OriginalVxdGuestCaptureFile.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -178,6 +179,53 @@ int main() {
     CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
     CHECK(catalog.resetNonRealtime());
 
+    // Owner PRIVATE binary "125AVXD1" -> C++ parser -> original 288
+    // VXD guest pointer importer. File bytes are wholly SYNTHETIC.
+    // The binary schema itself never establishes original provenance.
+    using Capture=P005OriginalVxdGuestCaptureFile;
+    using CaptureStatus=P005VxdGuestCaptureFileResult;
+    std::vector<std::uint8_t> ownerCapture{
+        '1','2','5','A','V','X','D','1'};
+    const auto append32=[&ownerCapture](std::uint32_t value) {
+        const auto at=ownerCapture.size();
+        ownerCapture.resize(at+4u);
+        put32(ownerCapture,at,value);
+    };
+    append32(1u);                 // capture version
+    append32(0xc30b09f0u);       // exact guest device VA
+    append32(0x3000u);           // source guest CR3
+    append32(0x1592u);           // complete source device size
+    append32(288u);              // original physical slot count
+    append32(1u);                // unique guest pointer lists
+    append32(2u);                // slot5/slot6 same pointer
+    ownerCapture.insert(ownerCapture.end(),
+        sourceDevice.begin(),sourceDevice.end());
+    append32(guestAddress);
+    append32(static_cast<std::uint32_t>(sourceRows.size()));
+    ownerCapture.insert(ownerCapture.end(),
+        sourceRows.begin(),sourceRows.end());
+    Capture parsed{};
+    CHECK(parsed.loadNonRealtime(ownerCapture)==CaptureStatus::Ok);
+    CHECK(parsed.sourceFormatReady());
+    CHECK(parsed.originalPointerLists()==1u);
+    CHECK(parsed.deviceGuestVirtualAddress()==0xc30b09f0u);
+    CHECK(parsed.capturedGuestCr3()==0x3000u);
+    CHECK(parsed.importIntoNonRealtime(catalog,false)==Result::Unverified);
+    CHECK(catalog.sourceSlotCount()==0u); // NEVER infer real driver SHA
+    // The owner buffer is no longer needed: all rows are owned.
+    sourceRows[2u]=93u;
+    ownerCapture.clear();
+    CHECK(parsed.importIntoNonRealtime(catalog,true)==Result::Ok);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)
+        ->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,0u)
+        ->original_program_byte==7u);
+    CHECK(catalog.resetNonRealtime());
+    parsed.resetNonRealtime();
+    CHECK(!parsed.sourceFormatReady());
+    CHECK(parsed.importIntoNonRealtime(catalog,true)==Result::Unverified);
+
+    std::puts("P005_PRIVATE_125AVXD1_TO_288_ORIGINAL_DIRECTORY_PASS source_provenance_required=TRUE");
     std::puts("P005_GUEST_288_VXD_POINTER_RECORD_IMPORT_PASS no_phdr_padding=TRUE original_guest_bytes_required=TRUE cross_page=TRUE missing_bytes_rejected=TRUE shuffled_byte_pages=TRUE");
     return 0;
 }
