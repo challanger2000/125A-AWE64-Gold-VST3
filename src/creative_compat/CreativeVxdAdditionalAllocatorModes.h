@@ -78,4 +78,31 @@ candidateOriginalWin95Mode1PairReleaseWrites(
 candidateOriginalWin95Mode2ReleaseWrites(
     const OriginalWin95MonoSelection& selection) noexcept;
 
+// Research-only entry point for all three original x86 dispatcher modes
+// (LCOD+0x3D6F). This is an explicit ORIGINAL STATE interface, not a
+// heuristic that infers stereo from a patch or MIDI key.
+// Distinguishes legitimately exhausted selection (return 0xFF) from
+// missing/unauthenticated driver or live-chip state (nullopt).
+struct OriginalWin95AllocatorDispatchInput {
+    bool independently_verified_source_state=false;
+    std::uint8_t original_x86_dispatch_mode=0xffu; // 0, 1, 2
+    std::uint16_t original_device_physical_capacity=0u; // device+0x06
+    std::uint32_t original_device_mode_count=0u; // device+0x18
+    std::uint8_t independently_verified_mode0_scan_ceiling=0u;
+    std::uint32_t original_mode2_packed_range=0u;
+};
+struct OriginalWin95AllocatorDispatchResult {
+    std::uint8_t original_x86_dispatch_mode=0xffu;
+    std::array<std::uint8_t,2> physical_voices{
+        kOriginalWin95NoVoice,kOriginalWin95NoVoice};
+    std::uint8_t voice_count=0u; // 0 means original 0xFF no candidate
+    std::uint32_t priority=0u;
+    bool immediate_idle_pair=false;
+};
+[[nodiscard]] std::optional<OriginalWin95AllocatorDispatchResult>
+candidateOriginalWin95VxdDispatchAllModes(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& verified_voices,
+    const OriginalWin95AllocatorDispatchInput& verified_input) noexcept;
+
 } // namespace awe64::creative
