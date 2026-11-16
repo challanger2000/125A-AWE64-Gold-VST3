@@ -341,7 +341,8 @@ int capture(DWORD pid,const std::string& path) {
     HANDLE p=OpenProcess(
         PROCESS_QUERY_INFORMATION|PROCESS_VM_READ,FALSE,pid);
     if(!p)throw std::runtime_error("READ_ONLY_86BOX_ACCESS_DENIED");
-    auto const allRegions=regions(p),candidates=bases(allRegions);
+    const auto allRegions=regions(p);
+    const auto candidates=bases(allRegions);
     std::size_t validRamReads=0u;
     std::vector<Evidence> sources{};
     for(auto base:candidates) {
