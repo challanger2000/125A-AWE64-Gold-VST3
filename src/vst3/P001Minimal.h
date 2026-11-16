@@ -53,6 +53,14 @@ public:
     Steinberg::tresult PLUGIN_API process(Steinberg::Vst::ProcessData& data) override;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* stream) override;
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* stream) override;
+    // The ordinal automation parameter displays the real PHDR label
+    // in the DAW instead of a meaningless normalized 0..1 fraction.
+    Steinberg::tresult PLUGIN_API getParamStringByValue(
+        Steinberg::Vst::ParamID tag,Steinberg::Vst::ParamValue normalized,
+        Steinberg::Vst::String128 text) override;
+    Steinberg::tresult PLUGIN_API getParamValueByString(
+        Steinberg::Vst::ParamID tag,Steinberg::TChar* text,
+        Steinberg::Vst::ParamValue& normalized) override;
 
     OBJ_METHODS(Minimal, SingleComponentEffect)
     REFCOUNT_METHODS(SingleComponentEffect)
