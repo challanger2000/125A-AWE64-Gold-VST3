@@ -78,6 +78,34 @@ class TestOriginalChipCpuClockJoin(unittest.TestCase):
             compare(chip=CHIP.replace("EMU8000","BOGUS"))
         with self.assertRaisesRegex(ValueError,"header"):
             compare(cpu=CPU.replace("P003_CPU_GUEST_PHYSICAL_8_16_32_V3","BOGUS"))
+    def test_v4_guest_stack_parses_and_retains_full_original_port_parity(self):
+        # Nine V4 hex words: EBP, RET0..RET3, EAX/EBX/ECX/EDX.
+        v4 = CPU.replace(
+            "P003_CPU_GUEST_PHYSICAL_8_16_32_V3",
+            "P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK")
+        rows=v4.splitlines()
+        patched=[]
+        for i,row in enumerate(rows):
+            if i==0:
+                patched.append(row)
+            else:
+                patched.append(
+                    row+" 0010F000 C1019123 C1019420 FFFFFFFF FFFFFFFF "
+                        "00000090 0000003C 00000040 00000620")
+        joined=compare(cpu="\n".join(patched)+"\n")
+        self.assertEqual(joined["matched_io_events"],6)
+        self.assertEqual(joined["guest_stack_probe_event_count"],6)
+        self.assertEqual(joined["guest_stack_top_return_eip_unavailable"],0)
+        self.assertEqual(
+            joined["top_guest_return_eip_hints_unverified"],{"C1019123":6})
+        self.assertFalse(joined["guest_caller_addresses_validated_against_vxd"])
+        self.assertEqual(
+            joined["note_groups"]["C4_ON"]["guest_return_eip_hints_unverified"],
+            {"C1019123":2})
+        corrupted="\n".join(patched[:-1]+[patched[-1].rsplit(" ",1)[0]])+"\n"
+        with self.assertRaisesRegex(ValueError,"wrong width"):
+            compare(cpu=corrupted)
+
     def test_old_16bit_only_guest_probe_is_rejected(self):
         old = CPU.replace("P003_CPU_GUEST_PHYSICAL_8_16_32_V3",
                           "P003_CPU_GUEST_OUTW_V1")
