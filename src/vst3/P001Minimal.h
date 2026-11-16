@@ -109,6 +109,12 @@ private:
     // source-RAM bank load. No SF2 or VXD constants baked into binary.
     awe64::original_vxd::OriginalSf2SourceTables
         p005OriginalSourceTables_{};
+    // Source-captured DEVICE bytes contain the ORIGINAL 288 guest
+    // bank pointer VALUES, but NOT the guest memory those pointers
+    // address. Do not activate the original catalog without the latter.
+    std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage>
+        p005OriginalVxdDeviceImage_{};
+    bool p005OriginalDeviceImageVerified_=false;
     P005OriginalCreativeHostAdapter<awe64::Chip> p005OriginalPort_{};
 #endif
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
