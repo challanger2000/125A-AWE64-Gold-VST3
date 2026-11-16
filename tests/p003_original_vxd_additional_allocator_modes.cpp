@@ -49,6 +49,11 @@ int main(){
     voices[3].blocked_when_few_voices=true;
     p=candidateOriginalWin95Mode1Pair(voices,4,2);
     CHECK(p && p->first_voice==0 && p->second_voice==1);
+    // Genuine source skip occurs before any live chip read.
+    voices[3].complete=false;
+    p=candidateOriginalWin95Mode1Pair(voices,4,2);
+    CHECK(p && p->first_voice==0 && p->second_voice==1);
+    voices[3].complete=true;
     // Original mode_count>2 does NOT activate this gate.
     p=candidateOriginalWin95Mode1Pair(voices,4,32);
     CHECK(p && p->first_voice==0);
@@ -123,6 +128,10 @@ int main(){
     voices[11].blocked_when_few_voices=true;
     s=candidateOriginalWin95Mode2Range(voices,r10to15,32,2);
     CHECK(s && s->physical_voice==12u);
+    voices[11].complete=false;
+    s=candidateOriginalWin95Mode2Range(voices,r10to15,32,2);
+    CHECK(s && s->physical_voice==12u);
+    voices[11].complete=true;
     s=candidateOriginalWin95Mode2Range(voices,r10to15,32,32);
     CHECK(s && s->physical_voice==12u);
     voices[11].blocked_when_few_voices=false;
@@ -202,6 +211,22 @@ int main(){
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
     dispatchVoices[31].complete=true;
+    // Dispatcher must not preflight blocked rows never read in source.
+    source.original_device_mode_count=2u;
+    source.original_x86_dispatch_mode=1u;
+    dispatchVoices[31].complete=false;
+    dispatchVoices[31].blocked_when_few_voices=true;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==2u &&
+          dispatched->physical_voices[0]==29u &&
+          dispatched->physical_voices[1]==30u);
+    source.original_x86_dispatch_mode=2u;
+    source.original_mode2_packed_range=(32u<<8u)|31u;
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==0u);
+    dispatchVoices[31].blocked_when_few_voices=false;
+    dispatchVoices[31].complete=true;
+    source.original_device_mode_count=32u;
     source.original_x86_dispatch_mode=7u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source);
