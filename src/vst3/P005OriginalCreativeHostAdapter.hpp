@@ -91,8 +91,14 @@ public:
             bankSnapshot_);
         return true;
     }
+    // A latched source-driver or physical chip fault MUST NOT cause the
+    // VST3 callback to fall back to the unrelated P001/P002 renderer.
+    // Unlike active(), sourceBound() remains true until non-RT reset.
+    [[nodiscard]] bool sourceBound() const noexcept {
+        return runtime_.has_value() && chip_!=nullptr && bankBound_;
+    }
     [[nodiscard]] bool active() const noexcept {
-        return runtime_ && chip_ && bankBound_ &&
+        return sourceBound() &&
                runtime_->attached_to(*chip_) &&
                !runtime_->midi.fault && !runtime_->scratch.faulted;
     }
