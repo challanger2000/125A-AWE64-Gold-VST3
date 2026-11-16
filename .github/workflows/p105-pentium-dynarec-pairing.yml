@@ -1,0 +1,56 @@
+name: P105 P54C Dynarec U/V pairing contract (research only)
+
+on:
+  push:
+    branches:
+      - research/p105-pentium-dynarec-stereo-clock-gate
+    paths:
+      - '.github/workflows/p105-pentium-dynarec-pairing.yml'
+      - 'src/creative_compat/P105PentiumDynarecPairing.hpp'
+      - 'tests/p105_pentium_dynarec_pairing_only.cpp'
+  pull_request:
+    paths:
+      - '.github/workflows/p105-pentium-dynarec-pairing.yml'
+      - 'src/creative_compat/P105PentiumDynarecPairing.hpp'
+      - 'tests/p105_pentium_dynarec_pairing_only.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-gcc-clang:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: GCC and Clang native C++23 source-derived clock contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            "$compiler" --version | head -1
+            "$compiler" -std=c++23 -O2 -Wall -Wextra -Werror -pedantic \
+              tests/p105_pentium_dynarec_pairing_only.cpp -o "/tmp/p105-$compiler"
+            "/tmp/p105-$compiler" | tee "/tmp/p105-$compiler.out"
+            grep -q 'P105_PENTIUM_DYNAREC_SOURCE_PAIRING_PASS' "/tmp/p105-$compiler.out"
+          done
+          echo "P105 86Box P54C Dynarec pairing-only source contract PASS; original Win95 timing NOT verified"
+
+  windows-clang:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native Win64 C++23 source-only timing contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe=Join-Path $env:RUNNER_TEMP 'p105-pentium-clock.exe'
+          clang++ --version | Select-Object -First 1
+          clang++ -std=c++23 -O2 -Wall -Wextra -Werror -pedantic tests/p105_pentium_dynarec_pairing_only.cpp -o $exe
+          if($LASTEXITCODE -ne 0) {throw "Win64 C++23 build failed"}
+          & $exe
+          if($LASTEXITCODE -ne 0) {throw "Win64 pairing contract failed"}
+          "P105 native Win64 paired-clock contract PASS (NO VST3/audio/timing parity implied)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
