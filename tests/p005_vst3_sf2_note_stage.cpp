@@ -188,6 +188,14 @@ int main(){
     CHECK(originalFullBank.noteOff(0u,60u)==MidiResult::Applied);
     CHECK(originalFullBank.noteOn(0u,62u,100u)==MidiResult::Applied);
     CHECK(originalFullBank.noteOff(0u,62u)==MidiResult::Applied);
+    // Host event-bus supports 16 MIDI channels. The original driver
+    // port must not silently reuse channel-0 program/CC state on 15.
+    CHECK(originalFullBank.controller(15u,0u,1u)==MidiResult::Applied);
+    CHECK(originalFullBank.program(15u,7u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOn(15u,60u,100u)==MidiResult::Applied);
+    CHECK(originalFullBank.noteOff(15u,60u)==MidiResult::Applied);
+    CHECK(originalFullBank.sharedRuntime()->midi.channel[15]
+        .original_selected_bank_slot==5u);
     CHECK(originalFullBank.sharedRuntime()->scratch.device==
           &originalFullBank.sharedRuntime()->midi.device);
     CHECK(chip3.writes>0u);
