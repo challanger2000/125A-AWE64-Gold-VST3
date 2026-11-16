@@ -2,9 +2,10 @@
 """P003 PRIVATE original Win95 x86 dynamic I/O caller verifier.
 
 Requires real V4 guest-EBP/return-address trace and SHA-pinned SBAWE.VXD.
-Derives an ORIGINAL-SESSION-specific LCOD load bias by matching the 12
-verified physical I/O instruction EIPs. Never hardcodes prior Win95 load
-bias (0xC10151E5). For each directly recorded return EIP, verifies the
+Derives an ORIGINAL-SESSION-specific LCOD load base by matching the 12
+verified physical I/O instruction EIPs. 86Box captures PC immediately
+AFTER I/O; each pinned opcode anchor points to the LAST byte of IN/OUT,
+so physical PC is LCOD base + anchor + 1, not base + anchor. For each directly recorded return EIP, verifies the
 actual original CALL rel32 that targets that *specific* I/O helper.
 A guessed stack frame, a raw E8 data byte, or an unobserved call site
 NEVER qualifies as a dynamically observed original CPU caller.
@@ -41,14 +42,15 @@ def io_helper_for_anchor(offset:int)->str:
     return prior
 
 def choose_lcod_bias(eips:Counter)->tuple[int,int,int]:
-    """Find a single global session loading bias, or FAIL on ambiguity."""
+    """Find actual LCOD load base from post-I/O PC, or FAIL on ambiguity."""
     if not eips:
         raise ValueError("No actual original guest x86 I/O EIP events")
-    candidates={(eip-anchor)&0xffffffff for eip in eips
+    # Captured 86Box EIP is PC_after_IO, not the last opcode byte.
+    candidates={(eip-(anchor+1))&0xffffffff for eip in eips
                  for anchor in OPCODE_ANCHORS}
     scores=[]
     for bias in candidates:
-        support=sum(eips.get((bias+off)&0xffffffff,0)
+        support=sum(eips.get((bias+off+1)&0xffffffff,0)
                     for off in OPCODE_ANCHORS)
         if support:
             scores.append((support,bias))
@@ -65,7 +67,7 @@ def validate_direct_return(code:bytes,bias:int,
     """A live return address counts only if original E8 rel32 targets
     the exact helper inferred from the *executed* I/O opcode EIP.
     """
-    anchor=(physical_eip-bias)&0xffffffff
+    anchor=(physical_eip-bias-1)&0xffffffff
     if anchor not in OPCODE_ANCHORS:
         return None
     if return_eip==UNKNOWN:
@@ -85,22 +87,16 @@ def validate_direct_return(code:bytes,bias:int,
 def diagnose_last_byte_call_hint(code:bytes,bias:int,
                                  physical_eip:int,
                                  observed_return_hint:int)->tuple[str,int]|None:
-    """NON-PROOF: observed [EBP+4] is ONE BYTE BEFORE normal x86 return.
+    """NON-PROOF diagnostic for truly anomalous CALL+4 returns.
 
-    A run of genuine original 1996 SHA-pinned driver call sites appears
-    to match a valid near CALL E8 (to the correctly observed helper)
-    if the guest stack word is compared to the LAST BYTE of that CALL,
-    rather than the architecturally valid next-instruction return EIP.
-
-    This is a DIAGNOSTIC ONLY. Never count it as an executed caller or
-    correct any original guest stack byte without independent evidence
-    that the CPU/stack instrument encodes its saved return addresses as
-    call-end-minus-one. It is consistent across 25k+ chip callbacks,
-    but the cause of the discrepancy remains unknown.
+    The previous large CALL+4 count was caused by treating 86Box's
+    PC_after_IO as an opcode-last-byte PC. It MUST NOT be used as a
+    reason to shift legitimate x86 CALL+5 return EIPs. This helper
+    remains for detecting independent instrumentation anomalies only.
     """
     if observed_return_hint==UNKNOWN:
         return None
-    anchor=(physical_eip-bias)&0xffffffff
+    anchor=(physical_eip-bias-1)&0xffffffff
     if anchor not in OPCODE_ANCHORS:
         return None
     # Expected direct CALL finishes at code offset candidate + 1.
@@ -119,7 +115,7 @@ def diagnose_last_byte_call_hint(code:bytes,bias:int,
 
 def audit(vxd_bytes:bytes,lines)->dict:
     code=original_lcod(vxd_bytes)
-    # Stream 816K+ events without retaining source bytes or full
+    # Stream original events without retaining source bytes or full
     # original MIDI/register histories in the public repository.
     eips=Counter()
     event_eips=Counter()
@@ -178,7 +174,9 @@ def audit(vxd_bytes:bytes,lines)->dict:
              "physical_io_event_count":amount,
              "architectural_return_address_validated":False}
             for (helper,offset),amount in sorted(last_byte_candidates.items())],
-        "one_byte_displacement_cause":"UNKNOWN_NO_AUTOMATIC_NORMALIZATION",
+        "one_byte_displacement_cause":(
+            "ACTUAL_DIAGNOSTIC_CANDIDATES_REQUIRE_INDEPENDENT_VERIFICATION"
+            if last_byte_candidates else "NONE_DETECTED_CORRECT_POST_IO_LOAD_BASE"),
         "all_stack_return_hints_classified":
             (no_return+original_verified+sum(last_byte_candidates.values())+
              unresolved)==seen,
@@ -187,7 +185,7 @@ def audit(vxd_bytes:bytes,lines)->dict:
              "physical_io_event_count":count}
             for (helper,off),count in sorted(good.items())],
         "original_instruction_boundary_verified":
-            "E8 destination bytes verified only at observed return EIP - 5",
+            "86Box PC_after_IO matched to original last-opcode-byte+1; return EIP matched to original CALL+5",
         "stack_older_frames_and_midi_arguments":
             "Captured in V4 guest CPU trace; not yet verified as NoteOn arguments",
         "full_cpu_instruction_trace":"NOT_CAPTURED",
