@@ -46,6 +46,12 @@ struct DeviceState {
 // A20 16-bit DATA1, 620 32-bit DATA0, A20 32-bit DATA1.
 // For 86Box's word-based host, read32/write32 is two ordered 16-bit
 // callbacks at port and port+2. Callbacks must be RT-safe/nonthrowing.
+// Original stereo-allocator helper CALLS, not synthetic CPU timestamps.
+enum class StereoHelperKind : std::uint8_t { Vtft, Dcysusv, Ccca, Release };
+struct StereoHelperEvent {
+    StereoHelperKind kind;
+    std::uint8_t voice;
+};
 struct PortIo {
     void* opaque = nullptr;
     bool (*out8)(void*, std::uint16_t, std::uint8_t) noexcept = nullptr;
@@ -53,6 +59,9 @@ struct PortIo {
     bool (*in16)(void*, std::uint16_t, std::uint16_t&) noexcept = nullptr;
     bool (*in32)(void*, std::uint16_t, std::uint32_t&) noexcept = nullptr;
     bool (*out32)(void*, std::uint16_t, std::uint32_t) noexcept = nullptr;
+    // Optional zero-heap, no-throw allocator observer. Disabled by default.
+    void* stereo_helper_opaque = nullptr;
+    void (*stereo_helper_observer)(void*, StereoHelperEvent) noexcept = nullptr;
 };
 
 enum class Status : std::uint8_t {
@@ -66,6 +75,14 @@ struct Allocation {
     bool immediate = false;
     std::uint32_t io_reads = 0;
     std::uint32_t io_writes = 0; // includes selector writes
+    std::uint32_t vtft_reads = 0;
+    std::uint32_t dcysusv_reads = 0;
+    std::uint32_t ccca_reads = 0;
+    std::uint32_t completed_release_writes = 0;
+    [[nodiscard]] constexpr std::uint32_t physical_port_callbacks() const noexcept {
+        return 3u*vtft_reads + 2u*dcysusv_reads +
+               3u*ccca_reads + 2u*completed_release_writes;
+    }
 };
 
 // Original LCOD+0x3EA1: three interleaved physical lanes, prioritizes
