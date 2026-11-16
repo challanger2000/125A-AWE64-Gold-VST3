@@ -193,11 +193,21 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--original-vxd",required=True,type=Path)
     p.add_argument("--original-v4-zip",required=True,type=Path)
-    p.add_argument("--output",required=True,type=Path)
+    p.add_argument("--output",type=Path,default=None,
+                   help="Optional one-time JSON evidence report; never overwritten")
     a=p.parse_args()
-    if a.output.exists():raise ValueError("Will not overwrite existing original evidence")
+    if a.output is not None and a.output.exists():
+        raise ValueError("Will not overwrite existing original evidence")
     report=audit(a.original_vxd,a.original_v4_zip)
-    a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf8")
-    print("P003_REA_THREE_OBJECTS_PASS",report["direct_call_port_snapshots"],"/",report["original_port_events"])
+    if a.output is not None:
+        a.output.write_text(
+            json.dumps(report,indent=2,sort_keys=True)+"\n",
+            encoding="utf8")
+    print("P003_REA_THREE_OBJECTS_PASS",
+          report["direct_call_port_snapshots"],"/",report["original_port_events"])
+    if a.output is None:
+        # Repeatable read-only local CTest: never silently modifies or
+        # replaces the user's original Win95 CPU/chip evidence.
+        print(json.dumps(report,sort_keys=True))
 
 if __name__=="__main__":main()
