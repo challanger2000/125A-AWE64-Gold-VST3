@@ -8,9 +8,10 @@ session LCOD base from *executed* x86 I/O EIP anchors, and classifies
 all four captured guest EBP return-hint depths by original x86 code
 regions. No proprietary driver, ROM, soundfont or audio is published.
 
-These EBP hints are NOT a function-entry/exit CPU trace. In this V4
-session the guest return hints have an unexplained one-byte discrepancy
-against the architectural E8 rel32 next-EIP. No guessed correction.
+These EBP hints are NOT a function-entry/exit CPU trace. The prior
+CALL+4 discrepancy was an LCOD base mapping bug: 86Box saves PC
+AFTER I/O, while source opcode anchors are the final instruction byte.
+Once base = post_IO_PC-(anchor+1), ordinary returns point to CALL+5.
 Zero return hints does NOT prove a branch was never executed.
 """
 from __future__ import annotations
@@ -79,7 +80,8 @@ def classify_original_hints(
 # The original SHA-pinned LCOD explicitly calls the mode dispatcher
 # at these three sites. 0x5522 is the descriptor-flag-0x04 branch's
 # pair-mode call; 0x5560 is its alternate single-mode call.
-# Original return EIP should be CALL+5, but V4 hint seems CALL+4.
+# Correctly reconstructed original return EIP is CALL+5.
+# CALL+4 remains a negative/anomaly diagnostic, NOT a required correction.
 ORIGINAL_DISPATCH_CALLS={
     "mono_caller_4BB4":(0x4c40,0),
     "descriptor_flag04_branch_pair_mode1":(0x5522,1),
@@ -108,7 +110,9 @@ def classify_original_descriptor_dispatch_calls(
             "original_dispatch_mode":mode,
             "architectural_next_pc_return_hint_events":actual,
             "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY":one_less,
-            "one_byte_displacement_cause":"UNKNOWN",
+            "one_byte_displacement_cause":(
+                "NONSTANDARD_CALL4_REQUIRES_INDEPENDENT_VERIFICATION"
+                if one_less else "NONE_WITH_CORRECT_POST_IO_LOAD_BASE"),
             "full_function_execution_proven":False,
         }
     return result
@@ -183,8 +187,11 @@ def audit(private_vxd: bytes, result_zip: Path) -> dict:
                 for depth, ret in enumerate(stack[1:5]):
                     returns[depth][ret] += 1
         if events!=attested["cpu_chip_event_join"]["matched_port_events"]:
-            raise ValueError("Original 816594 physical events not reproduced")
+            raise ValueError("Original physical events not reproduced")
         bias, opcodes, runner = choose_lcod_bias(eips)
+        regions=classify_original_hints(bias,returns)
+        dispatch=classify_original_descriptor_dispatch_calls(code,bias,returns)
+        pair=dispatch["descriptor_flag04_branch_pair_mode1"]["architectural_next_pc_return_hint_events"]
         return {
             "schema":"125A-P003-ORIGINAL-GUEST-V4-ALLOCATOR-MODE-HINTS-V1",
             "original_cpu_emu8000_port_events_matched":events,
@@ -194,24 +201,26 @@ def audit(private_vxd: bytes, result_zip: Path) -> dict:
             "original_owner_result_name":result_zip.name,
             "original_owner_result_sha256":file_sha(result_zip.open("rb")),
             "guest_lcod_bias_derived_hex":f"0x{bias:08X}",
+            "guest_lcod_actual_load_base_hex":f"0x{bias:08X}",
+            "pc_anchor_rule":"86Box post-I/O PC = actual LCOD load base + original final opcode-byte offset + 1",
             "known_original_opcode_eip_events":opcodes,
             "other_opcode_eip_events":events-opcodes,
             "runner_up_opcode_bias_support":runner,
             "unavailable_top_return_hint_events":unrecorded_top,
-            "regions":classify_original_hints(bias,returns),
-            "descriptor_dispatch_call_hints":
-                classify_original_descriptor_dispatch_calls(code,bias,returns),
+            "regions":regions,
+            "descriptor_dispatch_call_hints":dispatch,
+            "original_mode1_pair_dispatch_call_return_events":pair,
             "no_proprietary_original_binary_embedded":True,
             "original_emu8000_dsp_modified":False,
             "source_clocked_pcm_reference_preserved":True,
             "autonomous_vst3_pcm_parity":"NOT_PROVEN",
             "warnings":[
                 "V4 stack return addresses are unverified execution hints",
-                "Original V4 guest saved-return one-byte discrepancy remains unexplained",
+                "86Box post-I/O PC was normalized by original opcode-last-byte offset + 1",
                 "Zero matched return hints does not prove unexecuted code",
                 "No function entry/exit CPU cycle measurements",
-                "No original mode-1/mode-2 MIDI demonstration in this recording",
-                "Original descriptor CALL+4 hint is not a proven architectural return EIP",
+                "Port-time CALL+5 snapshots are not a full voice allocation/PCM parity test",
+                "Original mode-2 presence not established by this trace",
             ],
         }
 
