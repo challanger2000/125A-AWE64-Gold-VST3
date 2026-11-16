@@ -5,12 +5,14 @@
 #include "P002PrivateNoteFixture.h"
 #include "P002PrivateRomBank.h"
 #include "P002PrivateOriginalRamNotes.h"
+#include "P003VstBankState.h"
 #include "CreativeSampleClockPorts.h"
 #include "CreativeAutonomousOutTiming.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "OriginalCt1745WavetableMixer.h"
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -58,6 +60,8 @@ private:
         int channel,int pitch,int velocity) noexcept;
     bool privateSustainCc64(std::uint8_t value) noexcept;
     bool privateWin95MidiOutReset() noexcept;
+    void publishBankState() noexcept;
+    void applyPendingBankState() noexcept;
     void render(Steinberg::int32 begin, Steinberg::int32 end,
                 float* left, float* right) noexcept;
     void write(uint16_t reg, uint16_t voice, uint16_t port, uint16_t value) noexcept;
@@ -70,6 +74,11 @@ private:
     bool preCardPcm16DiagnosticTap_=false; // explicit private regression only
     P002PrivateNoteFixture p002Fixture_{};
     P002PrivateRomBank p002RomBank_{};
+    // Host project state never accesses the mutable bank from UI thread.
+    // Both atomics are lock-free on Windows x64, and all SoundFont
+    // selection changes remain on the audio or activation thread.
+    std::atomic<std::uint64_t> publishedBankState_{state::kNoSelection};
+    std::atomic<std::uint64_t> pendingBankState_{state::kNoSelection};
     bool p002BankEnabled_=false; // private, original-source ROM-SF2 bank
     // Actual original Creative captured RAM source: loaded off-RT
     // into unchanged EMU8000 but no inferred RAM NoteOn voice plan.
