@@ -48,12 +48,39 @@ OriginalSf2UploadResult upload_verified_sf2_pcm_to_emu8000(
 } // namespace awe64::original_vxd
 
 namespace awe64::original_vxd {
+OriginalCreativePcmX86Path OriginalCreativePcmFilter::original_x86_path(
+    const std::int16_t sample) const noexcept {
+    if(older!=0)return OriginalCreativePcmX86Path::OrdinaryNonzeroOlder;
+    if(sample==0 && recent==0)return OriginalCreativePcmX86Path::DirectZero;
+    if(older2!=0)return OriginalCreativePcmX86Path::OrdinaryNonzeroOlder2;
+    if(older3!=0)return OriginalCreativePcmX86Path::OrdinaryNonzeroOlder3;
+    return OriginalCreativePcmX86Path::GuardedZero;
+}
+bool OriginalCreativePcmFilter::will_take_early_zero_branch(
+    const std::int16_t sample) const noexcept {
+    const auto branch=original_x86_path(sample);
+    return branch==OriginalCreativePcmX86Path::DirectZero ||
+           branch==OriginalCreativePcmX86Path::GuardedZero;
+}
+std::uint16_t OriginalCreativePcmFilter::observed_typical_pcm_loop_delta_tsc(
+    const std::int16_t next_sample) const noexcept {
+    return will_take_early_zero_branch(next_sample)?100u:104u;
+}
+std::uint16_t OriginalCreativePcmFilter::observed_control_flow_pcm_loop_delta_tsc(
+    const std::int16_t next_sample) const noexcept {
+    switch(original_x86_path(next_sample)) {
+        case OriginalCreativePcmX86Path::DirectZero: return 100u;
+        case OriginalCreativePcmX86Path::GuardedZero: return 104u;
+        case OriginalCreativePcmX86Path::OrdinaryNonzeroOlder: return 104u;
+        case OriginalCreativePcmX86Path::OrdinaryNonzeroOlder2: return 110u;
+        case OriginalCreativePcmX86Path::OrdinaryNonzeroOlder3: return 114u;
+    }
+    return 0u;
+}
 std::int16_t OriginalCreativePcmFilter::next(const std::int16_t sample) noexcept {
     // Equivalent integer recurrence to the original PCOD+0x28AC state
     // machine, including the early zero exit and signed arithmetic shift.
-    const bool empty_history=older==0 && older2==0 && older3==0;
-    const bool zero_case=older==0 &&
-        ((sample==0 && recent==0) || empty_history);
+    const bool zero_case=will_take_early_zero_branch(sample);
     const std::int32_t filtered=zero_case?0:
         (older*6-recent-older2)>>3;
     older3=older2;
