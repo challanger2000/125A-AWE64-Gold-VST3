@@ -232,7 +232,7 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         (void)p005OriginalBankCatalog_.resetNonRealtime();
         p005OriginalSourceTables_={};
         p005OriginalVxdDeviceImage_.fill(0u);
-        p005OriginalDeviceImageVerified_=false;
+        p005OriginalDeviceImageStaged_=false;
 #endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
                              sf2host::kProgramListId))) {
@@ -489,8 +489,10 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         // previous P002 diagnostic behavior if this staging fails.
         if(p002RomBank_.exportVerifiedCreativeP005SourceTables(
                p005OriginalSourceTables_)) {
-            p005OriginalDeviceImageVerified_=
-                p002RomBank_.exportVerifiedCreativeP005VxdDeviceImage(
+            // Staging ONLY: full original device + guest memory
+            // attestation is still required for the 288-slot importer.
+            p005OriginalDeviceImageStaged_=
+                p002RomBank_.exportP005UnattestedVxdDeviceImage(
                     p005OriginalVxdDeviceImage_);
             std::fputs("P005_ORIGINAL_SOURCE_TABLE_BRIDGE_READY "
                        "SHA_GATED=TRUE RAM_PLACEMENT=VERIFIED "

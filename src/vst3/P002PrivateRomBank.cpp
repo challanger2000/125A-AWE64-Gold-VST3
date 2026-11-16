@@ -554,9 +554,10 @@ bool P002PrivateRomBank::exportVerifiedCreativeP005SourceTables(
     out=tables;
     return true;
 }
-bool P002PrivateRomBank::exportVerifiedCreativeP005VxdDeviceImage(
+bool P002PrivateRomBank::exportP005UnattestedVxdDeviceImage(
     std::span<std::uint8_t> out) const noexcept {
-    // Source owner image is ONLY from the existing SHA-gated P002 loader.
+    // Candidate guest bytes from P002 pack. The source-table SHA gate
+    // does NOT independently prove these device pointer bytes.
     // Failed requests cannot expose a stale device pointer table.
     std::fill(out.begin(),out.end(),std::uint8_t{0});
     if(!ready_ || !ram_mode_ || out.size()!=state_.size())

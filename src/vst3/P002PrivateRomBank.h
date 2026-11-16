@@ -46,8 +46,10 @@ public:
     // Real 0x1592-byte VXD guest DEVICE image, including the 288
     // ORIGINAL guest-virtual bank pointers at device+0x6CA.
     // This does NOT provide the pointed-to external guest memory.
+    // Source-pack device bytes are NOT independently SHA-attested as
+    // guest memory. The exported image is only a candidate.
     // On a failed source/length gate, the entire output is zeroed.
-    [[nodiscard]] bool exportVerifiedCreativeP005VxdDeviceImage(
+    [[nodiscard]] bool exportP005UnattestedVxdDeviceImage(
         std::span<std::uint8_t> out) const noexcept;
 #endif
     [[nodiscard]] std::uint8_t channel() const noexcept {return channel_;}
