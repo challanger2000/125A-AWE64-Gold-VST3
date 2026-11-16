@@ -6,8 +6,10 @@ with the publicly built P107 instrumented old Dynarec. Never upload
 Original-*.trace, Win95 image, original driver, ROM or SF2 to GitHub.
 
 The sampler logs instruction PC and EBP from actually executed JIT code.
-This verifier derives Jcc taken/not-taken from the NEXT executed PC,
-not from a guessed EFLAGS value or merely the static instruction decoder.
+This verifier derives Jcc taken/not-taken ONLY when the NEXT recorded executed
+PC is exactly one of the two static branch successors. The first-generation
+observer emits a SPARSE sequence; skips are explicitly UNKNOWN, not failures
+nor inferred from a guessed EFLAGS value or static instruction decoder.
 
 JIT block-level tsc at the callback is NOT a per-instruction time oracle;
 no original CPU cycle/PCM timing validation is claimed by this script.
@@ -96,9 +98,11 @@ def read_trace(path:Path,expected_sha256:str|None=None):
     return rows,digest
 
 
-def verify_paths(rows:list[X86Event]) -> dict:
+def verify_paths(rows:list[X86Event], allow_sparse:bool=False) -> dict:
     branches=Counter()
     outcomes=Counter()
+    ambiguous=Counter()
+    ambiguous_stack=Counter()
     unknown_stack=0
     mode_observations=Counter()
     scanned_windows=0
@@ -113,7 +117,14 @@ def verify_paths(rows:list[X86Event]) -> dict:
             taken_target,fallthrough,label=BRANCHES[off]
             nxt=b.pc-LCOD_BASE
             if nxt not in (taken_target,fallthrough):
-                raise ValueError(f"dynamic branch at +{off:x} next PC invalid")
+                if not allow_sparse:
+                    raise ValueError(f"dynamic branch at +{off:x} next PC invalid")
+                # Sparse JIT callbacks: a skipped callback need not represent
+                # a Jcc target. Never invent a taken/not-taken outcome.
+                ambiguous[label]+=1
+                if off==0x4027 and a.known:
+                    ambiguous_stack["local_observed_but_jcc_unproven"]+=1
+                continue
             taken=nxt==taken_target
             branches[label]+=1
             outcomes[(label,"taken" if taken else "not_taken")]+=1
@@ -132,7 +143,11 @@ def verify_paths(rows:list[X86Event]) -> dict:
     return {
         "schema":"P107_EXECUTED_GUEST_JCC_CAPTURE_PRIVATE_V1",
         "physical_x86_guest_instructions_observed":len(rows),
-        "original_branch_checks":sum(branches.values()),
+        "original_branch_checks_with_direct_successor":sum(branches.values()),
+        "ambiguous_jcc_successors_not_assigned":sum(ambiguous.values()),
+        "ambiguous_jcc_by_branch":dict(ambiguous),
+        "local_observed_without_proven_successor":ambiguous_stack[
+            "local_observed_but_jcc_unproven"],
         "actual_jcc_branch_execution_counts":dict(branches),
         "branch_taken_outcomes":{
             label:{outcome:outcomes[(label,outcome)]
@@ -146,6 +161,8 @@ def verify_paths(rows:list[X86Event]) -> dict:
         "per_instruction_tsc_accuracy":"NOT_VERIFIED_BLOCK_LEVEL_ONLY",
         "original_vst3_pcm_parity":False,
         "complete_original_86box_cpu_scheduler":False,
+        "complete_executed_instruction_stream":False,
+        "jcc_claim_scope":"DIRECT_ADJACENT_OBSERVER_SUCCESSORS_ONLY",
     }
 
 
@@ -163,7 +180,8 @@ def synthetic_selftest():
           ev(11,0x4023),ev(12,0x4027,0),ev(13,0x4029),
           ev(14,0x405e),ev(15,0x4060)]
     summary=verify_paths(good)
-    assert summary["original_branch_checks"]==6
+    assert summary["original_branch_checks_with_direct_successor"]==6
+    assert summary["ambiguous_jcc_successors_not_assigned"]==0
     assert summary["observed_guest_local18_nonzero"]==1
     assert summary["observed_guest_local18_zero"]==1
     assert summary["ccca_to_next_vtft_windows_with_observed_x86_path"]==1
@@ -179,6 +197,10 @@ def synthetic_selftest():
     except ValueError as exc:
         assert "next PC invalid" in str(exc)
     else:raise AssertionError("non-branch successor spoof escaped")
+    partial=verify_paths(bad,allow_sparse=True)
+    assert partial["ambiguous_jcc_successors_not_assigned"]==1
+    assert partial["ambiguous_jcc_by_branch"]["JA_CCCA_BEFORE_SAMPLE_END"]==1
+    assert partial["original_branch_checks_with_direct_successor"]==5
     # Run a full file-parser negative test without the owner's data.
     from io import BytesIO
     def parse_test_bytes(lines):
@@ -212,9 +234,10 @@ def main():
     if args.selftest:synthetic_selftest()
     if args.executed_x86_trace:
         rows,sha=read_trace(args.executed_x86_trace,args.sha256)
-        result=verify_paths(rows)
+        result=verify_paths(rows,allow_sparse=True)
         result["executed_trace_sha256"]=sha
-        print("P107_PRIVATE_ORIGINAL_EXECUTED_JCC_ANALYSIS "+json.dumps(result,sort_keys=True))
+        print("P107_PRIVATE_ORIGINAL_EXECUTED_JCC_PARTIAL_ANALYSIS "+
+              json.dumps(result,sort_keys=True))
     elif not args.selftest:
         p.error("provide --selftest or --executed-x86-trace")
 
