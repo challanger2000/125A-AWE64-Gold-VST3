@@ -934,6 +934,41 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
                         desired.size())==0,
             "zero-frame ProgramChange did not restore the active SF2");
 
+    // A normalized VST3 preset selector traverses ONLY the three
+    // actual PHDR entries of this bank. It must cross bank 0 -> 128,
+    // not manufacture 128 empty MIDI program slots.
+    const auto selectActualPreset=[&](const ParamValue normalized) {
+        ParameterChanges changes(1);
+        int32 index=0;
+        auto* queue=changes.addParameterData(0x125A00D0u,index);
+        require(queue!=nullptr,"actual-PHDR VST3 queue missing");
+        int32 point=0;
+        require(queue->addPoint(0,normalized,point)==kResultOk,
+                "actual-PHDR VST3 point missing");
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;
+        data.numSamples=0;data.numOutputs=0;
+        data.inputParameterChanges=&changes;
+        return auditedOriginalBankProcess(active.audio,data);
+    };
+    require(selectActualPreset(1.)==kResultOk,
+            "actual-PHDR selector failed to select drum-bank row");
+    auto drum=encode(BankSelection{128u,0u,73u,31u,120u});
+    MemoryStream selectedDrum{};
+    require(active.component->getState(&selectedDrum)==kResultOk &&
+            selectedDrum.getSize()==drum.size() &&
+            std::memcmp(selectedDrum.getData(),drum.data(),drum.size())==0,
+            "actual PHDR ordinal2 did not select real bank128");
+    require(selectActualPreset(0.5)==kResultOk,
+            "actual PHDR selector failed to return to program9");
+    MemoryStream selectedOriginal{};
+    require(active.component->getState(&selectedOriginal)==kResultOk &&
+            selectedOriginal.getSize()==desired.size() &&
+            std::memcmp(selectedOriginal.getData(),desired.data(),
+                        desired.size())==0,
+            "actual PHDR ordinal1 failed exact bank0/program9 recall");
+
     // A CRC-valid but absent PHDR must not be substituted for program9.
     auto absent=encode(BankSelection{0u,63u,1u,1u,1u});
     MemoryStream missing(absent.data(),
