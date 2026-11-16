@@ -262,6 +262,41 @@ int main() {
         ->original_program_byte==7u);
     CHECK(catalog.resetNonRealtime());
     parsed.resetNonRealtime();
+    // Source owner file can retain a real bank header (76 bytes)
+    // followed by its first nested original 26-byte table.
+    // No driver/session authenticity is inferred from the file format.
+    std::vector<std::uint8_t> nestedCapture{
+        '1','2','5','A','V','X','D','1'};
+    const auto appendNested32=[&nestedCapture](std::uint32_t value) {
+        const auto at=nestedCapture.size();
+        nestedCapture.resize(at+4u);
+        put32(nestedCapture,at,value);
+    };
+    appendNested32(1u);
+    appendNested32(0xc30b09f0u);
+    appendNested32(0x3000u);
+    appendNested32(0x1592u);
+    appendNested32(288u);
+    appendNested32(1u);
+    appendNested32(2u);
+    auto verifiedIndirectDevice=indirectDevice;
+    put32(verifiedIndirectDevice,0x158eu,0x4d474d31u);
+    put16(verifiedIndirectDevice,6u,32u);
+    nestedCapture.insert(nestedCapture.end(),
+        verifiedIndirectDevice.begin(),verifiedIndirectDevice.end());
+    appendNested32(bankRoot);
+    appendNested32(static_cast<std::uint32_t>(indirectBank.size()));
+    nestedCapture.insert(nestedCapture.end(),
+        indirectBank.begin(),indirectBank.end());
+    Capture nestedParsed{};
+    CHECK(nestedParsed.loadNonRealtime(nestedCapture)==CaptureStatus::Ok);
+    CHECK(nestedParsed.importIntoNonRealtime(catalog,false)==Result::Unverified);
+    CHECK(nestedParsed.importIntoNonRealtime(catalog,true)==Result::Ok);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)
+          ->original_program_byte==7u);
+    CHECK(catalog.resetNonRealtime());
+    nestedParsed.resetNonRealtime();
     CHECK(!parsed.sourceFormatReady());
     CHECK(parsed.importIntoNonRealtime(catalog,true)==Result::Unverified);
 
