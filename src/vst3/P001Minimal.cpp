@@ -171,10 +171,19 @@ tresult PLUGIN_API Minimal::setBusArrangements(
     return SingleComponentEffect::setBusArrangements(inputs,numInputs,outputs,numOutputs);
 }
 tresult PLUGIN_API Minimal::setupProcessing(ProcessSetup& setup) {
-    // No quiet, inaccurate resampler. Multi-rate adapter is separately P004.
-    if (setup.sampleRate != 44100.0 || setup.maxSamplesPerBlock<=0
-        || setup.symbolicSampleSize!=kSample32) return kResultFalse;
+    // The physical EMU8000 clock is ALWAYS 44.1 kHz; only the host
+    // output adapter changes. Refuse unsupported or noninteger rates.
+    if ((setup.sampleRate!=44100.0 && setup.sampleRate!=48000.0 &&
+         setup.sampleRate!=88200.0 && setup.sampleRate!=96000.0) ||
+        setup.maxSamplesPerBlock<=0 ||
+        setup.symbolicSampleSize!=kSample32 ||
+        !hostRateAdapter_.configure(
+            static_cast<std::uint32_t>(setup.sampleRate)))
+        return kResultFalse;
     return SingleComponentEffect::setupProcessing(setup);
+}
+uint32 PLUGIN_API Minimal::getLatencySamples() {
+    return hostRateAdapter_.latencySamples();
 }
 tresult PLUGIN_API Minimal::canProcessSampleSize(int32 size) {
     return size==kSample32 ? kResultTrue : kResultFalse;
@@ -237,6 +246,9 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
             ? kResultOk : kResultFalse;
     }
     if (active_) return kResultOk;
+    // Activation is the only clock-reset boundary. DAW process() blocks
+    // and event/automation segments must never reset FIR history.
+    hostRateAdapter_.reset();
     // The original 86Box AWE64 Gold CT1745 mixer starts at the source
     // reset registers (FM/master 0xF8, bass/treble 0x80). Reverb/chorus,
     // INIT EQ and calibrated -1.1dB are ALREADY in the EMU8000 chip
@@ -910,6 +922,27 @@ void Minimal::render(int32 begin,int32 end,float* left,float* right) noexcept {
         begin+=count;
     }
 }
+void Minimal::renderHost(int32 begin,int32 end,
+                         float* left,float* right) noexcept {
+    if(hostRateAdapter_.rate()==P004HostRateAdapter::kChipHz) {
+        // P001/P002 original 44.1-kHz PCM and chip-port proofs remain
+        // byte-for-byte on the same unmodified output path.
+        render(begin,end,left,right);
+        return;
+    }
+    // Lazy native source frames enforce event ordering: a host NoteOn
+    // at offset K can never be rendered by a previous host segment.
+    // No allocations, I/O, locking or new synthesis DSP in process().
+    for(int32 i=begin;i<end;++i) {
+        const auto stereo=hostRateAdapter_.next([this]() noexcept {
+            float chipLeft=0.f,chipRight=0.f;
+            render(0,1,&chipLeft,&chipRight);
+            return P004HostRateAdapter::Stereo{chipLeft,chipRight};
+        });
+        left[i]=stereo.left;
+        right[i]=stereo.right;
+    }
+}
 tresult PLUGIN_API Minimal::process(ProcessData& data) {
     if (data.numSamples<0 || data.symbolicSampleSize!=kSample32)
         return kInvalidArgument;
@@ -1225,7 +1258,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             (choosePreset?presetOffset:
             (chooseCc?ccOffset:midiOffset)))));
         if(offset<pos)return kInvalidArgument;
-        render(pos,offset,left,right);
+        renderHost(pos,offset,left,right);
         pos=offset;
         if(chooseReset) {
             if(!privateWin95MidiOutReset()) {
@@ -1321,7 +1354,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             noteOff(e.noteOff.channel,e.noteOff.pitch);
         ++midiIndex;
     }
-    render(pos,data.numSamples,left,right);
+    renderHost(pos,data.numSamples,left,right);
     if(data.outputs && data.numOutputs==1)
         data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
