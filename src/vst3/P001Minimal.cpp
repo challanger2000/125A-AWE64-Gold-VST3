@@ -660,6 +660,21 @@ bool Minimal::stagePrivateClockedNote(
 void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
     if (!active_ || pitch<0 || pitch>127) return;
     if (!(velocity>0.f)) {noteOff(channel,pitch);return;}
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    // Source-authenticated Creative engine owns the complete MIDI/voice
+    // path once bound. Even a latched original hardware error MUST NOT
+    // route the event into the older P001/P002 fallback renderer.
+    if(p005OriginalPort_.sourceBound()) {
+        if(channel<0 || channel>=16)return;
+        const auto encoded=static_cast<int>(velocity*127.f+0.5f);
+        if(encoded<=0 || encoded>127)return;
+        (void)p005OriginalPort_.noteOn(
+            static_cast<std::uint8_t>(channel),
+            static_cast<std::uint8_t>(pitch),
+            static_cast<std::uint8_t>(encoded));
+        return;
+    }
+#endif
     if(p002PrivateRamPreloaded_ && !p002BankEnabled_) {
         // EXACT two original Win95 RAM NoteOn capture groups only;
         // no home-made patch data, filter, ADSR or fallback ROM voice.
@@ -736,6 +751,15 @@ void Minimal::noteOn(int channel,int pitch,float velocity) noexcept {
 }
 void Minimal::noteOff(int channel,int pitch) noexcept {
     if(!active_)return;
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    if(p005OriginalPort_.sourceBound()) {
+        if(channel>=0 && channel<16 && pitch>=0 && pitch<128)
+            (void)p005OriginalPort_.noteOff(
+                static_cast<std::uint8_t>(channel),
+                static_cast<std::uint8_t>(pitch));
+        return; // never fall back on original source MIDI failure
+    }
+#endif
     if(p002PrivateRamPreloaded_ && !p002BankEnabled_) {
         if(p002OriginalRamNotes_.ready())
             (void)p002OriginalRamNotes_.noteOff(chip_,channel,pitch);
@@ -840,6 +864,12 @@ void Minimal::applyPendingBankState() noexcept {
     publishBankState();
 }
 bool Minimal::privateSustainCc64(const std::uint8_t value) noexcept {
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    if(p005OriginalPort_.sourceBound()) {
+        return p005OriginalPort_.controller(0u,64u,value)==
+            awe64::original_vxd::MidiResult::Applied;
+    }
+#endif
     // This exact owner capture contains four MIDI note events only;
     // any additional controller would change register provenance.
     if(clockedNativeRam_) {
@@ -949,6 +979,14 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             data.outputs[0].silenceFlags=0x3;
         return kResultFalse; // no silent fake synth when ROM or activation is invalid
     }
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    const bool originalP005Bound=p005OriginalPort_.sourceBound();
+#else
+    constexpr bool originalP005Bound=false;
+#endif
+    // The original port and the legacy owner-diagnostic bank are
+    // mutually exclusive, never concurrent engines on one physical chip.
+    if(originalP005Bound && p002BankEnabled_)return kInvalidArgument;
     // A host can restore project state after setActive(). Validate
     // the ENTIRE incoming block before consuming that pending state.
     // Rejecting a malformed host block must not partially apply either
@@ -970,7 +1008,8 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
     std::array<IParamValueQueue*,3> controllerQueues{};
     if(((p002DiagnosticEnabled_ &&
          p002Fixture_.verified_source_note_release) ||
-        p002BankEnabled_) && data.inputParameterChanges) {
+        p002BankEnabled_ || originalP005Bound) &&
+        data.inputParameterChanges) {
         const auto count=data.inputParameterChanges->getParameterCount();
         for(int32 q=0;q<count;++q) {
             auto* queue=data.inputParameterChanges->getParameterData(q);
@@ -982,7 +1021,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                              kP002PrivateDiagnosticCc64Param) {
                 if(sustainQueue)return kInvalidArgument; // ambiguous MIDI state
                 sustainQueue=queue;
-            }else if(queue && p002BankEnabled_ &&
+            }else if(queue && (p002BankEnabled_ || originalP005Bound) &&
                       queue->getParameterId()==kP002PrivateProgramParam) {
                 if(programQueue)return kInvalidArgument;
                 programQueue=queue;
@@ -994,7 +1033,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                       queue->getParameterId()==kP003Sf2PresetOrdinalParam) {
                 if(presetQueue)return kInvalidArgument;
                 presetQueue=queue;
-            }else if(queue && p002BankEnabled_) {
+            }else if(queue && (p002BankEnabled_ || originalP005Bound)) {
                 for(std::size_t c=0;c<controllerIds.size();++c) {
                     if(queue->getParameterId()!=controllerIds[c])continue;
                     if(controllerQueues[c])return kInvalidArgument;
@@ -1249,10 +1288,21 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             }
             const auto value=static_cast<std::uint8_t>(
                 controllerNormalized*127. + 0.5);
-            if(!p002RomBank_.controller(
-                    controllerNumbers[static_cast<std::size_t>(controllerChoice)],
-                    value))return kInvalidArgument;
-            publishBankState();
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+            if(originalP005Bound) {
+                if(p005OriginalPort_.controller(
+                      0u,
+                      controllerNumbers[static_cast<std::size_t>(controllerChoice)],
+                      value)!=awe64::original_vxd::MidiResult::Applied)
+                    return kInvalidArgument;
+            }else
+#endif
+            {
+                if(!p002RomBank_.controller(
+                        controllerNumbers[static_cast<std::size_t>(controllerChoice)],
+                        value))return kInvalidArgument;
+                publishBankState();
+            }
             ++controllerIndex[static_cast<std::size_t>(controllerChoice)];
             continue;
         }
@@ -1284,9 +1334,19 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             // Do not fail the whole DAW audio callback just because the
             // requested SF2 bank/program has no actual PHDR entry.
             // Exact Creative 1996 missing-preset policy remains unproved.
-            if(!p002RomBank_.ready())return kInvalidArgument;
-            (void)p002RomBank_.programChange(value);
-            publishBankState();
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+            if(originalP005Bound) {
+                // Original C0 changes only the original Creative MIDI
+                // program state. Unsupported programs are not mapped to
+                // fictional SF2 PHDR rows or a fallback synthesizer.
+                (void)p005OriginalPort_.program(0u,value);
+            }else
+#endif
+            {
+                if(!p002RomBank_.ready())return kInvalidArgument;
+                (void)p002RomBank_.programChange(value);
+                publishBankState();
+            }
             ++programIndex;
             continue;
         }
@@ -1320,11 +1380,11 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         }
         if(e.type==Event::kNoteOnEvent &&
            (p002DiagnosticEnabled_ || p002BankEnabled_ ||
-            e.noteOn.channel==0))
+            originalP005Bound || e.noteOn.channel==0))
             noteOn(e.noteOn.channel,e.noteOn.pitch,e.noteOn.velocity);
         else if(e.type==Event::kNoteOffEvent &&
                 (p002DiagnosticEnabled_ || p002BankEnabled_ ||
-                 e.noteOff.channel==0))
+                 originalP005Bound || e.noteOff.channel==0))
             noteOff(e.noteOff.channel,e.noteOff.pitch);
         ++midiIndex;
     }
