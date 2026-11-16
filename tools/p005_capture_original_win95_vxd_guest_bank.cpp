@@ -107,6 +107,19 @@ bool probe(const Ram& ram,std::uint32_t cr3,std::uint32_t deviceVa,
     for(std::size_t slot=0u;slot<Slots;++slot) {
         const auto ptr=u32(next.device.data()+PointerOffset+4u*slot);
         if(ptr==0u)continue;
+        // A Win95 SoundFont bank HEADER may start with an array of
+        // increasing guest pointers; it is NOT the 26-byte row list.
+        // Reject this known false-positive layout until its real
+        // indirect directory is handled explicitly.
+        std::array<std::uint8_t,12> header{};
+        if(!virtualRead(ram,cr3,ptr,header.data(),header.size()))
+            return false;
+        const auto a=u32(header.data());
+        const auto b=u32(header.data()+4u);
+        const auto c=u32(header.data()+8u);
+        if(a>ptr && a-ptr>=28u && a-ptr<=4096u &&
+           a<b && b<c && (a&0xff000000u)==(ptr&0xff000000u))
+            return false; // indirect bank header, not a direct program list
         ++next.nonzeroSlotPointers;
         if(next.rows.contains(ptr))continue;
         std::vector<std::uint8_t> originalBytes{};
