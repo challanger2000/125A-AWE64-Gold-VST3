@@ -23,10 +23,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
   "New-Item -ItemType Directory -Force -Path $dir | Out-Null;" ^
   "$tag=(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+[guid]::NewGuid().ToString('N').Substring(0,8);" ^
   "$output=Join-Path $dir ('P005-Original-VXD-'+$tag+'.125a-private-vxd');" ^
+  "$nested=Join-Path $dir ('P005-Original-Nested-'+$tag+'.125a-private-regions');" ^
   "Write-Host ('P005: nur lesender 86Box-RAM-Zugriff; Prozess-ID '+$p[0].Id);" ^
-  "& '%P005_CAPTURE%' --pid $p[0].Id --output $output;" ^
+  "& '%P005_CAPTURE%' --pid $p[0].Id --output $output --nested-output $nested;" ^
   "if($LASTEXITCODE -ne 0){throw 'P005 NO-GO: Originalbank nicht eindeutig/stabil aufnehmbar'};" ^
   "Write-Host ('P005 PRIVATES Gast-Speicherpaket: '+$output);" ^
+  "Write-Host ('P005 PRIVATE verschachtelte Quellbereiche: '+$nested);" ^
   "Write-Host 'HINWEIS: Treiber- und Sitzungsprovenienz noch getrennt pruefen. KEIN VST3-GO.'"
 if errorlevel 1 (
   echo.
