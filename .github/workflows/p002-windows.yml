@@ -93,6 +93,7 @@ on:
       - 'third_party/creative-vxd-port/**'
       - 'src/vst3/P005OriginalCreativeHostAdapter.hpp'
       - 'src/vst3/P005OriginalCreativeSf2NoteStage.hpp'
+      - 'src/vst3/P005OriginalCreativeBankCatalog.hpp'
       - 'tests/p005_vst3_original_port_adapter.cpp'
       - 'tests/p005_vst3_prebank2_source_sequence.cpp'
       - 'tests/p005_vst3_sf2_note_stage.cpp'
