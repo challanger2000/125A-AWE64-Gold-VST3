@@ -18,6 +18,10 @@ public:
     using SourceBank=awe64::original_vxd::VerifiedSf2Bank;
     using Source=awe64::original_vxd::SoundFontSource;
     P005OriginalCreativeHostAdapter()=default;
+    // The VST3 catalog is declared BEFORE this adapter and thus lives
+    // longer during C++ member teardown. Release its source lease even
+    // if the host closes without the normal setActive(false) callback.
+    ~P005OriginalCreativeHostAdapter() {resetNonRealtime();}
     P005OriginalCreativeHostAdapter(
         const P005OriginalCreativeHostAdapter&)=delete;
     P005OriginalCreativeHostAdapter& operator=(
