@@ -29,10 +29,12 @@ BRANCHES = {0x40C4:"and",0x40C9:"cmp",0x40CB:"ja",0x40DA:"je",
 # A full original 32-voice scan advances directly to the next adjacent
 # voice's VTFT call, without immediate release or skipping that voice.
 # These are path restrictions from physical helper order, not EFLAGS samples.
-OBSERVED_FULL_SCAN = {
-    0x40DA:False, 0x4120:True, 0x4027:False, 0x402D:False,
-    0x403C:False, 0x4042:False, 0x4054:False,
-}
+# The recorded full-scan next voice is directly eligible, but the V4 CPU
+# I/O trace does not contain the actual RAM DWORD at [device+0x18].
+# In the native C++23 port it is DeviceState.mode_count (default 32).
+# JNE +0x4027 is therefore UNSPECIFIED in the original trace.
+OBSERVED_FULL_SCAN = {0x40DA:False,0x4120:True,0x4054:False}
+SKIP_PREDICATES_IF_LOW_COUNT = (0x402D,0x403C,0x4042)
 
 def parse_original_x86(code_path:Path):
     if hashlib.sha256(code_path.read_bytes()).hexdigest()!=LCOD_SHA256:
@@ -94,19 +96,44 @@ def enumerate_paths(decoded):
     if not accepted:raise ValueError("no route to next original VTFT")
     return accepted,endpoints
 
-def constrained_paths(all_paths):
+def constrained_paths(all_paths,mode_count=None):
+    """Restrict to a witnessed next-adjacent-voice full-scan transition.
+
+    mode_count=None: source I/O trace cannot tell +0x4027 taken/not taken.
+    mode_count=32: native-port hypothesis [device+0x18]>2, so JNE taken.
+    mode_count=2: converse hypothesis, needing all three no-skip checks.
+    Neither alternative claims the V4 guest RAM value was captured.
+    """
+    if mode_count not in (None,2,32):
+        raise ValueError("only explicitly supported counterfactual modes")
     possible=[]
     for decisions,instruction_count in all_paths:
         values=dict(decisions)
-        if all(values.get(pc)==taken for pc,taken in OBSERVED_FULL_SCAN.items()):
-            possible.append((decisions,instruction_count))
-    if len(possible)!=16:raise ValueError("expected 16 remaining original syntactic paths")
-    remaining={pc for path,_ in possible for pc,_ in path}-set(OBSERVED_FULL_SCAN)
-    if remaining!={0x40CB,0x40E4,0x40F1,0x4107}:
-        raise ValueError("unexpected unresolved x86 branch decisions")
-    if set(n for _,n in possible)!=set(range(40,46)):
-        raise ValueError("original 40..45 instruction-path count changed")
-    return possible,remaining
+        if not all(values.get(pc)==taken for pc,taken in OBSERVED_FULL_SCAN.items()):
+            continue
+        # When JNE +4027 is taken the no-skip checks are not executed.
+        high=values.get(0x4027)
+        if high is None:raise ValueError("missing original +4027 branch")
+        if mode_count==32 and high is not True:continue
+        if mode_count==2 and high is not False:continue
+        if not high and any(values.get(pc) is not False
+                            for pc in SKIP_PREDICATES_IF_LOW_COUNT):
+            continue
+        possible.append((decisions,instruction_count))
+    expected={None:32,2:16,32:16}[mode_count]
+    if len(possible)!=expected:
+        raise ValueError(f"expected {expected} x86 routes for mode hypothesis")
+    dynamic={pc for path,_ in possible for pc,_ in path}
+    dynamic-=set(OBSERVED_FULL_SCAN)|set(SKIP_PREDICATES_IF_LOW_COUNT)
+    if mode_count is not None:dynamic.discard(0x4027)
+    expected_dynamic={0x40CB,0x40E4,0x40F1,0x4107}
+    if dynamic!=(expected_dynamic|({0x4027} if mode_count is None else set())):
+        raise ValueError("unexpected unresolved conditional sites")
+    expected_lengths={None:set(range(32,38))|set(range(40,46)),
+                      2:set(range(40,46)),32:set(range(32,38))}
+    if {n for _,n in possible}!=expected_lengths[mode_count]:
+        raise ValueError("original constrained instruction-count range changed")
+    return possible,dynamic
 
 def synthetic_selftest():
     # Entirely fabricated x86 pseudoinstruction graph; no Creative code.
@@ -125,7 +152,9 @@ def synthetic_selftest():
 def inspect_original(code_path,original_trace=None):
     decoded=parse_original_x86(code_path)
     all_paths,endpoints=enumerate_paths(decoded)
-    possible,remaining=constrained_paths(all_paths)
+    possible,remaining=constrained_paths(all_paths,mode_count=None)
+    native32,native32_dynamic=constrained_paths(all_paths,mode_count=32)
+    lowcount,_=constrained_paths(all_paths,mode_count=2)
     if len(all_paths)!=48:raise ValueError("original CFG route count changed")
     if len({(tuple(path),n) for path,n in all_paths})!=48:
         raise ValueError("duplicate CFG path escaped")
@@ -133,9 +162,14 @@ def inspect_original(code_path,original_trace=None):
       "schema":"125A-P106-ORIGINAL-CCCA-VTFT-STATIC-X86-CFG",
       "original_lcod_sha256_verified":True,
       "unconstrained_static_routes_to_next_vtft":len(all_paths),
-      "routes_after_recorded_32voice_fullscan_constraints":len(possible),
-      "remaining_conditional_branch_offsets":[hex(x) for x in sorted(remaining)],
-      "constrained_path_instruction_counts":sorted(set(n for _,n in possible)),
+      "routes_after_observed_fullscan_without_original_mode_count":len(possible),
+      "unresolved_original_conditional_sites":[hex(x) for x in sorted(remaining)],
+      "routes_if_native_mode_count_32":len(native32),
+      "conditional_sites_if_native_mode_count_32":[hex(x) for x in sorted(native32_dynamic)],
+      "instruction_counts_if_native_mode_count_32":sorted(set(n for _,n in native32)),
+      "routes_if_original_mode_count_at_most_2":len(lowcount),
+      "instruction_counts_if_low_mode_count":sorted(set(n for _,n in lowcount)),
+      "original_device_mode_count_captured":False,
       "observed_dynamic_eflags_recorded":False,
       "original_cpu_cycle_cost_reconstructed":False,
       "autonomous_vst3_clock_approved":False
