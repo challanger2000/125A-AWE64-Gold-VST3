@@ -71,34 +71,45 @@ def parse_capture(raw:bytes)->dict:
         at+=8
         require(address in pointers and address not in seen,
                 "unreferenced or duplicate original VXD guest pointer")
-        require(ROW_BYTES<=size<=ROW_BYTES*ROW_LIMIT and
-                size%ROW_BYTES==0 and at+size<=len(raw),
-                "original 26-byte VXD program list truncated/oversized")
+        require(ROW_BYTES<=size<=ROW_BYTES*ROW_LIMIT+4096 and
+                at+size<=len(raw),
+                "original Creative bank data truncated/oversized")
         blob=raw[at:at+size]
         at+=size
-        count=size//ROW_BYTES
-        # A bank structure may contain seven nested guest pointers,
-        # followed by 26-byte rows at the first pointer's TARGET.
-        # The former scanner treated the header itself as row zero.
-        # Catch that observed false-positive explicitly, without
-        # imposing invalid MIDI-7-bit restrictions on percussion.
-        if len(blob)>=12:
-            a,b,c=struct.unpack_from('<3I',blob)
-            require(not (a>address and 28<=a-address<=4096 and
-                         a<b<c and (a&0xff000000)==(address&0xff000000)),
-                    "indirect Creative bank header was mistaken for 26-byte program rows")
+        indirect=False
+        if len(blob)>=28:
+            first,second,third=struct.unpack_from("<III",blob,0)
+            indirect=(first>address and 28<=first-address<=4096 and
+                      first<second<third and
+                      (first&0xff000000)==(address&0xff000000))
+        start=first-address if indirect else 0
+        require((size-start)>=ROW_BYTES and
+                (indirect or size%ROW_BYTES==0),
+                "original guest program records misaligned")
+        count=0
+        terminated=False
+        for ordinal in range((size-start)//ROW_BYTES):
+            pos=start+ordinal*ROW_BYTES
+            marker=struct.unpack_from("<H",blob,pos)[0]
+            count+=1
+            if marker==0xffff:
+                terminated=True
+                break
+        require(terminated and (start+(count*ROW_BYTES)<=size),
+                "original VXD nested/direct program list missing FFFF sentinel")
+        if not indirect:
+            require(start+count*ROW_BYTES==size,
+                    "source VXD row terminates before recorded end")
         rows_total+=count
         require(rows_total<=ROW_LIMIT,"source row count exceeds capture bound")
-        for ordinal in range(count):
-            marker=struct.unpack_from("<H",blob,ordinal*ROW_BYTES)[0]
-            if ordinal==count-1:
-                require(marker==0xffff,
-                        "original VXD program list has no final FFFF sentinel")
-            else:
-                require(marker!=0xffff,
-                        "source VXD row terminates before recorded end")
-        seen[address]={"total_rows_including_sentinel":count,
-                       "active_rows":count-1,"bytes_sha256":sha(blob)}
+        seen[address]={
+            "total_rows_including_sentinel":count,
+            "active_rows":count-1,
+            "bytes_sha256":sha(blob),
+            "source_layout":"indirect_bank_header" if indirect else "direct_rows",
+            "nested_program_guest_pointer":f"0x{first:08x}" if indirect else None,
+            "legacy_trailing_unclassified_bytes":size-(start+count*ROW_BYTES)
+        }
     require(set(seen)==pointers and at==len(raw),
             "incomplete, trailing or mismatched guest source regions")
     require(sum(row["active_rows"] for row in seen.values())>0,
