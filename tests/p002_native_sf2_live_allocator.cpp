@@ -207,8 +207,25 @@ int main(){
             CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
         }
         put16(state,0x06u,32u);
-        put32(state,0x18u,30u);
-        CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
+        // Original VXD device+0x18 is mutable and MUST NOT be
+        // mistaken for the fixed device+0x06 hardware capacity.
+        // Real source changes this counter when voice flags toggle.
+        // With counts >2 the same low-mode filter must remain off.
+        for(const std::uint32_t sourceCount:{30u,31u,32u,33u}) {
+            put32(state,0x18u,sourceCount);
+            CHECK(chip.armPortWriteTrace(256u));
+            const auto chosen=candidateOriginalSf2LiveVxdMonoVoice(
+                chip,state,true);
+            CHECK(chosen && chosen->physical_voice==6u);
+            const auto portWrites=chip.portWriteTrace();
+            CHECK(portWrites.size()==3u);
+            CHECK(portWrites[0].port==0xe22u &&
+                  portWrites[0].value==0x60u);
+            CHECK(portWrites[1].port==0xe22u &&
+                  portWrites[1].value==0x63u);
+            CHECK(portWrites[2].port==0xe22u &&
+                  portWrites[2].value==0x66u);
+        }
         put32(state,0x18u,32u);
         state[kOriginalVxdRomIdOffset]=0u;
         CHECK(!candidateOriginalSf2LiveVxdMonoVoice(chip,state,true));
