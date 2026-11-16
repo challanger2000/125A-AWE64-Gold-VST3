@@ -104,17 +104,20 @@ public:
                    (!indirect && length%26u!=0u))
                     return Result::InvalidSourceRows;
                 std::size_t nRows=0u;
-                bool terminated=false;
-                for(std::size_t ri=0u;
-                    ri<(length-prefix)/26u;++ri) {
+                if(indirect) {
+                    const auto first=read32(raw,offset);
+                    const auto second=read32(raw,offset+4u);
+                    const auto span=std::uint64_t{second}-first;
+                    if(span<26u || span%26u!=0u ||
+                       span/26u>65536u || span>length-prefix)
+                        return Result::InvalidSourceRows;
+                    nRows=static_cast<std::size_t>(span/26u);
+                } else nRows=length/26u;
+                for(std::size_t ri=0u;ri<nRows;++ri) {
                     const auto marker=read16(raw,offset+prefix+ri*26u);
-                    ++nRows;
-                    if(marker==0xffffu) {
-                        terminated=true;break;
-                    }
+                    if((marker==0xffffu)!=(ri+1u==nRows))
+                        return Result::InvalidSourceRows;
                 }
-                if(!terminated || (!indirect && prefix+nRows*26u!=length))
-                    return Result::InvalidSourceRows;
                 if(nRows>65536u || rows>65536u-nRows)
                     return Result::ResourceLimit;
                 rows+=nRows;
