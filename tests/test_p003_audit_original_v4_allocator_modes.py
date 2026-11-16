@@ -15,7 +15,7 @@ from p003_audit_original_v4_allocator_modes import (
 
 class OriginalV4AllocatorModeEvidenceTests(unittest.TestCase):
     def setUp(self):
-        self.bias=0xc10151e5
+        self.bias=0xc10151e4
     def test_original_mode0_and_dispatcher_distinct_stack_levels(self):
         frames=[
             Counter({self.bias+0x3f12:7,self.bias+0x3fcd:3}),
@@ -56,20 +56,26 @@ class OriginalV4AllocatorModeEvidenceTests(unittest.TestCase):
         for call,mode in ORIGINAL_DISPATCH_CALLS.values():
             code[call]=0xe8
             struct.pack_into("<i",code,call+1,0x3d6f-(call+5))
-        frames=[Counter({self.bias+0x5564:52}),
-                Counter({self.bias+0x5564:0}),
+        frames=[Counter({self.bias+0x5565:52}),
+                Counter({self.bias+0x5527:13}),
                 Counter(),Counter()]
         result=classify_original_descriptor_dispatch_calls(
             bytes(code),self.bias,frames)
         self.assertEqual(
             result["descriptor_flag04_branch_single_mode0"][
-                "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY"],52)
+                "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY"],0)
         self.assertEqual(
             result["descriptor_flag04_branch_pair_mode1"][
                 "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY"],0)
         self.assertEqual(
+            result["descriptor_flag04_branch_pair_mode1"][
+                "architectural_next_pc_return_hint_events"],13)
+        self.assertEqual(
             result["descriptor_flag04_branch_single_mode0"][
-                "architectural_next_pc_return_hint_events"],0)
+                "architectural_next_pc_return_hint_events"],52)
+        self.assertEqual(
+            result["descriptor_flag04_branch_single_mode0"][
+                "one_byte_displacement_cause"],"NONE_WITH_CORRECT_POST_IO_LOAD_BASE")
         self.assertFalse(
             result["descriptor_flag04_branch_single_mode0"][
                 "full_function_execution_proven"])
