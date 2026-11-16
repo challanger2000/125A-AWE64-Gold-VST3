@@ -105,6 +105,10 @@ private:
     // Owns ORIGINAL 288-slot records and multiple source-compiled
     // note contexts. Publish only after private SHA provenance checks.
     P005OriginalCreativeBankCatalog p005OriginalBankCatalog_{};
+    // Filled only from a successful private SHA-gated original P002
+    // source-RAM bank load. No SF2 or VXD constants baked into binary.
+    awe64::original_vxd::OriginalSf2SourceTables
+        p005OriginalSourceTables_{};
     P005OriginalCreativeHostAdapter<awe64::Chip> p005OriginalPort_{};
 #endif
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
