@@ -41,7 +41,7 @@ class ProbeContract(unittest.TestCase):
         self.assertIn(b"readlookup2[linear >> 12]",patched)
         self.assertNotIn(b"writemem",patched.lower())
         self.assertNotIn(b"emu8k_",patched.lower())
-        self.assertEqual(patched.count(b"codegen_timing_opcode(opcode, fetchdat, op_32, op_pc)"),1)
+        self.assertEqual(patched.count(b"codegen_block_cycles = 0;"),1)
         self.assertEqual(patched.count(b"codegen_accumulate(ACCREG_cycles, -codegen_block_cycles)"),2)
         self.assertEqual(patched.count(b"p107_x86_executed_guest_pc);"),1)
 
