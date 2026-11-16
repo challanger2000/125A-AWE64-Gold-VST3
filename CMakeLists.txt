@@ -1087,6 +1087,24 @@ if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
     endif()
     add_test(NAME p005_C4_D4_original_prebank2_no_stress
         COMMAND awe64_p005_prebank2_source_sequence_test)
+    # Real original-port SF2 RIFF parser and Creative descriptor builder:
+    # a staged note context, not a full precompiled bank or fake DSP.
+    add_executable(awe64_p005_sf2_note_stage_test
+        tests/p005_vst3_sf2_note_stage.cpp)
+    target_include_directories(awe64_p005_sf2_note_stage_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_sf2_note_stage_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_sf2_note_stage_test PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_sf2_note_stage_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_sf2_note_stage_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_original_source_sf2_note_midi_to_chip
+        COMMAND awe64_p005_sf2_note_stage_test)
     if(AWE64_BUILD_P001_VST3)
         target_link_libraries(AWE64_Gold_P001
             PRIVATE original_creative_vxd_live)
