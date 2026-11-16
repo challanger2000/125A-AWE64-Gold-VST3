@@ -12,6 +12,7 @@
 #include "OriginalCt1745WavetableMixer.h"
 #ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
 #include "P005OriginalCreativeHostAdapter.hpp"
+#include "P005OriginalCreativeSf2NoteStage.hpp"
 #endif
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
@@ -96,6 +97,10 @@ private:
 #ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
     // Exactly one original Creative MIDI and RAM state, bound to chip_.
     // Never activate without source-authenticated SF2 descriptors.
+    // Authenticated SF2 note geometry is prepared OFF the audio thread.
+    // The live adapter is not enabled until original source tables,
+    // physical RAM and complete 288-slot program identity are verified.
+    P005OriginalCreativeSf2NoteStage p005OriginalNoteStage_{};
     P005OriginalCreativeHostAdapter<awe64::Chip> p005OriginalPort_{};
 #endif
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
