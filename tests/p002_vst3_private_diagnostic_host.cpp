@@ -1065,7 +1065,7 @@ void verifyRealSf2ProjectRecall(IPluginFactory* factory) {
     // instrument it will restore. Only unconsumed pending V2 changes
     // are cancelled by legacy recall; the actual playing sound remains.
     {
-        const auto legacy=kLegacyMagic;
+        auto legacy=kLegacyMagic;
         MemoryStream oldSession(legacy.data(),
                                 static_cast<TSize>(legacy.size()));
         require(active.component->setState(&oldSession)==kResultOk,
