@@ -148,6 +148,28 @@ class OriginalGuestCaptureTests(unittest.TestCase):
         self.assertEqual(nested["bounded_regions_not_fully_captured"],1)
         self.assertFalse(nested["last_pointer_within_capture"])
         self.assertFalse(nested["entire_nested_bank_attested"])
+    def test_indirect_bank_rejects_disordered_later_pointer(self):
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        base=36+DEVICE_BYTES
+        header=bytearray(76)
+        table=bytearray(2*ROW_BYTES)
+        struct.pack_into("<HBB",table,0,1,7,0)
+        struct.pack_into("<H",table,ROW_BYTES,0xffff)
+        offsets=(76,128,228,328,428,528,628)
+        for index,delta in enumerate(offsets):
+            struct.pack_into("<I",header,index*4,root+delta)
+        data=header+table
+        struct.pack_into("<I",source,base+4,len(data))
+        source[base+8:]=data
+        self.assertEqual(
+            parse_capture(bytes(source))["source_rows_content_hashes"][0]
+            ["active_rows"],1)
+        # A corrupted fifth pointer must not be ignored merely because
+        # the first two nested pointers still correctly frame the rows.
+        struct.pack_into("<I",source,base+8+5*4,root+327)
+        with self.assertRaises(CaptureError):
+            parse_capture(bytes(source))
     def test_legacy_indirect_capture_missing_child_sentinel(self):
         source=bytearray(fake_capture())
         root=0xc30c0ff0
