@@ -76,12 +76,22 @@ int main() {
         {guestAddress,corrupt}
     }};
     CHECK(Importer::importNonRealtime(
-        catalog,sourceDevice,noSentinel,true)==Result::InvalidGuestMapping);
+        catalog,sourceDevice,noSentinel,true)==Result::MissingSentinel);
     CHECK(catalog.sourceSlotCount()==0u);
 
     CHECK(Importer::importNonRealtime(
         catalog,sourceDevice,memory,true)==Result::Ok);
     CHECK(catalog.sourceSlotCount()==original_program_bank_slots);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.sourceRowCountNonRealtime(6u)==3u);
+    CHECK(catalog.sourceRowCountNonRealtime(4u)==0u);
+    CHECK(!catalog.originalSourceRowNonRealtime(4u,0u));
+    CHECK(!catalog.originalSourceRowNonRealtime(5u,3u));
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_bank_byte==1u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,2u)->original_source_marker==0xffffu);
     CHECK(catalog.zoneCount()==0u);
     CHECK(!catalog.ready()); // no authenticated note state was loaded
     CHECK(Importer::importNonRealtime(
@@ -93,6 +103,8 @@ int main() {
     // Verify the underlying original rows through a second staged state:
     // a reset succeeds only because no MIDI runtime is borrowing them.
     sourceRows[2u]=88u; // invalidate the original memory capture
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,0u)->original_program_byte==7u);
     CHECK(catalog.sourceSlotCount()==original_program_bank_slots);
     CHECK(catalog.resetNonRealtime());
     CHECK(catalog.sourceSlotCount()==0u);
