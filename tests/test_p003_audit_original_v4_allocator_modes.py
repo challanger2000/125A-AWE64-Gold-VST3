@@ -4,12 +4,14 @@ Original Win95 guest, SBAWE.VXD and ROM/SF2/audio never enter public CI.
 """
 from collections import Counter
 import sys
+import struct
 from pathlib import Path
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from p003_audit_original_v4_allocator_modes import (
-    LCOD_REGIONS, classify_original_hints, audit)
+    LCOD_REGIONS, classify_original_hints,
+    classify_original_descriptor_dispatch_calls,ORIGINAL_DISPATCH_CALLS,audit)
 
 class OriginalV4AllocatorModeEvidenceTests(unittest.TestCase):
     def setUp(self):
@@ -49,6 +51,38 @@ class OriginalV4AllocatorModeEvidenceTests(unittest.TestCase):
         mode=classify_original_hints(self.bias,frames)["mode_1_adjacent_pair"]
         self.assertEqual(mode["physical_port_events_with_return_hints_in_code_region"],2)
         self.assertEqual(mode["distinct_return_hint_offsets"],1)
+    def test_original_descriptor_branch_pairs_and_mono_hints_are_separate(self):
+        code=bytearray(b"\x90"*31200)
+        for call,mode in ORIGINAL_DISPATCH_CALLS.values():
+            code[call]=0xe8
+            struct.pack_into("<i",code,call+1,0x3d6f-(call+5))
+        frames=[Counter({self.bias+0x5564:52}),
+                Counter({self.bias+0x5564:0}),
+                Counter(),Counter()]
+        result=classify_original_descriptor_dispatch_calls(
+            bytes(code),self.bias,frames)
+        self.assertEqual(
+            result["descriptor_flag04_branch_single_mode0"][
+                "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY"],52)
+        self.assertEqual(
+            result["descriptor_flag04_branch_pair_mode1"][
+                "last_byte_of_call_return_hint_events_DIAGNOSTIC_ONLY"],0)
+        self.assertEqual(
+            result["descriptor_flag04_branch_single_mode0"][
+                "architectural_next_pc_return_hint_events"],0)
+        self.assertFalse(
+            result["descriptor_flag04_branch_single_mode0"][
+                "full_function_execution_proven"])
+        # The exact original CALL must target 0x3D6F. A one-byte
+        # mutant or wrong target must be rejected, not reinterpreted.
+        code[0x5560]=0x90
+        with self.assertRaisesRegex(ValueError,"Original dispatcher CALL missing"):
+            classify_original_descriptor_dispatch_calls(bytes(code),self.bias,frames)
+        code[0x5560]=0xe8
+        struct.pack_into("<i",code,0x5561,0x3d70-(0x5560+5))
+        with self.assertRaisesRegex(ValueError,"wrong target"):
+            classify_original_descriptor_dispatch_calls(bytes(code),self.bias,frames)
+
     def test_unavailable_address_does_not_forge_a_voice_mode(self):
         frames=[Counter({0xffffffff:100}),Counter(),Counter(),Counter()]
         r=classify_original_hints(self.bias,frames)
