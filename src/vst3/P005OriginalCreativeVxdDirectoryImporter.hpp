@@ -66,27 +66,37 @@ public:
            catalog.runtimeLeased() || catalog.zoneCount()!=0u)
             return Result::CatalogBusy;
 
-        // Reject impossible 32-bit guest mappings and overlap. Different
-        // Win95 pointers can ALIAS the SAME bytes, but overlapping segment
-        // declarations make the read result ambiguous and are forbidden.
+        // All guest pages are externally authenticated, but they may
+        // arrive in any order. Build a non-RT sorted ADDRESS INDEX.
+        // This avoids an O(pageCount^2) overlap check and linear scans
+        // for every original VXD row in a multi-megabyte guest capture.
         constexpr std::uint64_t kGuestAddressSpace=
             std::uint64_t{1}<<32u;
-        for(std::size_t i=0u;i<guestMemory.size();++i) {
-            auto const& a=guestMemory[i];
-            const auto alo=std::uint64_t{a.guest_address};
-            const auto ahi=alo+std::uint64_t{a.bytes.size()};
-            if(ahi>kGuestAddressSpace || a.bytes.empty())
+        try {
+        std::vector<const P005OriginalGuestMemorySegment*> indexed{};
+        indexed.reserve(guestMemory.size());
+        for(auto const& segment:guestMemory) {
+            const auto begin=std::uint64_t{segment.guest_address};
+            const auto end=begin+std::uint64_t{segment.bytes.size()};
+            if(segment.bytes.empty() || end>kGuestAddressSpace)
                 return Result::InvalidGuestMapping;
-            for(std::size_t j=0u;j<i;++j) {
-                auto const& b=guestMemory[j];
-                const auto blo=std::uint64_t{b.guest_address};
-                const auto bhi=blo+std::uint64_t{b.bytes.size()};
-                if(alo<bhi && blo<ahi)
-                    return Result::InvalidGuestMapping;
-            }
+            indexed.push_back(&segment);
+        }
+        std::sort(indexed.begin(),indexed.end(),
+            [](auto const* left,auto const* right) noexcept {
+                return left->guest_address<right->guest_address;
+            });
+        // No two captured regions may claim different byte values for
+        // one guest virtual address. Exact aliases are represented by
+        // repeated VXD pointers, NOT repeated memory segment mappings.
+        for(std::size_t i=1u;i<indexed.size();++i) {
+            auto const* prior=indexed[i-1u];
+            const auto priorEnd=std::uint64_t{prior->guest_address}+
+                                std::uint64_t{prior->bytes.size()};
+            if(priorEnd>std::uint64_t{indexed[i]->guest_address})
+                return Result::InvalidGuestMapping;
         }
 
-        try {
         std::array<std::vector<Row>,kOriginalSlotCount> rows{};
         std::array<Slot,kOriginalSlotCount> views{};
         std::size_t totalRows=0u,nonzeroPointers=0u;
@@ -112,27 +122,33 @@ public:
                 std::size_t copied=0u;
                 std::uint64_t address=vaddr;
                 while(copied<kOriginalRowBytes) {
-                    bool mapped=false;
-                    for(auto const& segment:guestMemory) {
-                        const auto begin=std::uint64_t{segment.guest_address};
-                        const auto end=begin+
-                            std::uint64_t{segment.bytes.size()};
-                        if(address>=begin && address<end) {
-                            const auto sourceOffset=
-                                static_cast<std::size_t>(address-begin);
-                            const auto count=std::min(
-                                kOriginalRowBytes-copied,
-                                static_cast<std::size_t>(end-address));
-                            std::copy_n(
-                                segment.bytes.begin()+sourceOffset,count,
-                                joined.begin()+copied);
-                            copied+=count;
-                            address+=count;
-                            mapped=true;
-                            break;
-                        }
-                    }
-                    if(!mapped)break;
+                    // The last segment with start <= requested guest
+                    // address is the ONLY possible nonoverlapping owner.
+                    auto it=std::upper_bound(
+                        indexed.begin(),indexed.end(),address,
+                        [](std::uint64_t target,
+                           const P005OriginalGuestMemorySegment* segment)
+                           noexcept {
+                            return target<
+                                std::uint64_t{segment->guest_address};
+                        });
+                    if(it==indexed.begin())break;
+                    --it;
+                    const auto* segment=*it;
+                    const auto begin=std::uint64_t{segment->guest_address};
+                    const auto end=begin+
+                        std::uint64_t{segment->bytes.size()};
+                    if(address<begin || address>=end)break;
+                    const auto sourceOffset=
+                        static_cast<std::size_t>(address-begin);
+                    const auto count=std::min(
+                        kOriginalRowBytes-copied,
+                        static_cast<std::size_t>(end-address));
+                    std::copy_n(
+                        segment->bytes.begin()+sourceOffset,count,
+                        joined.begin()+copied);
+                    copied+=count;
+                    address+=count;
                 }
                 if(copied!=kOriginalRowBytes)
                     return ordinal==0u ? Result::InvalidGuestMapping :
