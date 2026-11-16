@@ -231,6 +231,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         // Only clear after the source adapter has detached its lease.
         (void)p005OriginalBankCatalog_.resetNonRealtime();
         p005OriginalSourceTables_={};
+        p005OriginalVxdDeviceImage_.fill(0u);
+        p005OriginalDeviceImageVerified_=false;
 #endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
                              sf2host::kProgramListId))) {
@@ -487,6 +489,9 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         // previous P002 diagnostic behavior if this staging fails.
         if(p002RomBank_.exportVerifiedCreativeP005SourceTables(
                p005OriginalSourceTables_)) {
+            p005OriginalDeviceImageVerified_=
+                p002RomBank_.exportVerifiedCreativeP005VxdDeviceImage(
+                    p005OriginalVxdDeviceImage_);
             std::fputs("P005_ORIGINAL_SOURCE_TABLE_BRIDGE_READY "
                        "SHA_GATED=TRUE RAM_PLACEMENT=VERIFIED "
                        "ORIGINAL_PROGRAM_MAP=NOT_YET_BOUND\n",stderr);
