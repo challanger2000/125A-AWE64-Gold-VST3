@@ -228,7 +228,8 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         // activation. Both resets are OFF process() and BEFORE chip.close().
         p005OriginalPort_.resetNonRealtime();
         p005OriginalNoteStage_.clearNonRealtime();
-        p005OriginalBankCatalog_.resetNonRealtime();
+        // Only clear after the source adapter has detached its lease.
+        (void)p005OriginalBankCatalog_.resetNonRealtime();
         p005OriginalSourceTables_={};
 #endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
