@@ -300,6 +300,10 @@ Allocation allocate_pair_mode1(DeviceState const& state, PortIo io) noexcept {
     result.status=Status::NoCandidate;
     if(state.physical_capacity<2)return result;
     Live live{io,result};
+    const auto decision=[&io](StereoDecisionKind kind, std::uint8_t voice) noexcept {
+        if(io.stereo_decision_observer)
+            io.stereo_decision_observer(io.stereo_decision_opaque,{kind,voice});
+    };
     std::uint32_t previous=invalid_pair_score;
     std::uint32_t best=invalid_pair_score;
     const std::uint32_t count=state.mode_count;
@@ -309,29 +313,38 @@ Allocation allocate_pair_mode1(DeviceState const& state, PortIo io) noexcept {
         if(forbidden(v,count) ||
            (n<state.physical_capacity && forbidden(state.voices[n],count)) ||
            v.key_marker>=0x2000u) {
+            decision(StereoDecisionKind::SkippedVoice,voice);
             previous=invalid_pair_score;
             continue;
         }
         std::uint32_t current=0;
         if(!score(v,voice,live,current)) {result.status=Status::PortError;return result;}
+        decision(StereoDecisionKind::ScoredVoice,voice);
         bool finished=false;
         if(!sample_finished(v,voice,live,finished)) {result.status=Status::PortError;return result;}
+        decision(v.sample_end==0u ? StereoDecisionKind::CursorNotRead :
+                 finished ? StereoDecisionKind::CursorReadFinished :
+                            StereoDecisionKind::CursorReadNotFinished,voice);
         if(finished) current=0;
         const std::uint32_t sum=previous+current;
         if(sum==0u) {
             // Real x86 jumps directly to +0x4167 then +0x4138.
             result.first=voice; result.second=static_cast<std::uint8_t>(n);
             result.priority=0; result.immediate=true;
+            decision(StereoDecisionKind::ImmediatePair,voice);
             break;
         }
         const std::uint32_t priority=sum+2u*std::max(previous,current)+
                                      (v.pair_penalty?extra_pair_penalty:0u);
-        if(priority<=best) {
+        const bool replaced=priority<=best;
+        if(replaced) {
             best=priority;
             result.first=voice;
             result.second=static_cast<std::uint8_t>(n);
             result.priority=priority;
         }
+        decision(replaced ? StereoDecisionKind::PriorityReplaced :
+                            StereoDecisionKind::PriorityRetained,voice);
         previous=current;
     }
     if(result.first==no_voice || result.second>=state.physical_capacity) {
