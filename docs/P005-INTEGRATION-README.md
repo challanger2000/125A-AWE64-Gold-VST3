@@ -228,3 +228,49 @@ Die fünf neuen x86-PCM-Taktpfade, die 58 noch offenen Original-RAM-Abstände
 und die Original-Stereo-Allocator-Zähler bleiben bis zur tatsächlichen
 Übergabe der Kontrollchat-C++23-Quellen getrennt; P005 führt kein
 zweites originales Timing/Voice-Modell ein.
+
+
+## P003-Quellübergabe: Stereo-Allocator und CPU-Zeitforschung (16.11.2026)
+
+Basis: vollständiges Anwenderarchiv
+\`125A-P003-Creative-Cpp23-Stereo-Allocator-Live-Reihenfolge-20261116(1).zip\`,
+unter \`p003_work/\`. Der neue Quellstand besteht **lokal als
+alleinstehende C++23-Suite mit 29/29 CTests**. Im bisher eingecheckten
+P005-Quellstand waren 24 dieser Tests enthalten.
+
+Die übergebenen Änderungen wurden in
+\`third_party/creative-vxd-port/\` integriert:
+
+- Die **originale** \`OriginalCreativeVxdLive\`-Stimmenauswahl zählt jetzt
+  aus ihrem **eigenen ausgeführten Kontrollfluss** die abgeschlossenen
+  VTFT-, DCYSUSV- und CCCA-Helfer sowie Stimmenfreigaben. Optionaler
+  Observer erfasst die Reihenfolge abgeschlossener Helfer
+  (kein Nachspielen einer privaten Win95-Registerspur). Das native
+  Regressionsprofil ergibt 32 VTFT + 29 DCYSUSV + 29 CCCA + 2
+  Freigaben = **245 physische Portcallbacks** für die wiederholte
+  Auswahl des Stereo-Paars 9/10. 25 echte Originalstarts liefern laut
+  Kontrollbericht insgesamt 4.867 physische Portereignisse.
+- \`OriginalCreativeSourceClockProjection.hpp\`: präzise,
+  overflow-geprüfte Umrechnung eines **bereits vorhandenen** originalen
+  133⅓-MHz-TSC-Zeitpunkts auf 44.100-Hz-Audioframes, einschließlich
+  einer **vom Originalfile zu kalibrierenden** Zeitphase.
+- \`OriginalCreativeGuestPortCycleGroups.hpp\`: trennt den
+  aufgezeichneten TSC und dessen tatsächliche Originalframe-Zuordnung
+  von nur **hypothetischen** feineren CPU-Zyklen (bis 3 Portcallbacks
+  pro Gruppe). Die feineren Cycles sind **nicht** autorisiert, echte
+  EMU8000-Portwrites in spätere Audioframes zu verschieben.
+- \`OriginalCreativeSf2RamUpload\`: fünf originale x86-Filterzweige,
+  deren diagnostische typische CPU-Differenzen **100, 104, 110 und 114**
+  Takte betragen. Der eigentliche originale PCM16-Filterausgang wird
+  nicht verändert. Laut Originalvergleich erklären diese Wege
+  326.080/326.138 zwischen benachbarten RAM-Wörtern; 58 bleiben
+  ungeklärt.
+
+Fünf zusätzliche Original-C++23-Portierungsregressionen werden
+auch vom Windows-P005-Runner direkt kompiliert und ausgeführt,
+insbesondere Stereo-Portzahl und **Helferreihenfolge** sowie
+TSC-Projektions-/Gruppierungs-/PCM-Zweigtests. Es gibt weiterhin
+**keinen** fertigen vollständigen Creative-CPU-Scheduler und **keine**
+freigegebene automatische NoteOn/Off-Taktberechnung. Die vorhandene
+P005-SF2-MIDI-/EMU8000-Schnittstelle, Original-Turican0-EMU8000-Kern
+und CT1745-Mixer-Quelle bleiben unverändert.
