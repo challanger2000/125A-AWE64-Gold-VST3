@@ -84,6 +84,7 @@ on:
       - 'tests/p003_candidate_ram_allocator.cpp'
       - 'tests/p003_sf2_ram_audio.cpp'
       - 'tests/p003_autonomous_out_timing.cpp'
+      - 'tests/p003_original_vxd_additional_allocator_modes.cpp'
       - 'tests/p003_original_owner_three_tap.cpp'
       - 'src/vst3/P002PrivateRomBank.h'
       - 'src/vst3/P002PrivateRomBank.cpp'
