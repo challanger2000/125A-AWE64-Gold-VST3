@@ -48,6 +48,14 @@ The owner's original physical CPU/EMU8000 V4 package **`P003-20261116T014751Z-35
 
 For each of the eight variable positions, the **24-bit source sample cursor** strictly advances across all nine full scans, whereas the observed interval changes among 91, 93 and 95 cycles in a non-monotone order. A single fixed sample-end threshold would yield at most one transition under a monotonic cursor; **all eight original positions exceed that bound**. This is a **falsification of that single-cause hypothesis**, not proof of which exact x86 path or cache/decode/branch effects account for the residual.
 
+## Original x86 control-flow anchor after CCCA (private SHA-locked static disassembly)
+
+The locally SHA-verified original Creative `SBAWE.VXD` has a meaningful **per-voice** comparison, *not one global constant end threshold*. After the CCCA helper's return at `LCOD+0x40C4`, original code masks the hardware CCCA value to 24 bits, compares it with the 32-bit voice-specific value at `[EBX]`, and branches at **`LCOD+0x40CB`**. The fall-through path explicitly resets a local score to zero before the allocator proceeds to a separate score/priority section. The original code also has confirmed conditionals at `LCOD+0x40DA`, `0x40E4`, `0x40F1`, `0x4107`, and loop branch `0x4120` (all original SHA-pinned sites, previously verified by the private six-Jcc auditor).
+
+**Therefore:** the 8/8 observation rules out just a **single fixed end-position threshold across repeated scans**, *not* a changing **per-voice** end pointer, a branch sequence dependent on previous candidates, or Dynarec pairing. The six static branch landmarks do not determine taken/not-taken decisions without actual guest memory/flag state. It would be unsound to assign the observed 91/93/95 TSC gaps to one named branch or to synthesize a CPU timing model from these values alone.
+
+A real next input for autonomous scheduler validation is per-voice `[EBX]`, register/flags at `LCOD+0x40CB` and subsequent branch outcomes, alongside the 86Box P54C pairing/cycle calculation. A compatible private instruction-level capture could establish this, but it has **not** yet been recorded. No Creative instruction bytes are reproduced here.
+
 The auditor's `--selftest` uses only synthetic monotonic/oscillatory controls suitable for public CI. The source-original `--original-v4-zip` run must be executed strictly privately; its output contains aggregate counts, not owner trace bytes or register words.
 
 The latest owner-supplied research source ZIP had also independently passed **31/31 native C++23 CTests** locally before this P105 branch was created. Those tests are not original CPU time parity and are not conflated with the new tests.
