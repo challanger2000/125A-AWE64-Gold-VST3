@@ -109,6 +109,45 @@ int main() {
     CHECK(catalog.resetNonRealtime());
     CHECK(catalog.sourceSlotCount()==0u);
     CHECK(!catalog.runtimeLeased());
-    std::puts("P005_GUEST_288_VXD_POINTER_RECORD_IMPORT_PASS no_phdr_padding=TRUE original_guest_bytes_required=TRUE");
+
+    // The original 26-byte VXD record can cross a guest-page boundary.
+    // The three unordered regions cover every consecutive VIRTUAL
+    // address, but split the FIRST and SECOND rows in the middle.
+    const std::array<P005OriginalGuestMemorySegment,3> splitPages{{
+        {guestAddress+40u,std::span<const std::uint8_t>(sourceRows).subspan(40u)},
+        {guestAddress,std::span<const std::uint8_t>(sourceRows).first(13u)},
+        {guestAddress+13u,std::span<const std::uint8_t>(sourceRows).subspan(13u,27u)}
+    }};
+    sourceRows[2u]=7u; // restore original synthetic source after mutation
+    CHECK(Importer::importNonRealtime(
+        catalog,sourceDevice,splitPages,true)==Result::Ok);
+    CHECK(catalog.sourceSlotCount()==original_program_bank_slots);
+    CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,2u)->original_source_marker==0xffffu);
+    CHECK(catalog.resetNonRealtime());
+
+    // A genuine missing guest byte cannot be synthesized across a page
+    // boundary. This invalidated source must remain wholly unpublished.
+    const std::array<P005OriginalGuestMemorySegment,2> missingMiddlePage{{
+        {guestAddress,std::span<const std::uint8_t>(sourceRows).first(13u)},
+        {guestAddress+14u,std::span<const std::uint8_t>(sourceRows).subspan(14u)}
+    }};
+    CHECK(Importer::importNonRealtime(
+        catalog,sourceDevice,missingMiddlePage,true)==Result::InvalidGuestMapping);
+    CHECK(catalog.sourceSlotCount()==0u && catalog.zoneCount()==0u);
+
+    // The first record is intact, but the second record has a missing
+    // byte. This must fail specifically with a missing-sentinel table.
+    const std::array<P005OriginalGuestMemorySegment,2> missingSecondRow{{
+        {guestAddress,std::span<const std::uint8_t>(sourceRows).first(39u)},
+        {guestAddress+40u,std::span<const std::uint8_t>(sourceRows).subspan(40u)}
+    }};
+    CHECK(Importer::importNonRealtime(
+        catalog,sourceDevice,missingSecondRow,true)==Result::MissingSentinel);
+    CHECK(catalog.sourceSlotCount()==0u && catalog.zoneCount()==0u);
+
+    std::puts("P005_GUEST_288_VXD_POINTER_RECORD_IMPORT_PASS no_phdr_padding=TRUE original_guest_bytes_required=TRUE cross_page=TRUE missing_bytes_rejected=TRUE");
     return 0;
 }
