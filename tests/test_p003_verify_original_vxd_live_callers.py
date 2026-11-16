@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from p003_verify_original_vxd_live_callers import (
     OPCODE_ANCHORS,EMU8K_IO_HELPERS,choose_lcod_bias,validate_direct_return,
-    UNKNOWN)
+    diagnose_last_byte_call_hint, UNKNOWN)
 from p003_join_original_guest_cpu_chip_clocks import guest_events
 from collections import Counter
 
@@ -33,6 +33,24 @@ class GuestOriginalX86ReturnEdgeTests(unittest.TestCase):
                                     (self.bias+0x3d2d)&0xffffffff,
                                     (self.bias+self.call+5)&0xffffffff)
         self.assertEqual(edge,("out_dword",self.call))
+    def test_last_byte_return_hint_is_candidate_not_direct_live_proof(self):
+        physical=(self.bias+0x3d2d)&0xffffffff
+        last_call_byte=(self.bias+self.call+4)&0xffffffff
+        self.assertIsNone(validate_direct_return(
+            bytes(self.code),self.bias,physical,last_call_byte))
+        self.assertEqual(diagnose_last_byte_call_hint(
+            bytes(self.code),self.bias,physical,last_call_byte),
+            ("out_dword",self.call))
+    def test_last_byte_candidate_cannot_alias_wrong_io_helper(self):
+        self.assertIsNone(diagnose_last_byte_call_hint(
+            bytes(self.code),self.bias,self.bias+0x3cc6,
+            self.bias+self.call+4))
+    def test_last_byte_candidate_cannot_alias_real_e8_return(self):
+        # A genuine next-PC return address does NOT match the one-byte
+        # discrepancy method and must remain strictly verified normally.
+        self.assertIsNone(diagnose_last_byte_call_hint(
+            bytes(self.code),self.bias,self.bias+0x3d2d,
+            self.bias+self.call+5))
     def test_wrong_helper_not_accepted(self):
         # Same original call site but an OUTW physical opcode. One
         # cannot claim this is a direct call into the word helper.
