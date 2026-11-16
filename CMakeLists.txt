@@ -996,9 +996,10 @@ if(AWE64_BUILD_P001_VST3)
     # plus independently fetched/hash-pinned ORIGINAL Creative ROM are
     # used. Provenance mutation and wrong-velocity negative controls.
     add_executable(awe64_p002_diagnostic_vst3_host
-        tests/p002_vst3_private_diagnostic_host.cpp)
+        tests/p002_vst3_private_diagnostic_host.cpp
+        "${AWE64_VST3_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
     target_include_directories(awe64_p002_diagnostic_vst3_host
-        PRIVATE "${AWE64_VST3_SDK_ROOT}")
+        PRIVATE "${AWE64_VST3_SDK_ROOT}" src/vst3)
     target_link_libraries(awe64_p002_diagnostic_vst3_host
         PRIVATE sdk sdk_hosting)
     target_compile_features(awe64_p002_diagnostic_vst3_host PRIVATE cxx_std_23)
