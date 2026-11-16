@@ -123,3 +123,29 @@ target_link_libraries(test_original_creative_stereo_allocator_helper_order
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_stereo_allocator_helper_order
     COMMAND test_original_creative_stereo_allocator_helper_order)
+
+# Original captured CPU TSC -> EMU8000 frame conversion. NEVER use
+# these captured clock phases to invent native NoteOn execution costs.
+add_executable(test_original_creative_cpu_frame_projection
+    tests/test_original_creative_cpu_frame_projection.cpp)
+target_link_libraries(test_original_creative_cpu_frame_projection
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_cpu_to_chip_frame_integer_projection
+    COMMAND test_original_creative_cpu_frame_projection)
+
+# Source V4 grouped callback timestamp semantics (diagnostics only).
+add_executable(test_original_creative_guest_port_cycle_groups
+    tests/test_original_creative_guest_port_cycle_groups.cpp)
+target_link_libraries(test_original_creative_guest_port_cycle_groups
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_v4_grouped_io_clock_semantics
+    COMMAND test_original_creative_guest_port_cycle_groups)
+
+# Five original x86 PCM control paths; their 100/104/110/114 typical
+# CPU-TSC observations must not be mistaken for an autonomous scheduler.
+add_executable(test_original_creative_ram_pcm_branch_cadence
+    tests/test_original_creative_ram_pcm_branch_cadence.cpp)
+target_link_libraries(test_original_creative_ram_pcm_branch_cadence
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_ram_pcm_conditional_tsc_observation
+    COMMAND test_original_creative_ram_pcm_branch_cadence)
