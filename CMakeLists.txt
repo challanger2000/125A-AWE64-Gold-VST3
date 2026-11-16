@@ -209,7 +209,7 @@ add_test(NAME p003_vst3_project_state_crc_and_legacy
 # P003 independent 86Box/CALL+5/LE-reloctarget REA handoff; synthetic CI
 # always runs. The private VXD + original CPU/chip trace are never in CI.
 add_test(NAME p003_rea_three_object_original_driver_synthetic_contract
-    COMMAND "${Python3_EXECUTABLE}" -m unittest
+    COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_p003_rea_three_object_audit.py")
 if(DEFINED ENV{AWE64_P002_PRIVATE_VXD} AND
    EXISTS "$ENV{AWE64_P002_PRIVATE_VXD}" AND
