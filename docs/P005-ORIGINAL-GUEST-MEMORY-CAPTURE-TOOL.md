@@ -117,3 +117,31 @@ Der neue Exporter beweist seine eigene **technische Lesefunktion**
 über den Selftest. Ein echter Win95-Bank-Capture ist erst
 erfolgreich, wenn die private Besitzer-VM diesen Lauf ausgeführt
 hat. PR #6 bleibt DRAFT/NO-MERGE.
+
+
+## Originalaufnahme vom 16.11.2026 – tatsächliche indirekte Bankstruktur
+
+Die erste private Besitzeraufnahme (`125AVXD1`) belegte nur einen von 288
+Device-Slots. Dieser Slot zeigt auf Root-VA `0xC11B891C`, deren erste
+sieben 32-Bit-Wörter **interne Gastzeiger** sind. Der erste zeigt auf
+`0xC11B8968` (Root + 76), wo 129 durchgehend 26-Byte-breite
+Creative-Presets und danach ein ausgerichteter `FFFF`-Abschluss liegen:
+128 melodische Patches, danach `Standard` als Percussion-Preset.
+Die erste alte Capture-Revision las hingegen Root+0 als Zeile 0 und fand
+erst viel später eine zufällige `FFFF`-Übereinstimmung bei falscher
+26-Byte-Ausrichtung.
+
+Korrektur in PR #6: der Live-Exporter erfasst bei erkannten
+indirekten Bankköpfen nur die originalen Root-Bytes bis zum ausgerichteten
+Kindlisten-Abschluss. Offline-Verifier, Besitzerdateileser und
+P005-Importer folgen dem echten Kindzeiger, behalten aber den originalen
+Root-Zeiger in der 288-Slot-Geräteabbildung. Frühere Besitzerdateien,
+die hinter dem echten Kindlisten-Abschluss überzählige
+uninterpretierte Bytes enthalten, werden als solche gekennzeichnet;
+sie sind **keine** attestierten Originalquellen.
+
+Die Programmeinträge und ihre Namen sind **nur aus der privaten
+Besitzeraufnahme** abgeleitet und werden nicht ins öffentliche Repo
+übernommen. Eine zweite Original-Sitzungs-/VXD-Treiberattestierung,
+SoundFont-Bank2, zusätzliche Modulator-/Key-/Velocity-Ketten und
+CPU-TSC-/DRY-PCM-Parität bleiben ausdrücklich offen.
