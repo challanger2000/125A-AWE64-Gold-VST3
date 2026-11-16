@@ -320,6 +320,66 @@ void verifyActualSf2HostProgramNames(IPluginFactory* factory) {
                     parsed==value,
                     "actual VST3 named PHDR automation did not roundtrip");
             }
+            // Regression for the REAL selected-preset display:
+            // Steinberg's default EditController keeps its original
+            // normalized 0% after changes made by MIDI/process().
+            // Query IEditController on the actual exported DLL after
+            // MIDI program, PHDR ordinal, and DAW project restoration.
+            constexpr ParamID kOrdinal=0x125A00D0u;
+            require(controller->getParamNormalized(kOrdinal)==0.,
+                    "fresh actual SoundFont must display PHDR ordinal0");
+            const auto zeroFrame=[&](const ParamID id,
+                                     const ParamValue normalized) {
+                ParameterChanges changes(1);
+                int32 index=0;
+                auto* queue=changes.addParameterData(id,index);
+                require(queue!=nullptr,
+                        "selected PHDR test automation queue absent");
+                int32 point=0;
+                require(queue->addPoint(0,normalized,point)==kResultOk,
+                        "selected PHDR test automation point missing");
+                ProcessData frame{};
+                frame.processMode=kRealtime;
+                frame.symbolicSampleSize=kSample32;
+                frame.numSamples=0;frame.numOutputs=0;
+                frame.inputParameterChanges=&changes;
+                return auditedOriginalBankProcess(active.audio,frame);
+            };
+            require(zeroFrame(0x125A00C0u,9./127.)==kResultOk &&
+                    controller->getParamNormalized(kOrdinal)==0.5,
+                    "MIDI ProgramChange(9) left displayed PHDR ordinal stale");
+            require(zeroFrame(kOrdinal,1.)==kResultOk &&
+                    controller->getParamNormalized(kOrdinal)==1.,
+                    "cross-bank drum PHDR switch left displayed ordinal stale");
+            require(zeroFrame(kOrdinal,0.)==kResultOk &&
+                    controller->getParamNormalized(kOrdinal)==0.,
+                    "PHDR row0 switch failed to refresh DAW display");
+            auto stateForDrums=awe64::vst3::state::encode(
+                awe64::vst3::state::BankSelection{128u,0u,100u,64u,127u});
+            MemoryStream recall(stateForDrums.data(),
+                                static_cast<TSize>(stateForDrums.size()));
+            require(active.component->setState(&recall)==kResultOk,
+                    "actual DAW drum-bank project recall rejected");
+            // The host should not see the pending (not-yet-accepted)
+            // bank until the next real audio or zero-frame callback.
+            require(controller->getParamNormalized(kOrdinal)==0.,
+                    "pending unvalidated project recall leaked to DAW display");
+            ProcessData flush{};
+            flush.processMode=kRealtime;
+            flush.symbolicSampleSize=kSample32;
+            flush.numSamples=0;flush.numOutputs=0;
+            require(auditedOriginalBankProcess(active.audio,flush)==kResultOk &&
+                    controller->getParamNormalized(kOrdinal)==1.,
+                    "accepted bank128 VST3 state did not update displayed PHDR");
+            auto stateForMelody=awe64::vst3::state::encode(
+                awe64::vst3::state::BankSelection{0u,9u,100u,64u,127u});
+            MemoryStream melodicRecall(stateForMelody.data(),
+                static_cast<TSize>(stateForMelody.size()));
+            require(active.component->setState(&melodicRecall)==kResultOk &&
+                    auditedOriginalBankProcess(active.audio,flush)==kResultOk &&
+                    controller->getParamNormalized(kOrdinal)==0.5,
+                    "VST3 project restore lost bank0/PHDR program9 UI identity");
+
             String128 invalidName{};
             invalidName[0]=u'X';
             ParamValue invalidValue=0.5;
