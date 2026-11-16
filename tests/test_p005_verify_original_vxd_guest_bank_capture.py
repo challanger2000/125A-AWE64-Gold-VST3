@@ -97,6 +97,46 @@ class OriginalGuestCaptureTests(unittest.TestCase):
             "indirect_bank_header")
         self.assertEqual(
             report["source_rows_content_hashes"][0]["active_rows"],1)
+    def test_legacy_indirect_capture_ignores_unclassified_tail(self):
+        # Reproduces the observed 16-Nov capture LAYOUT, never its bytes:
+        # 76-byte root header + 129 original rows + FFFF + unrelated tail.
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        base=36+DEVICE_BYTES
+        header=bytearray(76)
+        table=bytearray(130*ROW_BYTES)
+        for index in range(129):
+            struct.pack_into("<HBB",table,index*ROW_BYTES,1,index%128,0)
+        struct.pack_into("<H",table,129*ROW_BYTES,0xffff)
+        tail=bytes([0x37])*64
+        for index,delta in enumerate((76,76+len(table),76+len(table)+64,
+                                      76+len(table)+128,76+len(table)+192,
+                                      76+len(table)+256,76+len(table)+320)):
+            struct.pack_into("<I",header,index*4,root+delta)
+        data=header+table+tail
+        struct.pack_into("<I",source,base+4,len(data))
+        source[base+8:]=data
+        report=parse_capture(bytes(source))
+        rows=report["source_rows_content_hashes"][0]
+        self.assertEqual(rows["active_rows"],129)
+        self.assertEqual(rows["total_rows_including_sentinel"],130)
+        self.assertEqual(rows["source_layout"],"indirect_bank_header")
+        self.assertEqual(rows["legacy_trailing_unclassified_bytes"],64)
+    def test_legacy_indirect_capture_missing_child_sentinel(self):
+        source=bytearray(fake_capture())
+        root=0xc30c0ff0
+        base=36+DEVICE_BYTES
+        header=bytearray(76)
+        for i in range(7):
+            struct.pack_into("<I",header,i*4,root+76+100*i)
+        rows=bytearray(2*ROW_BYTES)
+        struct.pack_into("<H",rows,0,1)
+        struct.pack_into("<H",rows,ROW_BYTES,0)
+        data=header+rows
+        struct.pack_into("<I",source,base+4,len(data))
+        source[base+8:]=data
+        with self.assertRaises(CaptureError):
+            parse_capture(bytes(source))
     def test_wrong_source_row_marker_count(self):
         self.bad(lambda x:struct.pack_into("<I",x,28,0))
     def test_claimed_unreferenced_source_list(self):
