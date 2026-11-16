@@ -178,4 +178,88 @@ candidateOriginalWin95Mode2ReleaseWrites(
         {0xa20u,0x00ffu,16u}
     }};
 }
+std::optional<OriginalWin95AllocatorDispatchResult>
+candidateOriginalWin95VxdDispatchAllModes(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& voices,
+    const OriginalWin95AllocatorDispatchInput& input) noexcept {
+    if (!input.independently_verified_source_state ||
+        !capacityValid(input.original_device_physical_capacity) ||
+        input.original_device_mode_count==0u)
+        return std::nullopt;
+
+    OriginalWin95AllocatorDispatchResult result{};
+    result.original_x86_dispatch_mode=input.original_x86_dispatch_mode;
+    const auto capacity=input.original_device_physical_capacity;
+    const auto mode_count=input.original_device_mode_count;
+    if (input.original_x86_dispatch_mode==0u) {
+        // Existing mode-0 scorer has 30-voice original music-budget
+        // bounds. It must NOT infer 30 from an actual device+0x06 of
+        // 32 without a separately verified source-mode scan ceiling.
+        const auto limit=input.independently_verified_mode0_scan_ceiling;
+        if (limit==0u || limit>kOriginalCreativeMusicVoices ||
+            limit>capacity)
+            return std::nullopt;
+        std::array<OriginalWin95MonoVoiceSnapshot,
+                   kOriginalCreativeMusicVoices> original{};
+        for (std::size_t i=0;i<limit;++i) {
+            const auto& src=voices[i];
+            if (!src.complete) return std::nullopt;
+            auto& dst=original[i];
+            dst.complete=true;
+            dst.blocked_when_few_voices=src.blocked_when_few_voices;
+            dst.internal_key_marker=src.internal_key_marker;
+            dst.volume_target_hi16=src.volume_target_hi16;
+            dst.envelope_status_reg=src.envelope_status_reg;
+            dst.stored_sample_end=src.stored_sample_end;
+            dst.chip_current_address=src.chip_current_address;
+        }
+        const auto chosen=candidateOriginalWin95Mode0MonoVoice(
+            original,limit,mode_count);
+        if (chosen) {
+            result.physical_voices[0]=chosen->physical_voice;
+            result.priority=chosen->priority;
+            result.voice_count=1u;
+        }
+        return result;
+    }
+    if (input.original_x86_dispatch_mode==1u) {
+        // Pair selection consults both voice and adjacent voice
+        // original VXD state plus live hardware register snapshots.
+        // A truncated row is NOT a genuine available physical voice.
+        if (capacity<2u) return result; // original no candidate: 0xFF
+        for (std::size_t i=0;i<capacity;++i)
+            if (!voices[i].complete) return std::nullopt;
+        const auto chosen=candidateOriginalWin95Mode1Pair(
+            voices,capacity,mode_count);
+        if (chosen) {
+            result.physical_voices={chosen->first_voice,
+                                    chosen->second_voice};
+            result.priority=chosen->priority;
+            result.voice_count=2u;
+            result.immediate_idle_pair=chosen->immediate_zero_pair;
+        }
+        return result;
+    }
+    if (input.original_x86_dispatch_mode==2u) {
+        const auto begin=input.original_mode2_packed_range&0xffu;
+        const auto end=std::min(input.original_mode2_packed_range>>8u,
+                                static_cast<std::uint32_t>(capacity));
+        if (begin>=end) return result; // original no candidate: 0xFF
+        for (std::size_t i=begin;i<end;++i)
+            if (!voices[i].complete) return std::nullopt;
+        const auto chosen=candidateOriginalWin95Mode2Range(
+            voices,input.original_mode2_packed_range,capacity,mode_count);
+        if (chosen) {
+            result.physical_voices[0]=chosen->physical_voice;
+            result.priority=chosen->priority;
+            result.voice_count=1u;
+        }
+        return result;
+    }
+    // Original x86 dispatcher's invalid-mode result is 0xFF. This is
+    // *not* an instruction to allocate voice 255 or silently pick mode0.
+    return result;
+}
+
 } // namespace awe64::creative
