@@ -1041,7 +1041,7 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
                       queue->getParameterId()==kP002PrivateProgramParam) {
                 if(programQueue)return kInvalidArgument;
                 programQueue=queue;
-            }else if(queue && p002BankEnabled_ &&
+            }else if(queue && (p002BankEnabled_ || originalP005Bound) &&
                       queue->getParameterId()==kP003ExactSf2BankParam) {
                 if(bankQueue)return kInvalidArgument;
                 bankQueue=queue;
@@ -1330,10 +1330,25 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
             if(!p002RomBank_.ready())return kInvalidArgument;
             const auto bank=static_cast<std::uint16_t>(
                 bankNormalized*128. + 0.5);
-            // Unsupported requested bank is an ignored MIDI selection,
-            // never a silent alias and never an invalid DAW audio block.
-            (void)p002RomBank_.selectExactSf2Bank(bank);
-            publishBankState();
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+            if(originalP005Bound) {
+                // Original LCOD+0x6D05: CC0 only requests a bank. The
+                // actually selected original VXD program/slot changes
+                // on the following C0 ProgramChange, NOT here.
+                // The host's exact 0..128 PHDR bank selector has 129
+                // positions; MIDI CC0 has only 0..127. Do not turn
+                // drum bank 128 into a wrapped 7-bit CC0 zero.
+                if(bank<128u)
+                    (void)p005OriginalPort_.controller(
+                        0u,0u,static_cast<std::uint8_t>(bank));
+            }else
+#endif
+            {
+                // Unsupported requested bank is an ignored MIDI
+                // selection, never a silent alias.
+                (void)p002RomBank_.selectExactSf2Bank(bank);
+                publishBankState();
+            }
             ++bankIndex;
             continue;
         }
