@@ -223,6 +223,12 @@ tresult PLUGIN_API Minimal::setActive(TBool state) {
         autonomousNativeRam_=false;
         clockedNativeRamFailed_=false;
         p002RomBank_.clear(); // non-RT activation thread only
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+        // No borrowed original SF2 zones or chip pointer survive an
+        // activation. Both resets are OFF process() and BEFORE chip.close().
+        p005OriginalPort_.resetNonRealtime();
+        p005OriginalNoteStage_.clearNonRealtime();
+#endif
         if(auto* list=getProgramList(static_cast<ProgramListID>(
                              sf2host::kProgramListId))) {
             list->clearPrograms(); // never from process(), no fake rows
