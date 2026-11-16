@@ -151,6 +151,9 @@ jobs:
           $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
+          # MSYS2 UCRT64 OpenSSL's static libcrypto requires bcrypt with
+          # current GCC; only alter the disposable 86Box build copy.
+          Add-Content -LiteralPath 'p107-fork/CMakeLists.txt' -Encoding utf8 -Value "`nif(WIN32)`n  target_link_libraries(86Box bcrypt)`nendif()`n"
           Write-Output 'P107_WIN64_OLD_DYNAREC_PROBE_SOURCE_PINNED'
 
       - name: Configure actual old Dynarec P54C original Windows 86Box
