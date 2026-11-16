@@ -1289,6 +1289,50 @@ tresult PLUGIN_API Minimal::process(ProcessData& data) {
         data.outputs[0].silenceFlags=0; // conservative if held note just ended
     return kResultOk;
 }
+tresult PLUGIN_API Minimal::getParamStringByValue(
+    const ParamID tag,const ParamValue normalized,
+    String128 text) {
+    if(tag!=kP003Sf2PresetOrdinalParam)
+        return SingleComponentEffect::getParamStringByValue(
+            tag,normalized,text);
+    if(!text || !std::isfinite(normalized) ||
+       normalized<0. || normalized>1.)
+        return kInvalidArgument;
+    const auto* list=getProgramList(
+        static_cast<ProgramListID>(sf2host::kProgramListId));
+    if(!list || list->getCount()<=0)return kResultFalse;
+    const auto count=static_cast<std::size_t>(list->getCount());
+    const auto selected=static_cast<int32>(
+        normalized*static_cast<ParamValue>(count-1u)+0.5);
+    return list->getProgramName(selected,text);
+}
+tresult PLUGIN_API Minimal::getParamValueByString(
+    const ParamID tag,TChar* text,ParamValue& normalized) {
+    if(tag!=kP003Sf2PresetOrdinalParam)
+        return SingleComponentEffect::getParamValueByString(
+            tag,text,normalized);
+    if(!text)return kInvalidArgument;
+    const auto* list=getProgramList(
+        static_cast<ProgramListID>(sf2host::kProgramListId));
+    if(!list || list->getCount()<=0)return kResultFalse;
+    for(int32 index=0;index<list->getCount();++index) {
+        String128 candidate{};
+        if(list->getProgramName(index,candidate)!=kResultOk)continue;
+        bool equal=true;
+        for(std::size_t i=0;i<128u;++i) {
+            if(candidate[i]!=text[i]) {equal=false;break;}
+            if(candidate[i]==0)break;
+            if(i==127u)equal=false;
+        }
+        if(equal) {
+            normalized=list->getCount()==1?0.:
+                static_cast<ParamValue>(index)/
+                static_cast<ParamValue>(list->getCount()-1);
+            return kResultOk;
+        }
+    }
+    return kResultFalse;
+}
 tresult PLUGIN_API Minimal::getState(IBStream* stream) {
     if(!stream)return kInvalidArgument;
     const auto pending=pendingBankState_.load(std::memory_order_acquire);
