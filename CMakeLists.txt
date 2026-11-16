@@ -202,7 +202,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_executable(awe64_p003_vst_bank_state_test
     tests/p003_vst3_bank_state.cpp)
 target_include_directories(awe64_p003_vst_bank_state_test
-    PRIVATE src/vst3)
+    PRIVATE src/vst3 src/creative_compat)
 target_compile_features(awe64_p003_vst_bank_state_test PRIVATE cxx_std_23)
 add_test(NAME p003_vst3_project_state_crc_and_legacy
     COMMAND awe64_p003_vst_bank_state_test)
