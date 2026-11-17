@@ -3,7 +3,10 @@
 // Requires locally supplied private licensed Win95+Creative resources.
 // Executes original 86Box's guest init/boot/CPU-step/audio/MIDI exports.
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
+#include <cstdint>
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <atomic>
