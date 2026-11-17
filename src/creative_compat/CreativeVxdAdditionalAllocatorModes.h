@@ -30,6 +30,10 @@ struct OriginalWin95AllocatorVoiceSnapshot {
     // original Mode-2 high-marker path never reads VTFT/DCYSUSV.
     // A nonzero numeric chip_current_address by itself is NOT proof.
     bool ccca_read_verified=false;
+    // Independent original LCOD+41E0 VTFT and conditional +4228 DCYSUSV
+    // provenance. An observed value alone is never a verified chip read.
+    bool vtft_read_verified=false;
+    bool dcysusv_read_verified=false;
     bool blocked_when_few_voices=false;
     // Original VXD [+0x4C + voice*0x20 +0x10], bit zero.
     // The meaning of this descriptor/driver bit is NOT asserted.
