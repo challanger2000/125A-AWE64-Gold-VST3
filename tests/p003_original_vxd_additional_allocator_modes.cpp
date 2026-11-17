@@ -57,6 +57,48 @@ int main(){
     // Original mode_count>2 does NOT activate this gate.
     p=candidateOriginalWin95Mode1Pair(voices,4,32);
     CHECK(p && p->first_voice==0);
+    // Independently reproduced original x86 LCOD+4029..411A failure:
+    // when voice3 is blocked and incomplete, voice2 is ALSO skipped
+    // before any VTFT read, and previous resets to 0xFFFFF.
+    // The old candidate incorrectly returned pair(1,2), priority310.
+    // The original source decision path selects (0,1), priority2800.
+    for(auto& row:voices) {
+        row.complete=true;
+        row.internal_key_marker=0x0ffeu;
+        row.blocked_when_few_voices=false;
+        row.volume_target_hi16=900u;
+        row.stored_sample_end=0u;
+        row.pair_extra_penalty=false;
+    }
+    voices[0].volume_target_hi16=900u;
+    voices[1].volume_target_hi16=100u;
+    voices[2].volume_target_hi16=10u;
+    voices[3].blocked_when_few_voices=true;
+    voices[3].complete=false;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,2u);
+    CHECK(p && p->first_voice==0u && p->second_voice==1u);
+    CHECK(p->priority==2800u && !p->immediate_zero_pair);
+    // Higher mode MUST ignore the blocked flag, but not the missing
+    // snapshot: no fabricated VTFT data for voice3.
+    CHECK(!candidateOriginalWin95Mode1Pair(voices,4u,4u));
+    voices[3].complete=true;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,4u);
+    CHECK(p && p->first_voice==1u && p->second_voice==2u &&
+          p->priority==310u);
+    // Original upper capacity check: voice3 is not rejected by a
+    // nonexistent voice4 flag; voice3 itself is the blocked source.
+    voices[3].blocked_when_few_voices=false;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,2u);
+    CHECK(p && p->first_voice==1u && p->second_voice==2u &&
+          p->priority==310u);
+    // Reset the synthetic state before the following older contracts.
+    for(auto& row:voices) {
+        row.complete=true;
+        row.blocked_when_few_voices=false;
+        row.volume_target_hi16=100u;
+        row.stored_sample_end=0u;
+        row.pair_extra_penalty=false;
+    }
     voices[3].blocked_when_few_voices=false;
     voices[1].internal_key_marker=0x2000u;
     p=candidateOriginalWin95Mode1Pair(voices,2,32);
@@ -229,8 +271,8 @@ int main(){
     dispatchVoices[31].blocked_when_few_voices=true;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==2u &&
-          dispatched->physical_voices[0]==29u &&
-          dispatched->physical_voices[1]==30u);
+          dispatched->physical_voices[0]==28u &&
+          dispatched->physical_voices[1]==29u);
     source.original_x86_dispatch_mode=2u;
     source.original_mode2_packed_range=(32u<<8u)|31u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
