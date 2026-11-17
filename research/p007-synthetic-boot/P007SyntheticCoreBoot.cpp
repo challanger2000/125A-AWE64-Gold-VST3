@@ -157,8 +157,14 @@ serial2_enabled = 1
     if(br!=1){FreeLibrary(core);done();return 8;}
     bool noteAccepted=false,packetAcknowledged=false;
     int readySlice=-1,ackSlice=-1;
+    // Match the ACTUAL VST3 worker's real 1-ms pacing. The earlier
+    // accelerated probe ran 1000 virtual milliseconds in ~30 ms wall time
+    // and could starve original IDE/audio device callbacks.
+    auto next=std::chrono::steady_clock::now();
     for(int i=0;i<1000;++i){
         if(step()!=1){close();FreeLibrary(core);done();return 9;}
+        next+=1ms;
+        std::this_thread::sleep_until(next);
         if(!noteAccepted && ready()==1){
             readySlice=i;
             noteAccepted=midi(0x90u,60u,110u)==1;
