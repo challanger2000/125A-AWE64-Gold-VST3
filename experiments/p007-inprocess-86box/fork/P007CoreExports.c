@@ -154,7 +154,7 @@ P007_EXPORT int p007_core_guest_boot_assist(uint32_t tick) {
         s_win95_start_at=tick;
     }
     if(!s_win95_seen || p007_midi_guest_ready() ||
-       s_enter_count>=3u || tick < s_win95_start_at+23000u ||
+       s_enter_count>=3u || tick < s_win95_start_at+29000u ||
        (s_last_enter_at && tick<s_last_enter_at+12000u)) return 0;
     P007BootTrace hdd={0};
     if(!p007_trace_get(&hdd) || hdd.read_calls<600u) return 0;
