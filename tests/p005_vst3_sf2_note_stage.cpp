@@ -159,6 +159,38 @@ int main(){
     sourceMatched.resetNonRealtime();
     CHECK(!sourceMatched.active());
 
+    // Target resources must survive the importing stage AND its temporary
+    // source buffers. The active catalog owns them along with the zone.
+    // Synthetic tables; this is a lifetime regression, not Win95 parity.
+    {
+        P005OriginalCreativeBankCatalog owned{};
+        CHECK(owned.importAuthenticatedOriginalDirectory(slots,true));
+        {
+            P005OriginalCreativeSf2NoteStage temporary{};
+            auto immediate=original;
+            immediate.instrument_template[33u]=-12000;
+            immediate.instrument_template[34u]=-12000;
+            auto localStates=states;
+            auto& target=localStates[0].original_voice_start;
+            target.original_derive_volume_target_from_attenuation=true;
+            target.original_volume_target_tables_verified=true;
+            target.original_volume_positive16[4u]=0x8000u;
+            CHECK(temporary.prepareNonRealtime(file,1u,7u,60u,100u,
+                immediate,localStates,true)==Sf2BuildStatus::Ok);
+            CHECK(owned.appendVerifiedNoteContext(temporary));
+            CHECK(owned.sealNonRealtime());
+            target.original_volume_positive16.fill(0u);
+            temporary.clearNonRealtime();
+        }
+        const auto kept=owned.view();
+        CHECK(kept.zones.size()==1u);
+        CHECK(kept.zones[0].original_state.original_volume_positive16[4u]==0x8000u);
+        OriginalVoiceProgram retained{};
+        CHECK(compile_original_sf2_main(kept.zones[0].voice,0u,60u,
+            kept.zones[0].original_state,retained));
+        CHECK((retained.data[23u]>>16u)==0x4000u);
+    }
+
     // Multi-note bank: stage C4 and D4 independently with the ORIGINAL
     // SF2 reader/compiler. The catalog must own both source descriptors
     // and all 288 physical VXD slot-row records before MIDI starts.

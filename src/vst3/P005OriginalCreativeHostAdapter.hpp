@@ -5,6 +5,7 @@
 // No original chip DSP, guessed controller formula or CPU timeline here.
 #include "OriginalCreativeMidiRamRuntime.hpp"
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
+#include "OriginalCreativeSf2RuntimeBank.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
 #include "P005OriginalVxdGuestCaptureFile.hpp"
 #include "P005OriginalNestedGuestCaptureFile.hpp"
@@ -54,6 +55,41 @@ public:
             ownedCatalog_->releaseRuntimeLeaseNonRealtime();
             ownedCatalog_=nullptr;
         }
+        if(ownedRuntimeBank_) {
+            ownedRuntimeBank_->releaseRuntimeLeaseNonRealtime();
+            ownedRuntimeBank_=nullptr;
+        }
+    }
+    // Non-RT on-demand source activation. The caller supplies the actual,
+    // independently authenticated initial MIDI/device state after original
+    // chip/RAM initialization. Never fill unknown channel facts with zero.
+    // The owner MUST outlive this adapter and callbacks must be stopped.
+    [[nodiscard]] bool activateOwnedOriginalRuntimeBankNonRealtime(
+        ChipT& chip,awe64::original_vxd::OriginalCreativeSf2RuntimeBank& bank,
+        awe64::original_vxd::MidiEngine const& originalMidiState,
+        bool independentlyAuthenticated) noexcept {
+        if(runtime_ || chip_ || bankBound_ || !chip.ready() ||
+           !independentlyAuthenticated || !bank.ready() || bank.unboundPresetCount()!=0u || originalMidiState.fault ||
+           originalMidiState.device.physical_capacity==0u ||
+           originalMidiState.device.physical_capacity>awe64::original_vxd::physical_voices ||
+           !originalMidiState.device.original_pan_device_mode_verified ||
+           originalMidiState.device.original_pan_device_mode!=bank.deviceEffectsMode())return false;
+        for(auto const& c:originalMidiState.channel)
+            if(!c.original_fine_tune_verified || !c.original_coarse_tune_verified ||
+               !c.original_modulation_byte_44d_verified || c.bank_msb>=128u ||
+               c.program>=128u || c.volume>=128u || c.expression>=128u ||
+               c.pan>=128u || c.chorus>=128u || c.reverb>=128u ||
+               c.pitch_bend>=16384u)return false;
+        if(!bank.acquireRuntimeLeaseNonRealtime())return false;
+        runtime_.emplace();
+        if(!runtime_->bind_chip(chip)) {
+            runtime_.reset();bank.releaseRuntimeLeaseNonRealtime();return false;
+        }
+        runtime_->midi=originalMidiState;
+        runtime_->midi.volume_source=bank.controllerResources();
+        chip_=&chip;source_=bank.source();bankBound_=true;
+        ownedRuntimeBank_=&bank;
+        return true;
     }
     // A passed flag alone is NOT authenticity proof. The VST3 owner
     // must first SHA-authenticate its external Creative source tables
@@ -522,5 +558,6 @@ private:
     // Non-owning pointer; original source catalog is physically owned
     // by the VST3 instance and must outlive this adapter.
     P005OriginalCreativeBankCatalog* ownedCatalog_=nullptr;
+    awe64::original_vxd::OriginalCreativeSf2RuntimeBank* ownedRuntimeBank_=nullptr;
 };
 } // namespace awe64::vst3

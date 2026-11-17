@@ -192,15 +192,20 @@ source_sf2_raw_sample_pool(Bytes bytes) noexcept {
     if(!parse(bytes,t) || !t.smpl.yes)return std::nullopt;
     return bytes.subspan(t.smpl.off,t.smpl.len);
 }
-Sf2LayerSelection select_sf2_raw_layers(Bytes bytes,
+namespace {
+Sf2LayerSelection select_layers(Bytes bytes,
     std::uint16_t bank,std::uint8_t program,
-    std::uint8_t key,std::uint8_t velocity) noexcept {
+    std::uint8_t key,std::uint8_t velocity,
+    std::optional<std::uint16_t> preset_row) noexcept {
     Sf2LayerSelection result{};
     if(program>127u || key>127u || velocity==0u || velocity>127u)return result;
     Tables t{};
     if(!parse(bytes,t))return result;
     result.status=Sf2ReadStatus::NoMatch;
-    for(std::size_t pi=0;pi+1u<t.np;++pi) {
+    const std::size_t first=preset_row?*preset_row:0u;
+    const std::size_t stop=preset_row?first+1u:t.np-1u;
+    if(stop>=t.np)return result;
+    for(std::size_t pi=first;pi<stop;++pi) {
         const auto ph=t.phdr.off+38u*pi;
         if(r16(t.data,ph+20u)!=program || r16(t.data,ph+22u)!=bank)continue;
         const auto b0=r16(t.data,ph+24u);
@@ -251,5 +256,25 @@ Sf2LayerSelection select_sf2_raw_layers(Bytes bytes,
     }
     if(result.count!=0u)result.status=Sf2ReadStatus::Ok;
     return result;
+}
+} // namespace
+std::optional<Sf2PresetIdentity> source_sf2_preset_identity(
+    Bytes file,std::uint16_t row) noexcept {
+    Tables t{};
+    if(!parse(file,t) || static_cast<std::size_t>(row)+1u>=t.np)return std::nullopt;
+    const auto at=t.phdr.off+38u*row;
+    const auto program=r16(file,at+20u);
+    if(program>=128u)return std::nullopt;
+    return Sf2PresetIdentity{r16(file,at+22u),static_cast<std::uint8_t>(program)};
+}
+Sf2LayerSelection select_sf2_raw_layers(Bytes file,std::uint16_t bank,
+    std::uint8_t program,std::uint8_t key,std::uint8_t velocity) noexcept {
+    return select_layers(file,bank,program,key,velocity,std::nullopt);
+}
+Sf2LayerSelection select_sf2_raw_layers_by_preset(Bytes file,std::uint16_t row,
+    std::uint8_t key,std::uint8_t velocity) noexcept {
+    const auto preset=source_sf2_preset_identity(file,row);
+    if(!preset)return {};
+    return select_layers(file,preset->bank,preset->program,key,velocity,row);
 }
 } // namespace awe64::original_vxd

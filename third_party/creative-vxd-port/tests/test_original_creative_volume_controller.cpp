@@ -77,6 +77,17 @@ int main() {
     CHECK(dispatch_midi(e,0xb3u,11u,70u,b.io(),{})==MidiResult::Unsupported);
     CHECK(e.channel[3].expression==70u && b.out16_count==before);
     e.volume_source.verified=true;
+    // Corrupt imported channel data must not index beyond either table
+    // when the OTHER controller is updated. No channel/hardware mutation.
+    const auto savedVolume=e.channel[3].volume;
+    e.channel[3].volume=128u;
+    CHECK(dispatch_midi(e,0xb3u,11u,71u,b.io(),{})==MidiResult::Invalid);
+    CHECK(e.channel[3].expression==70u && b.out16_count==before);
+    e.channel[3].volume=savedVolume;
+    e.channel[3].expression=128u;
+    CHECK(dispatch_midi(e,0xb3u,7u,71u,b.io(),{})==MidiResult::Invalid);
+    CHECK(e.channel[3].volume==savedVolume && b.out16_count==before);
+    e.channel[3].expression=70u;
     b.fail=true;
     CHECK(dispatch_midi(e,0xb3u,11u,71u,b.io(),{})==MidiResult::PortError);
     CHECK(e.fault && dispatch_midi(e,0xb3u,11u,72u,b.io(),{})==MidiResult::FaultLatched);

@@ -54,6 +54,18 @@ struct Sf2LayerSelection {
     std::array<Sf2SelectedLayer,sf2_max_selected_layers> layers{};
     std::uint8_t count=0;
 };
+struct Sf2PresetIdentity {
+    std::uint16_t bank=0;
+    std::uint8_t program=0;
+};
+// Non-owning source metadata. Does not infer a VXD bank/row or pad programs.
+[[nodiscard]] std::optional<Sf2PresetIdentity> source_sf2_preset_identity(
+    std::span<const std::uint8_t> file,std::uint16_t preset_row) noexcept;
+// Select one actual PHDR row. Distinct source rows with identical
+// bank/program bytes must not be merged into one VXD-selected preset.
+[[nodiscard]] Sf2LayerSelection select_sf2_raw_layers_by_preset(
+    std::span<const std::uint8_t> file,std::uint16_t preset_row,
+    std::uint8_t key,std::uint8_t velocity) noexcept;
 // Accepts fully formed standard RIFF sfbk format-2, with original offsets
 // kept in the result. Zero matching zones is distinct from malformed data.
 // Original SF2 modulator records are preserved per scope, never ignored.

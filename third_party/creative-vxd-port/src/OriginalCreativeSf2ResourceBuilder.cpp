@@ -113,7 +113,7 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
     OriginalSf2SourceTables const& r,OriginalSf2SourceChannelState const& ctx,
     Descriptor& before,Descriptor& after) noexcept {
     if(s.bank>255u || !ctx.original_note_context_verified ||
-       !ctx.original_attenuation_verified ||
+       (!ctx.original_attenuation_verified && !ctx.original_note_volume_source) ||
        ctx.original_channel_pan>127u || ctx.original_channel_chorus>127u ||
        ctx.original_channel_reverb>127u)return false;
     if((s.sample.sample_type&0x7fffu)!=1u &&
@@ -163,13 +163,26 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
     before[0x8bu]=static_cast<std::uint8_t>(s.sample.correction);
     set(before,0x8cu/2u,s.sample.sample_type);
     set(before,0x8eu/2u,s.sample.sample_link);
-    set_dword(before,0x90u,s.preset_row);
+    set_dword(before,0x90u,ctx.original_source_preset_binding_verified?
+        ctx.original_descriptor_group:s.preset_row);
     after=before;
     set(after,0x8cu/2u,1u);
-    set(after,19u,ctx.original_encoded_attenuation);
+    if(ctx.original_note_volume_source) {
+        const auto attenuation=original_note_attenuation(
+            *ctx.original_note_volume_source,s.velocity,
+            static_cast<std::int16_t>(get(before,48u)),
+            ctx.original_channel_volume,ctx.original_channel_expression,!ram);
+        if(!attenuation || (ctx.original_attenuation_verified &&
+           ctx.original_encoded_attenuation!=*attenuation))return false;
+        set(after,19u,*attenuation);
+    }else set(after,19u,ctx.original_encoded_attenuation);
     const auto attack=attack_rate(get(before,34u));
     const auto cutoff=static_cast<std::int32_t>(clamp_word(get(before,8u),0,255));
-    const auto actual_cutoff=(s.bank<128u && attack<125u)?
+    // Original +0x59FC/+0x5803 inspect the selected PROGRAM WORD at
+    // channel+2. The legacy note-only API lacks that VXD/source binding.
+    const bool melodic=ctx.original_source_preset_binding_verified?
+        s.program<128u:s.bank<128u;
+    const auto actual_cutoff=(melodic && attack<125u)?
         (static_cast<std::int32_t>(std::max(70u,static_cast<unsigned>(s.velocity)))*
          cutoff+160)/128:cutoff;
     set(after,8u,static_cast<std::uint16_t>(actual_cutoff));
@@ -182,7 +195,7 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
            {{27u,31u}},{{28u,32u}},{{35u,39u}},{{36u,40u}}}}) {
         const auto value=fields[entry[0]]+
             (60-static_cast<std::int32_t>(s.key))*fields[entry[1]];
-        if(s.bank<128u)fields[entry[0]]=std::clamp(value,-32768,32767);
+        if(melodic)fields[entry[0]]=std::clamp(value,-32768,32767);
     }
     for(const auto op:std::array<unsigned,14>{
         26u,34u,21u,23u,25u,33u,28u,36u,30u,38u,27u,35u,22u,24u})
@@ -244,12 +257,16 @@ OriginalSf2PreparedBank prepare_original_sf2_zones(
             result.status=Sf2BuildStatus::Unsupported;return result;
         }
         if(!c.original_program_identity_verified ||
-           c.original_program_preset_row!=s.preset_row ||
-           !c.original_voice_pitch_base_verified ||
+           (c.original_source_preset_binding_verified?
+                c.original_source_preset_row!=s.preset_row:
+                c.original_program_preset_row!=s.preset_row) ||
+           (!c.original_voice_pitch_base_verified &&
+            !c.original_voice_start.original_derive_pitch_target_from_channel) ||
            !c.original_voice_start.original_descriptor_verified ||
            !c.original_voice_start.original_device_state_verified ||
            !c.original_voice_start.original_sample_placement_verified ||
-           !c.original_note_context_verified || !c.original_attenuation_verified) {
+           !c.original_note_context_verified ||
+           (!c.original_attenuation_verified && !c.original_note_volume_source)) {
             result.status=Sf2BuildStatus::Unverified;return result;
         }
         auto& out=result.zones[i];
@@ -273,8 +290,44 @@ OriginalSf2PreparedBank prepare_original_sf2_zones(
         v.release_end=0u; // No fabricated stored original voice end marker
         v.original_pitch_base=c.original_voice_pitch_base;
         v.original_pitch_base_verified=true;
+        if(c.original_voice_start.original_derive_pitch_target_from_channel) {
+            const auto baseline=original_sf2_initial_pitch(started,s.key,
+                c.original_voice_start.original_channel_tune_1_cents,
+                c.original_voice_start.original_channel_tune_2_cents);
+            if(!baseline || (c.original_voice_pitch_base_verified &&
+               c.original_voice_pitch_base!=*baseline)) {
+                result.status=Sf2BuildStatus::Unverified;return result;
+            }
+            v.original_pitch_base=*baseline;
+        }
         v.source_verified=true;
+        if(c.original_note_volume_source) {
+            // LCOD+0x5A88/+0x5A90 retains the original amplitude and
+            // velocity-level terms for subsequent live CC7/CC11 updates.
+            v.original_amplitude_word=static_cast<std::int16_t>(get(original,48u));
+            v.original_velocity_volume_level=
+                c.original_note_volume_source->velocity_table[s.velocity];
+            v.volume_terms_verified=true;
+        }
+        if(c.original_source_preset_binding_verified) {
+            // Original LCOD+0x5A94..+0x5AD9 retains these descriptor
+            // terms for later source CC10 and modulation updates.
+            v.original_pan_base=static_cast<std::uint8_t>(std::clamp(
+                get(original,17u)*16/125+64,0,127));
+            v.pan_target=static_cast<std::uint8_t>(get(started,17u));
+            v.pan_current=v.pan_target;
+            v.pan_state_verified=true;
+            v.original_modulation_word_signed=static_cast<std::int8_t>(get(started,5u));
+            v.original_modulation_word_verified=true;
+        }
         out.original_state=c.original_voice_start;
+        if(c.original_voice_start.original_derive_pitch_target_from_channel ||
+           c.original_voice_start.original_derive_volume_target_from_attenuation) {
+            OriginalVoiceProgram preflight{};
+            if(!compile_original_sf2_main(v,0u,s.key,out.original_state,preflight)) {
+                result.status=Sf2BuildStatus::Unverified;return result;
+            }
+        }
         out.original_zone_verified=true;
         ++result.count;
     }

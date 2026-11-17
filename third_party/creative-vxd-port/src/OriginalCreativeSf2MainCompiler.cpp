@@ -1,5 +1,7 @@
 #include "OriginalCreativeSf2MainCompiler.hpp"
+#include "OriginalCreativeSf2TargetMath.hpp"
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 
 namespace awe64::original_vxd {
@@ -31,6 +33,32 @@ namespace {
         (static_cast<std::uint32_t>(hi)<<8u)|lo);
 }
 }
+std::optional<std::uint16_t> original_sf2_initial_pitch(
+    Descriptor const& d,std::uint8_t key,std::int16_t tune1,
+    std::int16_t tune2) noexcept {
+    if(key>=128u || d[0x8au]>=128u)return std::nullopt;
+    // Original PCOD already multiplied coarse-tune generator51 by 100.
+    // Do not rescale it or approximate the x86 874-steps-per-cent pitch.
+    const auto root_raw=signed_word(d,58u);
+    const auto root=root_raw==-1?static_cast<std::int32_t>(d[0x8au]):root_raw;
+    if(root<0 || root>127)return std::nullopt;
+    const std::uint32_t dw_pitch=dword(d,0x86u);
+    if(dw_pitch>0xffffffu)return std::nullopt;
+    const std::int32_t correction=d[0x8bu]<128u?d[0x8bu]:
+        static_cast<std::int32_t>(d[0x8bu])-256;
+    const auto cents=static_cast<std::int64_t>(correction)+
+       signed_word(d,52u)+tune1+
+       tune2+signed_word(d,51u)+
+       (static_cast<std::int64_t>(key)-root)*signed_word(d,56u);
+    // LCOD+0x56CE..0x5753 uses wrapping DWORD IMUL/ADD, a SIGNED
+    // upper clamp at +0x573E and SAR 8 at +0x574C. Negative values
+    // are not rejected or clamped to zero. Preserve their low WORD.
+    const auto wrapped_pitch=std::bit_cast<std::int32_t>(
+        static_cast<std::uint32_t>(static_cast<std::int64_t>(dw_pitch)+
+                                   cents*874ll));
+    return static_cast<std::uint16_t>(
+        std::min<std::int32_t>(wrapped_pitch,0xffffff)>>8u);
+}
 bool compile_original_sf2_main(SourceVoice const& source,
     const std::uint8_t physical,const std::uint8_t key,
     OriginalVoiceStartSources const& v,
@@ -54,36 +82,44 @@ bool compile_original_sf2_main(SourceVoice const& source,
        attenuation>255u || word(d,26u)>128u || word(d,34u)>128u ||
        word(d,28u)>127u || word(d,29u)>127u ||
        word(d,36u)>255u || word(d,37u)>255u ||
-       start<4u || start>=end || loop_s<start ||
-       loop_s>=loop_e || (loop_e>end && loop_e-end>2u))return false;
+       start<4u || start>=end)return false;
+    // SBAWE.VXD LCOD+0x5B87 branches on mode bit 0 before loading
+    // either loop address. +0x5BC8 uses end+4/end+8 for nonlooping
+    // samples, including RAM; loop metadata cannot reject that path.
+    if((mode&1u)!=0u && (loop_s<start || loop_s>=loop_e ||
+       (loop_e>end && loop_e-end>2u)))return false;
     if(v.original_ram_sample) {
-        if((mode&1u)==0u || start<0x200004u || end>0x1000000u ||
-           loop_e>0x1000000u)
+        if(start<0x200004u || end>0x1000000u ||
+           ((mode&1u)!=0u && loop_e>0x1000000u))
             return false;
-    }else if(end>0x80000u || loop_e>0x80000u)return false;
+    }else if(end>0x80000u ||
+             ((mode&1u)!=0u && loop_e>0x80000u))return false;
     const auto psst_low=(mode&1u)?loop_s-1u:end+4u;
     const auto csl_low=(mode&1u)?loop_e-1u:end+8u;
     if(psst_low>0xffffffu || csl_low>0xffffffu)return false;
-    // Original PCOD already multiplied coarse-tune generator51 by 100.
-    // Do not rescale it or approximate the x86 874-steps-per-cent pitch.
-    const auto root_raw=signed_word(d,58u);
-    const auto root=root_raw==-1?static_cast<std::int32_t>(d[0x8au]):root_raw;
-    if(root<0 || root>127)return false;
-    const std::uint32_t dw_pitch=dword(d,0x86u);
-    if(dw_pitch>0xffffffu)return false;
-    const std::int32_t correction=d[0x8bu]<128u?d[0x8bu]:
-        static_cast<std::int32_t>(d[0x8bu])-256;
-    const auto cents=static_cast<std::int64_t>(correction)+
-       signed_word(d,52u)+v.original_channel_tune_1_cents+
-       v.original_channel_tune_2_cents+signed_word(d,51u)+
-       (static_cast<std::int64_t>(key)-root)*signed_word(d,56u);
-    const auto source_pitch=static_cast<std::int64_t>(dw_pitch)+cents*874ll;
-    if(source_pitch<0ll)return false;
-    const auto ip=static_cast<std::uint16_t>(
-        static_cast<std::uint64_t>(std::min<std::int64_t>(
-            source_pitch,0xffffffll))>>8u);
+    const auto baseline=original_sf2_initial_pitch(d,key,
+        v.original_channel_tune_1_cents,v.original_channel_tune_2_cents);
+    if(!baseline)return false;
+    const auto targets=detail::note_pitch_targets(*baseline,
+        v.original_channel_pitch_tune,v.original_channel_bend_delta,
+        static_cast<std::int16_t>(signed_word(d,7u)));
+    const auto ip=v.original_derive_pitch_target_from_channel?targets.initial_ip:*baseline;
+    const auto pitch_target=v.original_derive_pitch_target_from_channel?
+        targets.pitch_target:v.original_pitch_target;
+    auto volume_target=v.original_voice_volume_target;
+    if(v.original_derive_volume_target_from_attenuation) {
+        volume_target=0u;
+        if(word(d,34u)==128u && word(d,33u)>=0x8000u) {
+            if(!v.original_volume_target_tables_verified)return false;
+            const auto derived=detail::attack_volume_target(
+                static_cast<std::int16_t>(signed_word(d,19u)),
+                v.original_volume_positive16,v.original_volume_negative15);
+            if(!derived)return false;
+            volume_target=*derived;
+        }
+    }
     if((word(d,34u)!=128u || word(d,33u)<0x8000u) &&
-       v.original_voice_volume_target!=0u)return false;
+       volume_target!=0u)return false;
 
     OriginalVoiceProgram candidate{};
     candidate.source_verified=true;
@@ -116,11 +152,11 @@ bool compile_original_sf2_main(SourceVoice const& source,
     p[21]=0u; // Z2
     p[22]=(start-4u)|(q<<28u);
     const std::uint32_t filter_vol=
-        (static_cast<std::uint32_t>(v.original_voice_volume_target)<<16u)|
+        (static_cast<std::uint32_t>(volume_target)<<16u)|
         (cutoff<<8u);
     p[23]=filter_vol; // VTFT
     p[24]=filter_vol; // CVCF
-    const auto tgt=static_cast<std::uint32_t>(v.original_pitch_target)<<16u;
+    const auto tgt=static_cast<std::uint32_t>(pitch_target)<<16u;
     p[25]=tgt|(reverb<<8u)|aux; // PTRX pitch/reverb/aux
     p[26]=tgt; // CPF pitch
     p[27]=(static_cast<std::uint32_t>(word(d,37u))<<8u)|

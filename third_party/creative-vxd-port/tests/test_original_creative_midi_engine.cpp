@@ -337,6 +337,18 @@ int main() {
               b.trace[1].value==0xffffu);
     }
     // Unknown pitch-base source must not silently invent an active-voice IP.
+    // Corrupt snapshot capacities must be rejected before walking voices.
+    // This is a synthetic safety check, not an original-driver comparison.
+    for(const auto capacity:{0u,33u,65535u}) {
+        MidiEngine e=fresh();Bus b;Provider src{};
+        e.device.physical_capacity=static_cast<std::uint16_t>(capacity);
+        e.channel[2].pitch_bend=9000u;
+        e.channel[2].original_bend_delta=77;
+        CHECK(dispatch_midi(e,0xe2u,0u,64u,b.io(),src.provider())==MidiResult::Invalid);
+        CHECK(e.channel[2].pitch_bend==9000u &&
+              e.channel[2].original_bend_delta==77);
+        CHECK(b.trace.empty() && !e.fault);
+    }
     {
         MidiEngine e=fresh();Bus b;Provider src{};
         e.device.voices[2].key_marker=0x023cu;

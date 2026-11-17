@@ -11,6 +11,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <bcrypt.h>
+#else
+#include <openssl/evp.h>
 #endif
 #include <cstdint>
 #include <limits>
@@ -92,8 +94,13 @@ bool p003CalculateSourceSha256(
     if(!ok)digest.fill(0u);
     return ok;
 #else
-    (void)bytes;
-    return false;
+    if(bytes.empty() || bytes.size()>0xffffffffu)return false;
+    unsigned int length=0u;
+    const bool ok=EVP_Digest(bytes.data(),bytes.size(),digest.data(),
+                             &length,EVP_sha256(),nullptr)==1 &&
+                  length==digest.size();
+    if(!ok)digest.fill(0u);
+    return ok;
 #endif
 }
 }

@@ -60,6 +60,7 @@ struct PortLog {
     std::size_t count=0;
     std::uint8_t selected=0;
     std::array<std::uint16_t,32> voice_release{};
+    std::array<std::uint16_t,32> ifatn{};
     bool put(std::uint16_t port,std::uint32_t value,char width) noexcept {
         if(count==events.size())return false;
         events[count++]={port,value,selected,width};return true;
@@ -74,6 +75,8 @@ struct PortLog {
         if(port!=0xa20u && port!=0xe20u && port!=0xa22u)return false;
         if(port==0xa20u && (x.selected&0xe0u)==0xa0u)
             x.voice_release[x.selected&31u]=value;
+        if(port==0xe20u && (x.selected&0xe0u)==0x20u)
+            x.ifatn[x.selected&31u]=value;
         return x.put(port,value,'w');
     }
     static bool d(void* p,std::uint16_t port,std::uint32_t value) noexcept {
@@ -83,6 +86,9 @@ struct PortLog {
     }
     static bool rw(void* p,std::uint16_t port,std::uint16_t& value) noexcept {
         auto& x=*static_cast<PortLog*>(p);
+        if(port==0xe20u && (x.selected&0xe0u)==0x20u) {
+            value=x.ifatn[x.selected&31u];return x.put(port,value,'r');
+        }
         if(port!=0xa20u)return false;
         value=x.voice_release[x.selected&31u];return x.put(port,value,'r');
     }
@@ -185,6 +191,96 @@ int main(){
     REQUIRE(dispatch_midi(midi,0xc0u,7u,0u,io.io(),src)==MidiResult::Applied);
     const auto note=dispatch_midi(midi,0x90u,60u,100u,io.io(),src);
     REQUIRE(note==MidiResult::Applied);
+    // Original NoteOn volume is now generated from raw generator48,
+    // velocity and source CC tables, not a pre-attested value per note.
+    // Synthetic source tables; this is NOT original-driver PCM parity.
+    {
+        std::array<std::uint8_t,128> velocity{},cc7{},cc11{};
+        velocity.fill(10u);velocity[127]=0u;cc7[100]=64u;
+        OriginalNoteVolumeResources volume{};
+        volume.original_velocity_table_verified=true;
+        volume.velocity_table=velocity;
+        volume.controllers={true,cc7.data(),cc11.data(),10u,true,true,true};
+        auto dynamicTable=table;dynamicTable.instrument_template[48u]=24;
+        auto dynamicInputs=inputs;
+        for(auto& c:dynamicInputs) {
+            c.original_attenuation_verified=false;
+            c.original_note_volume_source=&volume;
+        }
+        auto dynamic=prepare_original_sf2_zones(read,dynamicTable,dynamicInputs);
+        REQUIRE(dynamic.status==Sf2BuildStatus::Ok && dynamic.count==2u);
+        for(const auto& z:std::span(dynamic.zones.data(),dynamic.count)) {
+            REQUIRE(z.voice.note_start_descriptor[38u]==147u);
+            REQUIRE(z.voice.volume_terms_verified);
+            REQUIRE(z.voice.original_amplitude_word==24);
+            REQUIRE(z.voice.original_velocity_volume_level==10u);
+        }
+        // Derive pitch metadata/targets from the original descriptor and
+        // live channel, with NO externally supplied per-note pitch base.
+        auto nativeInputs=dynamicInputs;
+        for(auto& c:nativeInputs) {
+            c.original_voice_pitch_base_verified=false;
+            c.original_voice_start.original_derive_pitch_target_from_channel=true;
+            c.original_voice_start.original_derive_volume_target_from_attenuation=true;
+        }
+        auto native=prepare_original_sf2_zones(read,dynamicTable,nativeInputs);
+        REQUIRE(native.status==Sf2BuildStatus::Ok && native.count==2u);
+        REQUIRE(native.zones[0].voice.original_pitch_base==0xe000u);
+        VerifiedSf2Bank nativeBank{std::span<const VerifiedSf2Zone>(native.zones.data(),native.count)};
+        auto nativeSource=original_verified_sf2_bank_source(nativeBank);
+        MidiChannel nativeChannel{};nativeChannel.bank_msb=1u;nativeChannel.program=7u;
+        nativeChannel.original_bend_delta=4096;
+        std::array<SourceVoice,max_source_note_layers> nativeVoices{};
+        std::uint8_t nativeCount=0u;
+        REQUIRE(nativeSource.resolve(nativeSource.opaque,nativeChannel,60u,100u,nativeVoices,nativeCount));
+        REQUIRE(nativeCount==2u);
+        OriginalVoiceProgram nativeProgram{};
+        REQUIRE(nativeSource.compile(nativeSource.opaque,nativeVoices[0],0u,60u,nativeProgram));
+        REQUIRE(nativeProgram.data[7]==0xf000u && nativeProgram.data[26]==0xa0000000u);
+        nativeChannel.original_fine_tune_verified=true;
+        nativeChannel.original_fine_tune_cents=100;
+        REQUIRE(nativeSource.resolve(nativeSource.opaque,nativeChannel,60u,100u,nativeVoices,nativeCount));
+        REQUIRE(nativeVoices[0].original_pitch_base==static_cast<std::uint16_t>((0xe00000u+87400u)>>8u));
+        REQUIRE(nativeSource.compile(nativeSource.opaque,nativeVoices[0],0u,60u,nativeProgram));
+        ++nativeVoices[0].original_pitch_base;
+        REQUIRE(!nativeSource.compile(nativeSource.opaque,nativeVoices[0],0u,60u,nativeProgram));
+        // Every playable velocity can use the same small source context.
+        for(unsigned v=1u;v<128u;++v) {
+            const auto selected=select_sf2_raw_layers(file.file,1u,7u,60u,
+                static_cast<std::uint8_t>(v));
+            const auto built=prepare_original_sf2_zones(selected,dynamicTable,dynamicInputs);
+            REQUIRE(built.status==Sf2BuildStatus::Ok && built.count==2u);
+            REQUIRE(built.zones[0].voice.original_velocity_volume_level==velocity[v]);
+        }
+        VerifiedSf2Bank dynamicBank{
+            std::span<const VerifiedSf2Zone>(dynamic.zones.data(),dynamic.count)};
+        const auto dynamicSource=original_verified_sf2_bank_source(dynamicBank);
+        MidiEngine live{};PortLog bus{};
+        live.volume_source=volume.controllers;
+        REQUIRE(dispatch_midi(live,0xb0u,0u,1u,bus.io(),dynamicSource)==MidiResult::Applied);
+        REQUIRE(dispatch_midi(live,0xc0u,7u,0u,bus.io(),dynamicSource)==MidiResult::Applied);
+        REQUIRE(dispatch_midi(live,0x90u,60u,100u,bus.io(),dynamicSource)==MidiResult::Applied);
+        REQUIRE(dispatch_midi(live,0xb0u,7u,127u,bus.io(),dynamicSource)==MidiResult::Applied);
+        unsigned active=0u;
+        for(unsigned i=0u;i<32u;++i) {
+            if(live.device.voices[i].key_marker!=60u)continue;
+            ++active;
+            REQUIRE((bus.ifatn[i]&255u)==39u);
+            REQUIRE((bus.ifatn[i]>>8u)==dynamic.zones[0].voice.note_start_descriptor[16u]);
+        }
+        REQUIRE(active==2u);
+        REQUIRE(dispatch_midi(live,0xb0u,11u,10u,bus.io(),dynamicSource)==MidiResult::Applied);
+        for(unsigned i=0u;i<32u;++i)
+            if(live.device.voices[i].key_marker==60u)
+                REQUIRE((bus.ifatn[i]&255u)==255u);
+        // Missing source and contradictory supplied values fail closed.
+        volume.original_velocity_table_verified=false;
+        REQUIRE(prepare_original_sf2_zones(read,dynamicTable,dynamicInputs).status!=Sf2BuildStatus::Ok);
+        volume.original_velocity_table_verified=true;
+        dynamicInputs[1].original_attenuation_verified=true;
+        dynamicInputs[1].original_encoded_attenuation=20u;
+        REQUIRE(prepare_original_sf2_zones(read,dynamicTable,dynamicInputs).status!=Sf2BuildStatus::Ok);
+    }
     const auto& started=prepared.zones[0].voice.note_start_descriptor;
     const auto expected_trigger=static_cast<std::uint32_t>(started[74u])*256u+started[72u];
     unsigned ntrigger=0u;

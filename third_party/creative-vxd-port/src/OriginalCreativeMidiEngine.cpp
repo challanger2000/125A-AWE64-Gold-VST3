@@ -310,6 +310,10 @@ source_note_endpoints(SourceVoice const& source) noexcept {
 // 0xffff (not 0) under the original instruction ordering.
 [[nodiscard]] MidiResult original_pitchbend(MidiEngine& e,
     std::uint8_t ch,std::uint8_t lsb,std::uint8_t msb,PortIo io) noexcept {
+    // Source snapshots may contain an invalid device+0x06. Validate
+    // before indexing the fixed physical-voice array or changing MIDI.
+    if(e.device.physical_capacity==0u ||
+       e.device.physical_capacity>physical_voices)return MidiResult::Invalid;
     auto& channel=e.channel[ch];
     const auto signed14=(static_cast<std::int32_t>(msb)-64)*128+
                         static_cast<std::int32_t>(lsb);

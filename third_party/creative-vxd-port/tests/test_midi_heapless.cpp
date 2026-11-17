@@ -1,4 +1,5 @@
 #include "OriginalCreativeMidiEngine.hpp"
+#include "OriginalCreativeVolumeController.hpp"
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -60,20 +61,37 @@ struct Bus {
     }
 };
 struct Source {
-    static bool resolve(void*,MidiChannel const&,std::uint8_t,
-                        std::uint8_t,std::array<SourceVoice,max_source_note_layers>& voices,
+    std::array<std::uint8_t,128> velocity{},cc7{},cc11{};
+    Source() {velocity.fill(10u);}
+    static bool resolve(void* opaque,MidiChannel const& channel,std::uint8_t,
+                        std::uint8_t note_velocity,std::array<SourceVoice,max_source_note_layers>& voices,
                         std::uint8_t& n) noexcept {
+        auto& source=*static_cast<Source*>(opaque);
+        // Synthetic table inputs; exercise the original NoteOn volume
+        // calculation inside the measured MIDI callback, not off-RT.
+        OriginalNoteVolumeResources volume{};
+        volume.original_velocity_table_verified=true;
+        volume.velocity_table=source.velocity;
+        volume.controllers={true,source.cc7.data(),source.cc11.data(),0u,true,true,true};
+        const auto attenuation=original_note_attenuation(volume,note_velocity,
+            24,channel.volume,channel.expression,false);
+        if(!attenuation)return false;
         n=1;
         voices[0].source_verified=true;
         voices[0].descriptor[0x8cu]=1u;
         voices[0].original_pitch_base_verified=true;
         voices[0].original_pitch_base=0xe000u;
+        voices[0].descriptor[38u]=*attenuation;
+        voices[0].volume_terms_verified=true;
+        voices[0].original_velocity_volume_level=source.velocity[note_velocity];
+        voices[0].original_amplitude_word=24;
         return true;
     }
-    static bool compile(void*,SourceVoice const&,std::uint8_t,
+    static bool compile(void*,SourceVoice const& voice,std::uint8_t,
                         std::uint8_t,OriginalVoiceProgram& p) noexcept {
         p.source_verified=true;
         p.data[27]=0x7f7fu;
+        p.data[8]=voice.descriptor[38u];
         return true;
     }
     [[nodiscard]] SoundFontSource provider() noexcept {
