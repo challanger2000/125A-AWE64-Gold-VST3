@@ -83,7 +83,7 @@ int wmain(int argc,wchar_t** argv) {
     CHECK(WritePrivateProfileStringW(L"P006",L"86BoxExe",fake.c_str(),ini.c_str()));
     CHECK(WritePrivateProfileStringW(L"P006",L"VmPath",vm.c_str(),ini.c_str()));
     CHECK(WritePrivateProfileStringW(L"P006",L"VmConfig",config.c_str(),ini.c_str()));
-    CHECK(WritePrivateProfileStringW(nullptr,nullptr,nullptr,ini.c_str()));
+    (void)WritePrivateProfileStringW(nullptr,nullptr,nullptr,ini.c_str());
     PROCESS_INFORMATION first{},second{};
     CHECK(start(supervisor,first));
     bool appeared=false;
