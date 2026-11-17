@@ -23,6 +23,8 @@ int        block_pos;
 void sample(void) {
     p110_original_p54c_translator_block_begin(cpu_state.pc, (uint16_t)CS);
     codegen_timing_block_start();
+    p110_original_p54c_translator_opcode_before(old_pc, (uint16_t)CS, opcode);
+    p110_original_p54c_translator_opcode_after();
     codegen_timing_block_end();
     codegen_accumulate(ACCREG_cycles, -codegen_block_cycles);
 }
@@ -51,7 +53,7 @@ class TestP111OriginalJitGenerationJoin(unittest.TestCase):
         for src,guest in ((FAKE_CPU.replace(
               b'p107_old_dynarec_interpreter_exec',b'bad'),FAKE_JIT),
               (FAKE_CPU,FAKE_JIT.replace(
-              b'P110_ORIGINAL_P54C_TRANSLATION_TIMING_V1',b'bad')),
+              b'p110_original_p54c_translator_opcode_before',b'bad')),
               (FAKE_CPU,FAKE_JIT.replace(
               b'P108_DIRECT_EXECUTED_X86_JCC_CF_ZF_V1',b'bad'))):
             with self.assertRaisesRegex(ValueError,"requires"):
