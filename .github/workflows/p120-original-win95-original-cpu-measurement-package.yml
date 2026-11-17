@@ -120,7 +120,7 @@ jobs:
           $winlib = @'
           # P120 research-only MSYS2 OpenSSL static Windows linker dependency
           if(WIN32 AND MINGW)
-            target_link_libraries(86Box PRIVATE bcrypt)
+            target_link_libraries(86Box bcrypt)
           endif()
           '@
           Add-Content -LiteralPath p120-original-fork/CMakeLists.txt -Value $winlib
