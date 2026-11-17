@@ -10,6 +10,8 @@ on:
       - 'tools/p107_patch_old_dynarec_interpreter_fallback.py'
       - 'tools/p108_direct_executed_jcc_flags.py'
       - 'tools/p003_instrument_86box_io.py'
+      - 'tools/p110_instrument_original_p54c_compile_timing.py'
+      - 'tests/test_p110_original_p54c_compile_timing.py'
   workflow_dispatch:
 
 concurrency:
@@ -34,6 +36,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
           python3 -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
           python3 -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
+          python3 -m unittest discover -s tests -p 'test_p110_original_p54c_compile_timing.py' -v
           python3 tools/p108_verify_direct_jcc.py --selftest
           python3 -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
           python3 -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
@@ -91,6 +94,12 @@ jobs:
             --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
           grep -q 'P108_DIRECT_EXECUTED_X86_JCC_CF_ZF_V1' \
             /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          python3 tools/p110_instrument_original_p54c_compile_timing.py \
+            --original-pentium-timing third_party/86box-awe32/src/cpu/codegen_timing_pentium.c \
+            --copy-pentium-timing /tmp/p107-fork/src/cpu/codegen_timing_pentium.c \
+            --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          grep -q 'P110_ORIGINAL_P54C_TRANSLATION_TIMING_V1' \
+            /tmp/p107-fork/src/cpu/codegen_timing_pentium.c
           cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p107-fork/src/sound/snd_emu8k.c
           cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p107-fork/src/sound/snd_sb.c
           test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
@@ -160,6 +169,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
           python -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
           python -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
+          python -m unittest discover -s tests -p 'test_p110_original_p54c_compile_timing.py' -v
           python tools/p108_verify_direct_jcc.py --selftest
           python -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
           python -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
@@ -177,6 +187,8 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'P107 interpreted original x86 path patch failed' }
           python tools/p108_direct_executed_jcc_flags.py --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
           if($LASTEXITCODE -ne 0) { throw 'P108 direct original CF/ZF Jcc patch failed' }
+          python tools/p110_instrument_original_p54c_compile_timing.py --original-pentium-timing third_party/86box-awe32/src/cpu/codegen_timing_pentium.c --copy-pentium-timing p107-fork/src/cpu/codegen_timing_pentium.c --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
+          if($LASTEXITCODE -ne 0) { throw 'P110 source-original P54C timing translation probe patch failed' }
           $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
