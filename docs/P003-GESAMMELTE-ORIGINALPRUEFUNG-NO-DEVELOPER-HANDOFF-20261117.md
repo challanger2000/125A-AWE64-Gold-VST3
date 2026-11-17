@@ -50,6 +50,16 @@ Die neue Forschungsversion des Mono-Scorers verwendet source-ordered Einzelregis
 
 **Keine Einzelübergabe und kein PR-Kommentar.** Die Ergebnisse werden im Forschungszweig konsolidiert.
 
+## Weiterer echter Originalnachweis: 30/31 sind nicht nur erreichbar, sondern rangbasiert auswählbar
+
+Die erneute Auswertung beider **authentischer** Win95-SBAWE.VXD-Portspuren belegt **448 echte Auswahl-/Freigabevorgänge** für physische Stimmen 30 und 31 (Sitzung A: 101 + 117, Sitzung B: 108 + 122). **179 davon** enden nach einer unmittelbar vorangegangenen echten VTFT-Lesung für die letzte Stimme der dritten Modus-0-Lane (**29**). Das ist ein eigenständiger Originalnachweis einer **rangbasierten** Auswahl der früher besuchten Stimmen 30/31 nach dem Dreiergruppen-Scan, nicht nur der sofortigen Idle-/Sample-End-Auswahl.
+
+Auch die *Folgeoperation* wurde vollständig geprüft: **448/448** originale Modus-0-Auswahlen der Stimmen 30/31 gehen unmittelbar in `DCYSUSV=0x00FF` und einen originalen `VTFT=0x0000FFFF`-Initialisierungsschreibzugriff auf **dieselbe physische Stimme** über. Die Original-I/O-Folge ist exakt `A20=0x00FF`, `E22=0x7E/0x7F`, `620=0xFFFF`, `622=0x0000`, ohne einen einzigen abweichenden Fall. Es geht um reale Registerprogrammierung im Originaltreiber; die native VST3-Audioidentität ist damit nicht bewiesen.
+
+Ein [privater, SHA-gepinnter Original-Auditor](../tools/p003_audit_original_mode0_highvoice_select_start_private.py) und [zusätzliche C++23-Rang-/Gleichstands-/Sample-End-Regressionsfälle](../tests/p003_original_mode0_highvoice_selection_ties.cpp) sind im Forschungszweig hinterlegt. Die [CI mit voller vorheriger Suite ist PASS](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44008082076). Details siehe [Original-Nachweis mit 32 Stimmen](P003-ORIGINAL-WIN95-MODE0-32-PHYSICAL-VOICES-EVIDENCE-20261117.md).
+
+**Keine neue Entwicklerübergabe, kein PR-Kommentar und keine Änderung an P005.**
+
 ## Offene und bewusste Grenzen
 
 1. **Modus 0: die originale physische Grenze 32 ist inzwischen BEWIESEN.** Zwei unabhängig SHA-gepinnte echte Windows-95-Portaufnahmen zeigen `LCOD+3F13`-VTFT-Lesungen **und** `LCOD+3FCE`-DCYSUSV-Freigabeschreibzugriffe für Stimmen 30 und 31. Der Original-x86-Loop bei `+3ED4` verwendet direkt `[ESI+0x06]` (tatsächlich 32), **keine** generelle 30-Stimmen-Grenze. Der isolierte Forschungsdispatcher und die Port-Wort-Helfer sind auf die Quelle korrigiert; die alte bewusst enger definierte 30-Music-Voice-Hilfs-API bleibt getrennt. Details, genaue Originalanzahlen und Gegenprüfung: [Mode-0-32-Originalbeweis](P003-ORIGINAL-WIN95-MODE0-32-PHYSICAL-VOICES-EVIDENCE-20261117.md). **Noch offen** sind die restlichen Volltreiber-/VST3-Integrationsschritte, keine Zahlengrenze mehr.
