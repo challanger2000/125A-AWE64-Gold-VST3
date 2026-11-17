@@ -152,19 +152,39 @@ mode2RangeWithSourceStatus(
         // Blocked voice is skipped in the original BEFORE reading
         // VTFT/DCYSUSV/CCCA; don't demand snapshot fields never read.
         if(forbiddenByDeviceMode(v,driver_mode_count))continue;
-        // Original LCOD+41D9/+41DE -> +424F/+4252/+4269:
-        // a high marker and ZERO cached sample-end bypass the entire
-        // live-chip read path. Do not demand VTFT/DCYSUSV/CCCA for a
-        // source voice that the original VXD never accesses.
+        // Original LCOD+41D9 jumps from marker>=0x2000 directly
+        // to +424F, where cached sample_end==0 jumps to +4269.
+        // VTFT/DCYSUSV/CCCA are NOT read for that voice. Require
+        // live chip completeness only when this source short-circuit
+        // did not already reject it. Driver row fields are assumed
+        // independently verified by the caller.
         if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
             continue;
-        // The original high-marker path (+424F..+4267) requires ONLY
-        // verified CCCA for a nonzero cached sample end. VTFT/DCYSUSV
-        // were not fetched; 'complete' alone is too coarse here.
-        // A full authenticated chip snapshot also contains CCCA.
-        const bool cccaOnly=v.internal_key_marker>=0x2000u;
-        if(cccaOnly ? (!v.complete && !v.ccca_read_verified)
-                    : !v.complete) {
+        // For a disqualified marker with cached sample_end!=0,
+        // original +424F/+4254 reads ONLY CCCA (no VTFT/DCYSUSV).
+        // Require an independently verified CCCA read or a full
+        // validated chip snapshot; never infer a missing chip value.
+        if(v.internal_key_marker>=0x2000u) {
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
+                return std::nullopt;
+            }
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+            continue;
+        }
+        // Original +41E0 always reads VTFT for eligible markers.
+        // +4228 only reads DCYSUSV for marker !=0x0FFE with low byte
+        // !=0xFF. Missing source data fails closed for exactly these
+        // required reads; other original paths need not synthesize them.
+        const bool needs_dcysusv =
+            v.internal_key_marker!=0x0ffeu &&
+            (v.internal_key_marker&0x00ffu)!=0x00ffu;
+        if(!v.complete &&
+           (!v.vtft_read_verified ||
+            (needs_dcysusv && !v.dcysusv_read_verified))) {
             if(missing_source)*missing_source=true;
             return std::nullopt;
         }
@@ -184,12 +204,19 @@ mode2RangeWithSourceStatus(
                 best=score;
             }
         }
-        // The sample-end short circuit occurs even for a marker
-        // that was INELIGIBLE for ranking (source +0x424F onwards).
-        if(finishedSample(v))
-            return OriginalWin95MonoSelection{
-                static_cast<std::uint8_t>(voice),
-                OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        // Original +424F skips CCCA entirely when cached end is zero.
+        // If nonzero, +4254 reads CCCA even when scoring already picked
+        // a non-idle candidate; do not infer the missing chip address.
+        if(v.stored_sample_end!=0u) {
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
+                return std::nullopt;
+            }
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        }
     }
     return selected;
 }
