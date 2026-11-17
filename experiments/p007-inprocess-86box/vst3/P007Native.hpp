@@ -5,6 +5,8 @@
  // production Windows-VST3 still needs independent DAW acceptance.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P007OutputRate.hpp"
+#include "vstgui/plugin-bindings/vst3editor.h"
+#include "public.sdk/source/vst/vstparameters.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -14,12 +16,16 @@
 #include <string>
 #include <thread>
 namespace p007 {
+inline constexpr Steinberg::Vst::ParamID kP165Program=1000u;
+inline constexpr Steinberg::Vst::ParamID kP165Master=1001u;
+inline constexpr Steinberg::Vst::ParamID kP165Bank=1002u;
 class Core final {
     HMODULE module_=nullptr;
     bool ownsInstance_=false;
     std::thread emulatorThread_{};
     std::atomic<bool> stop_{false};
     std::atomic<int> bootStatus_{0};
+    std::atomic<int> guestReady_{0};
     void runPrivateGuest(std::wstring moduleFolder) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
@@ -31,6 +37,7 @@ public:
     using Step=int (__cdecl*)();
     using GuestClose=void (__cdecl*)();
     using BootAssist=int (__cdecl*)(std::uint32_t);
+    using GuestReady=int (__cdecl*)();
     Pull pull=nullptr;
     Trim trimBacklog=nullptr;
     Midi midi=nullptr;
@@ -40,6 +47,7 @@ public:
     Step step=nullptr;
     GuestClose guestClose=nullptr;
     BootAssist bootAssist=nullptr;
+    GuestReady guestReadyFn=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
@@ -48,11 +56,17 @@ public:
     void closeNonRealtime() noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
+    [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
 };
-class Plugin final : public Steinberg::Vst::SingleComponentEffect {
+class Plugin final : public Steinberg::Vst::SingleComponentEffect,
+                     public VSTGUI::VST3EditorDelegate {
     Core core_{};
     OutputRate outputRate_{};
     bool active_=false;
+    std::uint8_t midiProgram_=0u,midiBank_=0u;
+    float masterVolume_=1.f;
+    bool sentInitialProgram_=false;
+    [[nodiscard]] int p165GuestStatus() const noexcept;
 public:
     static Steinberg::FUnknown* createInstance(void*) {
         return static_cast<Steinberg::Vst::IAudioProcessor*>(new Plugin());
@@ -63,5 +77,9 @@ public:
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup&) override;
     Steinberg::tresult PLUGIN_API process(Steinberg::Vst::ProcessData&) override;
+    VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,
+        const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
+        VSTGUI::VST3Editor*) override;
+    Steinberg::Vst::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
 };
 } // namespace p007

@@ -1,5 +1,9 @@
 #include "P007Native.hpp"
 #include "P007PrivatePaths.hpp"
+#include "P007P165View.hpp"
+#include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "vstgui/plugin-bindings/vst3editor.h"
+#include <cstring>
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
@@ -58,7 +62,8 @@ bool Core::openNonRealtime() noexcept {
     step=reinterpret_cast<Step>(GetProcAddress(module_,"p007_core_guest_step"));
     guestClose=reinterpret_cast<GuestClose>(GetProcAddress(module_,"p007_core_guest_close"));
     bootAssist=reinterpret_cast<BootAssist>(GetProcAddress(module_,"p007_core_guest_boot_assist"));
-    if(!initProfile||!boot||!step||!guestClose||!bootAssist){
+    guestReadyFn=reinterpret_cast<GuestReady>(GetProcAddress(module_,"p007_midi_guest_ready"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -66,6 +71,8 @@ bool Core::openNonRealtime() noexcept {
         closeNonRealtime();return false;
     }
     ownsInstance_=true;
+    bootStatus_.store(0,std::memory_order_release);
+    guestReady_.store(0,std::memory_order_release);
     // Neither a BIOS reset nor the start of Win95 proves Creative WinMM ready.
     // Leave MIDI disabled until a *real guest-ready acknowledgment* exists.
     midiEnabled(0);
@@ -84,7 +91,8 @@ void Core::closeNonRealtime() noexcept {
     if(emulatorThread_.joinable())emulatorThread_.join();
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
-    bootAssist=nullptr;
+    bootAssist=nullptr;guestReadyFn=nullptr;
+    guestReady_.store(0,std::memory_order_release);
     if(module_){FreeLibrary(module_);module_=nullptr;}
     if(ownsInstance_){
         ownsInstance_=false;
@@ -153,6 +161,8 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             // Only original emulated keyboard controller receives Win95 boot
             // keys; no real host input events, no audio-thread work.
             (void)bootAssist(++guestMilliseconds);
+            if(guestReadyFn)
+                guestReady_.store(guestReadyFn()?1:0,std::memory_order_release);
             next+=std::chrono::milliseconds(1);
             // No guest CPU, disk, timers, or sleep on the DAW audio callback.
             std::this_thread::sleep_until(next);
@@ -168,6 +178,16 @@ tresult PLUGIN_API Plugin::initialize(FUnknown* context) {
         return kResultFalse;
     addEventInput(STR16("Original Creative WinMM MIDI"),16);
     addAudioOutput(STR16("Original EMU8000 Stereo"),SpeakerArr::kStereo);
+    // These P165 controls have REAL paths in the original Creative guest:
+    // BankSelect(CC0+CC32)/ProgramChange sent only by the AUDIO consumer;
+    // master output is applied after the untouched original hardware PCM.
+    // No dummy envelopes/FX sliders until original Win95 control exists.
+    parameters.addParameter(new RangeParameter(STR16("Creative MIDI Program"),
+        kP165Program,nullptr,0.0,127.0,0.0,127));
+    parameters.addParameter(new RangeParameter(STR16("Creative MIDI Bank"),
+        kP165Bank,nullptr,0.0,127.0,0.0,127));
+    parameters.addParameter(new RangeParameter(STR16("Master Volume"),
+        kP165Master,STR16("%"),0.0,100.0,100.0));
     return kResultOk;
 }
 tresult PLUGIN_API Plugin::terminate() {
@@ -181,10 +201,12 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         // is missing from the SAME .vst3 folder.
         if(!core_.openNonRealtime())return kResultFalse;
         outputRate_.reset();
+        sentInitialProgram_=false;
         active_=true;
     } else if(active_) {
         core_.closeNonRealtime();active_=false;
         outputRate_.reset();
+        sentInitialProgram_=false;
     }
     return SingleComponentEffect::setActive(on);
 }
@@ -202,7 +224,71 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     if(result==kResultOk)outputRate_.configure(setup.sampleRate);
     return result;
 }
+int Plugin::p165GuestStatus() const noexcept {
+    const int stage=core_.bootStatus();
+    if(stage<0)return stage;
+    if(core_.guestReady())return 2;
+    if(stage==1)return 1;
+    if(stage==2)return 3;
+    return 0;
+}
+VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
+    const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
+    VSTGUI::VST3Editor*) {
+    if(name&&std::strcmp(name,"P007P165Panel")==0)
+        return new P165View({0,0,1000,708},this,
+                            [this](){return p165GuestStatus();});
+    return nullptr;
+}
+IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
+    if(name&&std::strcmp(name,ViewType::kEditor)==0) {
+        // The pinned original P165 view description has NO keyboard.
+        auto* editor=new VSTGUI::VST3Editor(this,"view","p007_p165.uidesc");
+        editor->setDelegate(this);
+        return editor;
+    }
+    return nullptr;
+}
 tresult PLUGIN_API Plugin::process(ProcessData& data) {
+    // Original P165 editor -> host automation -> DAW audio thread -> same
+    // bounded SPSC UART packet producer as host MIDI notes. GUI must NEVER
+    // write the UART directly from its separate UI thread.
+    bool programChanged=false,bankChanged=false;
+    if(data.inputParameterChanges){
+        const int32 n=data.inputParameterChanges->getParameterCount();
+        for(int32 i=0;i<n;++i){
+            auto* queue=data.inputParameterChanges->getParameterData(i);
+            if(!queue||queue->getPointCount()<1)continue;
+            int32 offset=0;ParamValue value=0.;
+            if(queue->getPoint(queue->getPointCount()-1,offset,value)!=kResultOk)
+                continue;
+            value=std::clamp(value,0.,1.);
+            switch(queue->getParameterId()){
+                case kP165Program:
+                    midiProgram_=static_cast<std::uint8_t>(std::lround(value*127.));
+                    programChanged=true;break;
+                case kP165Bank:
+                    midiBank_=static_cast<std::uint8_t>(std::lround(value*127.));
+                    bankChanged=true;break;
+                case kP165Master:
+                    masterVolume_=static_cast<float>(value);break;
+                default:break;
+            }
+        }
+    }
+    const bool ready=active_&&core_.guestReady()&&core_.midi;
+    if(!ready)sentInitialProgram_=false;
+    if(ready){
+        if(!sentInitialProgram_||bankChanged) {
+            // Original Win95 Creative driver receives real MIDI BankSelect.
+            (void)core_.midi(0xb0u,0u,0u);  // CC0 bank MSB
+            (void)core_.midi(0xb0u,32u,midiBank_); // CC32 bank LSB
+        }
+        if(!sentInitialProgram_||bankChanged||programChanged){
+            (void)core_.midi(0xc0u,midiProgram_,0u); // MIDI Program Change
+        }
+        sentInitialProgram_=true;
+    }
     // Only constant-time calls to bounded, heapless native core FIFOs;
     // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.
     if(active_&&core_.midi&&data.inputEvents) {
@@ -242,6 +328,14 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // All original Creative voice/filter/envelope arithmetic is untouched.
     outputRate_.render(active_?core_.pull:nullptr,l,r,
                        static_cast<std::uint32_t>(data.numSamples));
+    // Host Master operates AFTER original Creative/EMU8000 mixer, not
+    // inside the emulated chip. Exactly unity = unaltered original PCM.
+    if(masterVolume_!=1.f) {
+        for(int32 i=0;i<data.numSamples;++i){
+            l[i]*=masterVolume_;
+            r[i]*=masterVolume_;
+        }
+    }
     output.silenceFlags=0;
     return kResultOk;
 }
