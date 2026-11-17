@@ -4,6 +4,7 @@ on:
     branches: [research/p003-v5-voice-row-capture]
     paths:
       - 'tests/p003_original_blocked_neighbor_previous_sentinel.cpp'
+      - 'tests/p003_original_mode2_high_marker_lazy_chip_read.cpp'
       - '.github/workflows/p003-original-blocked-neighbor-compare.yml'
   workflow_dispatch:
 permissions:
@@ -28,6 +29,32 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-research-original"
           "$RUNNER_TEMP/p003-research-original"
+      - name: Reproduce mode2 original x86 high-marker skip against actual P002
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA=940098bd3e35f5b2b2b7c94ec9283b5b45067990
+          git fetch --depth=1 origin "$DEV_SHA"
+          DEV_ROOT="$RUNNER_TEMP/p003-dev-mode2"
+          git worktree add --detach "$DEV_ROOT" FETCH_HEAD
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I "$DEV_ROOT/src/creative_compat" \
+            tests/p003_original_mode2_high_marker_lazy_chip_read.cpp \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp" \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
+            -o "$RUNNER_TEMP/p003-dev-mode2-test"
+          set +e
+          "$RUNNER_TEMP/p003-dev-mode2-test"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 42 ]; then
+            echo "P003_MODE2_HIGH_MARKER_UNNECESSARY_LIVE_CHIP_READ_REPRODUCED pinned_sha=$DEV_SHA"
+          elif [ "$STATUS" -eq 0 ]; then
+            echo "P003_MODE2_ORIGINAL_HIGH_MARKER_SKIP_IMPLEMENTED pinned_sha=$DEV_SHA"
+          else
+            echo "P003_MODE2_UNEXPECTED_STATUS=$STATUS"
+            exit 1
+          fi
       - name: Inspect actual P002 developer commit read-only
         shell: bash
         run: |
