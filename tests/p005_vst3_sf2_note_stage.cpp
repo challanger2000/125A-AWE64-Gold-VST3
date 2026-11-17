@@ -16,6 +16,8 @@ using awe64::vst3::P005OriginalCreativeBankCatalog;
 using awe64::vst3::P005OriginalGuestMemorySegment;
 using awe64::vst3::P005OriginalVxdDirectoryImportResult;
 using awe64::vst3::P005OriginalVxdDirectoryImporter;
+using awe64::vst3::P005OriginalVxdGuestCaptureFile;
+using awe64::vst3::P005VxdGuestCaptureFileResult;
 #define CHECK(x) do{if(!(x)){std::fprintf(stderr,"P005_NOTE_STAGE_FAIL:%d %s\n",__LINE__,#x);return 1;}}while(false)
 using B=std::vector<std::uint8_t>;
 struct Chip {
