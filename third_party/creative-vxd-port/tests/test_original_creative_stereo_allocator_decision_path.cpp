@@ -124,8 +124,12 @@ int main(){
               StereoDecisionKind::ScoredVoice));
         if(mode<=2u) {
             CHECK(selected.vtft_reads<4u);
+            // The source scan also checks the *neighbor* voice:
+            // row 2 is skipped because neighboring row 3 is blocked.
             CHECK(witness.decisions[1].voice==2u);
-            CHECK(witness.decisions[1].kind==StereoDecisionKind::ScoredVoice);
+            CHECK(witness.decisions[1].kind==StereoDecisionKind::SkippedVoice);
+            CHECK(witness.decisions[2].voice==1u);
+            CHECK(witness.decisions[2].kind==StereoDecisionKind::ScoredVoice);
         }else {
             CHECK(selected.vtft_reads==4u);
         }
