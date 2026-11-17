@@ -16,7 +16,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq libserialport0 libslirp0 libfaudio0
           mkdir -p build/runtime-libs
-          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0; do
+          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0 libstb.so.0; do
             match="$(ldconfig -p | awk -v lib="$lib" '$1==lib {print $NF; exit}')"
             if test ! -f "$match"; then echo "P007_MISSING_LIB $lib $match"; exit 1; fi
             cp -L "$match" "build/runtime-libs/$lib"
