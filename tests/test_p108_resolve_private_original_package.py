@@ -12,7 +12,7 @@ import zipfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from p108_resolve_private_original_package import (
     validate_zip, inspect_original_package,resolve,NESTED_FILENAME,
-    SECOND_SF2_SHA256,generated_original_mode_stereo_sf2
+    SECOND_SF2_SHA256,STRESS_PE_SHA256,generated_original_mode_stereo_sf2
 )
 
 def sha(x):return hashlib.sha256(x).hexdigest()
@@ -53,6 +53,16 @@ class TestOriginalV4NestedResolver(unittest.TestCase):
         self.assertTrue(original.startswith(b"RIFF"))
         self.assertEqual(original[8:12],b"sfbk")
         self.assertEqual(sha(original),SECOND_SF2_SHA256)
+
+    def test_missing_exact_original_stress_pe_is_rebuildable_only_from_pinned_public_c(self):
+        with tempfile.TemporaryDirectory() as t:
+            outer=Path(t)/"fictional-v4.zip"
+            n,temporary_pe,sf2=build_outer(outer)
+            self.assertNotEqual(temporary_pe,STRESS_PE_SHA256)
+            nested,pe,bank=inspect_original_package(outer,n,STRESS_PE_SHA256,sf2)
+            self.assertEqual(nested,"P002-PRIVATE/"+NESTED_FILENAME)
+            self.assertIsNone(pe)
+            self.assertEqual(bank,"exact_second_soundfont.sf2")
 
     def test_missing_bank_uses_only_sha_identical_public_source_rebuild(self):
         with tempfile.TemporaryDirectory() as t:
