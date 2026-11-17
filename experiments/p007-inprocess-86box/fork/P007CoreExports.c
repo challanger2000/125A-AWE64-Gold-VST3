@@ -74,8 +74,12 @@ P007_EXPORT int p007_core_init_profile(
     char *argv[]={
       program,vmpath,vm,rompath,rom,assetopt,asset,config,cfg,globalopt,global
     };
+    /* Match the ORIGINAL SDL frontend order: SDL_Init(0) precedes pc_init.
+       86Box platform setup can touch SDL state while parsing the profile. */
+    if (SDL_Init(0) != 0) return -3;
     const int result=pc_init(11,argv);
     if(result==1) s_profile_initialized=1;
+    else SDL_Quit();
     return result;
 }
 
@@ -95,8 +99,8 @@ P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
 P007_EXPORT int p007_core_guest_boot(void) {
     if (!s_profile_initialized) return -1;
     if (s_guest_stage) return -2;
-    /* No SDL video/window/audio driver is started in the host DAW. */
-    if (SDL_Init(0) != 0) return -3;
+    /* SDL base is initialized in original order in init_profile().
+       No SDL video/window/audio driver is ever started in the host DAW. */
     if (!pc_init_roms()) return -4;
     /* 86Box pc_init_modules() can call exit(-1) for an unavailable
        primary machine or video card. Never kill the DAW host. */
