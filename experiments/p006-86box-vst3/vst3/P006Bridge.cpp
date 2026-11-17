@@ -34,8 +34,24 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         if(!midi_.startNonRealtime(kMidiPipe)){
             audio_.close();return kResultFalse;
         }
+        // Optional quick private proof with the UNMODIFIED 86Box.exe.
+        // Caller launches DAW with AWE64_P006_WAV_PATH set to the
+        // SAME absolute file as 86Box's AWE32_WAV environment setting.
+        // Do NOT enable when using the patched direct fork PCM hook:
+        // that would create two audio writers in one SPSC ring.
+        char wavPath[512]{};
+        const DWORD pathLen=GetEnvironmentVariableA(
+            "AWE64_P006_WAV_PATH",wavPath,
+            static_cast<DWORD>(sizeof(wavPath)));
+        if(pathLen>0u){
+            if(pathLen>=sizeof(wavPath)||
+               !wavTail_.startNonRealtime(audio_.data(),wavPath)){
+                midi_.stopNonRealtime();audio_.close();return kResultFalse;
+            }
+        }
         active_=true;
     }else if(active_) {
+        wavTail_.stopNonRealtime();
         midi_.stopNonRealtime();
         audio_.close();active_=false;
     }
