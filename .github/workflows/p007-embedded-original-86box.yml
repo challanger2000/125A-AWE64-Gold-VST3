@@ -23,7 +23,7 @@ jobs:
           install: git
           pacboy: >-
             ninja:p cmake:p gcc:p python:p pkgconf:p freetype:p SDL2:p
-            zlib:p libpng:p libslirp:p libserialport:p
+            zlib:p libpng:p libsndfile:p libslirp:p libserialport:p
       - uses: actions/checkout@v4
       - name: Checkout hash-pinned ORIGINAL 86Box AWE32 release sources
         run: |
