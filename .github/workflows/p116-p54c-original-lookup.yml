@@ -1,0 +1,60 @@
+name: P116 pinned original P54C opcode table differential (research only)
+on:
+  push:
+    branches: [research/p116-original-p54c-opcode-lookup]
+    paths:
+      - 'research/P116OriginalP54cOpcodeLookup.hpp'
+      - 'tools/p116_original_p54c_opcode_table_generator.py'
+      - 'tests/p116_original_p54c_lookup_differential.cpp'
+      - 'tests/test_p116_original_p54c_generator.py'
+      - '.github/workflows/p116-p54c-original-lookup.yml'
+      - 'docs/P116-ORIGINAL-P54C-OPCODE-DEPENDENCY-TABLE-PORT.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-oracle-differential:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+          - os: windows-2022
+            cc: clang
+            cxx: clang++
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify SHA-locked original source and generator negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p116_original_p54c_generator.py' -v
+      - name: Compile the original C tables and original selector into temporary oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p116_original_p54c_opcode_table_generator.py \
+            --original-pentium third_party/86box-awe32/src/cpu/codegen_timing_pentium.c \
+            --original-common third_party/86box-awe32/src/cpu/codegen_timing_common.c \
+            --original-header third_party/86box-awe32/src/cpu/codegen_timing_common.h \
+            --output-header build/p116/P116GeneratedP54cTables.hpp \
+            --output-vectors build/p116/original-exhaustive-vectors.txt \
+            --cc ${{ matrix.cc }}
+      - name: C++23 standalone P54C lookup against 40960 original C selections
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.cxx }} -std=c++23 -O2 -Wall -Wextra -Werror -pedantic \
+            -Iresearch -Ibuild/p116 tests/p116_original_p54c_lookup_differential.cpp \
+            -o build/p116/p116_test.exe
+          ./build/p116/p116_test.exe build/p116/original-exhaustive-vectors.txt
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+          echo 'P116_ORIGINAL_PINNED_C_OPCODE_TABLES_CXX23_EXACT_DIFFERENTIAL_PASS'
