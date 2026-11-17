@@ -96,7 +96,7 @@ struct OriginalWin95AllocatorDispatchInput {
     std::uint8_t original_x86_dispatch_mode=0xffu; // 0, 1, 2
     std::uint16_t original_device_physical_capacity=0u; // device+0x06
     std::uint32_t original_device_mode_count=0u; // device+0x18
-    std::uint8_t independently_verified_mode0_scan_ceiling=0u;
+    // Independent LCOD+3ED4 source bound: must match device+0x06.\n    // Original Win95 selects physical voices 30/31 in mode 0.\n    std::uint8_t independently_verified_mode0_scan_ceiling=0u;
     std::uint32_t original_mode2_packed_range=0u;
 };
 struct OriginalWin95AllocatorDispatchResult {
