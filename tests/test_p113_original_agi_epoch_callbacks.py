@@ -75,6 +75,7 @@ class TestP113OriginalEpochNativeC(unittest.TestCase):
           "/* P111_ORIGINAL_P54C_COMPILE_TO_EXECUTE_JIT_JOIN_V1 */\n"
           "int block_pos;\nstatic int codegen_block_ins;\n"
           "void p111_jit_compilation_start(codeblock_t *block){}\n"
+          "    p111_jit_compilation_start(block);\n"
           "void p110_original_p54c_translator_opcode_before(void){}\n"
           "    p110_original_p54c_translator_opcode_after();\n"
         ).encode()
