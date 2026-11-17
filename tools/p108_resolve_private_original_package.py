@@ -15,6 +15,7 @@ from pathlib import Path,PurePosixPath
 import shutil
 import sys
 import zipfile
+from p003_owner_two_bank_run import generated_original_mode_stereo_sf2
 
 NESTED_FILENAME="125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip"
 PINNED_ORIGINAL_VM_ARCHIVE_SHA256="ae7b6debdd7024e243f6f4c33f3769c950210e0b68c54abf0eef1f1554d8c1ba"
@@ -63,12 +64,13 @@ def assert_exact_zip_member_sha(z,name,sha,limit):
     if actual!=sha:raise ValueError("original owner SHA-256 mismatch")
     return item
 
-def locate_by_sha(z,sha,max_bytes):
+def locate_by_sha(z,sha,max_bytes,allow_absent=False):
     matches=[]
     for item in z.infolist():
         if item.is_dir() or item.file_size>max_bytes:continue
         with z.open(item,"r") as source:
             if fingerprint(source)==sha:matches.append(item)
+    if not matches and allow_absent:return None
     if len(matches)!=1:
         raise ValueError("exact original stress PE32 / SF2 not uniquely in source archive")
     return matches[0]
@@ -96,8 +98,15 @@ def inspect_original_package(outer:Path,
         member=assert_exact_zip_member_sha(archive,nested[0].filename,
                                            expected_nested_sha,MAX_OWNER_ZIP_SIZE)
         pe=locate_by_sha(archive,expected_pe_sha,MAX_CANDIDATE_SIZE)
-        sf2=locate_by_sha(archive,expected_sf2_sha,MAX_CANDIDATE_SIZE)
-        return member.filename,pe.filename,sf2.filename
+        sf2=locate_by_sha(archive,expected_sf2_sha,MAX_CANDIDATE_SIZE,
+                          allow_absent=(expected_sf2_sha==SECOND_SF2_SHA256))
+        # Publicly reproducible stereo SF2 has exactly the same SHA-256 as
+        # the original P003 mode-stress synthetic bank; no owner sample data.
+        if sf2 is None:
+            original=generated_original_mode_stereo_sf2()
+            if hashlib.sha256(original).hexdigest()!=SECOND_SF2_SHA256:
+                raise ValueError("original-mode stereo SF2 public generator changed")
+        return member.filename,pe.filename,(sf2.filename if sf2 else None)
 
 def resolve(outer:Path,target:Path,expected_nested_sha=PINNED_ORIGINAL_VM_ARCHIVE_SHA256,
             expected_pe_sha=STRESS_PE_SHA256,expected_sf2_sha=SECOND_SF2_SHA256):
@@ -114,7 +123,15 @@ def resolve(outer:Path,target:Path,expected_nested_sha=PINNED_ORIGINAL_VM_ARCHIV
     with zipfile.ZipFile(outer,"r") as outerzip:
         extract_member(outerzip,outerzip.getinfo(nested),nested_zip)
         extract_member(outerzip,outerzip.getinfo(pe),exe)
-        extract_member(outerzip,outerzip.getinfo(sf2),bank)
+        if sf2 is not None:
+            extract_member(outerzip,outerzip.getinfo(sf2),bank)
+        else:
+            # Bit-identical public-source recreation, SHA-verified on
+            # native Windows and Linux before being accepted.
+            recreated=generated_original_mode_stereo_sf2()
+            if hashlib.sha256(recreated).hexdigest()!=expected_sf2_sha:
+                raise ValueError("original guest bank recreation SHA mismatch")
+            bank.write_bytes(recreated)
     with nested_zip.open("rb") as f:
         if fingerprint(f)!=expected_nested_sha:
             raise ValueError("extracted original VM archive SHA mismatch")
