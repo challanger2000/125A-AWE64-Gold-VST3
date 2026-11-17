@@ -195,3 +195,14 @@ target_link_libraries(test_original_creative_lcod70e5
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_lcod70e5_register_source_contract
     COMMAND test_original_creative_lcod70e5)
+
+
+# Original Win95 SBAWE.VXD LCOD+0x7309/0x7350/0x740A NRPN
+# callbacks: source-derived channel memory, no private driver bytes.
+# Standalone research only, NOT productive VST3 MIDI activation.
+add_executable(test_original_creative_lcod73xx_nrpn
+    tests/test_original_creative_lcod73xx_nrpn.cpp)
+target_link_libraries(test_original_creative_lcod73xx_nrpn
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_lcod73xx_nrpn_source_contract
+    COMMAND test_original_creative_lcod73xx_nrpn)
