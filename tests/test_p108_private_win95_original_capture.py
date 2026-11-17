@@ -69,6 +69,58 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
             self.assertFalse(report["native_vst3_pcm_bit_exact_proved"])
             auditor.assert_called_once_with(Path("/fake/P110"),min_translations=50)
 
+    def test_p113_private_original_agi_epoch_requires_same_session(self):
+        candidate=Path("/session/P113")
+        prior={"AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE":"stale"}
+        env=p.make_probe_environment(prior,Path("/session/I"),Path("/session/B"),
+                                     Path("/session/io"))
+        self.assertNotIn("AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE",env)
+        self.assertEqual(prior["AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE"],"stale")
+        activated=p.make_probe_environment({},Path("/session/I"),
+                      Path("/session/B"),Path("/session/io"),
+                      Path("/session/P110"),Path("/session/P111"),candidate)
+        self.assertEqual(activated["AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE"],
+                         str(candidate))
+        self.assertEqual(activated["AWE64_P113_LCOD_BASE"],"0xC10151E4")
+        self.assertEqual(activated["AWE64_P113_LCOD_SELECTOR"],"0x28")
+        proof={"original_win95_midi_send_calls":4176,
+               "original_win95_midi_api_failures":0}
+        valid={"executed_jcc_total":3450,
+               "unobserved_or_unexplained_jcc":0,
+               "next_pc_independently_confirms_flags":3410}
+        physical={"original_tsc_first":0,"original_tsc_last":2000}
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fake-I")),
+              patch.object(p,"read_direct",
+                           return_value=({1:object()},"fake-B")),
+              patch.object(p,"compare_original",return_value=valid),
+              patch.object(p,"verify_original_physical_cpu_io",
+                           return_value=physical),
+              patch.object(p,"audit_p110_translator",
+                           return_value={"status":"fictional-P110"}),
+              patch.object(p,"audit_p111_join",
+                           return_value={"status":"fictional-P111"}),
+              patch.object(p,"audit_p113",return_value={
+                  "original_positive_agi_checks_in_jit_executed_generations":0,
+                  "per_guest_instruction_tsc_observed":False}) as epoch_audit):
+            with self.assertRaisesRegex(ValueError,"requires both P110 and P111"):
+                p.verify_private_capture(Path("/fake/win95.img"),Path("/session/I"),
+                    Path("/session/B"),Path("/session/io"),
+                    None,Path("/session/P111"),False,candidate)
+            with self.assertRaisesRegex(ValueError,"same private Win95 session"):
+                p.verify_private_capture(Path("/fake/win95.img"),Path("/session/I"),
+                    Path("/session/B"),Path("/session/io"),
+                    Path("/session/P110"),Path("/other/P111"),False,candidate)
+            result=p.verify_private_capture(Path("/fake/win95.img"),
+                Path("/session/I"),Path("/session/B"),Path("/session/io"),
+                Path("/session/P110"),Path("/session/P111"),False,candidate)
+            self.assertEqual(result["original_p113_opcode_agi_to_executed_epoch"][
+                "original_positive_agi_checks_in_jit_executed_generations"],0)
+            self.assertFalse(result["native_vst3_pcm_bit_exact_proved"])
+            epoch_audit.assert_called_once_with(Path("/session/P110"),
+                  Path("/session/P111"),candidate,min_agis=0)
+
     def test_p112_private_original_agreement_only_for_same_session(self):
         proof={"original_win95_midi_send_calls":4176,
                "original_win95_midi_api_failures":0}
