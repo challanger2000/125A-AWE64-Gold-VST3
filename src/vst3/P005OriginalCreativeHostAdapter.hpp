@@ -4,6 +4,7 @@
 // SoundFont descriptors must be independently authenticated by the caller.
 // No original chip DSP, guessed controller formula or CPU timeline here.
 #include "OriginalCreativeMidiRamRuntime.hpp"
+#include "OriginalCreativeNrpnOwnedSource.hpp"
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
 #include "P005OriginalVxdGuestCaptureFile.hpp"
@@ -45,6 +46,10 @@ public:
         const P005OriginalCreativeHostAdapter&)=delete;
     // OFF THE AUDIO THREAD, after physical voices have stopped.
     void resetNonRealtime() noexcept {
+        // Original NRPN pointers borrow storage in this same host adapter.
+        // Detach them BEFORE destroying the MIDI runtime or their owner,
+        // and only while the audio engine is fully stopped.
+        nrpnOwner_.detachNonRealtime();
         // First detach all original MIDI callbacks, then release the
         // owner lease. No catalog vector may be freed while the live
         // Creative source contains non-owning spans into that catalog.
@@ -461,6 +466,32 @@ public:
             return false;
         }
     }
+    // Optional P003 research hook for a separately authenticated original
+    // driver/source session. The host MUST call only off the audio thread
+    // after activating the SAME chip/device and before process() resumes.
+    // The supplied flags are external attestation claims, NOT checksums.
+    // A mismatched, already-active, or malformed source fails closed.
+    // These original bytes are copied into THIS adapter instance, not
+    // borrowed from a temporary Win95 capture file/owner stack buffer.
+    [[nodiscard]] bool attachOriginalNrpnSourceNonRealtime(
+        std::span<const std::uint8_t> originalDeviceImage,
+        std::span<const std::uint8_t> originalParameterRecords,
+        std::span<const std::uint16_t> originalPcodLookup,
+        bool independentOriginalDeviceAttestation,
+        bool independentOriginalDriverTableAttestation,
+        bool independentVoiceIdentityAttestation) noexcept {
+        if(!active() || runtime_->scratch.active ||
+           nrpnOwner_.attached())return false;
+        return nrpnOwner_.attachNonRealtime(
+            runtime_->midi,originalDeviceImage,
+            originalParameterRecords,originalPcodLookup,
+            independentOriginalDeviceAttestation,
+            independentOriginalDriverTableAttestation,
+            independentVoiceIdentityAttestation);
+    }
+    [[nodiscard]] bool originalNrpnSourceBound() const noexcept {
+        return nrpnOwner_.attached() && sourceBound();
+    }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
     // Unlike active(), sourceBound() remains true until non-RT reset.
@@ -512,6 +543,10 @@ public:
                     static_cast<std::uint8_t>(bend14>>7u));
     }
 private:
+    // This fixed-size owner must outlive all borrowed MIDI-runtime views.
+    // It intentionally does not store raw Creative driver binary sections.
+    awe64::original_vxd::research::OriginalCreativeNrpnOwnedSource
+        nrpnOwner_{};
     std::optional<Runtime> runtime_{};
     ChipT* chip_=nullptr;
     // Stable address for the original C++23 callback opaque value.
