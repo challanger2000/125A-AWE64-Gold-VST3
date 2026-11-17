@@ -115,7 +115,9 @@ def resolve(outer:Path,target:Path,expected_nested_sha=PINNED_ORIGINAL_VM_ARCHIV
     with nested_zip.open("rb") as f:
         if fingerprint(f)!=expected_nested_sha:
             raise ValueError("extracted original VM archive SHA mismatch")
-    if exe.stat().st_size<1024 or exe.open("rb").read(2)!=b"MZ":
+    with exe.open("rb") as f:
+        pe_signature=f.read(2)
+    if exe.stat().st_size<1024 or pe_signature!=b"MZ":
         raise ValueError("original stress PE32 does not have DOS/PE entry signature")
     with bank.open("rb") as f:
         if f.read(4)!=b"RIFF":
