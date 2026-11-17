@@ -216,3 +216,13 @@ target_link_libraries(test_original_creative_nrpn_midi_bridge
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_nrpn_midi_bridge_source_gated
     COMMAND test_original_creative_nrpn_midi_bridge)
+
+
+# Original NRPN CC6/CC38 -> device+B52/LCOD+0x70E5. Provenance-gated.
+# Register I/O fixture is synthetic; no private driver bytes in CI.
+add_executable(test_original_creative_nrpn_cc6_cc38
+    tests/test_original_creative_nrpn_cc6_cc38.cpp)
+target_link_libraries(test_original_creative_nrpn_cc6_cc38
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_cc6_cc38_chip_port_contract
+    COMMAND test_original_creative_nrpn_cc6_cc38)
