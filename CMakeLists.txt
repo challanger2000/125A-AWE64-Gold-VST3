@@ -535,6 +535,17 @@ target_link_libraries(awe64_p003_vxd_additional_allocator_modes_test PRIVATE
 add_test(NAME p003_original_vxd_mode1_pair_mode2_bounded_range_candidate
     COMMAND awe64_p003_vxd_additional_allocator_modes_test)
 
+# P003 original-source LCOD+41D9..4269: the Mode-2 VTFT-only idle,
+# conditionally needed DCYSUSV and CCCA chip-read provenance.
+add_executable(awe64_p003_mode2_register_provenance_test
+    tests/p003_original_mode2_vtft_dcysusv_provenance.cpp)
+target_link_libraries(awe64_p003_mode2_register_provenance_test PRIVATE
+    awe64_p003_vxd_allocator_additional)
+target_compile_features(awe64_p003_mode2_register_provenance_test PRIVATE cxx_std_23)
+add_test(NAME p003_original_mode2_register_provenance
+    COMMAND awe64_p003_mode2_register_provenance_test)
+
+
 
 # P002 independently derived forced original VXD group-voice termination.
 # True original per-group/voice flags required; NOT general MIDI NoteOff.
