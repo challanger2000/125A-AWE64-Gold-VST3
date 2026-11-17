@@ -313,10 +313,46 @@ int main(){
     stage.clearNonRealtime();
     Chip guestChip{};
     P005OriginalCreativeHostAdapter<Chip> guestHost{};
-    CHECK(!guestHost.activateOwnedOriginalCatalogNonRealtime(
-        guestChip,guestCatalog,false));
-    CHECK(guestHost.activateOwnedOriginalCatalogNonRealtime(
-        guestChip,guestCatalog,true));
+    // The original 32 physical rows must reach the *same* live
+    // MIDI device used by the chip allocator, not a second snapshot.
+    // Synthetic guest bytes: no original Win95 attestation is claimed.
+    deviceImage[0x158eu]='1';deviceImage[0x158fu]='M';
+    deviceImage[0x1590u]='G';deviceImage[0x1591u]='M';
+    deviceImage[0x06u]=32u;
+    deviceImage[0x18u]=32u; // exact synthetic mutable mode count
+    for(std::size_t voice=0u;voice<32u;++voice) {
+        const auto off=0x42u+voice*0x20u;
+        deviceImage[off]=0xfeu;deviceImage[off+1u]=0x0fu;
+    }
+    constexpr auto highRow=0x42u+31u*0x20u;
+    deviceImage[highRow+0x0eu]=0xcdu;
+    deviceImage[highRow+0x0fu]=0x4bu;
+    deviceImage[highRow+0x12u]=21u;
+    deviceImage[highRow+0x18u]=42u;
+    deviceImage[highRow+0x19u]=43u;
+    CHECK(!guestHost.activateOwnedOriginalCatalogWithDeviceNonRealtime(
+        guestChip,guestCatalog,deviceImage,false));
+    CHECK(!guestHost.sourceBound() && !guestCatalog.runtimeLeased());
+    auto forgedImage=deviceImage;
+    forgedImage[0x158eu]=0u;
+    CHECK(!guestHost.activateOwnedOriginalCatalogWithDeviceNonRealtime(
+        guestChip,guestCatalog,forgedImage,true));
+    CHECK(!guestHost.sourceBound() && !guestCatalog.runtimeLeased());
+    CHECK(guestHost.activateOwnedOriginalCatalogWithDeviceNonRealtime(
+        guestChip,guestCatalog,deviceImage,true));
+    CHECK(guestHost.sourceBound() && guestCatalog.runtimeLeased());
+    CHECK(guestHost.sharedRuntime()->scratch.device==
+          &guestHost.sharedRuntime()->midi.device);
+    const auto& live=guestHost.sharedRuntime()->midi.device;
+    CHECK(live.physical_capacity==32u && live.mode_count==32u);
+    CHECK(live.voices[31].key_marker==0x0ffeu);
+    CHECK(live.voices[31].original_pitch_base==0x4bcdu);
+    CHECK(live.voices[31].original_pitch_base_verified);
+    CHECK(live.voices[31].pan_state_verified &&
+          live.voices[31].original_pan_base==21u &&
+          live.voices[31].pan_target==42u &&
+          live.voices[31].pan_current==43u);
+    CHECK(!live.voices[31].volume_terms_verified);
     CHECK(guestHost.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(guestHost.program(0u,7u)==MidiResult::Applied);
     CHECK(guestHost.sharedRuntime()->midi.channel[0]
