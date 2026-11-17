@@ -180,14 +180,27 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         // SDK activation is non-RT. Host cannot activate if internal core
         // is missing from the SAME .vst3 folder.
         if(!core_.openNonRealtime())return kResultFalse;
+        outputRate_.reset();
         active_=true;
     } else if(active_) {
         core_.closeNonRealtime();active_=false;
+        outputRate_.reset();
     }
     return SingleComponentEffect::setActive(on);
 }
 tresult PLUGIN_API Plugin::canProcessSampleSize(int32 size) {
     return size==kSample32?kResultTrue:kResultFalse;
+}
+tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
+    // Original 86Box WT_FREQ is EXACTLY 44100 Hz. The output adapter
+    // converts this stream to the DAW rate without modifying the chip DSP.
+    // setupProcessing is a non-audio-thread lifecycle call.
+    if(!std::isfinite(setup.sampleRate)||
+       setup.sampleRate<22050.0||setup.sampleRate>384000.0)
+        return kResultFalse;
+    const auto result=SingleComponentEffect::setupProcessing(setup);
+    if(result==kResultOk)outputRate_.configure(setup.sampleRate);
+    return result;
 }
 tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // Only constant-time calls to bounded, heapless native core FIFOs;
@@ -224,22 +237,11 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // No extra thread, DSP change, heap allocation or host API call.
     if(active_&&core_.trimBacklog)
         (void)core_.trimBacklog(8192u,2048u);
-    constexpr std::uint32_t kChunk=512u;
-    std::array<float,kChunk*2u> temp{};
-    const auto count=static_cast<std::uint32_t>(data.numSamples);
-    for(std::uint32_t pos=0;pos<count;) {
-        const std::uint32_t n=std::min(kChunk,count-pos);
-        const std::uint32_t got=active_&&core_.pull?
-            core_.pull(temp.data(),n):0u;
-        const std::uint32_t valid=std::min(got,n);
-        for(std::uint32_t i=0;i<valid;++i){
-            l[pos+i]=temp[2u*i];r[pos+i]=temp[2u*i+1u];
-        }
-        for(std::uint32_t i=valid;i<n;++i){
-            l[pos+i]=0.f;r[pos+i]=0.f;
-        }
-        pos+=n;
-    }
+    // 44.1-kHz path is byte-for-byte the original PCM transfer.
+    // 48/96-kHz sessions receive RT-safe post-EMU8000 rate conversion.
+    // All original Creative voice/filter/envelope arithmetic is untouched.
+    outputRate_.render(active_?core_.pull:nullptr,l,r,
+                       static_cast<std::uint32_t>(data.numSamples));
     output.silenceFlags=0;
     return kResultOk;
 }

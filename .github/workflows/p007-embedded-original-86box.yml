@@ -50,6 +50,14 @@ jobs:
             experiments/p007-inprocess-86box/tests/P007AudioRingTest.c \
             -o build/P007AudioRingTest.exe
           build/P007AudioRingTest.exe
+      - name: Verify source-preserving 44.1/48/96-kHz host output and underrun recovery
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007OutputRateTest.cpp \
+            -o build/P007OutputRateTest.exe
+          build/P007OutputRateTest.exe
       - name: Verify internal MIDI framing and bounded UART queue
         run: |
           set -euo pipefail

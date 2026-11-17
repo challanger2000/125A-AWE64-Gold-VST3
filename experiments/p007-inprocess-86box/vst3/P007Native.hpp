@@ -4,6 +4,7 @@
 // Original Win95/Creative has passed local Linux-core NoteOn->PCM;
  // production Windows-VST3 still needs independent DAW acceptance.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
+#include "P007OutputRate.hpp"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -50,6 +51,7 @@ public:
 };
 class Plugin final : public Steinberg::Vst::SingleComponentEffect {
     Core core_{};
+    OutputRate outputRate_{};
     bool active_=false;
 public:
     static Steinberg::FUnknown* createInstance(void*) {
@@ -59,6 +61,7 @@ public:
     Steinberg::tresult PLUGIN_API terminate() override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool) override;
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32) override;
+    Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup&) override;
     Steinberg::tresult PLUGIN_API process(Steinberg::Vst::ProcessData&) override;
 };
 } // namespace p007
