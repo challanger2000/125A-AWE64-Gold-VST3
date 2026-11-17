@@ -3,6 +3,7 @@
    These probes must NEVER call into the emulation before core init. */
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <86box/86box.h>
 #include "P007CoreABI.h"
 #ifdef _WIN32
@@ -21,4 +22,44 @@ P007_EXPORT uintptr_t p007_core_symbol_pc_run(void) {
 }
 P007_EXPORT uintptr_t p007_core_symbol_pc_reset(void) {
     return (uintptr_t)(void*)&pc_reset_hard_init;
+}
+
+/* P007-B PRIVATE VM PROFILE INITIALIZATION.
+   Call once, strictly on the future emulator thread. This only configures
+   original 86Box paths and internal device settings via pc_init().
+   It does NOT boot Win95, start guest CPU or invoke any UI.
+   All paths must be supplied by the in-plugin bundle runtime (not CWD).
+*/
+static int s_profile_initialized;
+static int checked_path(const char *src,char *dst,size_t cap) {
+    if(!src || !*src) return 0;
+    const size_t len=strlen(src);
+    if(len>=cap || len<3u || (src[1]!=':' &&
+       !(src[0]=='\\' && src[1]=='\\'))) return 0;
+    memcpy(dst,src,len+1u);
+    return 1;
+}
+P007_EXPORT int p007_core_init_profile(
+        const char *vm_path,const char *rom_path,
+        const char *config_basename,const char *global_config) {
+    if(s_profile_initialized) return -2;
+    char vm[768]={0},rom[768]={0},global[768]={0},cfg[128]={0};
+    if(!checked_path(vm_path,vm,sizeof(vm)) ||
+       !checked_path(rom_path,rom,sizeof(rom)) ||
+       !checked_path(global_config,global,sizeof(global)) ||
+       !config_basename || !*config_basename ||
+       strlen(config_basename)>=sizeof(cfg) ||
+       strchr(config_basename,'/') ||
+       strchr(config_basename,'\\') ||
+       strchr(config_basename,':')) return -1;
+    strcpy(cfg,config_basename);
+    char program[]="P007_Embedded_Guest";
+    char vmpath[]="--vmpath",rompath[]="--rompath";
+    char config[]="--config",globalopt[]="--global";
+    char *const argv[]={
+      program,vmpath,vm,rompath,rom,config,cfg,globalopt,global
+    };
+    const int result=pc_init(9,argv);
+    if(result==1) s_profile_initialized=1;
+    return result;
 }
