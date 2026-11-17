@@ -7,18 +7,14 @@ on:
     paths:
       - '.github/workflows/p107-original-old-dynarec-branch-capture.yml'
       - 'tools/p107_instrument_old_dynarec.py'
-      - 'tests/test_p107_instrument_old_dynarec.py'
-      - 'tools/p107_audit_executed_jcc_private.py'
       - 'tools/p107_patch_old_dynarec_interpreter_fallback.py'
-      - 'tests/test_p107_interpreter_fallback.py'
       - 'tools/p108_direct_executed_jcc_flags.py'
-      - 'tests/test_p108_direct_executed_jcc.py'
-      - 'tools/p108_verify_direct_jcc.py'
-      - 'tools/p108_private_win95_original_capture.py'
-      - 'tests/test_p108_private_win95_original_capture.py'
-      - 'tools/p108_resolve_private_original_package.py'
-      - 'tests/test_p108_resolve_private_original_package.py'
+      - 'tools/p003_instrument_86box_io.py'
   workflow_dispatch:
+
+concurrency:
+  group: p107-p108-heavy-original-86box-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
