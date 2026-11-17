@@ -66,10 +66,10 @@ int main() {
     }
 
     // Non-0FFE marker with low byte == FF takes +4216 and skips
-    // DCYSUSV at original +4228. Score: 5+0x200+0x300=773.
+    // DCYSUSV at original +4228. Score: 5+0x200+0x300=1285.
     v.internal_key_marker=0x01ffu;
     selection=candidateOriginalWin95Mode2Range(rows,one,1u,32u);
-    if(!selection || selection->priority!=773u) {
+    if(!selection || selection->priority!=1285u) {
         std::puts("P003_MODE2_FF_MARKER_VTFT_ONLY_REJECTED");
         return 42;
     }
