@@ -64,8 +64,11 @@ public:
         if(op.dependency_word & ((3ull<<22u)|(0x3ffull<<24u)))
             return fail();
         for(const auto prefix:op.prefixes) {
-            // 0F is free on P54C's near conditional jumps.
-            if(prefix==0x0fu && (op.fetchdat & 0xf0u)==0x80u)
+            // Original codegen_timing_pentium_prefix(0F,fetchdat)
+            // examines the NEXT x86 opcode byte 8x, not the later
+            // codegen_timing_opcode() ModR/M fetchdat parameter.
+            // A wrong choice shifts all near Jcc CPU cycles by one.
+            if(prefix==0x0fu && (op.opcode & 0xf0u)==0x80u)
                 continue;
             if(prefix==0x0fu || prefix==0x66u || prefix==0x67u ||
                prefix==0x2eu || prefix==0x36u || prefix==0x3eu ||

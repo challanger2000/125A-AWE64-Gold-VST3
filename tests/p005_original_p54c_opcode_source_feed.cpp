@@ -39,6 +39,21 @@ int main() {
         compiled,{0x0fu,0x85u,0u,0x300u,prefix0f}));
     CHECK(compiled.finishTranslation());
     CHECK(compiled.compiledCost(8u,2u)>0u);
+    // Independently compute the SAME source table word as a single
+    // bare 0F-85 opcode, without the free 0F-prefixed byte. P54C
+    // original must use exactly the same cycle count for near Jcc.
+    awe64::creative::P005OriginalPentiumIntegerTiming bare{};
+    CHECK(bare.beginBlock());
+    awe64::creative::P005OriginalP54cDecodedIntegerOp decoded{};
+    decoded.timing_word=nearJcc->timing_word;
+    decoded.dependency_word=nearJcc->dependency_word;
+    decoded.opcode=0x85u;
+    decoded.op_32=0x300u;
+    decoded.fetchdat=0u;
+    CHECK(bare.append(decoded));
+    CHECK(bare.endBlock());
+    CHECK(compiled.compiledCost(8u,2u)==
+          static_cast<std::uint32_t>(bare.lastBlockCycles()));
     // Any absent or forged prefix context rejects the complete block.
     compiled.reset();
     CHECK(compiled.startFreshVirtualEpoch());
