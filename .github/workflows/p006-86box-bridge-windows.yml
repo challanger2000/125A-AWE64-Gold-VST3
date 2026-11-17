@@ -41,6 +41,14 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build/p006-bridge --config Release --target P006_WAV_Tail --parallel 2
+      - name: Install 86Box private supervisor beside compiled VST3
+        shell: pwsh
+        run: |
+          $dest = "build/p006-vst3/VST3/Release/AWE64_Gold_P006.vst3/Contents/x86_64-win"
+          if (!(Test-Path "$dest/AWE64_Gold_P006.vst3")) { throw "P006 bundle binary is missing" }
+          Copy-Item -Force "build/p006-bridge/Release/P006Supervisor.exe" "$dest/P006Supervisor.exe"
+          if (!(Test-Path "$dest/P006Supervisor.exe")) { throw "P006 companion executable missing" }
+
       - name: Upload compiled P006 VST3 and guest EXE (no proprietary data)
         uses: actions/upload-artifact@v4
         with:
