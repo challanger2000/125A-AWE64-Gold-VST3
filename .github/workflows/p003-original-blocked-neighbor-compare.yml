@@ -6,6 +6,7 @@ on:
       - 'tests/p003_original_blocked_neighbor_previous_sentinel.cpp'
       - 'tests/p003_original_mode2_high_marker_lazy_chip_read.cpp'
       - 'tests/p003_original_mode2_ccca_only_validated.cpp'
+      - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_vxd_additional_allocator_modes.cpp'
       - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.h'
       - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp'
@@ -55,6 +56,43 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-all-modes-regression"
           "$RUNNER_TEMP/p003-all-modes-regression"
+      - name: Validate source-matched VTFT-only and conditional DCYSUSV/CCCA paths in C++23
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_mode2_vtft_dcysusv_provenance.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-source-read-provenance"
+          "$RUNNER_TEMP/p003-source-read-provenance"
+      - name: Compare VTFT-only read provenance against pinned real P002 revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA=940098bd3e35f5b2b2b7c94ec9283b5b45067990
+          git fetch --depth=1 origin "$DEV_SHA"
+          DEV_ROOT="$RUNNER_TEMP/p003-dev-vtft-only"
+          git worktree add --detach "$DEV_ROOT" FETCH_HEAD
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I "$DEV_ROOT/src/creative_compat" \
+            tests/p003_original_mode2_vtft_dcysusv_provenance.cpp \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp" \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
+            -o "$RUNNER_TEMP/p003-dev-vtft-only-test"
+          set +e
+          "$RUNNER_TEMP/p003-dev-vtft-only-test"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 42 ]; then
+            echo "P003_DEV_INCOMPLETE_VTFT_ONLY_SOURCE_SNAPSHOT_REPRODUCED sha=$DEV_SHA"
+          elif [ "$STATUS" -eq 0 ]; then
+            echo "P003_DEV_VTFT_ONLY_SOURCE_SNAPSHOT_PASS sha=$DEV_SHA"
+          else
+            echo "P003_DEV_VTFT_ONLY_UNEXPECTED_STATUS=$STATUS"
+            exit 1
+          fi
       - name: Verify authentic CCCA-only original source branch with explicit per-read validity
         shell: bash
         run: |
