@@ -8,6 +8,7 @@ on:
       - 'tests/p003_original_mode2_ccca_only_validated.cpp'
       - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_mode0_lazy_source_reads.cpp'
+      - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.h'
@@ -72,6 +73,17 @@ jobs:
             echo "P003_DEV_MODE0_UNEXPECTED_EXIT=$STATUS"
             exit 1
           fi
+      - name: Run 15k seeded original-x86 mode0/1/2 differential vectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_modes_deterministic_differential_15000.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-original-modes-differential"
+          "$RUNNER_TEMP/p003-original-modes-differential"
       - name: Validate original x86 blocked-neighbor semantics against research candidate
         shell: bash
         run: |
