@@ -20,7 +20,7 @@ jobs:
         with:
           name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
           run-id: 44143478773
-          github-token: \${{ github.token }}
+          github-token: ${{ github.token }}
           path: build/gui-base
       - name: Fetch SHA-pinned official Steinberg EditorHost SDK
         shell: pwsh
