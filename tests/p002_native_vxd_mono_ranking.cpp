@@ -69,9 +69,16 @@ int main() {
     // do not silently read a missing hardware sample.
     CHECK(!candidateOriginalWin95Mode0MonoVoice(slots,0,3));
     CHECK(!candidateOriginalWin95Mode0MonoVoice(slots,31,3));
+    // Original +3F5F/+3FD8 returns immediately on voice 0:
+    // an unvisited voice 27 must NOT require speculative EMU reads.
     slots[27].complete=false;
-    CHECK(!candidateOriginalWin95Mode0MonoVoice(slots,30,3));
+    CHECK(candidateOriginalWin95Mode0MonoVoice(slots,30,3)->physical_voice==0);
     slots[27].complete=true;
+    // By contrast, missing VTFT for the actually visited first voice
+    // must fail closed; it may not be treated as a free candidate.
+    slots[0].complete=false;
+    CHECK(!candidateOriginalWin95Mode0MonoVoice(slots,30,3));
+    slots[0].complete=true;
     CHECK(candidateOriginalWin95Mode0MonoVoice(slots,30,3)->physical_voice==0);
     // Actual original VXD selection exits via 0x3FBA -> its word writer
     // at 0x3CB1, selecting hardware DATA1/voice DCYSUSV with 0x00FF.
