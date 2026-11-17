@@ -48,8 +48,8 @@ int main(int argc,char** argv) {
     CHECK(mod3Count>0u);
     const auto jcc=originalP54cLookup(0u,0x75u,0u);
     const auto near=originalP54cLookup(0x0fu,0x85u,0u);
-    const auto reg=originalP54cLookup(0u,0x89u,0xc0u);
-    const auto mem=originalP54cLookup(0u,0x89u,0x00u);
+    const auto reg=originalP54cLookup(0u,0x01u,0xc0u);
+    const auto mem=originalP54cLookup(0u,0x01u,0x00u);
     CHECK(jcc && jcc->integer_subset);
     CHECK(near && near->integer_subset);
     CHECK(reg && mem && reg->timing_word!=mem->timing_word);
