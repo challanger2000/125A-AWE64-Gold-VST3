@@ -18,7 +18,8 @@ class P119Tests(unittest.TestCase):
         assert p119.git_blob(cls.acc)==p119.ORIGINAL_ACC_SHA
         assert p119.git_blob(cls.jit)==p119.ORIGINAL_JIT_SHA
         cls.original_p118=p118.patch(cls.jit,SOURCE_SHAPED)+(
-            b'\n    codegen_accumulate(ACCREG_cycles, -codegen_block_cycles);\n')
+            b'\nstatic int codegen_block_ins;\n'
+            b'    codegen_accumulate(ACCREG_cycles, -codegen_block_cycles);\n')
     def test_exact_original_accumulator_getter_and_jit_site(self):
         a,j=p119.patch(self.acc,self.acc,self.jit,self.original_p118)
         self.assertEqual(a.count(b'int32_t\np119_original_compiler_pending_cycles(void)'),1)
