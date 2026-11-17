@@ -1,5 +1,22 @@
 # P003 – CPU-TSC-Phasen und Dynarec-Blockverfolgung (17.11.2026)
 
+> **WICHTIGE KORREKTUR / NEUER ORIGINALNACHWEIS (17.11.2026):**
+> Die nachstehend dokumentierte 14-Takt-Differenz ist als Messung richtig, war
+> aber **nicht als Ursache eines 86Box-Dynarec-Fehlers nachgewiesen**. Ein
+> zweiter Original-Win95-Lauf (`P003-20261117T010413Z-9c86c813`) belegt,
+> dass das echte Creative-Schwellfeld `[ESI+0x18]` im älteren stabilen Scan **4**
+> und im neuen stabilen Scan **2** beträgt. Bei `<=2` durchläuft die **originale
+> SBAWE.VXD** nachweislich zusätzliche Nachbarstimmen-Prüfungen bei
+> `LCOD+4029..4042`. Diese Original-Kontrollflussdifferenz ist der aktuelle
+> Erklärungsansatz für +14-Takte und für die neun Fälle mit zwei übersprungenen
+> Stimmen (+50 Takte). Der daraus abgeleitete, klar begrenzte Vergleich trifft
+> **479/486** stabile Originalintervalle aus beiden Sessions; sieben neue
+> +3-Takt-Restabweichungen bleiben offen. Siehe
+> [revidierte Originalanalyse](P003-ORIGINAL-CREATIVE-STEREO-MODE-GATE-20261117.md).
+> **Bitte keinen session-spezifischen 14-Takt-Offset in produktives C++23 oder
+> P005 übernehmen.** Die Dynarec-Blockbeobachtung bleibt optionales Diagnosemittel.
+
+
 ## Authentische Eingangsdaten und Grenzen
 
 Private Original-Win95-Aufnahme des Eigentümers: `P003-20261116T184835Z-c56deac6-ERGEBNIS.zip`, SHA-256 `6ea6b3a28339a262926bc083c99170428676eb983cfe6410b8d28a32675c9944`. Ihre privaten Creative-Treiber-, Registerspur-, WAV- und SoundFont-Daten **werden nicht im öffentlichen Repository gespeichert**.
