@@ -26,6 +26,15 @@ int main() {
     CHECK(m.append(op(2u,Model::kModRm,0x00u)));
     CHECK(m.endBlock());
     CHECK(m.lastBlockCycles()==3 && m.totalCycles()==5);
+    // 16-bit address-form source quirk: original 86Box ORs numeric
+    // register IDs (3|6=7) in its AGI mask, rather than shifting
+    // logical BX/SI bits. Preserve the ORIGINAL behavior exactly.
+    m.resetSession();
+    CHECK(m.beginBlock());
+    CHECK(m.append(op(2u,1ull<<12u)));
+    CHECK(m.append(op(2u,Model::kModRm,0u,0x100u)));
+    CHECK(m.endBlock());
+    CHECK(m.totalCycles()==5);
     m.resetSession();
     CHECK(m.beginBlock());
     CHECK(m.append(op(Model::kPairU)));

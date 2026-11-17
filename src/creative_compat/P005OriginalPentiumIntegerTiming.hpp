@@ -220,10 +220,15 @@ private:
                     }
                 }else if((m&0xc7u)!=5u)mask=1u<<(m&7u);
             }else if((m&0xc7u)!=6u) {
+                // Source quirk, NOT idealized x86 semantics:
+                // original get_addr_regmask() uses REG_BX | REG_SI,
+                // etc., where src/codegen/codegen_ops.h defines
+                // REG_BX=3, REG_SI=6, REG_BP=5, REG_DI=7 as
+                // *numeric register IDs*, not bit positions.
+                // Retaining this is essential for 86Box-identical
+                // translation accounting on 16-bit address forms.
                 constexpr std::uint8_t regs[8]{
-                    (1u<<3u)|(1u<<6u),(1u<<3u)|(1u<<7u),
-                    (1u<<5u)|(1u<<6u),(1u<<5u)|(1u<<7u),
-                    (1u<<6u),(1u<<7u),(1u<<5u),(1u<<3u)};
+                    3u|6u,3u|7u,5u|6u,5u|7u,6u,7u,5u,3u};
                 mask=regs[m&7u];
             }
         }
