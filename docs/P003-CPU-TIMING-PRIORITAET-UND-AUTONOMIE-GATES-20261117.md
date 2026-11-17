@@ -31,6 +31,67 @@ Die native VST3 **muss ihren Zeitplan autonom erzeugen** (ohne Quelloffset-Playb
 
 **Keine neue Entwicklerübergabe für jeden kleineren Befund.** Erst nach einem vollständig geprüften, zusammenhängenden Timingpaket ein gebündelter Abschlussbericht, wenn die Abnahme ihn rechtfertigt.
 
+## Neuer großer Originalbefund: 2.404.877 Original-CPU→EMU-Schreibzugriffe direkt verbunden (17.11., ca. 03:25 UTC)
+
+**Originalaufnahme A:** `P003-20261116T184835Z-c56deac6-ERGEBNIS.zip`, SHA256 `6ea6b3a28339a262926bc083c99170428676eb983cfe6410b8d28a32675c9944`.  
+**Originalaufnahme B:** `P003-20261117T010413Z-9c86c813-ERGEBNIS.zip`, SHA256 `28aea68657e48dfaeec8cdd675f01fbab1eee00a771abfa3872a6e97041b543c`.
+
+In beiden **authentifizierten, privaten** Archiven sind komplette `Original-CPU-IO.trace`-Portzeitstempel und zugehörige `Original-Register.trace`-Frames enthalten. CPU- und Chipprotokoll wurden streng **in derselben physikalischen Write-Reihenfolge und mit identischem (Port, Wert) pro Ereignis** verknüpft. Der CPU-Trace enthält Write/Read, das Chipregisterprotokoll enthält Write/Read; für diese Prüfung wurden nur die Original-**Writes** beider Quellen einzeln gepaart. **Keine angenommene Zuordnung per gleicher MIDI-Note, Stimme oder Zeitstempel.**
+
+| Authentischer Lauf | CPU→EMU Port-/Wert-Matches | Falsch verknüpfte Originalwrites |
+|---|---:|---:|
+| A (16.11.) | **1.201.218** | **0** |
+| B (17.11.) | **1.203.659** | **0** |
+| Gesamt | **2.404.877** | **0** |
+
+### Strikter Zeittakt-Baseline-Test und unabhängiger Holdout
+
+Der *reine diagnostische* Modellansatz verwendet ausschließlich eine globale ganzzahlige Phasen-/Epochengrenze `P`:
+
+```text
+vorhergesagter_emu_frame = floor((original_guest_tsc * 44100 + P) / 133333333)
+```
+
+`P` wurde **nur** an Lauf A so gewählt, dass möglichst viele echte Original-Write-Frames getroffen werden (`P=132868932`, reiner auf diesen Originalstart bezogener Epochennumerator; **kein** verifizierter VST3-Host-MIDI-Startoffset, kein x86-Kostenmodell). Der Parameter wurde für Lauf B **nicht nachgestellt**:
+
+| Kontrolle | Exakt auf Original-EMU-Frame | Um genau einen Frame falsch |
+|---|---:|---:|
+| A, Kalibrierung | **1.200.730/1.201.218** | **488** |
+| B, unveränderter A-Parameter (Holdout) | **1.203.142/1.203.659 = 99,957 %** | **517** |
+| B, *nur der tatsächlich abweichende zweite Laufabschnitt* | **1.154.488/1.154.901 = 99,964 %** | **413** |
+
+Wichtig: Beide Originalaufnahmen beginnen mit **48.758 identischen CPU-/EMU-Schreibereignissen**, bevor sie divergieren. Deshalb ist der getrennte Holdout des divergierenden Restes ausgewiesen. **Dies ist keine unabhängige andere Gaststartphase und kein C4/D4-Noten-CPU-Kosten-Holdout**. Die beiden Original-V5-Läufe haben vielmehr denselben initialen CPU-/Chip-Epochenbezug und unterscheiden sich später bei der wirklichen Creative-Stimmenmodi-Ausführung.
+
+Im gesamten B-Holdout verteilen sich die 517 Fehler auf **344 verschiedene Gast-TSC-Werte**, also teilweise mehrere zusammengehörige Portwörter pro fehlklassifiziertem Grenzzeitpunkt. Alle Fehlzuordnungen betreffen einen benachbarten Audioframe, nicht verlorene oder inhaltlich andere Registerwrites. Die Abweichungen von einer einheitlichen absoluten Phase an den äußeren Zeitgrenzen entsprechen höchstens wenigen CPU-Zyklen; die Spannweite der gesamten `P`-Konsistenzintervalle überschreitet einen Nominal-EMU8000-Sampletakt von `133333333/44100≈3023,43` CPU-Zyklen lediglich um **rund 9,77 Takte** (ältere Session) beziehungsweise **9,46 Takte** (neuere). Deshalb *kann* keine einzelne konstante `P` alle Original-Writes perfekt erklären.
+
+Der obere Rand und der untere Rand der Fehlzuordnungen kommen häufig an verschiedenen ursprünglichen Caller-Stellen vor (z. B. `0xC117C011`, `0xC11791A4`, `0xC10190F7`). **Das ist eine exakte Lokalisation für künftige Timer-/Dynarec-Instrumentierung**, aber noch kein Nachweis, welcher interne Zeitabgleich diese einzelnen Grenzfälle verursacht.
+
+**Reproduzierbarer Read-only-Auditor:** [SHA-gepinnte Original-CPU/EMU-Frame-Kreuzkorrelation](../tools/p003_audit_original_cpu_chip_phase_holdout_private.py). Er verwirft falsche/private ZIPs, verknüpft ausschließlich exakt passende originale Portdaten, optimiert die ganzzahlige Phase nur auf A und berichtet auf B gesondert die 48.758 gemeinsame Präfixevents sowie den divergenten Holdout. Es gelangen **keine Originaldaten** in das öffentliche Repo.
+
+### Original-86Box-Quelle zeigt die **richtige Zeitarchitektur**
+
+Der originale, unveränderte `turican0/86Box-AWE32`-Fork in Release `v6.0-AWE32-0.93` verarbeitet das Audio **nicht** durch eine einfache direkte Formel aus jedem Port-Ereignis-TSC:
+
+- `src/sound/sound.c`: `wavetable_poll()` führt `timer_advance_u64(&wavetable_poll_timer,wavetable_poll_latch)` aus und erhöht `wavetable_pos_global` um genau ein Sample. `sound_speed_changed()` berechnet die Latch-Dauer aus dem originalen `TIMER_USEC` und `WT_FREQ=44100`.
+- `src/include/86box/timer.h`: `timer_advance_u64` akkumuliert die Sampleperiode mit **32 ganzzahligen + 32 fraktionalen CPU-Zyklusbits** und echter Übertragsbehandlung.
+- `src/timer.c`: `timer_process()` ruft **alle fälligen** Timercallbacks bei `timer_target <= tsc` auf.
+- `src/cpu/386_dynarec.c`: `exec386_dynarec()` gleicht nach CPU-Codeblöcken `cycles` gegen `tsc` ab und verarbeitet anstehenden Timerfortschritt an Ausführungspunkten. Der Portcallback kann **vor** diesem Blockabschluss stattfinden.
+- `src/sound/snd_emu8k.c`: `emu8k_update()` holt die Samplezeit bis `wavetable_pos_global` nach; `emu8k_trace_advance(num_samples)` erhöht die Originalchip-Framezahl; die folgenden echten Registerwrites bekommen diesen Frame.
+
+Der relevante kausale **Mechanismus** von Original-Source-Timer + 32:32-Wavetable-Clock + CPU-Blockabgleich ist somit belegt. **Noch nicht bewiesen** ist, dass er genau alle 488/517 beobachteten Grenzfehler verursacht; dafür braucht es einen Originaltrace mit **Wavetable-Timer-Due-/Callback-Zeitpunkt und tatsächlichem CPU-Dynarec-Blockende**, korreliert mit den originalen EMU-Portcallbacks.
+
+### Bereits ausführbarer, von reinen Schätzkosten getrennter Timingbaustein
+
+Der P003-Forschungszweig enthält jetzt [P003OriginalWavetableTimer.h](../src/creative_compat/P003OriginalWavetableTimer.h) und [C++23-Implementierung](../src/creative_compat/P003OriginalWavetableTimer.cpp). Das ist die **originalquellgetreue 32:32-Wavetable-Zeitbasis** als gesonderter, heapfreier C++23-Timer: Initialisierung nur mit verifiziertem Quelle-Initialtimer, Original-Latch, Sampleindex und CPU-TSC; Nachholen aller fälligen Wavetable-Callbacks ausschließlich am angegebenen CPU-Blockabschluss; gleiche Ganzzahl-/Fractional-Carry-Logik wie 86Box; fail closed bei ungültigen Eingaben/Rückwärtszeit.
+
+Der unabhängige [Unit-Test für Übertrag, Block-Boundary und 3.000 Sampleperioden](../tests/p003_original_wavetable_timer.cpp) und die bestehende komplette P003-Suite sind in [GitHub-CI #44011312519](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44011312519) **PASS**. Diese neue Komponente ist **bewusst noch nicht produktiv ins VST3 eingebaut**, denn ihre Voraussetzung – die ursprüngliche CPU-Block-Zeitordnung und der authentifizierte Timer-Anfangszustand – ist im normalen Plugin bislang nicht hergestellt.
+
+### Konsequenz für die Fertigstellung
+
+Dies grenzt die wichtige Integrationslücke jetzt enger ein: Zuerst **originale CPU-Instruktions-/Blockkosten + 32:32-Wavetable-Timer-Semantik** selbstständig nachvollziehen, dann Original-Registerwerte im korrekt getakteten Chip liefern. **Nicht** das bereits hervorragende Portwert-Identitätsergebnis oder einen aus den Win95-Daten gefitteten `P` als Lösung des autonom noch fehlenden Win95-Timingproblems ausgeben. Für die bitgenaue VST3-Endabnahme muss eine definierte Host-MIDI-Phase mit identischem, unabhängig reproduzierbarem CPU-/Chip-Startzustand verwendet werden.
+
+Keine Entwicklerunterbrechung, keine PR-Einzelkommentare, keine Änderungen an P005, Original-Creative-Binärcode oder EMU8000-DSP.
+
 ## Rückverfolgbare, öffentliche Quellen
 
 - [P003 autonomer Kandidat mit echten 324-Port-Holdouts](P003-AUTONOMOUS-NATIVE-PORT-TIMING-CANDIDATE.md)
