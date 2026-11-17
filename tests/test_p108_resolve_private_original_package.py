@@ -11,7 +11,8 @@ import unittest
 import zipfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 from p108_resolve_private_original_package import (
-    validate_zip, inspect_original_package,resolve,NESTED_FILENAME
+    validate_zip, inspect_original_package,resolve,NESTED_FILENAME,
+    SECOND_SF2_SHA256,generated_original_mode_stereo_sf2
 )
 
 def sha(x):return hashlib.sha256(x).hexdigest()
@@ -47,6 +48,22 @@ class TestOriginalV4NestedResolver(unittest.TestCase):
             found=inspect_original_package(outer,n,e,s)
             self.assertEqual(found,("P002-PRIVATE/"+NESTED_FILENAME,
                                     "GUEST-EXACT.EXE","exact_second_soundfont.sf2"))
+    def test_public_source_bit_identical_original_stereo_bank(self):
+        original=generated_original_mode_stereo_sf2()
+        self.assertTrue(original.startswith(b"RIFF"))
+        self.assertEqual(original[8:12],b"sfbk")
+        self.assertEqual(sha(original),SECOND_SF2_SHA256)
+
+    def test_missing_bank_uses_only_sha_identical_public_source_rebuild(self):
+        with tempfile.TemporaryDirectory() as t:
+            outer=Path(t)/"fictional-v4.zip"
+            n,e,s=build_outer(outer)
+            self.assertNotEqual(s,SECOND_SF2_SHA256)
+            nested,pe,bank=inspect_original_package(outer,n,e,SECOND_SF2_SHA256)
+            self.assertEqual(nested,"P002-PRIVATE/"+NESTED_FILENAME)
+            self.assertEqual(pe,"GUEST-EXACT.EXE")
+            self.assertIsNone(bank)
+
     def test_wrong_nested_original_sha_rejected(self):
         with tempfile.TemporaryDirectory() as t:
             outer=Path(t)/"fictional-v4.zip"
