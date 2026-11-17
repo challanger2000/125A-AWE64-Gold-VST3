@@ -31,3 +31,18 @@ jobs:
         run: |
           cmake -S experiments/p006-86box-vst3 -B build/p006-vst3 -G "Visual Studio 17 2022" -A x64 -DP006_BUILD_VST3=ON -DP006_SDK_ROOT="${{ github.workspace }}/external/vst3sdk"
           cmake --build build/p006-vst3 --config Release --target AWE64_Gold_P006 --parallel 2
+
+      - name: Build 32-bit Windows-95 guest relay without CRT
+        shell: pwsh
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-win95guest -G "Visual Studio 17 2022" -A Win32 -DP006_BUILD_WIN95_GUEST=ON
+          cmake --build build/p006-win95guest --config Release --target P006_Win95_Original_Creative_Relay --parallel 2
+      - name: Upload compiled P006 VST3 and guest EXE (no proprietary data)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P006-Private-86Box-VST3-and-Win95-relay
+          path: |
+            build/p006-vst3/VST3/Release/AWE64_Gold_P006.vst3/**
+            build/p006-win95guest/Release/P006_Win95_Original_Creative_Relay.exe
+          retention-days: 5
+          if-no-files-found: error
