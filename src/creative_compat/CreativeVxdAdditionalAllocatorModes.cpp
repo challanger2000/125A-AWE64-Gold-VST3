@@ -158,9 +158,13 @@ mode2RangeWithSourceStatus(
         // source voice that the original VXD never accesses.
         if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
             continue;
-        // With a nonzero sample-end, the original tests live CCCA
-        // even for marker >=0x2000. All other paths still fail closed.
-        if(!v.complete) {
+        // The original high-marker path (+424F..+4267) requires ONLY
+        // verified CCCA for a nonzero cached sample end. VTFT/DCYSUSV
+        // were not fetched; 'complete' alone is too coarse here.
+        // A full authenticated chip snapshot also contains CCCA.
+        const bool cccaOnly=v.internal_key_marker>=0x2000u;
+        if(cccaOnly ? (!v.complete && !v.ccca_read_verified)
+                    : !v.complete) {
             if(missing_source)*missing_source=true;
             return std::nullopt;
         }
