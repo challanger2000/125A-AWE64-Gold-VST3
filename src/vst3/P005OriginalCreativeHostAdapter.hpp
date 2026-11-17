@@ -7,9 +7,12 @@
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
 #include "P005OriginalVxdGuestCaptureFile.hpp"
+#include "P005OriginalNestedGuestCaptureFile.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <cstddef>
 #include <span>
+#include <vector>
 #include <memory>
 #include <new>
 #include <optional>
@@ -294,6 +297,96 @@ public:
             (void)catalog.resetNonRealtime();
         }
         return complete;
+    }
+    // The original owner VXD compact bank is more specific than a
+    // PHDR/ProgramChange label: program row +04 points to its compact
+    // preset generator list, then opcode 41 reaches an instrument
+    // whose opcode 53 refers to a concrete source sampleID.
+    //
+    // On a fully recorded nested capture, require EVERY prepared
+    // descriptor to refer to an original sampleID reachable through
+    // that exact VXD row. This is source-identity validation, NOT a
+    // guess about key range, original generator arithmetic, or the
+    // still-incomplete final guest sample-header region. Never enable
+    // product audio based on format checks or boolean flags alone.
+    [[nodiscard]] bool activateOriginalGuestCaptureWithNestedNonRealtime(
+        ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
+        const P005OriginalVxdGuestCaptureFile& guest,
+        const P005OriginalNestedGuestCaptureFile& nested,
+        std::span<const P005OriginalCreativeSf2NoteStage* const> contexts,
+        bool originalGuestSessionIndependentlyAttested,
+        bool originalNoteContextsIndependentlyAttested) noexcept {
+        if(!originalGuestSessionIndependentlyAttested ||
+           !originalNoteContextsIndependentlyAttested ||
+           !guest.sourceFormatReady() || !nested.sourceFormatReady() ||
+           guest.deviceGuestVirtualAddress()!=
+               nested.sourceDeviceGuestVirtualAddress() ||
+           guest.capturedGuestCr3()!=nested.sourceCapturedGuestCr3() ||
+           contexts.empty() || sourceBound() || catalog.runtimeLeased())
+            return false;
+        const auto device=guest.deviceImageNonRealtime();
+        const auto t=nested.tables(originalGuestSessionIndependentlyAttested);
+        if(device.size()!=0x1592u || !t.independently_authenticated ||
+           t.instrument_generators.size()<3u ||
+           t.instrument_generators.size()%3u!=0u ||
+           t.programs.size()<2u)
+            return false;
+        // At most one source ID per original compact 3-byte generator.
+        // Non-RT allocation is bounded by the already parsed capture.
+        try {
+            std::vector<std::uint16_t> sampleIds(
+                t.instrument_generators.size()/3u);
+            for(const auto* stage:contexts) {
+                if(!stage || !stage->ready())return false;
+                const auto prepared=stage->view();
+                if(prepared.zones.empty())return false;
+                for(const auto& zone:prepared.zones) {
+                    if(!zone.original_preset_identity_verified ||
+                       zone.original_bank_slot>=
+                         P005OriginalCreativeBankCatalog::kSourceSlots ||
+                       zone.original_preset_row+1u>=t.programs.size() ||
+                       zone.bank!=stage->sf2Bank() ||
+                       zone.program!=stage->sf2Program())
+                        return false;
+                    const auto ptrAt=0x6cau+
+                        4u*static_cast<std::size_t>(zone.original_bank_slot);
+                    const auto ptr=std::uint32_t{device[ptrAt]} |
+                        (std::uint32_t{device[ptrAt+1u]}<<8u) |
+                        (std::uint32_t{device[ptrAt+2u]}<<16u) |
+                        (std::uint32_t{device[ptrAt+3u]}<<24u);
+                    const auto& original=t.programs[zone.original_preset_row];
+                    if(ptr!=nested.sourceRootGuestAddress() ||
+                       original.original_source_marker==0u ||
+                       original.original_source_marker==0xffffu ||
+                       original.original_bank_byte!=zone.bank ||
+                       original.original_program_byte!=zone.program)
+                        return false;
+                    awe64::original_vxd::NestedPathCounts counts{};
+                    if(awe64::original_vxd::original_nested_program_sample_ids(
+                           t,zone.original_preset_row,sampleIds,counts)!=
+                           awe64::original_vxd::NestedPathResult::Ok)
+                        return false;
+                    const auto& sourceDescriptor=zone.voice.descriptor;
+                    const auto sampleId=std::uint16_t{sourceDescriptor[0x6au]} |
+                        (std::uint16_t{sourceDescriptor[0x6bu]}<<8u);
+                    const auto referenced=std::find(
+                        sampleIds.begin(),
+                        sampleIds.begin()+counts.sample_id_references,
+                        sampleId);
+                    if(referenced==sampleIds.begin()+
+                                      counts.sample_id_references)
+                        return false;
+                }
+            }
+        }catch(const std::bad_alloc&) {
+            return false;
+        }
+        // All original device, nested root, source row, and sample-ID
+        // checks complete before any catalog mutation or chip binding.
+        return activateOriginalGuestCaptureBundleNonRealtime(
+            chip,catalog,guest,contexts,
+            originalGuestSessionIndependentlyAttested,
+            originalNoteContextsIndependentlyAttested);
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
