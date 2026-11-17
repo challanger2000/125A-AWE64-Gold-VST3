@@ -1,5 +1,8 @@
 # P003 autonomous MIDI to EMU8000 port timing — RESEARCH ONLY
 
+> **ORIGINALQUELLEN-KORREKTUR, 17.11.2026:** Die unten dokumentierten historischen CPU-Hz-Werte **133333333** und die mit diesem Nenner berechneten Chip-Frame-Restabweichungen sind für den originalen 86Box-Timer **nicht exakt**. Die echte `src/pit.c`-Funktion korrigiert den Pentium-133-Tabellenwert bewusst zu **400000000/3 Hz**. Ein auf dieser Frequenz basierender einziger Phasenwert trifft **4.366.834/4.366.834** Original-Portwrites in vier SHA-geprüften Win95-Sessions; der reine `TSC→EMU-Frame`-Fehler der gerundeten Frequenz ist behoben. Die separat beschriebenen **empirischen/noch nicht originalgetreuen NoteOn-/NoteOff-CPU-OUT-Kosten und die fehlende autonome VST3-PCM-Parität bleiben offen**. Siehe [neue vierfache Originalprüfung](P003-CPU-TIMING-ORIGINAL-PIT-CLOCK-FOUR-WIN95-SESSIONS-20261117.md).
+
+
 **No product release, no general driver PCM parity claim.**
 
 ## Reference retained
