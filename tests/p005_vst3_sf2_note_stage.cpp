@@ -444,6 +444,114 @@ int main(){
     CHECK(capturedChip.writes>0u);
     capturedHost.resetNonRealtime();
     CHECK(capturedCatalog.resetNonRealtime());
+
+    // Actual interface for the six-region original compact bank:
+    // 26-byte VXD row +04 -> preset opcode41 instrument ->
+    // instrument opcode53 sampleID. Synthetic 125AVXD1 + 125AVXR1
+    // fixtures use the SAME guest VA/CR3, root and channel0 state.
+    constexpr std::uint32_t nestedRoot=0xc11b8900u;
+    constexpr std::array<std::uint32_t,7u> ptrs{{
+        nestedRoot+76u,nestedRoot+128u,nestedRoot+136u,
+        nestedRoot+139u,nestedRoot+143u,nestedRoot+151u,
+        nestedRoot+154u
+    }};
+    auto nestedDevice=deviceImage;
+    const auto pointerByte=0x6cau+5u*4u;
+    for(unsigned i=0u;i<4u;++i)
+        nestedDevice[pointerByte+i]=static_cast<std::uint8_t>(
+            nestedRoot>>(8u*i));
+    B nestedPrimary{'1','2','5','A','V','X','D','1'};
+    const auto primary32=[&nestedPrimary](std::uint32_t value) {
+        for(unsigned i=0u;i<4u;++i)
+            nestedPrimary.push_back(static_cast<std::uint8_t>(value>>(i*8u)));
+    };
+    primary32(1u);primary32(0xc30b09f0u);primary32(0x3000u);
+    primary32(0x1592u);primary32(288u);primary32(1u);primary32(1u);
+    nestedPrimary.insert(
+        nestedPrimary.end(),nestedDevice.begin(),nestedDevice.end());
+    primary32(nestedRoot);primary32(76u+2u*26u);
+    const auto bankStart=nestedPrimary.size();
+    nestedPrimary.resize(bankStart+128u,0u);
+    const auto set16=[&nestedPrimary](std::size_t at,std::uint16_t value) {
+        nestedPrimary[at]=static_cast<std::uint8_t>(value);
+        nestedPrimary[at+1u]=static_cast<std::uint8_t>(value>>8u);
+    };
+    const auto set32=[&set16](std::size_t at,std::uint32_t value) {
+        set16(at,static_cast<std::uint16_t>(value));
+        set16(at+2u,static_cast<std::uint16_t>(value>>16u));
+    };
+    for(std::size_t i=0u;i<ptrs.size();++i)
+        set32(bankStart+i*4u,ptrs[i]);
+    set16(bankStart+76u,1u);
+    nestedPrimary[bankStart+76u+2u]=7u;
+    nestedPrimary[bankStart+76u+3u]=1u;
+    set16(bankStart+76u+4u,0u); // compact preset group 0
+    set16(bankStart+76u+26u,0xffffu);
+    set16(bankStart+76u+26u+4u,1u); // terminal group index
+    B nestedSidecar{'1','2','5','A','V','X','R','1'};
+    const auto side32=[&nestedSidecar](std::uint32_t value) {
+        for(unsigned i=0u;i<4u;++i)
+            nestedSidecar.push_back(static_cast<std::uint8_t>(value>>(i*8u)));
+    };
+    side32(1u);side32(0xc30b09f0u);side32(0x3000u);
+    side32(nestedRoot);
+    for(auto ptr:ptrs)side32(ptr);
+    side32(6u);
+    const std::array<B,6u> sections{{
+        B{0u,0u,0u,0u,1u,0u,0u,0u},
+        B{41u,0u,0u},
+        B{0u,0u,1u,0u},
+        B{0u,0u,0u,0u,1u,0u,0u,0u},
+        B{53u,0u,0u}, // actual SF2-selected sampleID=0
+        B(4096u,0u)
+    }};
+    for(std::size_t i=0u;i<sections.size();++i) {
+        side32(ptrs[i+1u]);
+        side32(static_cast<std::uint32_t>(sections[i].size()));
+        side32(i==5u?0u:1u);
+        nestedSidecar.insert(
+            nestedSidecar.end(),sections[i].begin(),sections[i].end());
+    }
+    P005OriginalVxdGuestCaptureFile nestedGuest{};
+    P005OriginalNestedGuestCaptureFile nestedSource{};
+    CHECK(nestedGuest.loadNonRealtime(nestedPrimary)==
+          P005VxdGuestCaptureFileResult::Ok);
+    CHECK(nestedSource.loadNonRealtime(nestedPrimary,nestedSidecar)==
+          P005NestedGuestCaptureResult::Ok);
+    P005OriginalCreativeBankCatalog nestedCatalog{};
+    P005OriginalCreativeHostAdapter<Chip> nestedHost{};
+    Chip nestedChip{};
+    CHECK(!nestedHost.activateOriginalGuestCaptureWithNestedNonRealtime(
+        nestedChip,nestedCatalog,nestedGuest,nestedSource,
+        noteSources,false,true));
+    CHECK(nestedCatalog.sourceSlotCount()==0u);
+    auto wrongSampleSidecar=nestedSidecar;
+    // Region 5 (op53 triple) starts after the four preceding regions.
+    // Use deterministic offset from 56-byte header and region lengths.
+    const std::size_t sampleDataAt=56u+
+        (12u+8u)+(12u+3u)+(12u+4u)+(12u+8u)+12u;
+    CHECK(sampleDataAt+3u<wrongSampleSidecar.size());
+    wrongSampleSidecar[sampleDataAt+1u]=1u;
+    P005OriginalNestedGuestCaptureFile mismatchedSample{};
+    CHECK(mismatchedSample.loadNonRealtime(
+        nestedPrimary,wrongSampleSidecar)==P005NestedGuestCaptureResult::Ok);
+    CHECK(!nestedHost.activateOriginalGuestCaptureWithNestedNonRealtime(
+        nestedChip,nestedCatalog,nestedGuest,mismatchedSample,
+        noteSources,true,true));
+    CHECK(nestedCatalog.sourceSlotCount()==0u &&
+          !nestedCatalog.runtimeLeased() && !nestedHost.sourceBound());
+    CHECK(nestedHost.activateOriginalGuestCaptureWithNestedNonRealtime(
+        nestedChip,nestedCatalog,nestedGuest,nestedSource,
+        noteSources,true,true));
+    CHECK(nestedCatalog.ready() && nestedHost.sourceBound());
+    CHECK(nestedHost.sharedRuntime()->midi.channel[0]
+          .original_program_selection_valid);
+    CHECK(nestedHost.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(nestedHost.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(nestedChip.writes>0u);
+    nestedHost.resetNonRealtime();
+    CHECK(nestedCatalog.resetNonRealtime());
+    std::puts("P005_NESTED_ORIGINAL_SAMPLE_REF_TO_MIDI_PASS synthetic_only=TRUE");
     stage.clearNonRealtime();
     std::puts("P005_OWNER_CAPTURE_TO_SHARED_CREATIVE_MIDI_SOURCE_PASS synthetic_only=TRUE");
     std::puts("P005_GUEST_POINTER_TO_ORIGINAL_C0_NOTEON_NOTE_OFF_PASS synthetic_only=TRUE");
