@@ -1,0 +1,84 @@
+name: P117 original P54C selected opcode and JIT epoch (research)
+on:
+  push:
+    branches: [research/p117-original-p54c-decoded-opcode-epoch]
+    paths:
+      - 'tools/p117_*.py'
+      - 'tests/test_p117_*.py'
+      - 'docs/P117-*'
+      - '.github/workflows/p117-original-selected-opcode-epoch.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-guards:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Original SHA pins and P117 negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p117_tag_original_p54c_selected_opcode_epoch.py' -v
+          python tools/p117_verify_selected_opcode_epoch_private.py --selftest
+      - name: Stage exact original 86Box P107–P117 chain into disposable copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p117-fork
+          grep -q 'P117_ORIGINAL_P54C_SELECTED_OPCODE_JIT_EPOCH_V1' \
+            p117-fork/src/cpu/codegen_timing_pentium.c
+          grep -q 'p117_capture_original_selected' \
+            p117-fork/src/codegen/codegen_x86-64.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+          echo 'P117_PINNED_ORIGINAL_SOURCE_PATCH_GUARD_PASS'
+
+  original-linux-86box-build:
+    needs: source-guards
+    runs-on: ubuntu-22.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install original Linux 86Box old Dynarec dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential cmake ninja-build pkg-config libsdl2-dev \
+            libfreetype6-dev libopenal-dev libpng-dev zlib1g-dev \
+            libslirp-dev libserialport-dev libfluidsynth-dev \
+            libsamplerate0-dev libpcap-dev libglib2.0-dev \
+            librtmidi-dev libx11-dev libxext-dev
+      - name: Stage genuine pinned source with ONLY research probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p117-fork
+          cmp p117-fork/src/sound/snd_emu8k.c third_party/86box-awe32/src/sound/snd_emu8k.c
+          cmp p117-fork/src/sound/snd_sb.c third_party/86box-awe32/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+      - name: Compile actual original old-x64 86Box with P117
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S p117-fork -B p117-fork/build-p117 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DNEW_DYNAREC=OFF \
+            -DFLUIDSYNTH=OFF -DRTMIDI=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF
+          grep '^NEW_DYNAREC:BOOL=OFF' p117-fork/build-p117/CMakeCache.txt
+          cmake --build p117-fork/build-p117 --parallel 4
+          echo 'P117_REAL_ORIGINAL_86BOX_P54C_SELECT_WORD_EPOCH_BUILD_PASS'
