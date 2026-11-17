@@ -1,0 +1,100 @@
+name: P115 original P54C live CPU/TSC at physical EMU8000 IO (research)
+on:
+  push:
+    branches: [research/p115-live-cpu-port-tsc-probe]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-native-C:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            compiler: cc
+          - os: ubuntu-24.04
+            compiler: clang
+          - os: windows-2022
+            compiler: clang
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Unit, negative and native C callback checks
+        shell: bash
+        env:
+          CC: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p115_original_live_cpu_tsc_probe.py' -v
+          python tools/p115_join_p003_original_cpu_snapshot.py --selftest
+      - name: Patch pinned original real source in memory, no mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,'tools')
+          import p003_instrument_86box_io as p003
+          import p115_original_live_cpu_tsc_probe as p115
+          orig=Path('third_party/86box-awe32/src/cpu/386_dynarec.c').read_bytes()
+          ioorig=Path('third_party/86box-awe32/src/io.c').read_bytes()
+          assert p115.git_blob(orig)==p115.ORIGINAL_DYNAREC_BLOB
+          iop003=p003.instrument(ioorig)
+          d,i=p115.patch(orig,orig,iop003)
+          assert b'p115_original_dynarec_live_tsc' in d
+          assert b'p115_original_cpu_port' in i
+          assert p115.git_blob(orig)==p115.ORIGINAL_DYNAREC_BLOB
+          print('P115_PINNED_ORIGINAL_FORK_SOURCE_AND_P003_IO_PATCH_PASS')
+          PY
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+
+  linux-original-old-dynarec-build:
+    needs: source-and-native-C
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install original old-86Box build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential cmake ninja-build pkg-config \
+            libsdl2-dev libfreetype6-dev libopenal-dev libpng-dev zlib1g-dev \
+            libslirp-dev libserialport-dev libfluidsynth-dev \
+            libsamplerate0-dev libpcap-dev libglib2.0-dev \
+            librtmidi-dev libx11-dev libxext-dev
+      - name: Patch ONLY an isolated copy of original Dynarec and P003 physical IO
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p115-fork
+          cp -a third_party/86box-awe32/. /tmp/p115-fork/
+          python tools/p003_instrument_86box_io.py \
+            --original-io-c third_party/86box-awe32/src/io.c \
+            --output-io-c /tmp/p115-fork/src/io.p003.c
+          mv /tmp/p115-fork/src/io.p003.c /tmp/p115-fork/src/io.c
+          python tools/p115_original_live_cpu_tsc_probe.py \
+            --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c \
+            --copy-dynarec /tmp/p115-fork/src/cpu/386_dynarec.c \
+            --copy-p003-io /tmp/p115-fork/src/io.c
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p115-fork/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p115-fork/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+      - name: Compile actual old-x64 original 86Box fork with P115
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S /tmp/p115-fork -B /tmp/p115-fork/build-p115 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DNEW_DYNAREC=OFF \
+            -DFLUIDSYNTH=OFF -DRTMIDI=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF
+          grep '^NEW_DYNAREC:BOOL=OFF' /tmp/p115-fork/build-p115/CMakeCache.txt
+          cmake --build /tmp/p115-fork/build-p115 --parallel 4
+          echo 'P115_ACTUAL_ORIGINAL_86BOX_OLD_DYNAREC_WITH_READONLY_CPU_SNAPSHOT_COMPILE_PASS'
