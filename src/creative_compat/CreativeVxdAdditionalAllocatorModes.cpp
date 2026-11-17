@@ -276,18 +276,22 @@ candidateOriginalWin95VxdDispatchAllModes(
                    kOriginalCreativeMusicVoices> original{};
         for (std::size_t i=0;i<limit;++i) {
             const auto& src=voices[i];
-            if (!src.complete) return std::nullopt;
             auto& dst=original[i];
-            dst.complete=true;
+            dst.complete=src.complete;
             dst.blocked_when_few_voices=src.blocked_when_few_voices;
             dst.internal_key_marker=src.internal_key_marker;
             dst.volume_target_hi16=src.volume_target_hi16;
             dst.envelope_status_reg=src.envelope_status_reg;
             dst.stored_sample_end=src.stored_sample_end;
             dst.chip_current_address=src.chip_current_address;
+            dst.vtft_read_verified=src.vtft_read_verified;
+            dst.dcysusv_read_verified=src.dcysusv_read_verified;
+            dst.ccca_read_verified=src.ccca_read_verified;
         }
-        const auto chosen=candidateOriginalWin95Mode0MonoVoice(
-            original,limit,mode_count);
+        bool missing_source=false;
+        const auto chosen=candidateOriginalWin95Mode0MonoVoiceWithSourceStatus(
+            original,limit,mode_count,&missing_source);
+        if(missing_source)return std::nullopt;
         if (chosen) {
             result.physical_voices[0]=chosen->physical_voice;
             result.priority=chosen->priority;
