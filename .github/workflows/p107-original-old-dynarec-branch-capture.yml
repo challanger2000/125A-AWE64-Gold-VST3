@@ -14,6 +14,8 @@ on:
       - 'tests/test_p110_original_p54c_compile_timing.py'
       - 'tools/p111_join_original_p54c_jit_compile_execute.py'
       - 'tests/test_p111_original_p54c_jit_block_join.py'
+      - 'tools/p113_tag_original_p110_opcode_agi_with_p111_compile_epoch.py'
+      - 'tests/test_p113_original_agi_epoch_callbacks.py'
   workflow_dispatch:
 
 concurrency:
@@ -40,6 +42,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
           python3 -m unittest discover -s tests -p 'test_p110_original_p54c_compile_timing.py' -v
           python3 -m unittest discover -s tests -p 'test_p111_original_p54c_jit_block_join.py' -v
+          python3 -m unittest discover -s tests -p 'test_p113_original_agi_epoch_callbacks.py' -v
           python3 tools/p108_verify_direct_jcc.py --selftest
           python3 -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
           python3 -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
@@ -108,6 +111,12 @@ jobs:
             --copy-dynarec /tmp/p107-fork/src/cpu/386_dynarec.c \
             --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
           grep -q 'P111_ORIGINAL_P54C_COMPILE_TO_EXECUTE_JIT_JOIN_V1' \
+            /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          python3 tools/p113_tag_original_p110_opcode_agi_with_p111_compile_epoch.py \
+            --original-pentium-timing third_party/86box-awe32/src/cpu/codegen_timing_pentium.c \
+            --copy-pentium-timing /tmp/p107-fork/src/cpu/codegen_timing_pentium.c \
+            --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          grep -q 'P113_ORIGINAL_P54C_AGI_OPCODE_JIT_EPOCH_V1' \
             /tmp/p107-fork/src/codegen/codegen_x86-64.c
           cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p107-fork/src/sound/snd_emu8k.c
           cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p107-fork/src/sound/snd_sb.c
@@ -180,6 +189,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
           python -m unittest discover -s tests -p 'test_p110_original_p54c_compile_timing.py' -v
           python -m unittest discover -s tests -p 'test_p111_original_p54c_jit_block_join.py' -v
+          python -m unittest discover -s tests -p 'test_p113_original_agi_epoch_callbacks.py' -v
           python tools/p108_verify_direct_jcc.py --selftest
           python -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
           python -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
@@ -201,6 +211,8 @@ jobs:
           if($LASTEXITCODE -ne 0) { throw 'P110 source-original P54C timing translation probe patch failed' }
           python tools/p111_join_original_p54c_jit_compile_execute.py --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c --copy-dynarec p107-fork/src/cpu/386_dynarec.c --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
           if($LASTEXITCODE -ne 0) { throw 'P111 source-original compilation/runtime generation provenance injection failed' }
+          python tools/p113_tag_original_p110_opcode_agi_with_p111_compile_epoch.py --original-pentium-timing third_party/86box-awe32/src/cpu/codegen_timing_pentium.c --copy-pentium-timing p107-fork/src/cpu/codegen_timing_pentium.c --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
+          if($LASTEXITCODE -ne 0) { throw 'P113 original AGI opcode JIT generation provenance instrumentation failed' }
           $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
