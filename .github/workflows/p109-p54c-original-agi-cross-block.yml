@@ -1,0 +1,51 @@
+name: P109 original 86Box P54C AGI cross-block source contract (research)
+
+on:
+  push:
+    branches:
+      - research/p107-original-x64-dynarec-guest-branch-capture
+    paths:
+      - 'research/p109_original_p54c_agi_block_carry.hpp'
+      - 'tests/p109_original_p54c_agi_block_carry.cpp'
+      - '.github/workflows/p109-p54c-original-agi-cross-block.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-pentium-original-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source-faithful original old 86Box P54C AGI state via GCC and Clang C++23
+        shell: bash
+        run: |
+          set -euo pipefail
+          for compiler in g++ clang++; do
+            exe="/tmp/p109-$compiler"
+            "$compiler" -std=c++23 -O2 -Wall -Wextra -Werror -pedantic \
+              tests/p109_original_p54c_agi_block_carry.cpp -o "$exe"
+            "$exe" | tee "$exe.log"
+            grep -q 'P109_P54C_ORIGINAL_AGI_CROSS_BLOCK_EVIDENCE_PASS' "$exe.log"
+          done
+          echo "P109_SCHEDULER_ORIGINAL_GUEST_NOT_MEASURED"
+
+  windows-pentium-original-source:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native Win64 C++23 source-faithful original 86Box AGI negative controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path $env:RUNNER_TEMP "p109-source-agi.exe"
+          clang++ -std=c++23 -O2 -Wall -Wextra -Werror -pedantic `
+            tests/p109_original_p54c_agi_block_carry.cpp -o $exe
+          if($LASTEXITCODE -ne 0) {throw 'P109 Win64 compiler NO-GO'}
+          & $exe
+          if($LASTEXITCODE -ne 0) {throw 'P109 Win64 original AGI source contract NO-GO'}
+          "P109_AGI_AND_FREE_NEAR_JCC_SOURCE_TESTS_PASS actual_guest_timing=NOT_MEASURED" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
