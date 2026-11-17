@@ -10,6 +10,7 @@ on:
       - 'tests/test_p110_compiled_original_translator_probe_runtime.py'
       - 'tools/p111_join_original_p54c_jit_compile_execute.py'
       - 'tools/p111_audit_original_p54c_jit_block_join_private.py'
+      - 'tools/p112_join_original_p110_register_mask_to_executed_p111_block.py'
       - 'tests/test_p111_original_p54c_jit_block_join.py'
       - 'tests/test_p111_actual_c_compiled_block_callbacks.py'
       - '.github/workflows/p110-original-p54c-translation-audit.yml'
@@ -42,6 +43,7 @@ jobs:
           set -euo pipefail
           python -W error::ResourceWarning tools/p110_audit_original_p54c_translation_private.py --selftest
           python -W error::ResourceWarning tools/p111_audit_original_p54c_jit_block_join_private.py --selftest
+          python -W error::ResourceWarning tools/p112_join_original_p110_register_mask_to_executed_p111_block.py --selftest
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p111_original_p54c_jit_block_join.py' -v
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p111_actual_c_compiled_block_callbacks.py' -v
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p110_compiled_original_translator_probe_runtime.py' -v
