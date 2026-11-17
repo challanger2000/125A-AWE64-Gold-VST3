@@ -27,7 +27,22 @@
 
 All screenshots are preserved in the GitHub Actions artifact `P007U-P165-Win32-GUI-Browser-Screenshots`. No private Win95 disk, licensed Creative ROM, or Creative driver was used or uploaded for the EditorHost pixel test.
 
-The final caption contrast/legibility refinement is being rebuilt and tested separately. Do not describe that specific post-refinement build as accepted until its action succeeds.
+## FINAL caption layout and private single-folder VST3: PASS
+
+[Latest native GUI build and live EditorHost mouse QA 44150580480](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44150580480) **SUCCESS** (Steinberg 47/47; real P165 EditorHost 19/19), including the added recessed dark/gold bank/program browser caption background and shorter, legible numeric labels. Its actual screenshot is saved in the `P007U-P165-Win32-GUI-Browser-Screenshots` artifact.
+
+After independently verifying the CI binaries, a PRIVATE local **one** `AWE64_Gold_P007.vst3` bundle ZIP was produced:
+
+- Archive: `125A-AWE64-Gold-P007U-P165-BROWSER-PRIVATE-20261117.zip`
+- Compressed size: **98,475,438 bytes**, 617 entries; ZIP CRC **PASS**.
+- Exactly **26** current CI P007-U components overlaid on the previous private version; source-pinned original 86Box EMU8000 core DLL retained, no additional helper EXE.
+- Private original FAT16 512-MiB Windows95/Creative guest disk SHA256 **unchanged:** `e7a62dfcd8906e4aefffe0ffea8d93c6fe615f8be26a279b9086b4eb68ae8802`
+- Original 1000×708 user's P165 photographic frontplate Git blob SHA **unchanged**: `7e57ef8e0c90d84fa4c951bea7815b0233762ca7`
+- Actual native VST3 module SHA256: `c77327c7c9974f61c612d092161705c8b9fd0661fbb69239d103c7685950ace2`.
+- This LICENSED private Windows95/ROM/Creative artifact remains local; it is NOT in the public GitHub repository.
+
+**Remaining**: original Win95 Creative bank/patch-name query, authentic Creative filter/envelope/FX register control paths, VST3 state recall, multi-instance and real Windows Studio Pro/ASIO host acceptance. All unchanged by current EditorHost GUI proof.
+
 
 ## Actual private original Creative MIDI path
 
