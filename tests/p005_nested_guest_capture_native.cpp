@@ -107,13 +107,15 @@ int main() {
     CHECK(sample[0]==9u);
     // Owned source: modifying caller arrays after load never changes
     // original rows or compact generator references in the parser.
-    auto forgedPrimary=primary;
-    auto forgedNested=nested;
-    forgedPrimary[bank+76u+4u]=99u;
-    forgedNested[56u+12u+4u]=99u;
+    const auto originalRowByte=primary[bank+76u+4u];
+    const auto originalIndexByte=nested[56u+12u+4u];
+    primary[bank+76u+4u]=99u;
+    nested[56u+12u+4u]=99u;
     CHECK(original_nested_program_sample_ids(
         capture.tables(true),0u,sample,tally)==NestedPathResult::Ok);
     CHECK(sample[0]==7u);
+    primary[bank+76u+4u]=originalRowByte;
+    nested[56u+12u+4u]=originalIndexByte;
     // Cross-capture CR3, root, header, and bounded section tampering.
     auto corrupted=nested;
     put32(corrupted,16u,0x4000u);
