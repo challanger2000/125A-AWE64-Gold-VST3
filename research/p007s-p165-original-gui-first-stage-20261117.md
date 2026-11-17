@@ -28,4 +28,11 @@ A private local Linux QA host used the real Windows 95 Creative AWE64 Gold drive
 
 This is a true Win95/Creative end-to-end MIDI->PCM test, but it is **not** yet a real GUI mouse/automation/Studio Pro test. Private Windows 95/Creative/ROM binaries are not in public GitHub.
 
-**Remaining:** actual native Windows VSTGUI compilation, real Win32 editor attachment, program/master parameter gestures and project save/restore validation, original Creative filter/ADSR/FX mapping, final studio DAW test. PR stays DRAFT.
+## Actual Windows native VST3 integration: PASS
+- [Original 86Box core + pinned P165 user photograph + native VSTGUI + Windows x64 P007S build SUCCESS](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44143478773).
+- `P007P165View.cpp` compiled and linked into the actual Windows VST3; exact P165 faceplate (Git blob hash `7e57ef8e0c90d84fa4c951bea7815b0233762ca7`) embedded as a native Windows PNG resource and copied to the VST3 Resources folder, along with original knob and button filmstrips. Compiled binary size: 5,558,784 bytes.
+- Steinberg SDK module validation: **47 passed, 0 failed**. This test is not yet evidence for pixel-accurate on-screen EditorHost rendering.
+- Original native 86Box x64 DLL loads, and the complete bundle includes original emulator/dependency libraries within a single .vst3 directory.
+- Locally built private research ZIP: `125A-AWE64-Gold-P007S-P165-HARDWARE-GUI-PRIVATE-20261117.zip`, **98,472,964 bytes**; ZIP CRC passed for 617 files; the private 512-MiB guest HDD SHA-256 `e7a62dfcd8906e4aefffe0ffea8d93c6fe615f8be26a279b9086b4eb68ae8802` is unchanged.
+
+**Remaining:** real Win32 EditorHost attach/screenshot/pixel and mouse gesture tests, program/master automation/project save-recall validation, original Creative filter/ADSR/FX mapping, final StudioPro/ASIO DAW test. PR stays DRAFT.
