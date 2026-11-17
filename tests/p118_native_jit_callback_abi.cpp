@@ -85,7 +85,9 @@ int main() {
         __builtin___clear_cache(reinterpret_cast<char*>(page),
                                 reinterpret_cast<char*>(page+pos));
 #endif
-        got_pc=got_ebp=got_site=0u;
+        got_pc=0u;
+        got_ebp=0u;
+        got_site=0u;
         auto fn=reinterpret_cast<Generated>(page);
         fn();
         if(got_pc!=pc || got_ebp!=ebp || got_site!=site) {
