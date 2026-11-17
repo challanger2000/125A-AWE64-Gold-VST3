@@ -1,5 +1,8 @@
 # P003 – CPU-Zeitsteuerung jetzt Priorität 1: Integrations-Gates (17.11.2026)
 
+> **WICHTIGE ORIGINALKORREKTUR, 17.11.2026 (ca. 09:00 MEZ):** Der unten noch historisch dokumentierte **99,957-%-Holdout** wurde mit dem **falschen, nur nominalen CPU-Timerwert 133333333 Hz** gerechnet. In der echten 86Box-Funktion `pit_set_clock()` (`src/pit.c`) wird dieser Wert absichtlich auf **400000000/3 Hz** korrigiert, bevor `TIMER_USEC` und der Wavetable-Latch gebildet werden. Eine an der **ersten von vier** Originalaufnahmen festgelegte Phase ergibt damit **4.366.834 von 4.366.834** exakt gleiche CPU→EMU-Frame-Zuordnungen über alle vier SHA-gepinnten Original-Sitzungen. Die damalige Annahme, die 488/517 Restfehler müssten zwingend aus CPU-Block-/Dynarec-Nachlauf entstehen, ist **für diese Framefehler hinfällig**. Die originalen MIDI→TSC-Instruktionskosten sind dadurch nicht automatisch portiert. **Maßgeblich ist jetzt [der verifizierte PIT-Ursachennachweis](P003-CPU-TIMING-ORIGINAL-PIT-CLOCK-FOUR-WIN95-SESSIONS-20261117.md).**
+
+
 **Ziel:** Das native Windows-x64-VST3 muss vom MIDI-Ereignis aus die originalen Creative-EMU8000-Registerwerte **in der richtigen Reihenfolge zum richtigen Zeitpunkt selbstständig** erzeugen – ohne archivierte Windows-95-Timestamp-Lookups. Diese Aufgabe hat Vorrang vor weiterer Stimmenallocator-Detailforschung. Dies ist ein internes Forschungsdokument, **kein Entwickler-PR-Kommentar und kein eigenständiger zweiter Treiberport**.
 
 ## Ausgangsbeweise (Originalbelege nicht veröffentlicht)
