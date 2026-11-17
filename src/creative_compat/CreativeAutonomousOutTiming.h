@@ -13,9 +13,13 @@ struct P003AutonomousTimingStats {
     std::uint64_t estimated_guest_cpu_cycles=0u;
     std::uint32_t assumed_intrasample_phase_cycles=0u;
 };
-// Original Win95 Pentium (from owner VM configuration): 133,333,333 Hz.
-// EMU8000 internal chip rate: 44,100 Hz.
-inline constexpr std::uint64_t kP003GuestCpuHz=133333333u;
+// Original 86Box CPU table lists rspeed=133333333, but src/pit.c
+// pit_set_clock() repairs the 33333333 remainder to 100000000/3.
+// The resulting ORIGINAL audio/timer timebase is 400000000/3 Hz.
+// Never divide by the rounded integer rspeed to choose chip frames.
+inline constexpr std::uint64_t kP003GuestCpuHzNumerator=400000000u;
+inline constexpr std::uint64_t kP003GuestCpuHzDenominator=3u;
+inline constexpr std::uint64_t kP003GuestCpuHz=133333333u; // legacy nominal rspeed only
 inline constexpr std::uint64_t kP003ChipHz=44100u;
 
 // The scheduler accepts a *modeled* CPU phase at a native MIDI event

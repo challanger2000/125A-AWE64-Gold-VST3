@@ -130,7 +130,8 @@ add_test(NAME p002_native_original_chip_passive_port_trace
 # remain mandatory for any original-Win95 equivalence claim.
 add_library(awe64_p002_sample_clock_ports STATIC
     src/creative_compat/CreativeSampleClockPorts.cpp
-    src/creative_compat/CreativeAutonomousOutTiming.cpp)
+    src/creative_compat/CreativeAutonomousOutTiming.cpp
+    src/creative_compat/P003OriginalWavetableTimer.cpp)
 target_include_directories(awe64_p002_sample_clock_ports PUBLIC
     src/creative_compat)
 target_link_libraries(awe64_p002_sample_clock_ports PUBLIC awe64_fork_chip)
@@ -149,6 +150,23 @@ target_link_libraries(awe64_p003_autonomous_out_timing_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p003_autonomous_bus_pacing_candidate_negative_controls
     COMMAND awe64_p003_autonomous_out_timing_test)
+# Original (source-derived) 86Box pit_set_clock correction: Pentium 133
+# TABLE rspeed=133333333, effective 400000000/3 Hz; exact 32:32
+# wavetable latch/fractional carry. Independent of speculative x86 costs.
+# These tests never embed guest epoch phase or private Creative data.
+add_executable(awe64_p003_original_pit_fractional_clock_test
+    tests/p003_original_pit_fractional_clock.cpp)
+target_link_libraries(awe64_p003_original_pit_fractional_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p003_original_pentium_133_pit_fractional_32_32_clock
+    COMMAND awe64_p003_original_pit_fractional_clock_test)
+add_executable(awe64_p003_original_wavetable_timer_test
+    tests/p003_original_wavetable_timer.cpp)
+target_link_libraries(awe64_p003_original_wavetable_timer_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p003_original_86box_wavetable_cpu_block_timer
+    COMMAND awe64_p003_original_wavetable_timer_test)
+
 
 # Adversarial test for the *actual* private Creative VST3 bank state
 # checkpoint. The source is the same one exported by the real VST3;

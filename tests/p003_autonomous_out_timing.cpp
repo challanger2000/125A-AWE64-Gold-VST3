@@ -43,6 +43,10 @@ std::vector<ChipPortWrite> generatedTwoVoices(
 }
 }
 int main() {
+    // Original src/pit.c pit_set_clock() fractional third is mandatory.
+    CHECK(awe64::creative::kP003GuestCpuHzNumerator==400000000u);
+    CHECK(awe64::creative::kP003GuestCpuHzDenominator==3u);
+    CHECK(awe64::creative::kP003ChipHz==44100u);
     std::array<SourceClockedPort,512u> output{};
     std::size_t count=0u;
     P003AutonomousTimingStats stats{};
