@@ -43,11 +43,11 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         fake={"executed_jcc_total":3450,"unobserved_or_unexplained_jcc":0,
               "next_pc_independently_confirms_flags":3410}
         with patch.object(p,"completed_original_guest",return_value=proof),\
-             patch.object(p,"read_trace",return_value=([object()],"sha-i")) as rt,\
+             patch.object(p,"read_trace",return_value=([SimpleNamespace(tsc=1000)],"sha-i")) as rt,\
              patch.object(p,"read_direct",return_value=({3:object()},"sha-b")) as rd,\
              patch.object(p,"compare_original",return_value=fake),\
              patch.object(p,"verify_original_physical_cpu_io",return_value={"original_tsc_first":0,"original_tsc_last":2000}):
-            result=p.verify_private_capture(Path("/fictional/img"),Path("/fake/i"),Path("/fake/b"))
+            result=p.verify_private_capture(Path("/fictional/img"),Path("/fake/i"),Path("/fake/b"),Path("/fake/io"))
             self.assertTrue(result["status"].startswith("ORIGINAL_X86"))
             self.assertFalse(result["original_tsc_reproduction_proved"])
             self.assertFalse(result["native_vst3_pcm_bit_exact_proved"])
@@ -56,7 +56,7 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         proof={"original_win95_midi_send_calls":4176,
                "original_win95_midi_api_failures":0}
         with patch.object(p,"completed_original_guest",return_value=proof),\
-             patch.object(p,"read_trace",return_value=([object()],"sha-i")) as rt,\
+             patch.object(p,"read_trace",return_value=([SimpleNamespace(tsc=1000)],"sha-i")) as rt,\
              patch.object(p,"read_direct",return_value=({3:object()},"sha-b")) as rd,\
              patch.object(p,"compare_original",return_value={
                  "executed_jcc_total":3450,
