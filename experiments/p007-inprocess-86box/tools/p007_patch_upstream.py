@@ -76,7 +76,7 @@ def main():
         "givealbuffer_hdd(hdd_float_buffer, SOUNDBUFLEN * 2);",
     )
     sound_patched=sound_original.replace(
-        "#include <86box/sound.h>", "#include <86box/sound.h>\\n#include <P007AudioRing.h>",1
+        "#include <86box/sound.h>", "#include <86box/sound.h>\n#include <P007AudioRing.h>",1
     ).replace(original_hook,replacement_hook,1)
     for call in other_output_calls:
         if sound_patched.count(call)!=1:
@@ -88,7 +88,7 @@ def main():
         raise SystemExit("P007_REJECT_ORIGINAL_OPENAL_INITIALIZER_SIGNATURE")
     sound_patched=sound_patched.replace("    inital();",
         "    /* P007: no host OpenAL playback; the DAW owns audio. */",1)
-    sound_file.write_text(sound_patched,encoding="utf-8",newline="\\n")
+    sound_file.write_text(sound_patched,encoding="utf-8",newline="\n")
 
     # Replace host Named Pipe consumption with internal COM2 UART bytes at
     # the ORIGINAL emulated UART's receive timer. One byte per guest clock.
