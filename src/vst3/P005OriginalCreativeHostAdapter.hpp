@@ -17,6 +17,16 @@
 #include <new>
 #include <optional>
 namespace awe64::vst3 {
+// Owner-side source attestations are per-note and per-layer: a 77-preset
+// SoundFont must not be represented by one synthetically generic note.
+// This source-only input is supplied OFF the audio thread and belongs to
+// the independently authenticated guest/driver capture.
+struct P005OriginalVerifiedNoteInput {
+    std::uint16_t bank=0u;
+    std::uint8_t program=0u,key=0u,velocity=0u,layer_count=0u;
+    std::array<awe64::original_vxd::OriginalSf2SourceChannelState,
+               awe64::original_vxd::sf2_max_selected_layers> layers{};
+};
 template<class ChipT>
 class P005OriginalCreativeHostAdapter final {
 public:
@@ -387,6 +397,69 @@ public:
             chip,catalog,guest,contexts,
             originalGuestSessionIndependentlyAttested,
             originalNoteContextsIndependentlyAttested);
+    }
+    // BATCH original bank bridge: authenticated original SF2 and 1996
+    // generator/pitch tables -> one bounded source stage for EACH
+    // independently verified key/velocity context -> original compact
+    // preset/instrument/sampleID comparison -> owned 288-slot catalog
+    // -> SAME Creative MIDI/EMU8000 runtime. No fixed C4-only instrument,
+    // no need to retain one stage per key after activation, and no
+    // sample-dependent generator inference at callback time.
+    //
+    // The current product loader still needs the authentic source
+    // provider for these per-note values and full Win95 channel history.
+    [[nodiscard]] bool activateOriginalSf2ContextBatchNonRealtime(
+        ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
+        const P005OriginalVxdGuestCaptureFile& guest,
+        const P005OriginalNestedGuestCaptureFile& nested,
+        std::span<const std::uint8_t> originalSf2,
+        const awe64::original_vxd::OriginalSf2SourceTables& originalTables,
+        std::span<const P005OriginalVerifiedNoteInput> noteInputs,
+        bool originalGuestSessionIndependentlyAttested,
+        bool originalNoteContextsIndependentlyAttested) noexcept {
+        if(!originalGuestSessionIndependentlyAttested ||
+           !originalNoteContextsIndependentlyAttested ||
+           !originalTables.original_generator_templates_verified ||
+           !originalTables.original_pitch_tables_verified ||
+           !originalTables.original_sample_ram_placement_verified ||
+           noteInputs.empty() ||
+           noteInputs.size()>P005OriginalCreativeBankCatalog::kMaxVerifiedZones ||
+           originalSf2.empty() || sourceBound() ||
+           catalog.runtimeLeased() || catalog.sourceSlotCount()!=0u)
+            return false;
+        try {
+            using Stage=P005OriginalCreativeSf2NoteStage;
+            std::vector<std::unique_ptr<Stage>> prepared;
+            std::vector<const Stage*> views;
+            prepared.reserve(noteInputs.size());
+            views.reserve(noteInputs.size());
+            for(const auto& input:noteInputs) {
+                if(input.layer_count==0u ||
+                   input.layer_count>input.layers.size())
+                    return false;
+                auto stage=std::make_unique<Stage>();
+                const auto sourceStates=
+                    std::span<const awe64::original_vxd::OriginalSf2SourceChannelState>(
+                        input.layers.data(),input.layer_count);
+                if(stage->prepareNonRealtime(
+                       originalSf2,input.bank,input.program,input.key,
+                       input.velocity,originalTables,sourceStates,
+                       originalNoteContextsIndependentlyAttested)!=
+                       awe64::original_vxd::Sf2BuildStatus::Ok)
+                    return false;
+                views.push_back(stage.get());
+                prepared.emplace_back(std::move(stage));
+            }
+            // Catalog copies the exact prepared descriptors before the
+            // temporary stages release their memory. Runtime leases
+            // only immutable catalog-owned source buffers.
+            return activateOriginalGuestCaptureWithNestedNonRealtime(
+                chip,catalog,guest,nested,views,
+                originalGuestSessionIndependentlyAttested,
+                originalNoteContextsIndependentlyAttested);
+        }catch(const std::bad_alloc&) {
+            return false;
+        }
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
