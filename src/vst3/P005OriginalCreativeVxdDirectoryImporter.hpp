@@ -225,7 +225,8 @@ public:
                 // This is the source's 26-byte row byte 0..3 ONLY.
                 // No synthesizer metadata is inferred from the tail.
                 rows[slot].push_back(
-                    Row{marker,joined[2],joined[3]});
+                    Row{marker,joined[2],joined[3],
+                        read16(joined.data()+4u)});
                 ++totalRows;
                 if(followedBankHeader) {
                     const bool shouldEnd=ordinal+1u==expectedIndirectRows;
