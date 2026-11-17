@@ -115,6 +115,53 @@ def analyze(primary:bytes, nested:bytes)->dict:
                 else "last_valid_record_index",
             "relation":"EXACT_MATCH"
         })
+    # The real bank stores two 3-byte generator-like arrays, u8
+    # operation + u16 value. Their operation numbers fit SF2 generator
+    # IDs (0..58) and the original project's SF2 reader uses 41 for
+    # instrument and 53 for sampleID. This remains structural evidence:
+    # a 1996 Creative runtime instruction-level interpretation is needed.
+    preset_triples=[
+        regions[1][i:i+3] for i in range(0,len(regions[1]),3)]
+    instrument_triples=[
+        regions[4][i:i+3] for i in range(0,len(regions[4]),3)]
+    check(all(rec[0]<59 for rec in preset_triples+instrument_triples),
+          "nested 3-byte records contain non-SF2 generator numbers")
+    preset_offsets=unpack(regions[0],4)
+    preset_bag_last_operations=[
+        preset_triples[end-1][0] if end>start else None
+        for start,end in zip(preset_offsets,preset_offsets[1:])
+    ]
+    # For the specific owner-observed GM source, ALL 181 nonempty
+    # preset bag groups end with instrument generator op 41. Do not
+    # enforce this on unrelated SF2 banks which can have global zones.
+    owner_gm_shape=(len(program_indices)==130 and
+                    len(preset_offsets)==182)
+    if owner_gm_shape:
+        check(all(op==41 for op in preset_bag_last_operations),
+              "owner GM program groups do not end in instrument opcode")
+    instrument_refs=[
+        int.from_bytes(rec[1:3],"little")
+        for rec in preset_triples if rec[0]==41
+    ]
+    instrument_table_length=len(regions[2])//2
+    check(all(ref<instrument_table_length for ref in instrument_refs),
+          "preset instrument reference exceeds captured instrument index table")
+    sample_refs=[
+        int.from_bytes(rec[1:3],"little")
+        for rec in instrument_triples if rec[0]==53
+    ]
+    packed_opcodes={
+        "three_byte_record_layout_candidate":"u8 opcode + u16 little-endian amount",
+        "all_generator_ids_within_sf2_range":True,
+        "preset_instrument_opcode_41_count":len(instrument_refs),
+        "preset_groups_ending_in_opcode_41":sum(
+            op==41 for op in preset_bag_last_operations),
+        "preset_group_count":len(preset_bag_last_operations),
+        "instrument_references_within_source_index_table":True,
+        "instrument_sample_id_opcode_53_count":len(sample_refs),
+        "sample_id_max_seen":max(sample_refs) if sample_refs else None,
+        "actual_creative_instruction_semantics_proven":False
+    }
     return {
         "status":"ORIGINAL_NESTED_INDEX_GEOMETRY_MATCH",
         "capture_sha256":verified["nested_capture_sha256"],
@@ -128,6 +175,7 @@ def analyze(primary:bytes, nested:bytes)->dict:
             "relation":"EXACT_MATCH"
         },
         "observed_structural_relations":audit,
+        "packed_generator_evidence":packed_opcodes,
         "last_region_4096_byte_sample_only":True,
         "table_semantics_independently_proven":False,
         "win95_creative_driver_execution_proven":False,
