@@ -374,6 +374,23 @@ public:
         setDirty(false);
     }
 };
+
+class BrowserTitleInset final : public CView {
+public:
+    explicit BrowserTitleInset(const CRect& r):CView(r){setMouseEnabled(false);}
+    void draw(CDrawContext* c) override {
+        const CRect recess{24,15,574,52};
+        if(auto* border=c->createRoundRectGraphicsPath(recess,6.)){
+            c->setFillColor(CColor(11,13,15,231));
+            c->drawGraphicsPath(border,CDrawContext::kPathFilled);
+            c->setFrameColor(CColor(192,132,58,245));
+            c->setLineWidth(1.3);
+            c->drawGraphicsPath(border,CDrawContext::kPathStroked);
+            border->forget();
+        }
+        setDirty(false);
+    }
+};
 class PendingCreativeBacking final : public CView {
 public:
     explicit PendingCreativeBacking(const CRect& r):CView(r){setMouseEnabled(false);}
@@ -460,8 +477,9 @@ P165View::P165View(const CRect& rect,
     browserPanel_->setTransparency(true);
     addView(browserPanel_);
     browserPanel_->addView(new BrowserPanelBacking({0,0,1000,360}));
-    auto* browserTitle=new CTextLabel({30,14,558,50},
-        "MIDI-PROGRAMME 000-127  /  NAME NOCH NICHT VOM CREATIVE-GAST GELIEFERT");
+    browserPanel_->addView(new BrowserTitleInset({0,0,1000,360}));
+    auto* browserTitle=new CTextLabel({36,17,565,49},
+        "MIDI-PROGRAMME 000-127  |  PATCH-NAMEN NOCH UNBEKANNT");
     browserTitle->setTransparency(true);
     browserTitle->setFont(kNormalFontSmall);
     browserTitle->setFontColor(CColor(228,184,112,255));
@@ -669,7 +687,7 @@ void P165View::dbDrawCell(CDrawContext* c,const CRect& r,
     const int program=visiblePrograms_[size_t(row)];
     char label[72]{};
     std::snprintf(label,sizeof(label),
-                  "%03d     ORIGINAL CREATIVE MIDI-PROGRAMM %03d",
+                  "%03d     MIDI-PROGRAMM %03d",
                   program,program);
     c->setFont(kNormalFontSmall);
     c->setFontColor(selected?CColor(255,225,161,255)
