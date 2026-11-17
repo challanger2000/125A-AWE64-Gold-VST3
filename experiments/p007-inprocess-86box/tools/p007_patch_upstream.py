@@ -62,9 +62,33 @@ def main():
         raise SystemExit("P007_REJECT_ORIGINAL_WAVETABLE_SIGNATURE")
     if sound_original.count("#include <86box/sound.h>")!=1:
         raise SystemExit("P007_REJECT_ORIGINAL_WAVETABLE_HEADER")
-    sound_file.write_text(sound_original.replace(
-        "#include <86box/sound.h>", "#include <86box/sound.h>\n#include <P007AudioRing.h>",1
-    ).replace(original_hook,replacement_hook,1),encoding="utf-8",newline="\n")
+    # No second host audio device may be opened from a DAW instrument.
+    # Original EMU8000 wavetable mixer and CPU/device state are untouched;
+    # only the original emulator's OUTPUT calls to OpenAL are suppressed.
+    other_output_calls=(
+        "givealbuffer(outbuffer_ex);",
+        "givealbuffer(outbuffer_ex_int16);",
+        "givealbuffer_music(outbuffer_m_ex);",
+        "givealbuffer_music(outbuffer_m_ex_int16);",
+        "givealbuffer_cd(cd_out_buffer);",
+        "givealbuffer_cd(cd_out_buffer_int16);",
+        "givealbuffer_fdd(fdd_float_buffer, SOUNDBUFLEN * 2);",
+        "givealbuffer_hdd(hdd_float_buffer, SOUNDBUFLEN * 2);",
+    )
+    sound_patched=sound_original.replace(
+        "#include <86box/sound.h>", "#include <86box/sound.h>\\n#include <P007AudioRing.h>",1
+    ).replace(original_hook,replacement_hook,1)
+    for call in other_output_calls:
+        if sound_patched.count(call)!=1:
+            raise SystemExit("P007_REJECT_ORIGINAL_HOST_AUDIO_SIGNATURE: "+call)
+        sound_patched=sound_patched.replace(call,
+            "/* P007 DAW owns all host audio output (no OpenAL). */",1)
+    # sound_reset() must not initialize a host OpenAL playback device.
+    if sound_patched.count("    inital();")!=1:
+        raise SystemExit("P007_REJECT_ORIGINAL_OPENAL_INITIALIZER_SIGNATURE")
+    sound_patched=sound_patched.replace("    inital();",
+        "    /* P007: no host OpenAL playback; the DAW owns audio. */",1)
+    sound_file.write_text(sound_patched,encoding="utf-8",newline="\\n")
 
     # Replace host Named Pipe consumption with internal COM2 UART bytes at
     # the ORIGINAL emulated UART's receive timer. One byte per guest clock.
