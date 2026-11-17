@@ -13,20 +13,20 @@ using awe64::research_p116::originalP54cLookup;
 int main() {
     constexpr std::uint32_t pc=0xc1019207u,phys=0x000a0000u;
     constexpr std::array<std::uint8_t,1> prefix0f{{0x0fu}};
-    const auto movRegister=originalP54cLookup(0u,0x89u,0xc0u);
-    const auto movMemory=originalP54cLookup(0u,0x89u,0u);
+    const auto addRegister=originalP54cLookup(0u,0x01u,0xc0u);
+    const auto addMemory=originalP54cLookup(0u,0x01u,0u);
     const auto nearJcc=originalP54cLookup(0x0fu,0x85u,0u);
-    CHECK(movRegister && movMemory && nearJcc);
-    CHECK(movRegister->integer_subset && movMemory->integer_subset);
+    CHECK(addRegister && addMemory && nearJcc);
+    CHECK(addRegister->integer_subset && addMemory->integer_subset);
     CHECK(nearJcc->integer_subset);
-    CHECK(movRegister->timing_word!=movMemory->timing_word);
+    CHECK(addRegister->timing_word!=addMemory->timing_word);
     P005OriginalPentiumCompiledBlockClock compiled{};
     CHECK(compiled.startFreshVirtualEpoch());
     CHECK(compiled.beginTranslation(7u,1u,pc,phys));
     CHECK(P005OriginalP54cOpcodeSourceFeed::appendSourceDecodedInteger(
-        compiled,{0u,0x89u,0xc0u,0x300u,{}}));
+        compiled,{0u,0x01u,0xc0u,0x300u,{}}));
     CHECK(P005OriginalP54cOpcodeSourceFeed::appendSourceDecodedInteger(
-        compiled,{0u,0x89u,0u,0x300u,{}}));
+        compiled,{0u,0x01u,0u,0x300u,{}}));
     CHECK(compiled.finishTranslation());
     CHECK(compiled.compiledCost(7u,1u)>0u);
     const auto cycleCost=compiled.compiledCost(7u,1u);
@@ -73,7 +73,7 @@ int main() {
     CHECK(compiled.startFreshVirtualEpoch());
     CHECK(compiled.beginTranslation(1u,1u,pc,phys));
     CHECK(!P005OriginalP54cOpcodeSourceFeed::appendSourceDecodedInteger(
-        compiled,{0u,0x89u,0xc0u,0x400u,{}}));
+        compiled,{0u,0x01u,0xc0u,0x400u,{}}));
     CHECK(compiled.failed());
     std::puts("P005_P116_ORIGINAL_SOURCE_LOOKUP_TO_P54C_TRANSLATOR_PASS table_source=PINNED temporary_oracle=TRUE guest_x86_execution=NOT_PROVEN private_data=NONE");
 }
