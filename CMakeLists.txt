@@ -1078,6 +1078,18 @@ if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
     target_compile_features(awe64_p005_mode1_live_snapshot_differential PRIVATE cxx_std_23)
     add_test(NAME p005_mode1_live_snapshot_differential
         COMMAND awe64_p005_mode1_live_snapshot_differential)
+    # Owner-side primary 125AVXD1 + supplementary 125AVXR1 source
+    # verification with a deliberately SYNTHETIC complete index chain.
+    add_executable(awe64_p005_nested_guest_capture_native_test
+        tests/p005_nested_guest_capture_native.cpp)
+    target_include_directories(awe64_p005_nested_guest_capture_native_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_nested_guest_capture_native_test PRIVATE
+        original_creative_vxd_live)
+    target_compile_features(awe64_p005_nested_guest_capture_native_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p005_nested_guest_capture_native
+        COMMAND awe64_p005_nested_guest_capture_native_test)
     add_executable(awe64_p005_original_creative_host_adapter_test
         tests/p005_vst3_original_port_adapter.cpp)
     target_include_directories(awe64_p005_original_creative_host_adapter_test
