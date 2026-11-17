@@ -176,3 +176,12 @@ target_link_libraries(test_original_creative_nested_program_path
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_nested_program_path
     COMMAND test_original_creative_nested_program_path)
+
+# P003 research-only port of the original PCOD+0x37BA parameter transform.
+# Synthetic lookup fixture only. Does not enable the live VST3 driver.
+add_executable(test_original_creative_pcod37ba
+    tests/test_original_creative_pcod37ba.cpp)
+target_link_libraries(test_original_creative_pcod37ba
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_pcod37ba_integer_branch_contract
+    COMMAND test_original_creative_pcod37ba)
