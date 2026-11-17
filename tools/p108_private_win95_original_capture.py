@@ -153,11 +153,12 @@ def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
     Strict contiguous original physical I/O sequence and Pentium TSC;
     never expose private CPU GPRs/stack or raw port readings.
     """
-    require(path.is_file() and 10_000<path.stat().st_size<400_000_000,
+    require(path is not None and path.is_file() and 10_000<path.stat().st_size<400_000_000,
             "authentic P003 original source physical IO trace missing/oversized")
     digest=hashlib.sha256()
     count=0
     previous_tsc=None
+    first_tsc=None
     with path.open("rb") as stream:
         first=stream.readline()
         digest.update(first)
@@ -174,6 +175,7 @@ def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
                 seq=int(chunks[7],10)
             except ValueError as exc:
                 raise ValueError("malformed physical guest callback") from exc
+            if first_tsc is None:first_tsc=tsc
             require(tsc>=0 and (previous_tsc is None or tsc>=previous_tsc),
                     "original physical CPU-TSC regressed")
             require(port in EMU8K_PHYSICAL_PORTS,
@@ -185,16 +187,22 @@ def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
     require(count>=min_samples,
             "too few original physical EMU8000 register callbacks")
     return {"original_physical_callback_count":count,
+            "original_tsc_first":first_tsc,
+            "original_tsc_last":previous_tsc,
             "original_physical_io_sha256":digest.hexdigest(),
             "original_p54c_cpu_tsc_reconstructed":False}
 
-def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path|None=None):
+def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path):
     proof=completed_original_guest(disk)
     require(proof is not None,"guest original Creative 3-bank stress result missing")
     rows,original_i_sha=read_trace(trace_i)
     branches,original_b_sha=read_direct(trace_b)
     checked=compare_original(rows,branches)
-    physical=verify_original_physical_cpu_io(trace_io) if trace_io else None
+    require(trace_io is not None,"original EMU8000 physical CPU V4 I/O evidence required")
+    physical=verify_original_physical_cpu_io(trace_io)
+    require(physical["original_tsc_first"]<=rows[0].tsc and
+            rows[-1].tsc<=physical["original_tsc_last"],
+            "original Jcc and physical EMU8000 I/O have disjoint guest-TSC windows")
     require(checked["executed_jcc_total"]>=3000,
             "not sufficient original Creative stereo x86 Jcc executions")
     require(checked["unobserved_or_unexplained_jcc"]==0,
@@ -235,8 +243,9 @@ def main():
         # The read-only audit mode never starts VM, modifies FAT or
         # even opens the original VM archive.
         if args.existing_guest_image:
-            require(args.existing_p107_i and args.existing_p108_b,
-                    "existing PRIVATE audit requires both original x86 traces")
+            require(args.existing_p107_i and args.existing_p108_b and
+                    args.existing_cpu_io,
+                    "existing PRIVATE audit requires P107-I P108-B AND original physical CPU V4 I/O traces")
             result=verify_private_capture(args.existing_guest_image,
                                           args.existing_p107_i,args.existing_p108_b,
                                           args.existing_cpu_io)
