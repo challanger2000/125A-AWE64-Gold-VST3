@@ -12,6 +12,7 @@
 using namespace awe64::original_vxd;
 using awe64::vst3::P005OriginalCreativeSf2NoteStage;
 using awe64::vst3::P005OriginalCreativeHostAdapter;
+using awe64::vst3::P005OriginalVerifiedNoteInput;
 using awe64::vst3::P005OriginalCreativeBankCatalog;
 using awe64::vst3::P005OriginalGuestMemorySegment;
 using awe64::vst3::P005OriginalVxdDirectoryImportResult;
@@ -551,6 +552,37 @@ int main(){
     CHECK(nestedChip.writes>0u);
     nestedHost.resetNonRealtime();
     CHECK(nestedCatalog.resetNonRealtime());
+    // Two distinct musical keys prepared from the same SOURCE SF2,
+    // original guest bank, and individually attested source-state rows.
+    // The adapter must compile/store both without a persistent array
+    // of per-note stage objects or any audio callback allocations.
+    std::array<P005OriginalVerifiedNoteInput,2u> contexts{};
+    contexts[0].bank=1u;contexts[0].program=7u;
+    contexts[0].key=60u;contexts[0].velocity=100u;
+    contexts[0].layer_count=1u;contexts[0].layers[0]=states[0];
+    contexts[1]=contexts[0];
+    contexts[1].key=62u;
+    P005OriginalCreativeBankCatalog batchCatalog{};
+    P005OriginalCreativeHostAdapter<Chip> batchHost{};
+    Chip batchChip{};
+    CHECK(!batchHost.activateOriginalSf2ContextBatchNonRealtime(
+        batchChip,batchCatalog,nestedGuest,nestedSource,
+        file,original,contexts,false,true));
+    CHECK(batchCatalog.sourceSlotCount()==0u);
+    CHECK(batchHost.activateOriginalSf2ContextBatchNonRealtime(
+        batchChip,batchCatalog,nestedGuest,nestedSource,
+        file,original,contexts,true,true));
+    CHECK(batchCatalog.ready() && batchCatalog.zoneCount()==2u);
+    CHECK(batchHost.sharedRuntime()->midi.channel[0]
+          .original_program_selection_valid);
+    CHECK(batchHost.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(batchHost.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(batchHost.noteOn(0u,62u,100u)==MidiResult::Applied);
+    CHECK(batchHost.noteOff(0u,62u)==MidiResult::Applied);
+    CHECK(batchChip.writes>0u);
+    batchHost.resetNonRealtime();
+    CHECK(batchCatalog.resetNonRealtime());
+    std::puts("P005_SOURCE_BATCH_TWO_KEYS_SHARED_MIDI_PASS synthetic_only=TRUE");
     std::puts("P005_NESTED_ORIGINAL_SAMPLE_REF_TO_MIDI_PASS synthetic_only=TRUE");
     stage.clearNonRealtime();
     std::puts("P005_OWNER_CAPTURE_TO_SHARED_CREATIVE_MIDI_SOURCE_PASS synthetic_only=TRUE");
