@@ -141,9 +141,9 @@ public:
     // device+0x06 is physical capacity; +0x18 is the mutable mode
     // count. All values are copied from the actual owner snapshot, not
     // inferred from a preset, PHDR or the separate 30-voice helper.
-    // This does NOT reconstruct the 16 original MIDI channel rows or
-    // attest their history, and must not authorize product startup
-    // without a separately verified pre-note channel baseline.
+    // Only selected program/row/slot/bank fields are restored for
+    // source-matching channels. Remaining CC/RPN state is still unknown;
+    // product startup needs independently verified full channel history.
     [[nodiscard]] bool activateOwnedOriginalCatalogWithDeviceNonRealtime(
         ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
         std::span<const std::uint8_t> originalDeviceImage,
@@ -197,12 +197,51 @@ public:
             // Original voice+0x02 is NOT a verified volume lookup
             // result. Never assert volume_terms_verified from raw bytes.
         }
+        // Original LCOD+6D05 persists resolved ProgramChange state in
+        // each source channel row (device+442h, stride 24h):
+        // +00h=VXD row, +02h=program, +18h=bank slot, +1Bh=bank byte.
+        // Import only selections whose exact source row also exists in
+        // the independently authenticated catalog. Empty initial rows
+        // are NOT synthetic bank-zero programs.
+        std::array<awe64::original_vxd::MidiChannel,16u> channels{};
+        constexpr std::size_t channelStart=0x442u;
+        constexpr std::size_t channelStride=0x24u;
+        static_assert(channelStart+16u*channelStride<=imageBytes);
+        for(std::size_t ch=0u;ch<channels.size();++ch) {
+            const auto offset=channelStart+ch*channelStride;
+            const auto row=read16(offset);
+            const auto program=read16(offset+0x02u);
+            const auto slot=read16(offset+0x18u);
+            const auto bank=originalDeviceImage[offset+0x1bu];
+            if(program>255u || slot>=
+                   P005OriginalCreativeBankCatalog::kSourceSlots)
+                continue; // no authenticated mapping for this row
+            const auto source=catalog.originalSourceRowNonRealtime(
+                slot,row);
+            if(!source || source->original_source_marker==0u ||
+               source->original_source_marker==0xffffu ||
+               source->original_bank_byte!=bank ||
+               source->original_program_byte!=program)
+                continue;
+            auto& state=channels[ch];
+            state.original_program_selection_valid=true;
+            state.original_selected_bank_slot=slot;
+            state.original_selected_preset_row=row;
+            state.original_selected_program=
+                static_cast<std::uint8_t>(program);
+            state.original_selected_bank=bank;
+            state.program=static_cast<std::uint8_t>(program);
+            // The CC0 *requested* bank need not equal the currently
+            // resolved bank. Do not manufacture bank_msb from the
+            // selected program record.
+        }
         if(!activateOwnedOriginalCatalogNonRealtime(
                chip,catalog,independentGuestSessionAttested))
             return false;
         // scratch.device already points to this exact stable member.
         // No processing can run until activation returns.
         runtime_->midi.device=restored;
+        runtime_->midi.channel=channels;
         return true;
     }
     // Complete non-RT SOURCE PREPARATION chain for the exported native
