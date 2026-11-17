@@ -67,7 +67,14 @@ mode1PairWithSourceStatus(
         // Source LCOD tests cheap blocked/marker predicates BEFORE any
         // live chip read. A skipped voice does not need a complete chip
         // snapshot and must not turn a valid selection into nullopt.
+        // Original LCOD+4029..4042: for mode_count <= 2 the
+        // *upper* neighbor's blocked flag also rejects the CURRENT
+        // voice before its chip snapshot is read. Source +4111 stores
+        // the invalid 0xFFFFF previous-score sentinel before +411A.
+        // This is not merely a prohibition on pairing with the neighbor.
         if(forbiddenByDeviceMode(v,driver_mode_count) ||
+           (i+1u<capacity &&
+            forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) ||
            v.internal_key_marker>=0x2000u) {
             previous=kOriginalMaxPairPriority;
             continue;
@@ -82,14 +89,10 @@ mode1PairWithSourceStatus(
         // if the cached sample end was reached in the actual chip.
         if(finishedSample(v))current=0u;
 
-        // Last capacity voice has no adjacent partner; its score
-        // seeds the comparison for (capacity-2,capacity-1).
-        if(i+1u<capacity &&
-           !forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) {
-            // A blocked NEXT voice invalidates only THIS pair.
-            // The current voice's genuine score still seeds the next
-            // pair below it. Otherwise a blocked voice31 wrongly
-            // hides a usable voice29+30 pair.
+        // Highest physical voice seeds the first comparison, and
+        // a current or upper-neighbor block has ALREADY been handled
+        // through original +4111 (previous = 0xFFFFF, no chip read).
+        if(i+1u<capacity) {
             const std::uint32_t sum=previous+current;
             if(sum==0u) {
                 // +0x40DA -> +0x4167 early zero-pair allocation.
