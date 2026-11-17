@@ -2,6 +2,7 @@
    C unit. The original snd_emu8k.c, Creative guest and x86 CPU are unchanged.
    These probes must NEVER call into the emulation before core init. */
 #include <stdint.h>
+#include <stdio.h>
 #include <86box/86box.h>
 #include "P007CoreABI.h"
 #ifdef _WIN32
