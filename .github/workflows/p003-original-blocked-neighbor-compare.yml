@@ -8,6 +8,7 @@ on:
       - 'tests/p003_original_mode2_ccca_only_validated.cpp'
       - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_mode0_lazy_source_reads.cpp'
+      - 'tests/p003_original_win95_mode0_32_physical_voices.cpp'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
@@ -38,6 +39,43 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-legacy-mode0"
           "$RUNNER_TEMP/p003-legacy-mode0"
+      - name: Verify original mode0 32 physical voices against research source
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_win95_mode0_32_physical_voices.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-source-mode0-32"
+          "$RUNNER_TEMP/p003-source-mode0-32"
+      - name: Verify pinned developer candidate excludes genuine original mode0 voices 30 and 31
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA=940098bd3e35f5b2b2b7c94ec9283b5b45067990
+          git fetch --depth=1 origin "$DEV_SHA"
+          DEV_ROOT="$RUNNER_TEMP/p003-dev-mode0-32"
+          git worktree add --detach "$DEV_ROOT" FETCH_HEAD
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I "$DEV_ROOT/src/creative_compat" \
+            tests/p003_original_win95_mode0_32_physical_voices.cpp \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp" \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
+            -o "$RUNNER_TEMP/p003-dev-mode0-32"
+          set +e
+          "$RUNNER_TEMP/p003-dev-mode0-32"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 42 ]; then
+            echo "P003_DEVELOPER_MODE0_30_VOICE_TRUNCATION_REPRODUCED sha=$DEV_SHA"
+          elif [ "$STATUS" -eq 0 ]; then
+            echo "P003_DEVELOPER_MODE0_32_VOICE_PATH_PASS sha=$DEV_SHA"
+          else
+            echo "P003_DEVELOPER_MODE0_32_UNEXPECTED_EXIT=$STATUS"
+            exit 1
+          fi
       - name: Verify source-ordered original mode0 early reads in corrected research source
         shell: bash
         run: |
