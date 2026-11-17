@@ -189,8 +189,12 @@ def patch_pair(pristine_dynarec:bytes,
         raise ValueError("P111 ORIGINAL 386 dynarec source SHA pin mismatch")
     cpu=already_p107_interpreter_dynarec.replace(b"\r\n",b"\n").decode("utf8")
     code=already_p110_codegen.replace(b"\r\n",b"\n").decode("utf8")
-    for marker in (P107_MARKER,):
-        if marker not in cpu:raise ValueError("P111 requires P107 interpreted guest-original source")
+    # P107's interpreter marker lives in the patched codegen supplement,
+    # not in 386_dynarec.c. Check the real injected guest dispatch symbol.
+    if "p107_old_dynarec_interpreter_exec" not in cpu:
+        raise ValueError("P111 requires P107 interpreted guest-original source")
+    if P107_MARKER not in code:
+        raise ValueError("P111 requires P107 original executed-x86 codegen")
     for marker in (P110_MARKER,P108_MARKER):
         if marker not in code:raise ValueError("P111 requires P108/P110 old x64 JIT source")
     if P111_MARKER in cpu or P111_MARKER in code:
