@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include "P007CoreABI.h"
+#include "P007MidiUart.h"
 using VersionFn = std::uint32_t (*)();
 using SymbolFn = std::uintptr_t (*)();
 using PullFn = std::uint32_t (*)(float*,std::uint32_t);
@@ -49,7 +50,16 @@ int main(int argc,char** argv) {
         std::puts("P007_INTERNAL_UART_DLL_EXPORTS_MISSING");
         FreeLibrary(module);return 13;
     }
+    auto guestTx=std::bit_cast<void (*)(std::uint8_t)>(
+        GetProcAddress(module,"p007_midi_guest_tx_byte"));
+    auto ready=std::bit_cast<int (*)()>(
+        GetProcAddress(module,"p007_midi_guest_ready"));
+    if(!guestTx||!ready||ready()!=0) return 17;
     midiEnable(1);
+    if(midiSubmit(0x90u,60u,100u)!=0) return 18;
+    for(const char* s=P007_GUEST_READY_TOKEN;*s;++s)
+        guestTx(static_cast<std::uint8_t>(*s));
+    if(ready()!=1) return 19;
     if(midiSubmit(0x90u,60u,100u)!=1){
         std::puts("P007_DLL_MIDI_SUBMIT_FAILED");
         FreeLibrary(module);return 14;

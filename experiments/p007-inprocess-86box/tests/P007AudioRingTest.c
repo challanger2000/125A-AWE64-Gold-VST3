@@ -35,7 +35,7 @@ int main(void) {
     p007_audio_capture_float(frame,P007_AUDIO_FRAMES+20u);
     assert(p007_audio_available()==P007_AUDIO_FRAMES);
     assert(p007_audio_dropped_frames()==20u);
-    float block[2048];
+    float block[4096];
     uint32_t read=0u;
     while(p007_audio_available()){
         uint32_t n=p007_audio_pull(block,1024u);
@@ -53,6 +53,41 @@ int main(void) {
     assert(p007_audio_pull(block,64u)==64u);
     p007_audio_capture_float(frame+256u,128u);
     assert(p007_audio_available()==192u);
+    /* DAW stopped during 40s guest Win95 boot: FIFO fills with old
+       pre-boot samples. On first host callback discard only the stale
+       frames, retaining a small near-live audio backlog. */
+    p007_audio_reset_quiescent();
+    p007_audio_capture_float(frame,P007_AUDIO_FRAMES);
+    assert(p007_audio_available()==P007_AUDIO_FRAMES);
+    assert(p007_audio_trim_backlog(8192u,2048u)==P007_AUDIO_FRAMES-2048u);
+    assert(p007_audio_available()==2048u);
+    assert(p007_audio_trimmed_frames()==P007_AUDIO_FRAMES-2048u);
+    assert(p007_audio_dropped_frames()==0u);
+    assert(p007_audio_trim_backlog(8192u,2048u)==0u);
+    assert(p007_audio_pull(block,1024u)==1024u);
+    for(uint32_t i=0;i<1024u;++i){
+        assert(equal(block[i*2u],(float)(P007_AUDIO_FRAMES-2048u+i)));
+        assert(equal(block[i*2u+1u],-(float)(P007_AUDIO_FRAMES-2048u+i)));
+    }
+    /* Producer resumes after previously saturated producer FIFO. */
+    p007_audio_capture_float(frame,64u);
+    assert(p007_audio_available()==1088u);
+    assert(p007_audio_trim_backlog(8192u,2048u)==0u);
+    assert(p007_audio_pull(block,1088u)==1088u);
+    for(uint32_t i=0;i<1024u;++i){
+        assert(equal(block[i*2u],(float)(P007_AUDIO_FRAMES-1024u+i)));
+    }
+    for(uint32_t i=0;i<64u;++i)
+        assert(equal(block[(1024u+i)*2u],(float)i));
+    assert(p007_audio_available()==0u);
+    /* Bypass trim in normal low-latency streaming; no edits to samples. */
+    p007_audio_reset_quiescent();
+    p007_audio_capture_float(frame,256u);
+    assert(p007_audio_trim_backlog(8192u,2048u)==0u);
+    assert(p007_audio_trimmed_frames()==0u);
+    assert(p007_audio_pull(block,256u)==256u);
+    for(uint32_t i=0;i<256u;++i)
+        assert(equal(block[i*2u],frame[i*2u]));
     free(frame);
     puts("P007_INTERNAL_ORIGINAL_86BOX_WAVETABLE_PCM_RING_PASS");
     return 0;

@@ -1,0 +1,36 @@
+name: P007 original Creative Win95 guest relay and ready handshake
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - "experiments/p007-inprocess-86box/guest/**"
+      - ".github/workflows/p007-win95-guest-relay.yml"
+permissions:
+  contents: read
+jobs:
+  win95-guest-pe32:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure CRT-free Windows95 guest-side original Creative WinMM helper
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S experiments/p007-inprocess-86box/guest -B build/p007-win95guest -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -ne 0) { throw "Guest config failed" }
+      - name: Build PE32 guest helper, validate Win95 subsystem and ONLY kernel32 + winmm imports
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-win95guest --config Release --target P007_Win95_Original_Creative_Relay --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Win95 guest relay build failed" }
+          if (!(Test-Path "build/p007-win95guest/Release/P007_Win95_Original_Creative_Relay.exe")) { throw "Missing PE32" }
+          Write-Host "P007_GUEST_CREATIVE_WINMM_READY_HANDSHAKE_PE32_BUILD_PASS"
+      - name: Upload guest-side binary only (NO original Win95 ROM/VXD/HDD)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007-Win95-Creative-WinMM-Guest-Relay-Research-Only
+          path: build/p007-win95guest/Release/P007_Win95_Original_Creative_Relay.exe
+          if-no-files-found: error
+          retention-days: 5

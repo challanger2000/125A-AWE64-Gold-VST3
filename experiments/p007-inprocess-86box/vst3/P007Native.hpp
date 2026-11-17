@@ -1,24 +1,54 @@
 #pragma once
 // P007 – an actual native Windows-x64 VST3 with the ORIGINAL 86Box core
 // loaded inside THIS DAW process. NO CreateProcess/86Box.exe/P006 bridge.
-// The private Win95 headless boot is NOT implemented; this prototype
-// must not be described as a playable AWE instrument.
+// Original Win95/Creative has passed local Linux-core NoteOn->PCM;
+ // production Windows-VST3 still needs independent DAW acceptance.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
+#include "P007OutputRate.hpp"
+#include "P007StateCodec.hpp"
+#include "vstgui/plugin-bindings/vst3editor.h"
+#include "public.sdk/source/vst/vstparameters.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <cstdint>
+#include <atomic>
+#include <string>
+#include <thread>
 namespace p007 {
+inline constexpr Steinberg::Vst::ParamID kP165Program=1000u;
+inline constexpr Steinberg::Vst::ParamID kP165Master=1001u;
+inline constexpr Steinberg::Vst::ParamID kP165Bank=1002u;
 class Core final {
     HMODULE module_=nullptr;
+    bool ownsInstance_=false;
+    std::thread emulatorThread_{};
+    std::atomic<bool> stop_{false};
+    std::atomic<int> bootStatus_{0};
+    std::atomic<int> guestReady_{0};
+    void runPrivateGuest(std::wstring moduleFolder) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
+    using Trim=std::uint32_t (__cdecl*)(std::uint32_t,std::uint32_t);
     using Midi=int (__cdecl*)(std::uint8_t,std::uint8_t,std::uint8_t);
     using Enabled=void (__cdecl*)(int);
+    using InitProfile=int (__cdecl*)(const char*,const char*,const char*,const char*);
+    using Boot=int (__cdecl*)();
+    using Step=int (__cdecl*)();
+    using GuestClose=void (__cdecl*)();
+    using BootAssist=int (__cdecl*)(std::uint32_t);
+    using GuestReady=int (__cdecl*)();
     Pull pull=nullptr;
+    Trim trimBacklog=nullptr;
     Midi midi=nullptr;
     Enabled midiEnabled=nullptr;
+    InitProfile initProfile=nullptr;
+    Boot boot=nullptr;
+    Step step=nullptr;
+    GuestClose guestClose=nullptr;
+    BootAssist bootAssist=nullptr;
+    GuestReady guestReadyFn=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
@@ -26,10 +56,19 @@ public:
     bool openNonRealtime() noexcept;
     void closeNonRealtime() noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
+    [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
+    [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
 };
-class Plugin final : public Steinberg::Vst::SingleComponentEffect {
+class Plugin final : public Steinberg::Vst::SingleComponentEffect,
+                     public VSTGUI::VST3EditorDelegate {
     Core core_{};
+    OutputRate outputRate_{};
     bool active_=false;
+    std::atomic<std::uint8_t> midiProgram_{0u},midiBank_{0u};
+    std::atomic<float> masterVolume_{1.f};
+    std::atomic<bool> programNeedsSending_{true};
+    bool sentInitialProgram_=false;
+    [[nodiscard]] int p165GuestStatus() const noexcept;
 public:
     static Steinberg::FUnknown* createInstance(void*) {
         return static_cast<Steinberg::Vst::IAudioProcessor*>(new Plugin());
@@ -38,6 +77,16 @@ public:
     Steinberg::tresult PLUGIN_API terminate() override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool) override;
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32) override;
+    Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup&) override;
     Steinberg::tresult PLUGIN_API process(Steinberg::Vst::ProcessData&) override;
+    Steinberg::tresult PLUGIN_API setParamNormalized(
+        Steinberg::Vst::ParamID,Steinberg::Vst::ParamValue) override;
+    Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream*) override;
+    Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream*) override;
+    Steinberg::tresult PLUGIN_API setComponentState(Steinberg::IBStream*) override;
+    VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,
+        const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
+        VSTGUI::VST3Editor*) override;
+    Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
 };
 } // namespace p007

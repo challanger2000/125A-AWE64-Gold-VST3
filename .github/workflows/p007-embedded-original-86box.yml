@@ -1,7 +1,7 @@
 name: P007 true in-process original 86Box core DLL
 on:
   push:
-    branches: [experiment/p007-inprocess-86box]
+    branches: [experiment/p007-inprocess-86box, research/p007-b-headless-boot-20261117]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007-embedded-original-86box.yml"
@@ -50,6 +50,14 @@ jobs:
             experiments/p007-inprocess-86box/tests/P007AudioRingTest.c \
             -o build/P007AudioRingTest.exe
           build/P007AudioRingTest.exe
+      - name: Verify source-preserving 44.1/48/96-kHz host output and underrun recovery
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007OutputRateTest.cpp \
+            -o build/P007OutputRateTest.exe
+          build/P007OutputRateTest.exe
       - name: Verify internal MIDI framing and bounded UART queue
         run: |
           set -euo pipefail
@@ -59,6 +67,15 @@ jobs:
             experiments/p007-inprocess-86box/tests/P007MidiUartTest.c \
             -o build/P007MidiUartTest.exe
           build/P007MidiUartTest.exe
+      - name: Validate passive ORIGINAL 86Box HDD request counters
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007BootTrace.c \
+            experiments/p007-inprocess-86box/tests/P007BootTraceTest.c \
+            -o build/P007BootTraceTest.exe
+          build/P007BootTraceTest.exe
       - name: Compile unchanged original CPU/machine/EMU8000 modules into DLL
         run: |
           set -euo pipefail
@@ -74,6 +91,24 @@ jobs:
           dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
           if [ -z "$dll" ]; then echo 'P007_NO_INPROCESS_86BOX_DLL'; exit 1; fi
           build/P007CoreDllLoader.exe "$dll"
+      - name: Verify safe no-profile guest boot gate (no private assets in CI)
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror \
+            experiments/p007-inprocess-86box/tests/P007GuestBootGateTest.cpp \
+            -o build/P007GuestBootGateTest.exe
+          dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
+          build/P007GuestBootGateTest.exe "$dll"
+      - name: Compile research-only private Win95/Creative end-to-end boot probe
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007PrivateBootSmoke.cpp \
+            -o build/P007PrivateBootSmoke.exe
+          build/P007PrivateBootSmoke.exe --selftest
+          # Never download/provision proprietary Win95/Creative/ROM data in CI.
+          echo P007_PRIVATE_BOOT_PROBE_COMPILED_NO_PROPRIETARY_IMAGE_PASS
       - name: Checkout pinned Steinberg VST3 SDK (MSVC)
         shell: pwsh
         run: |
@@ -118,6 +153,33 @@ jobs:
           $env:PATH = "$dest;" + $env:PATH
           & "build/P007CoreDllLoader.exe" "$dest/125A_AWE_Core.dll"
           if ($LASTEXITCODE -ne 0) { throw "Original in-process DLL could not load in Windows" }
+      - name: Build genuine Steinberg EditorHost for P165 actual Win32 window QA
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-vst3 --config Release --target editorhost --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Steinberg EditorHost build failed" }
+      - name: Exercise real P165 GUI pixels, prev/next and master mouse gesture
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Stop"
+          $editor=(Get-ChildItem build/p007-vst3 -Filter editorhost.exe -File -Recurse |
+            Where-Object { $_.FullName -match "Release" } |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if (-not $editor) { throw "EditorHost.exe unavailable" }
+          $plugin=(Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3").Path
+          python experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py --editorhost "$editor" --plugin "$plugin" --output build/p007s-editorhost-evidence
+          if ($LASTEXITCODE -ne 0) { throw "Real EditorHost P165 pixel/mouse acceptance failed" }
+      - name: Preserve real EditorHost screenshots and input QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007S-P165-Actual-Win32-EditorHost-Screenshots-QA
+          path: build/p007s-editorhost-evidence/**
+          if-no-files-found: warn
+          retention-days: 5
       - name: Upload experimental no-Win95 in-process emulator DLL
         if: success()
         uses: actions/upload-artifact@v4

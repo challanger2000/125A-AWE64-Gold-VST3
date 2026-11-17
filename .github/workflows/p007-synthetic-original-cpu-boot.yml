@@ -1,0 +1,45 @@
+name: P007 original CPU steps with public synthetic BIOS, no Win95
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - "research/p007-synthetic-boot/**"
+      - ".github/workflows/p007-synthetic-original-cpu-boot.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-cpu-no-private:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the already-validated original 86Box DLL (public)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          gh run download 44117544854 --repo challanger2000/125A-AWE64-Gold-VST3 -n P007-Original-86Box-InProcess-DLL-Feasibility-Only --dir build/public-core
+          if ($LASTEXITCODE -ne 0) { throw "Cannot retrieve already-validated public DLL" }
+      - name: Compile native Windows test without 86Box EXE or licensed BIOS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S research/p007-synthetic-boot -B build/p007-synth -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic boot config failed" }
+          cmake --build build/p007-synth --config Release --target P007SyntheticCoreBoot
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic boot build failed" }
+      - name: Start ORIGINAL 86Box CPU headlessly with locally generated tiny test BIOS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $core = Get-ChildItem build/public-core -Recurse -Filter 125A_AWE_Core.dll | Select-Object -First 1
+          if (!$core) { throw "Original 86Box DLL unavailable" }
+          & "build/p007-synth/Release/P007SyntheticCoreBoot.exe" $core.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Original 86Box synthetic CPU smoke failed: $LASTEXITCODE" }
+          # Same original core, now enable the authentic emulated AWE64 Gold
+          # with ZERO-PADDED PUBLIC SYNTHETIC ROM TEST FIXTURES ONLY.
+          # Never fetch or distribute Creative/Windows95 sample binaries.
+          & "build/p007-synth/Release/P007SyntheticCoreBoot.exe" $core.FullName --synthetic-awe64
+          if ($LASTEXITCODE -ne 0) { throw "Original AWE64 hardware boot synthetic ROM test failed: $LASTEXITCODE" }
