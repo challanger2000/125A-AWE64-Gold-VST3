@@ -137,8 +137,9 @@ int main() {
     CHECK(capture.loadNonRealtime(primary,nested)==R::Ok);
     capture.resetNonRealtime();
     CHECK(!capture.sourceFormatReady());
+    // A reset parser must NOT manufacture an authenticated view.
     CHECK(original_nested_program_sample_ids(
-        capture.tables(true),0u,sample,tally)==NestedPathResult::Malformed);
+        capture.tables(true),0u,sample,tally)==NestedPathResult::Unverified);
     std::puts("P005_ORIGINAL_NESTED_PRIMARY_NATIVE_PASS authenticated-format-only no-production-claim");
     return 0;
 }
