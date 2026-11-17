@@ -141,6 +141,21 @@ int main() {
         catalog,indirectDevice,splitHeader,true)==Result::Ok);
     CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
     CHECK(catalog.resetNonRealtime());
+    // A plausible seven-pointer indirect bank with second pointer
+    // equal to (or before) the first must NOT be reinterpreted as a
+    // flat 26-byte VXD table. Both malformed source variants fail
+    // transactionally before any directory is published.
+    for (const std::uint32_t second : {bankRoot+76u,bankRoot+75u}) {
+        auto badHeader=indirectBank;
+        put32(badHeader,4u,second);
+        const std::array<P005OriginalGuestMemorySegment,1> malformed{{
+            {bankRoot,badHeader}
+        }};
+        CHECK(Importer::importNonRealtime(
+            catalog,indirectDevice,malformed,true)==Result::InvalidGuestMapping);
+        CHECK(catalog.sourceSlotCount()==0u &&
+              catalog.zoneCount()==0u);
+    }
     put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0u);
     CHECK(Importer::importNonRealtime(
         catalog,indirectDevice,indirectMemory,true)==Result::MissingSentinel);
