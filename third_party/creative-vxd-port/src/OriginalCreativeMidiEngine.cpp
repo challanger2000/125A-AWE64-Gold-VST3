@@ -592,9 +592,8 @@ MidiResult dispatch_midi(MidiEngine& eng,std::uint8_t status,
                 original_rpn_write_to_owner(eng,ch,true);
                 return MidiResult::Applied;
             case 38u: // original +0x6BA5
-                // Original NRPN branch calls device+0xB52 (LCOD+0x70E5)
-                // AFTER rewriting channel+0x464. Its complete parameter
-                // source is not attached here, so refuse before mutation.
+                // Source-gated original B52 callback reads the owner's
+                // authentic parameter rows and emits live chip port writes.
                 if(state.original_rpn_mode==0x0200u)
                     return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
@@ -609,9 +608,8 @@ MidiResult dispatch_midi(MidiEngine& eng,std::uint8_t status,
                 }
                 return MidiResult::Applied;
             case 6u: { // original +0x6AB1 Data Entry MSB
-                // Original NRPN mode calls the installed LCOD+0x70E5
-                // parameter writer. No source-verified 30x6 record/table
-                // is bound to this MIDI runtime yet: fail closed.
+                // Source-gated original B52 callback updates channel
+                // parameter state and the active EMU8000 voice registers.
                 if(state.original_rpn_mode==0x0200u)
                     return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
