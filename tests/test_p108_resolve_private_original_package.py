@@ -85,9 +85,21 @@ class TestOriginalV4NestedResolver(unittest.TestCase):
             with self.subTest(name=name):
                 with tempfile.TemporaryDirectory() as t:
                     outer=Path(t)/"fictional-v4.zip"
-                    n,e,s=build_outer(outer,extra=(name,b"evil"))
+                    # Under Windows Python's ZipInfo constructor replaces
+                    # backslashes with forward slashes while *creating* ZIPs.
+                    # Modify the actual ZIP central/local filename bytes so
+                    # the test still contains the malicious raw backslash.
+                    builder_name=name.replace("\\","/") if "\\" in name else name
+                    n,e,bank=build_outer(outer,extra=(builder_name,b"evil"))
+                    if "\\" in name:
+                        raw=outer.read_bytes()
+                        original_name=builder_name.encode("utf8")
+                        mutated_name=name.encode("utf8")
+                        self.assertEqual(len(original_name),len(mutated_name))
+                        self.assertGreaterEqual(raw.count(original_name),2)
+                        outer.write_bytes(raw.replace(original_name,mutated_name))
                     with self.assertRaisesRegex(ValueError,"unsafe"):
-                        inspect_original_package(outer,n,e,s)
+                        inspect_original_package(outer,n,e,bank)
     def test_symlink_zip_entry_rejected(self):
         with tempfile.TemporaryDirectory() as t:
             outer=Path(t)/"fake.zip"
