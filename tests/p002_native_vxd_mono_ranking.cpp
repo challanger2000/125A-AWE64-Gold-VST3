@@ -98,10 +98,20 @@ int main() {
     const auto resetFinished=candidateOriginalWin95SelectedVoiceDcysusvWrites(
         OriginalWin95MonoSelection{9,Reason::SampleEndReached,0});
     CHECK(resetFinished && (*resetFinished)[0].value==0xA9);
+    // Two independent original Win95 source captures show actual
+    // LCOD+3FCE writes to physical voices 30 (E22 BE) and 31 (E22 BF).
+    const auto reset30=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{30,Reason::CompletelyIdle,0});
+    const auto reset31=candidateOriginalWin95SelectedVoiceDcysusvWrites(
+        OriginalWin95MonoSelection{31,Reason::LowestEnvelopePriority,0});
+    CHECK(reset30 && (*reset30)[0].value==0xBE &&
+          (*reset30)[0].access_width_bits==8 &&
+          (*reset30)[1].port==0xA20);
+    CHECK(reset31 && (*reset31)[0].value==0xBF &&
+          (*reset31)[0].access_width_bits==8 &&
+          (*reset31)[1].value==0x00FF);
     CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
-        OriginalWin95MonoSelection{30,Reason::CompletelyIdle,0}));
-    CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
-        OriginalWin95MonoSelection{31,Reason::LowestEnvelopePriority,0}));
+        OriginalWin95MonoSelection{32,Reason::CompletelyIdle,0}));
     CHECK(!candidateOriginalWin95SelectedVoiceDcysusvWrites(
         OriginalWin95MonoSelection{2,
            static_cast<Reason>(255),0}));
@@ -116,8 +126,15 @@ int main() {
           (*vtft0)[1].access_width_bits==32);
     CHECK(vtft3 && (*vtft3)[0].value==0x63);
     CHECK(vtft29 && (*vtft29)[0].value==0x7d);
-    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(30));
-    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(31));
+    const auto vtft30=candidateOriginalWin95AssignedVoiceVtftWrites(30);
+    const auto vtft31=candidateOriginalWin95AssignedVoiceVtftWrites(31);
+    CHECK(vtft30 && (*vtft30)[0].value==0x7e &&
+          (*vtft30)[0].access_width_bits==8 &&
+          (*vtft30)[1].access_width_bits==32);
+    CHECK(vtft31 && (*vtft31)[0].value==0x7f &&
+          (*vtft31)[0].access_width_bits==8 &&
+          (*vtft31)[1].access_width_bits==32);
+    CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(32));
     CHECK(!candidateOriginalWin95AssignedVoiceVtftWrites(255));
     std::cout<<"P002_REAL_VXD_MODE0_MONO_SELECTION_PRIORITY_PASS"
              <<" idle=TRUE busy_scoring=TRUE sample_end=TRUE"
