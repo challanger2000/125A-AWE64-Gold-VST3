@@ -16,6 +16,9 @@ on:
       - 'src/creative_compat/P003OriginalWavetableTimer.h'
       - 'src/creative_compat/P003OriginalWavetableTimer.cpp'
       - 'tests/p003_original_wavetable_timer.cpp'
+      - 'src/creative_compat/P003OriginalP54cBlockClock.h'
+      - 'src/creative_compat/P003OriginalP54cBlockClock.cpp'
+      - 'tests/p003_original_p54c_block_noteon_clock.cpp'
       - 'src/creative_compat/P003OriginalPitClock.h'
       - 'tests/p003_original_pit_fractional_clock.cpp'
       - 'src/creative_compat/CreativeAutonomousOutTiming.h'
@@ -173,6 +176,17 @@ jobs:
             -o "$RUNNER_TEMP/p003-original-pit-133-third"
           "$RUNNER_TEMP/p003-original-pit-133-third"
           python3 -m py_compile tools/p003_audit_pit_clock_four_win95_sessions_private.py
+      - name: Verify original Pentium P54C source CPU-block TSC accounting and NoteOn port grouping
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_p54c_block_noteon_clock.cpp \
+            src/creative_compat/P003OriginalP54cBlockClock.cpp \
+            src/creative_compat/P003OriginalWavetableTimer.cpp \
+            -o "$RUNNER_TEMP/p003-original-p54c-block-clock"
+          "$RUNNER_TEMP/p003-original-p54c-block-clock"
       - name: Verify original 86Box CPU-block / 32:32 wavetable timer mechanism
         shell: bash
         run: |
