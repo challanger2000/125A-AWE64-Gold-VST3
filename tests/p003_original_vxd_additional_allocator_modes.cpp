@@ -302,7 +302,7 @@ int main(){
     source.original_x86_dispatch_mode=0u;
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
-    source.independently_verified_mode0_scan_ceiling=30u;
+    source.independently_verified_mode0_scan_ceiling=32u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==1u &&
@@ -314,6 +314,49 @@ int main(){
         dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==1u &&
           dispatched->physical_voices[0]==30u);
+    // Verified P003 Win95 VXD mode-0 high-voice evidence: 30/31
+    // are BOTH eligible, including ranked non-idle selection.
+    // Exercise this in the P005 native dispatch regression itself.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,32> high{};
+        for(auto& row:high) {
+            row.complete=true;
+            row.internal_key_marker=0x0ffeu;
+            row.volume_target_hi16=3000u;
+        }
+        source.original_x86_dispatch_mode=0u;
+        source.original_device_physical_capacity=32u;
+        source.independently_verified_mode0_scan_ceiling=32u;
+        high[30].volume_target_hi16=91u;
+        high[31].volume_target_hi16=90u;
+        auto hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->voice_count==1u &&
+              hit->physical_voices[0]==31u && hit->priority==90u);
+        high[30].volume_target_hi16=89u;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==30u &&
+              hit->priority==89u);
+        high[30].volume_target_hi16=90u;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==31u);
+        // Lazy source: immediate idle on voice30 in lane0
+        // must never read a later unknown voice31.
+        high[30].volume_target_hi16=0u;
+        high[31].complete=false;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==30u);
+        // But missing CCCA on the actually visited sample-end
+        // branch is NOT permission to invent a finished voice.
+        high[30].volume_target_hi16=3000u;
+        high[30].stored_sample_end=100u;
+        high[30].complete=false;
+        CHECK(!candidateOriginalWin95VxdDispatchAllModes(high,source));
+        // The physical scan bound must be the real device+0x06.
+        source.independently_verified_mode0_scan_ceiling=30u;
+        CHECK(!candidateOriginalWin95VxdDispatchAllModes(high,source));
+        source.independently_verified_mode0_scan_ceiling=32u;
+        source.original_x86_dispatch_mode=2u;
+    }
     // Genuine empty range produces original 0xFF NO CANDIDATE,
     // while an unverifiable region produces nullopt instead.
     source.original_mode2_packed_range=(32u<<8u)|32u;
