@@ -24,7 +24,7 @@ def main():
     cm=fork/"src/CMakeLists.txt"
     original=cm.read_text(encoding="utf-8")
     before="add_executable(86Box\n    86box.c\n"
-    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n"
+    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n"
     if original.count(before)!=1:
         raise SystemExit("P007_REJECT_UPSTREAM_BUILD_LAYOUT")
     dst=fork/"src/P007CoreExports.c"
@@ -37,9 +37,11 @@ def main():
     dsp_before=hashlib.sha256(core.read_bytes()).hexdigest()
     dst.write_bytes((source/"fork/P007CoreExports.c").read_bytes())
     shutil.copyfile(source/"fork/P007AudioRing.c",fork/"src/P007AudioRing.c")
+    shutil.copyfile(source/"fork/P007MidiUart.c",fork/"src/P007MidiUart.c")
     include=fork/"src/include/P007CoreABI.h"
     shutil.copyfile(source/"include/P007CoreABI.h",include)
     shutil.copyfile(source/"include/P007AudioRing.h",fork/"src/include/P007AudioRing.h")
+    shutil.copyfile(source/"include/P007MidiUart.h",fork/"src/include/P007MidiUart.h")
     # Connect directly to the ORIGINAL 86Box post-mixer wavetable
     # before its SDL/OpenAL audio device. Never mutate snd_emu8k.c.
     sound_file=fork/"src/sound/sound.c"
@@ -66,6 +68,36 @@ def main():
     sound_file.write_text(sound_original.replace(
         "#include <86box/sound.h>", "#include <86box/sound.h>\n#include <P007AudioRing.h>",1
     ).replace(original_hook,replacement_hook,1),encoding="utf-8",newline="\n")
+
+    # Replace host Named Pipe consumption with internal COM2 UART bytes at
+    # the ORIGINAL emulated UART's receive timer. One byte per guest clock.
+    # Do NOT change original UART timing, FIFO, PIC/IRQ, or Creative driver.
+    uart=fork/"src/device/serial.c"
+    uart_text=uart.read_text(encoding="utf-8")
+    uart_origin="""    if (dev->char_port.chardev.read) {
+        uint8_t val;
+        if (dev->char_port.chardev.read(&val, sizeof(val), dev->char_port.chardev.priv) > 0)
+            serial_write_fifo(dev, val);
+    }
+"""
+    uart_replace="""    /* P007: in-process only; COM2 byte takes original UART receive tick. */
+    if (dev->inst == 1 && p007_midi_uart_active()) {
+        uint8_t val;
+        if (p007_midi_uart_take_byte(&val))
+            serial_write_fifo(dev, val);
+    } else if (dev->char_port.chardev.read) {
+        uint8_t val;
+        if (dev->char_port.chardev.read(&val, sizeof(val), dev->char_port.chardev.priv) > 0)
+            serial_write_fifo(dev, val);
+    }
+"""
+    if uart_text.count(uart_origin)!=1 or \
+       uart_text.count("#include <86box/serial.h>")!=1:
+        raise SystemExit("P007_REJECT_ORIGINAL_UART_RECEIVE_SIGNATURE")
+    uart.write_text(uart_text.replace(
+        "#include <86box/serial.h>",
+        "#include <86box/serial.h>\n#include <P007MidiUart.h>",1
+    ).replace(uart_origin,uart_replace,1),encoding="utf-8",newline="\n")
 
     cm.write_text(original.replace(before,after),encoding="utf-8",newline="\n")
     dsp_after=hashlib.sha256(core.read_bytes()).hexdigest()
