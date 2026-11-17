@@ -31,8 +31,42 @@ Die existierende private P108-Testkette kann über `--require-p110-translator` a
 ## Unabhängige CI-Gates und offene Messung
 
 1. `tests/test_p110_original_p54c_compile_timing.py` schützt die exakten originalen Quellen, die JIT/Interpreter-Voraussetzungen, die Quellanker und den standardmäßig deaktivierten Beobachter mit fiktiven Negativdaten.
-2. `.github/workflows/p107-original-old-dynarec-branch-capture.yml` baut tatsächlich unter Ubuntu und Windows den **SHA-gepinnten originalen alten x64-86Box-Dynarec** nach P107/P108 **plus P110-Original-Pentium-Codeinstrumentierung**, ohne private Win95/ROM/SF2-Daten. [Lauf #44004309787](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44004309787).
+2. `.github/workflows/p107-original-old-dynarec-branch-capture.yml` baut tatsächlich unter Ubuntu und Windows den **SHA-gepinnten originalen alten x64-86Box-Dynarec** nach P107/P108 **plus P110-Original-Pentium-Codeinstrumentierung**, ohne private Win95/ROM/SF2-Daten. [Lauf #44004309787](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44004309787). **Tatsächlich 3/3 PASS:** Original-SHA-Quell-/Negativtests, originaler Linux-86Box-x64-Build und originaler Windows-86Box-x64-Build mit der P110-CPU-Instrumentierung.
 3. `.github/workflows/p110-original-p54c-translation-audit.yml` führt fiktive Quellspuren- und Mutationsprüfungen unter Windows/Linux aus. [Lauf #44004528547](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44004528547): **beide Jobs erfolgreich**.
 4. Die private V4-Gesamtpaket-Abnahme soll künftig dieselben drei Originalbelege aus dem laufenden Win95-Gast verbinden: **P107 ausgeführte x86-I-Spur**, **P108 direkte x86-Jcc-CF/ZF-B-Spur**, **P003 echte physische CPU/EMU8000-Port-TSC-Spur**; optional zusätzlich **P110 ursprüngliche Codegen-Übersetzungsmaske/-Zyklen**.
 
 **Kritische Grenze:** Eine Quell- oder Build-PASS-Meldung bedeutet **nicht**, dass ein neuer privater Original-Gastlauf stattfand. Solange dieser Lauf fehlt, gelten weiterhin 16 P107-Jcc als UNKNOWN und die Original-91/93/95-Taktursache bleibt ungeklärt. Auch eine künftige positive P110-AGI-Zählung beweist **nicht** ohne Korrelation mit den ausgeführten 8 variablen Stereo-Folgen die autonome Gast-CPU-Taktparität. Keine Produktintegration, keine Änderung am Original-Chip, kein Merge, keine frühe Studio-One-/ASIO-Abnahme.
+
+## Zusätzlicher tatsächlicher C-Callback-Laufzeittest auf beiden Hostsystemen
+
+Die Instrumentierung allein zu kompilieren genügt nicht. Deshalb nutzt
+`tests/test_p110_compiled_original_translator_probe_runtime.py` jetzt
+den **unveränderten echten C-Callback-Quelltext** `P110_TIMING` aus dem
+Quellpatcher und lässt ihn unter Windows und Ubuntu in einem kleinen
+öffentlichen, vollständig erfundenen P54C-Zustand **nativ kompilieren und
+ausführen**. Er erzeugt absichtlich einen Blockbeginn, einen LCOD-Jcc,
+eine künstlich positive AGI-Prüfung und schreibt den echten privaten
+Trace-Header samt `S`-/`O`-Format. Anschließend muss der **originale
+P110-Parser** den entstandenen Trace vollständig lesen und die
+aggregierten Ergebnisse prüfen. Ohne gesetzte Opt-in-Umgebung darf
+keine Datei entstehen. Ein falscher LCOD-Basiswert darf keine
+fälschlich gültige Messreihe produzieren. Abweichende ABI-/CRT-
+Funktionen, fehlerhafte Eventfelder oder falsch angelegte Traces
+führen zu NO-GO.
+
+**Echter Nachweis:** [GitHub Actions #44005272983](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44005272983):
+native Windows-2022-C11-Compiler/Laufzeit/Trace-Parser **PASS**;
+native Ubuntu-24.04-C11-Compiler/Laufzeit/Trace-Parser **PASS**.
+Es handelt sich ausdrücklich um einen **künstlichen CPU-Zustand**,
+nicht um Windows-95-Originalausführung oder eine TSC-Paritätsmessung.
+
+Zusätzlich wurde der originale private P108-Gast-Runner optional um
+`--require-p110-translator` erweitert. [P108-Runner-Negativtests
+#44004710472](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44004710472)
+waren **3/3 PASS**. Der neue P110-Originaltrace wird dabei nur nach
+expliziter Aktivierung angenommen und bei fehlender Datei fail-closed
+abgewiesen; die P108-Originalspur bleibt ohne P110-Option eigenständig.
+
+**Weiterhin ungeprüft:** ein echter privater P110-Win95-Durchlauf;
+kausale Zuordnung seiner AGI-Positivfälle zu den acht variablen
+Original-Stereo-Intervallen und autonome AWE64-Gold-VST3-PCM-Bitgleichheit.
