@@ -41,6 +41,7 @@ int main() {
     std::string persisted;
     std::getline(disk,persisted);
     if(persisted!="guest modified after boot")return fail(17);
+    disk.close(); // Windows will not delete an image still open by a handle.
     const fs::path incomplete=base/L"IncompleteGuest";
     fs::create_directories(incomplete);
     write(incomplete/L"my-disk.img","preserve me");
