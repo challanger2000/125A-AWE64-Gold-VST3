@@ -88,6 +88,7 @@ def compare_original(rows:list[X86Event],direct:dict[int,Direct]):
     confirmed=Counter()
     repaired=Counter()
     observed=Counter()
+    original_stack_jne=Counter()
     for index,e in enumerate(rows):
         off=e.pc-LCOD_BASE
         if off not in BRANCHES:continue
@@ -98,6 +99,15 @@ def compare_original(rows:list[X86Event],direct:dict[int,Direct]):
             raise ValueError("P108 Jcc event not aligned to original P107 I event")
         target,fallthrough,label=BRANCHES[off]
         observed[label]+=1
+        # LCOD+4023 compares the guest stack local directly with zero.
+        # Require the direct JNE flag to agree with original read-only RAM.
+        if off==0x4027:
+            if e.known:
+                if b.taken!=int(e.local18!=0):
+                    raise ValueError("original JNE contradicts guest EBP-0x18")
+                original_stack_jne["verified"]+=1
+            else:
+                original_stack_jne["unavailable"]+=1
         if index+1<len(rows):
             nextoffset=rows[index+1].pc-LCOD_BASE
             if nextoffset in (target,fallthrough):
@@ -121,6 +131,8 @@ def compare_original(rows:list[X86Event],direct:dict[int,Direct]):
         "previously_unknown_next_pc_but_direct_flags_captured":sum(repaired.values()),
         "unobserved_or_unexplained_jcc":0,
         "branch_samples_by_kind":dict(sorted(observed.items())),
+        "independent_original_jne_guest_stack_matches":original_stack_jne["verified"],
+        "independent_original_jne_guest_stack_unavailable":original_stack_jne["unavailable"],
         "no_unverified_next_pc_fabricated":True,
         "source_guest_instructions":len(rows),
         "per_instruction_tsc_accuracy":"NOT_ESTABLISHED",
