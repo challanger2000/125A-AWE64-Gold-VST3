@@ -1,4 +1,5 @@
 #include "P003OriginalWavetableTimer.h"
+#include "P003OriginalPitClock.h"
 #include <cstdint>
 #include <cstdio>
 using awe64::research::OriginalWavetableTimer;
@@ -25,10 +26,11 @@ int main(){
     CK(timer.onCpuBlockEnd(24)); CK(timer.frame()==5);
     // No per-sample integer rounding drift after 3000 callbacks.
     OriginalWavetableTimer long_run;
-    constexpr std::uint64_t kCpuHz=133333333u;
-    // Diagnostic period: actual guest must supply independently
-    // verified upstream TIMER_USEC and wavetable_poll_latch.
-    constexpr std::uint64_t kLatch=(kCpuHz<<32u)/44100u;
+    // Exact source-latch from pit_set_clock's 133 1/3 MHz repair,
+    // and sound_speed_changed 44,100 Hz float/truncation sequence.
+    constexpr std::uint64_t kLatch=
+        awe64::research::original86BoxWavetableLatch32_32(133333333u);
+    CK(kLatch==12985539821609ull);
     CK(long_run.init(100000u+(kLatch>>32u),
                      static_cast<std::uint32_t>(kLatch),
                      kLatch,0u,100000u));
