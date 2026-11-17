@@ -182,7 +182,12 @@ int main(){
     source.original_x86_dispatch_mode=0u;
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
+    // Original LCOD+3ED4 uses the SAME device capacity 32 in
+    // mode0; source Win95 +3F13/+3FCE visits physical 30 and 31.
     source.independently_verified_mode0_scan_ceiling=30u;
+    CHECK(!candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source)); // conflicting source limit rejected
+    source.independently_verified_mode0_scan_ceiling=32u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==1u &&
