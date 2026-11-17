@@ -6,6 +6,7 @@
 #include "OriginalCreativeStereoWorklist.hpp"
 #include "OriginalCreativeProgramBankMap.hpp"
 #include "OriginalCreativeLcod73xxNrpn.hpp"
+#include "OriginalCreativeLcod70e5.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -120,6 +121,16 @@ struct MidiEngine {
     // authenticated independently; the bool does NOT authenticate bytes.
     research::OriginalNrpnMemory original_nrpn_memory{};
     bool original_nrpn_callbacks_installed_verified=false;
+    // Independently verified source callback at device+0xB52; the 30x6
+    // original parameter table and 128 original lookup WORDs must be owned
+    // by the same private source session as original_nrpn_memory.device.
+    // The owner also attests the VXD voice rows map to this live PortIo chip.
+    // These flags assert a contract; they are NOT cryptographic checks.
+    bool original_nrpn_parameter_callback_installed_verified=false;
+    bool original_nrpn_parameter_tables_verified=false;
+    bool original_nrpn_voice_rows_verified=false;
+    std::span<const std::uint8_t> original_nrpn_parameter_entries{};
+    research::PcodTable original_nrpn_parameter_lookup{};
     DeviceState device{};
     std::array<MidiChannel,16> channel{};
     // MIDI stream state (serial input), separate from a VST3 host's already
