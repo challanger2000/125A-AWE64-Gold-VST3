@@ -7,6 +7,7 @@
 #include "OriginalCreativeSf2SourceReader.hpp"
 #include "OriginalCreativeSf2RamUpload.hpp"
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
+#include "OriginalCreativeVolumeController.hpp"
 #include <array>
 #include <cstdint>
 #include <span>
@@ -40,6 +41,13 @@ struct OriginalSf2SourceChannelState {
     bool original_program_identity_verified=false;
     std::uint16_t original_program_bank_slot=0;
     std::uint16_t original_program_preset_row=0;
+    // Optional autonomous LCOD+0x5753 NoteOn attenuation. If supplied,
+    // the original velocity/CC tables and merged generator48 determine
+    // gen19 for this note. No per-key/velocity attenuation table/cache.
+    // An additionally supplied verified value must agree exactly.
+    OriginalNoteVolumeResources const* original_note_volume_source=nullptr;
+    std::uint8_t original_channel_volume=100;
+    std::uint8_t original_channel_expression=127;
 };
 enum class Sf2BuildStatus:std::uint8_t {
     Ok,Unverified,Unsupported,Malformed,TooManyLayers

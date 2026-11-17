@@ -825,7 +825,8 @@ target_link_libraries(awe64_p002_real_chip_port_bridge_test
 add_library(awe64_p002_sf2_original_targets STATIC
     src/creative_compat/CreativeSf2OriginalTargets.cpp)
 target_include_directories(awe64_p002_sf2_original_targets
-    PUBLIC src/creative_compat)
+    PUBLIC src/creative_compat
+    PRIVATE third_party/creative-vxd-port/include)
 target_compile_features(awe64_p002_sf2_original_targets PUBLIC cxx_std_23)
 target_link_libraries(awe64_p002_sf2_original_targets
     PUBLIC awe64_p002_sf2_full_noteon)

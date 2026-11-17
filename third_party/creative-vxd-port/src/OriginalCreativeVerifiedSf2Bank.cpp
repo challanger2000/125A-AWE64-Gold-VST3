@@ -69,6 +69,19 @@ namespace {
             source.original_channel_tune_1_cents=chosen.original_fine_tune_cents;
         if(chosen.original_coarse_tune_override)
             source.original_channel_tune_2_cents=chosen.original_coarse_tune_cents;
+        if(source.original_derive_pitch_target_from_channel) {
+            chosen.original_live_pitch_state_verified=true;
+            chosen.original_live_pitch_tune=channel.original_pitch_tune;
+            chosen.original_live_bend_delta=channel.original_bend_delta;
+            source.original_channel_pitch_tune=channel.original_pitch_tune;
+            source.original_channel_bend_delta=channel.original_bend_delta;
+            const auto baseline=original_sf2_initial_pitch(
+                chosen.note_start_descriptor,key,
+                source.original_channel_tune_1_cents,
+                source.original_channel_tune_2_cents);
+            if(!baseline)return false;
+            chosen.original_pitch_base=*baseline;
+        }
         OriginalVoiceProgram preflight{};
         if(!compile_original_sf2_main(chosen,0u,key,source,preflight) ||
            !preflight.source_verified)
@@ -91,7 +104,8 @@ namespace {
        !selected.note_start_descriptor_verified ||
        selected.note_start_descriptor!=zone.voice.note_start_descriptor ||
        selected.release_end!=zone.voice.release_end ||
-       selected.original_pitch_base!=zone.voice.original_pitch_base ||
+       (!zone.original_state.original_derive_pitch_target_from_channel &&
+        selected.original_pitch_base!=zone.voice.original_pitch_base) ||
        selected.original_pitch_base_verified!=zone.voice.original_pitch_base_verified)
         return false;
     auto source=zone.original_state;
@@ -99,6 +113,16 @@ namespace {
         source.original_channel_tune_1_cents=selected.original_fine_tune_cents;
     if(selected.original_coarse_tune_override)
         source.original_channel_tune_2_cents=selected.original_coarse_tune_cents;
+    if(source.original_derive_pitch_target_from_channel) {
+        if(!selected.original_live_pitch_state_verified)return false;
+        source.original_channel_pitch_tune=selected.original_live_pitch_tune;
+        source.original_channel_bend_delta=selected.original_live_bend_delta;
+        const auto baseline=original_sf2_initial_pitch(
+            selected.note_start_descriptor,key,
+            source.original_channel_tune_1_cents,
+            source.original_channel_tune_2_cents);
+        if(!baseline || selected.original_pitch_base!=*baseline)return false;
+    }
     return compile_original_sf2_main(selected,physical,key,source,program);
 }
 [[nodiscard]] bool select_program(void* opaque, MidiChannel const& channel,

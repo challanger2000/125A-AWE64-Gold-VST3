@@ -80,6 +80,26 @@ int main() {
     CHECK(program.data[22]==0x70000ffcu);
     CHECK(program.data[23]==0x1234b400u && program.data[24]==program.data[23]);
     CHECK(program.data[25]==0x80000080u && program.data[26]==0x80000000u);
+    // Same original target arithmetic as the existing source-snapshot
+    // path, now callable without per-note recorded target words.
+    auto native=v;
+    native.original_derive_pitch_target_from_channel=true;
+    native.original_channel_bend_delta=4096;
+    CHECK(compile_original_sf2_main(s,0u,60u,native,program));
+    CHECK(program.data[7]==0xf000u);
+    CHECK(program.data[25]==0xa0000080u && program.data[26]==0xa0000000u);
+    // Unsigned x86 cap: negative wrapped channel sums become FFFF.
+    native.original_channel_bend_delta=-65536;
+    CHECK(compile_original_sf2_main(s,0u,60u,native,program));
+    CHECK(program.data[7]==0xffffu && program.data[26]==0xffff0000u);
+    std::array<std::uint16_t,16> amplitude{};amplitude[4]=0x8000u;
+    native=v;native.original_derive_volume_target_from_attenuation=true;
+    CHECK(!compile_original_sf2_main(s,0u,60u,native,program));
+    native.original_volume_target_tables_verified=true;
+    native.original_volume_positive16=amplitude;
+    CHECK(compile_original_sf2_main(s,0u,60u,native,program));
+    CHECK(program.data[23]==0x4000b400u && program.data[24]==program.data[23]);
+    CHECK(compile_original_sf2_main(s,30u,60u,v,program));
     CHECK(program.data[27]==0x053fu);
     MockBus b{};
     CHECK(write_original_note_main(30u,program,b.io()));

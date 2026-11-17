@@ -38,6 +38,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_geometry_p
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_geometry_probe.cpp")
     target_link_libraries(awe64_p005_original_note_geometry_probe
         PRIVATE original_creative_vxd_live)
+    add_executable(awe64_p005_original_note_volume_probe
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_volume_probe.cpp")
+    target_link_libraries(awe64_p005_original_note_volume_probe
+        PRIVATE original_creative_vxd_live)
+    add_executable(awe64_p005_original_note_targets_probe
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_targets_probe.cpp")
+    target_link_libraries(awe64_p005_original_note_targets_probe
+        PRIVATE original_creative_vxd_live)
 endif()
 add_executable(test_midi_heapless tests/test_midi_heapless.cpp)
 target_link_libraries(test_midi_heapless PRIVATE original_creative_vxd_live)
@@ -54,6 +62,9 @@ add_test(NAME original_chip_port_bridge_16_32_voice30 COMMAND test_chip_port_bri
 add_executable(test_original_creative_volume_controller tests/test_original_creative_volume_controller.cpp)
 target_link_libraries(test_original_creative_volume_controller PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_volume_controller COMMAND test_original_creative_volume_controller)
+add_executable(test_original_creative_note_volume tests/test_original_creative_note_volume.cpp)
+target_link_libraries(test_original_creative_note_volume PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_note_volume COMMAND test_original_creative_note_volume)
 add_executable(test_original_creative_modulation_controller tests/test_original_creative_modulation_controller.cpp)
 target_link_libraries(test_original_creative_modulation_controller PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_modulation_controller COMMAND test_original_creative_modulation_controller)
