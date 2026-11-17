@@ -356,6 +356,11 @@ int main(){
           live.voices[31].pan_target==42u &&
           live.voices[31].pan_current==43u);
     CHECK(!live.voices[31].volume_terms_verified);
+    // No C0 state was present in this source device image. Its empty
+    // bank-zero channel row must NOT masquerade as a valid preset.
+    CHECK(!guestHost.sharedRuntime()->midi.channel[0]
+          .original_program_selection_valid);
+    CHECK(guestHost.noteOn(0u,60u,100u)==MidiResult::MissingSource);
     CHECK(guestHost.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(guestHost.program(0u,7u)==MidiResult::Applied);
     CHECK(guestHost.sharedRuntime()->midi.channel[0]
@@ -374,6 +379,14 @@ int main(){
     // All contents are synthetic, so only the explicit research opt-in
     // may supply the two independent attestation gates here.
     guestRows[2u]=7u;
+    // Exact original per-channel C0 selection fields, kept in the
+    // captured guest DEVICE image: row0 / program7 / slot5 / bank1.
+    // The native C++23 host must play the selected program on NoteOn
+    // without requiring an invented host ProgramChange after restore.
+    constexpr std::size_t channel0=0x442u;
+    deviceImage[channel0+0x02u]=7u;
+    deviceImage[channel0+0x18u]=5u;
+    deviceImage[channel0+0x1bu]=1u;
     std::vector<std::uint8_t> binary{
         '1','2','5','A','V','X','D','1'};
     const auto append32=[&binary](std::uint32_t v) {
@@ -416,6 +429,14 @@ int main(){
     CHECK(capturedHost.sharedRuntime()->midi.device.physical_capacity==32u);
     CHECK(capturedHost.sharedRuntime()->midi.device.voices[31]
           .original_pitch_base==0x4bcdu);
+    const auto& restoredProgram=capturedHost.sharedRuntime()->midi.channel[0];
+    CHECK(restoredProgram.original_program_selection_valid);
+    CHECK(restoredProgram.original_selected_bank_slot==5u);
+    CHECK(restoredProgram.original_selected_preset_row==0u);
+    CHECK(restoredProgram.original_selected_program==7u);
+    CHECK(restoredProgram.original_selected_bank==1u);
+    CHECK(capturedHost.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(capturedHost.noteOff(0u,60u)==MidiResult::Applied);
     CHECK(capturedHost.controller(0u,0u,1u)==MidiResult::Applied);
     CHECK(capturedHost.program(0u,7u)==MidiResult::Applied);
     CHECK(capturedHost.noteOn(0u,60u,100u)==MidiResult::Applied);
