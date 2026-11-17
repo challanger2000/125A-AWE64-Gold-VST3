@@ -155,6 +155,15 @@ def synthetic():
     assert report["next_pc_independently_confirms_flags"]==2
     assert report["previously_unknown_next_pc_but_direct_flags_captured"]==1
     assert report["unobserved_or_unexplained_jcc"]==0
+    observed_local=list(rows)
+    observed_local[0]=X86Event(0,100,ORIGINAL_SELECTOR,LCOD_BASE+0x4027,0x1000,1,1)
+    checked_local=compare_original(observed_local,direct)
+    assert checked_local["independent_original_jne_guest_stack_matches"]==1
+    original_stack_mismatch=list(observed_local)
+    original_stack_mismatch[0]=X86Event(0,100,ORIGINAL_SELECTOR,LCOD_BASE+0x4027,0x1000,1,0)
+    try:compare_original(original_stack_mismatch,direct)
+    except ValueError as exc:assert "guest EBP-0x18" in str(exc)
+    else:raise AssertionError("false original JNE stack predicate survived")
     mutated=dict(direct)
     mutated[3]=Direct(3,100,ORIGINAL_SELECTOR,LCOD_BASE+0x4107,0,0,0)
     try:compare_original(rows,mutated)
