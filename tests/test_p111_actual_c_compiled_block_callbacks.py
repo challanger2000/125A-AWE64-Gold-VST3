@@ -95,7 +95,7 @@ class TestCompiledNativeP111Join(unittest.TestCase):
             source=trace.read_bytes()
             self.assertIn(b"F 2 1 7 C1019207 00002000",source)
             self.assertNotIn(b"00002000 1032",source)
-            self.assertIn(b"R 8 3 7 C1019207 00002008 1040",source)
+            self.assertIn(b"R 9 3 7 C1019207 00002008 1040",source)
             trace.unlink()
             env["AWE64_P111_LCOD_BASE"]="0xC1000000"
             completed=subprocess.run([str(exe)],env=env,capture_output=True,
