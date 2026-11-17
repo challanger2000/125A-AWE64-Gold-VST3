@@ -13,12 +13,14 @@ inline bool complete(const fs::path& target) {
     return fs::is_regular_file(target/L".p007-installed-v1",ec)
         && fs::is_directory(target/L"vm",ec)
         && fs::is_regular_file(target/L"vm"/L"P007_AWE64.cfg",ec)
+        && fs::is_regular_file(target/L"vm"/L"win95.img",ec)
         && fs::is_regular_file(target/L"86box.cfg",ec);
 }
 inline bool prepare(const fs::path& bundle,const fs::path& target,std::error_code& ec) {
     ec.clear();
     if (!fs::is_directory(bundle/L"vm",ec) || !fs::is_directory(bundle/L"roms",ec)
         || !fs::is_regular_file(bundle/L"vm"/L"P007_AWE64.cfg",ec)
+        || !fs::is_regular_file(bundle/L"vm"/L"win95.img",ec)
         || !fs::is_regular_file(bundle/L"86box.cfg",ec)) return false;
     if(fs::exists(target,ec)) return complete(target);
     fs::create_directories(target.parent_path(),ec);
