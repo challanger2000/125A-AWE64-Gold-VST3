@@ -56,7 +56,7 @@ P007_EXPORT int p007_core_init_profile(
     char program[]="P007_Embedded_Guest";
     char vmpath[]="--vmpath",rompath[]="--rompath";
     char config[]="--config",globalopt[]="--global";
-    char *const argv[]={
+    char *argv[]={
       program,vmpath,vm,rompath,rom,config,cfg,globalopt,global
     };
     const int result=pc_init(9,argv);
