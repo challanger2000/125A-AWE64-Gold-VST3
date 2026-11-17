@@ -159,6 +159,13 @@ public:
     [[nodiscard]] bool sourceFormatReady() const noexcept {
         return ready_;
     }
+    // Borrowed ORIGINAL guest-device bytes. Format-valid alone is NOT
+    // driver/session authenticity; the caller must independently attest.
+    [[nodiscard]] std::span<const std::uint8_t>
+    deviceImageNonRealtime() const noexcept {
+        return ready_?std::span<const std::uint8_t>{device_}:
+                      std::span<const std::uint8_t>{};
+    }
     [[nodiscard]] std::uint32_t deviceGuestVirtualAddress() const noexcept {
         return ready_?deviceGuestVirtualAddress_:0u;
     }
