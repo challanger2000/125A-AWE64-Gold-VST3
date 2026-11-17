@@ -185,3 +185,13 @@ target_link_libraries(test_original_creative_pcod37ba
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_pcod37ba_integer_branch_contract
     COMMAND test_original_creative_pcod37ba)
+
+
+# Source-derived LCOD+0x70E5 register read/modify/write port. No
+# private table bytes; purely synthetic device/PortIo test.
+add_executable(test_original_creative_lcod70e5
+    tests/test_original_creative_lcod70e5.cpp)
+target_link_libraries(test_original_creative_lcod70e5
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_lcod70e5_register_source_contract
+    COMMAND test_original_creative_lcod70e5)
