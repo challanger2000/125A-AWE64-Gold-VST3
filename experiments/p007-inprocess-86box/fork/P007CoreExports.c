@@ -39,8 +39,16 @@ static int s_profile_initialized;
 static int checked_path(const char *src,char *dst,size_t cap) {
     if(!src || !*src) return 0;
     const size_t len=strlen(src);
-    if(len>=cap || len<3u || (src[1]!=':' &&
-       !(src[0]=='\\' && src[1]=='\\'))) return 0;
+    /* Windows production keeps its original absolute DOS/UNC path gate.
+       Temporary Linux QA accepts POSIX absolute paths so the PRIVATE
+       Win95 guest can be tested offline without uploading it to GitHub. */
+#ifdef _WIN32
+    const int absolute=(src[1]==':' ||
+        (src[0]=='\\' && src[1]=='\\'));
+#else
+    const int absolute=(src[0]=='/');
+#endif
+    if(len>=cap || len<3u || !absolute) return 0;
     memcpy(dst,src,len+1u);
     return 1;
 }
