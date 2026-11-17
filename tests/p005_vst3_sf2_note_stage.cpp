@@ -4,6 +4,7 @@
 #include "P005OriginalCreativeBankCatalog.hpp"
 #include "P005OriginalCreativeVxdDirectoryImporter.hpp"
 #include "P005OriginalCreativeHostAdapter.hpp"
+#include "P005OriginalVxdGuestCaptureFile.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -365,6 +366,63 @@ int main(){
     CHECK(!guestCatalog.resetNonRealtime()); // active source lease
     guestHost.resetNonRealtime();
     CHECK(guestCatalog.resetNonRealtime());
+    // End-to-end owner CAPTURE ingestion rather than a caller-invented
+    // 288-slot array: 125AVXD1 -> owned source catalog -> SF2 note
+    // contexts -> actual original MIDI runtime with 32 guest voice rows.
+    // All contents are synthetic, so only the explicit research opt-in
+    // may supply the two independent attestation gates here.
+    guestRows[2u]=7u;
+    std::vector<std::uint8_t> binary{
+        '1','2','5','A','V','X','D','1'};
+    const auto append32=[&binary](std::uint32_t v) {
+        for(unsigned i=0u;i<4u;++i)
+            binary.push_back(static_cast<std::uint8_t>(v>>(8u*i)));
+    };
+    append32(1u);append32(0xc30b09f0u);append32(0x3000u);
+    append32(0x1592u);append32(288u);append32(1u);append32(1u);
+    binary.insert(binary.end(),deviceImage.begin(),deviceImage.end());
+    append32(guestPointer);
+    append32(static_cast<std::uint32_t>(guestRows.size()));
+    binary.insert(binary.end(),guestRows.begin(),guestRows.end());
+    P005OriginalVxdGuestCaptureFile parsedGuest{};
+    CHECK(parsedGuest.loadNonRealtime(binary)==
+          P005VxdGuestCaptureFileResult::Ok);
+    binary.clear(); // parser must own its source bytes
+    CHECK(stage.prepareNonRealtime(
+        file,1u,7u,60u,100u,original,states,true)==Sf2BuildStatus::Ok);
+    const std::array<const P005OriginalCreativeSf2NoteStage*,1> noteSources{{&stage}};
+    P005OriginalCreativeBankCatalog capturedCatalog{};
+    P005OriginalCreativeHostAdapter<Chip> capturedHost{};
+    Chip capturedChip{};
+    CHECK(!capturedHost.activateOriginalGuestCaptureBundleNonRealtime(
+        capturedChip,capturedCatalog,parsedGuest,noteSources,false,true));
+    CHECK(capturedCatalog.sourceSlotCount()==0u);
+    CHECK(!capturedHost.activateOriginalGuestCaptureBundleNonRealtime(
+        capturedChip,capturedCatalog,parsedGuest,noteSources,true,false));
+    CHECK(capturedCatalog.sourceSlotCount()==0u);
+    const std::array<const P005OriginalCreativeSf2NoteStage*,2> duplicateNotes{{
+        &stage,&stage
+    }};
+    CHECK(!capturedHost.activateOriginalGuestCaptureBundleNonRealtime(
+        capturedChip,capturedCatalog,parsedGuest,duplicateNotes,true,true));
+    CHECK(capturedCatalog.sourceSlotCount()==0u &&
+          capturedCatalog.zoneCount()==0u &&
+          !capturedCatalog.runtimeLeased());
+    CHECK(capturedHost.activateOriginalGuestCaptureBundleNonRealtime(
+        capturedChip,capturedCatalog,parsedGuest,noteSources,true,true));
+    CHECK(capturedCatalog.ready() && capturedCatalog.runtimeLeased());
+    CHECK(capturedHost.sharedRuntime()->midi.device.physical_capacity==32u);
+    CHECK(capturedHost.sharedRuntime()->midi.device.voices[31]
+          .original_pitch_base==0x4bcdu);
+    CHECK(capturedHost.controller(0u,0u,1u)==MidiResult::Applied);
+    CHECK(capturedHost.program(0u,7u)==MidiResult::Applied);
+    CHECK(capturedHost.noteOn(0u,60u,100u)==MidiResult::Applied);
+    CHECK(capturedHost.noteOff(0u,60u)==MidiResult::Applied);
+    CHECK(capturedChip.writes>0u);
+    capturedHost.resetNonRealtime();
+    CHECK(capturedCatalog.resetNonRealtime());
+    stage.clearNonRealtime();
+    std::puts("P005_OWNER_CAPTURE_TO_SHARED_CREATIVE_MIDI_SOURCE_PASS synthetic_only=TRUE");
     std::puts("P005_GUEST_POINTER_TO_ORIGINAL_C0_NOTEON_NOTE_OFF_PASS synthetic_only=TRUE");
 
     std::puts("P005_SOURCE_288_SLOT_2_NOTE_CATALOG_PASS borrowed_rows_OWNED stable_midi_runtime=TRUE");
