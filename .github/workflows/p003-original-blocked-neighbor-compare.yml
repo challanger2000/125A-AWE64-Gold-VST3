@@ -43,6 +43,17 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-research-mode2"
           "$RUNNER_TEMP/p003-research-mode2"
+      - name: Run full existing P003 original allocator regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_vxd_additional_allocator_modes.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-all-modes-regression"
+          "$RUNNER_TEMP/p003-all-modes-regression"
       - name: Verify authentic CCCA-only original source branch with explicit per-read validity
         shell: bash
         run: |
