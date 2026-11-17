@@ -121,7 +121,7 @@ int main() {
             }
         }
     }
-    CHECK(cases==3024u);
+    CHECK(cases==3048u);
     std::printf("P003_ORIGINAL_MODE_GATE_STATE_SPACE_PASS cases=%u skips=%u scored=%u\n",
                 cases,skips,reads);
 }
