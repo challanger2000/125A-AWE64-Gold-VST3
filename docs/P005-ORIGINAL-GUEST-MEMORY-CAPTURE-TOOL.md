@@ -279,3 +279,40 @@ oder heuristische Presetnummern ersetzen.
 Der Strukturprüfer und zusätzliche rein synthetische Negativproben
 verlangen jetzt die echte +4-zu-Index-Tabelle-Relation. Es werden keine
 privaten SoundFont-/ROM-/Win95-Inhalte eingecheckt.
+
+
+### Nachweis der kompakten Original-Generatorlisten
+
+Die 129 Programmdatensätze referenzieren über den nun im C++23-Port
+erhaltenen WORD-Index an +4 genau **181 Originalgruppen** in der
+182er-u32-Tabelle: **77 Programme** haben einen Gruppensprung von
+1, **52 Programme** einen Sprung von 2. Diese Untergliederung wird
+nicht mit den 129 Programmen verwechselt oder aus Standard-SF2-PHDR-
+Zeilen nachgebildet.
+
+Aus den 466 vollständig aufgezeichneten Drei-Byte-Datensätzen
+ergibt sich eine weitere auffällige Originaldaten-Invariante:
+**alle 181 referenzierten Programmgruppen enden in Byte 0x29
+(Generator-Kennung 41, SF2-`instrument`)**. Die zugehörigen 181
+u16-Operanden liegen im Gültigkeitsbereich der 180 originalen
+Instrument-Indexeinträge; der größte beobachtete ist 178.
+
+Auch die vollständig aufgezeichnete zweite Generatorliste umfasst
+**3.644 × 3 Byte**. Hier treten die SF2-Generator-Kennungen
+**0x35 (53 = sampleID; 565-mal)** und **0x2B (43 = keyRange)**
+regelmäßig auf. Sämtliche Kennungen in beiden Listen liegen zwischen
+0 und 58, dem bekannten SF2-Generatorbereich. Der Quellcode des
+bestehenden ursprünglichen SF2-Lesers bestätigt die Generatornummern
+41, 53 und die SF2-Gen-Typisierung, führt standardmäßig aber
+4-Byte-Generatoren, nicht die in der Besitzeraufnahme klar
+nachgewiesenen 3-Byte-Sätze.
+
+**Arbeitsannahme (nicht als Treiberparität ausgegeben):**
+Creative hält innerhalb des Win95-VXD eine komprimierte,
+source-indizierte Form von Preset-/Instrument-Generatorlisten.
+Die echte x86-Creative-Verarbeitung, Default-/Global-Zonen,
+Modulatorfunktionen und Audio-Registerwirkung müssen dagegen noch
+abgenommen werden. Keine erfundene Umwandlung oder automatische
+Produktivfreigabe. Die neuen synthetischen Tests prüfen die
+Generator-Bytebreite, Quellindexgrenzen und die spezifisch belegte
+GM-Programm-Invariante separat.
