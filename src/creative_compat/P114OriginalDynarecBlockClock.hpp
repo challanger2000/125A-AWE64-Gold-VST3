@@ -74,6 +74,22 @@ public:
         cycles_ -= cost;
         return true;
     }
+    // P119: generated x64 ADD signed_delta to cpu_state._cycles.
+    // Call only when that ORIGINAL generated ADD actually executes,
+    // NEVER when its compiler-side delta is merely pending.
+    // Positive deltas are legal branch refunds; acycs is separate.
+    [[nodiscard]] bool apply_source_emitted_cycles_delta(
+        std::int32_t delta) noexcept {
+        const auto next=static_cast<std::int64_t>(cycles_)+delta;
+        if(!valid_ || !active_ ||
+           next<std::numeric_limits<std::int32_t>::min() ||
+           next>std::numeric_limits<std::int32_t>::max()) {
+            valid_=false;
+            return false;
+        }
+        cycles_=static_cast<std::int32_t>(next);
+        return true;
+    }
     // Optional source USE_ACYCS; default build of source may omit it.
     [[nodiscard]] bool set_acycs(const std::int32_t cycles) noexcept {
         if (!valid_ || !active_ || !inrecomp_) {
