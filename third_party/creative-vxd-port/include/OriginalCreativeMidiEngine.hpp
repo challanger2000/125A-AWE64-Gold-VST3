@@ -5,6 +5,7 @@
 // The source-verified P002 composer must supply the actual 28 data values.
 #include "OriginalCreativeStereoWorklist.hpp"
 #include "OriginalCreativeProgramBankMap.hpp"
+#include "OriginalCreativeLcod73xxNrpn.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -113,6 +114,12 @@ struct MidiEngine {
     // There is no justified no-op unless a private source snapshot proves
     // that pointer NULL; otherwise CC121 returns MissingSource.
     bool original_reset_callback_absent_verified=false;
+    // Source-proven Win95 device image, retained by the owner OFF the audio
+    // thread. This is a non-owning view, never allocated by dispatch_midi().
+    // The original device+0xB56/+0xB5A callback installation must be
+    // authenticated independently; the bool does NOT authenticate bytes.
+    research::OriginalNrpnMemory original_nrpn_memory{};
+    bool original_nrpn_callbacks_installed_verified=false;
     DeviceState device{};
     std::array<MidiChannel,16> channel{};
     // MIDI stream state (serial input), separate from a VST3 host's already
