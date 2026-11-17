@@ -203,8 +203,17 @@ int main(){
           dispatched->physical_voices[0]==kOriginalWin95NoVoice);
     source.original_mode2_packed_range=(32u<<8u)|30u;
     dispatchVoices[31].complete=false;
+    // Original +423B returns IMMEDIATELY on idle voice30:
+    // voice31 is never read, so its missing chip state is immaterial.
+    dispatched=candidateOriginalWin95VxdDispatchAllModes(
+        dispatchVoices,source);
+    CHECK(dispatched && dispatched->voice_count==1u &&
+          dispatched->physical_voices[0]==30u);
+    // Only when voice30 is NOT idle does Creative read next voice31.
+    dispatchVoices[30].volume_target_hi16=300u;
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
+    dispatchVoices[30].volume_target_hi16=0u;
     dispatchVoices[31].complete=true;
     source.original_x86_dispatch_mode=1u;
     dispatchVoices[31].complete=false;
