@@ -146,7 +146,7 @@ def patch(original_acc:bytes,acc_copy:bytes,
     jit=jit_copy.replace(b'\r\n',b'\n').decode('utf8')
     if P119_MARKER in acc or P119_MARKER in jit:
         raise ValueError('P119 original source already patched')
-    if ACC_ANCHOR not in original_acc.decode('utf8'):
+    if ACC_ANCHOR not in original_acc.replace(b'\r\n',b'\n').decode('utf8'):
         raise ValueError('P119 original accumulate source signature changed')
     if P118_MARKER not in jit or JIT_CALLBACK_ANCHOR not in jit:
         raise ValueError('P119 requires original P118 JIT site probe')
