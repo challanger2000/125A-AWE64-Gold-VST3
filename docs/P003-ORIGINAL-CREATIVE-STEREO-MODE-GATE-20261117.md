@@ -1,5 +1,8 @@
 # P003 – Original Creative Stereo-Allocator: Modus-Schwellwert und 14-Takt-Abstand (17.11.2026)
 
+> **Nachprüfung 17.11.: wichtig für die C++23-Portierung.** Im ersten V5-CALLER_FRAME-Recorder wurde das Feld `next2d` versehentlich an `DS:[EBX+0x0D]` statt am tatsächlichen originalen `DS:[EBX+0x2D]` gelesen. **Das alte `next2d` ist deshalb keine direkte Beobachtung des Nachbarstimmen-Flags.** Der Recorder und der C-Negativtest wurden auf +45 Byte korrigiert. Die neun übersprungenen Stimmengruppen bleiben unabhängig über den beobachteten echten EBX-Sprung und das korrekt erfasste `next0d` belegt. Die sieben +3-Takt-Fälle bleiben ungeklärt. [Nachprüfung der neun Stimme-4-Intervalle und Original-Opcode-Gegenbeleg](P003-ORIGINAL-VOICE4-3CYCLE-AND-NEIGHBOR-OFFSET-20261117.md).
+
+
 ## Zweck / Trennung der beiden Entwicklungswege
 
 **Dieser Befund ist unabhängige Original-Zuarbeit für den C++23-Entwickler**, nicht eine zweite REA-Portierung des Treibers. Die andere direkte REA-Portierung bleibt eigenständig. Keine Änderungen an produktivem P005, EMU8000, ROM oder Original-Win95-Gast.
