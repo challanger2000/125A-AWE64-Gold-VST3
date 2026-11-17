@@ -60,3 +60,13 @@ if(WIN32)
     target_compile_options(P006Supervisor PRIVATE /W4 /WX /permissive-)
   endif()
 endif()
+
+if(WIN32)
+  add_executable(P006SupervisorContract tests/P006SupervisorContract.cpp)
+  target_compile_features(P006SupervisorContract PRIVATE cxx_std_23)
+  if(MSVC)
+    target_compile_options(P006SupervisorContract PRIVATE /W4 /WX /permissive-)
+  endif()
+  add_test(NAME p006_private_86box_vm_auto_launch_unique_owner
+    COMMAND P006SupervisorContract "$<TARGET_FILE:P006Supervisor>")
+endif()
