@@ -118,11 +118,11 @@ jobs:
           # Add the Windows system import library LAST to the disposable
           # original fork target only, without changing chip/CPU sources.
           $winlib = @'
-# P120 research-only MSYS2 OpenSSL static Windows linker dependency
-if(WIN32 AND MINGW)
-  target_link_libraries(86Box PRIVATE bcrypt)
-endif()
-'@
+          # P120 research-only MSYS2 OpenSSL static Windows linker dependency
+          if(WIN32 AND MINGW)
+            target_link_libraries(86Box PRIVATE bcrypt)
+          endif()
+          '@
           Add-Content -LiteralPath p120-original-fork/CMakeLists.txt -Value $winlib
           Write-Host 'P120_ORIGINAL_86BOX_WINDOWS_SOURCE_STAGED_PASS bcrypt_LINK_FIX=DISPOSABLE_COPY_ONLY'
       - name: Configure original Windows x64 86Box regular old dynarec GUI
