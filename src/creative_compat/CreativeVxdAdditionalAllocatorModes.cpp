@@ -166,9 +166,16 @@ mode2RangeWithSourceStatus(
                     OriginalWin95MonoSelectionReason::SampleEndReached,0u};
             continue;
         }
-        // Eligible marker needs source-observed live VTFT and possibly
-        // DCYSUSV, so the original full snapshot contract remains.
-        if(!v.complete) {
+        // Original +41E0 always reads VTFT for eligible markers.
+        // +4228 only reads DCYSUSV for marker !=0x0FFE with low byte
+        // !=0xFF. Missing source data fails closed for exactly these
+        // required reads; other original paths need not synthesize them.
+        const bool needs_dcysusv =
+            v.internal_key_marker!=0x0ffeu &&
+            (v.internal_key_marker&0x00ffu)!=0x00ffu;
+        if(!v.complete &&
+           (!v.vtft_read_verified ||
+            (needs_dcysusv && !v.dcysusv_read_verified))) {
             if(missing_source)*missing_source=true;
             return std::nullopt;
         }
@@ -188,12 +195,19 @@ mode2RangeWithSourceStatus(
                 best=score;
             }
         }
-        // The sample-end short circuit occurs even for a marker
-        // that was INELIGIBLE for ranking (source +0x424F onwards).
-        if(finishedSample(v))
-            return OriginalWin95MonoSelection{
-                static_cast<std::uint8_t>(voice),
-                OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        // Original +424F skips CCCA entirely when cached end is zero.
+        // If nonzero, +4254 reads CCCA even when scoring already picked
+        // a non-idle candidate; do not infer the missing chip address.
+        if(v.stored_sample_end!=0u) {
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
+                return std::nullopt;
+            }
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        }
     }
     return selected;
 }
