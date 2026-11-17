@@ -1,0 +1,61 @@
+name: P006 86Box AWE64 private bridge (source-only tests)
+on:
+  push:
+    branches: [experiment/p006-86box-win95-vst3-bridge]
+    paths:
+      - 'experiments/p006-86box-vst3/**'
+      - '.github/workflows/p006-86box-bridge-windows.yml'
+permissions:
+  contents: read
+jobs:
+  win2022-transport:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build C++23 bridge contract (MSVC x64)
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-bridge -G "Visual Studio 17 2022" -A x64
+          cmake --build build/p006-bridge --config Release --parallel 2
+      - name: Run transport and MIDI framing regression
+        run: ctest --test-dir build/p006-bridge -C Release --output-on-failure
+
+      - name: Checkout pinned Steinberg VST3 SDK
+        shell: pwsh
+        run: |
+          git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C external/vst3sdk submodule update --init --recursive
+      - name: Compile native P006 Windows-x64 VST3 wrapper (no guest assets)
+        shell: pwsh
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-vst3 -G "Visual Studio 17 2022" -A x64 -DP006_BUILD_VST3=ON -DP006_SDK_ROOT="${{ github.workspace }}/external/vst3sdk"
+          cmake --build build/p006-vst3 --config Release --target AWE64_Gold_P006 --parallel 2
+
+      - name: Build 32-bit Windows-95 guest relay without CRT
+        shell: pwsh
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-win95guest -G "Visual Studio 17 2022" -A Win32 -DP006_BUILD_WIN95_GUEST=ON
+          cmake --build build/p006-win95guest --config Release --target P006_Win95_Original_Creative_Relay --parallel 2
+      - name: Build original 86Box WAV audio tail bridge (no fork rebuild)
+        shell: pwsh
+        run: |
+          cmake --build build/p006-bridge --config Release --target P006_WAV_Tail --parallel 2
+      - name: Install 86Box private supervisor beside compiled VST3
+        shell: pwsh
+        run: |
+          $dest = "build/p006-vst3/VST3/Release/AWE64_Gold_P006.vst3/Contents/x86_64-win"
+          if (!(Test-Path "$dest/AWE64_Gold_P006.vst3")) { throw "P006 bundle binary is missing" }
+          Copy-Item -Force "build/p006-bridge/Release/P006Supervisor.exe" "$dest/P006Supervisor.exe"
+          if (!(Test-Path "$dest/P006Supervisor.exe")) { throw "P006 companion executable missing" }
+
+      - name: Upload compiled P006 VST3 and guest EXE (no proprietary data)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P006-Private-86Box-VST3-and-Win95-relay
+          path: |
+            build/p006-vst3/VST3/Release/AWE64_Gold_P006.vst3/**
+            build/p006-win95guest/Release/P006_Win95_Original_Creative_Relay.exe
+            build/p006-bridge/Release/P006_WAV_Tail.exe
+          retention-days: 5
+          if-no-files-found: error
