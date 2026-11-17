@@ -17,7 +17,7 @@ TIMING=(
     'static uint32_t regmask_modified;\n'
     'static int u_pipe_full;\nstatic int decode_delay;\n'
     'static int decode_delay_offset;\n'
-    'static int prefixes;\n'
+    'static int     prefixes;\n'
     'int check_agi(void) {\n'
     '    return (regmask_modified & addr_regmask) & ~REGMASK_IMPL_ESP;\n'
     '}\n'
