@@ -111,9 +111,10 @@ static void p003_v5_guest_caller(char direction, uint16_t port,
         p003_v5_read_ram(addr,&mode,4))valid|=32u;
     if (p003_v5_linear(cpu_state.seg_ds.base,EBX,-19,&addr) &&
         p003_v5_read_ram(addr,&next0d,1))valid|=64u;
-    /* Original LCOD+403E reads DS:[EBX+0x2D], i.e. +45 decimal.
-     * EBX+0x0D is the CURRENT row and must not be substituted. */
-    if (p003_v5_linear(cpu_state.seg_ds.base,EBX,45,&addr) &&
+    /* LOOK-AHEAD to the NEXT scan row: original LCOD+411A does EBX-=32.
+     * Therefore [EBX_next+0x2D] == [EBX_current+0x0D].
+     * The current-row +0x2D would be wrong for this next-row observation. */
+    if (p003_v5_linear(cpu_state.seg_ds.base,EBX,13,&addr) &&
         p003_v5_read_ram(addr,&next2d,1))valid|=128u;
     fprintf(p003_cpu_io_file,
             "# P003_V5_CALLER_FRAME %llu %llu %08X %08X %08X %08X "
