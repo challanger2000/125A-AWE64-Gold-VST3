@@ -20,7 +20,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ninja-build cmake gcc g++ pkg-config \
             libfreetype6-dev libsdl2-dev libpng-dev libsndfile1-dev \
-            libslirp-dev libserialport-dev zlib1g-dev libglib2.0-dev \
+            libslirp-dev libserialport-dev libfaudio-dev zlib1g-dev libglib2.0-dev \
             libx11-dev libxext-dev
       - name: Source-pin original 86Box release and add research-only bridge
         run: |
