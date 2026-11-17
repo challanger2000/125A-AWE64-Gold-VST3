@@ -34,7 +34,7 @@ int main(void) {
  put32(0x141f4,0x1234); /* [allocator EBP-12] */
  put32(0x141ec,0x4567); /* [allocator EBP-20] */
  put32(0x16018,3); /* [saved ESI+0x18] */
- ram[0x16fed]=0x1a; ram[0x1700d]=0x07;
+ ram[0x16fed]=0x1a; ram[0x1700d]=0x66; ram[0x1702d]=0x07; /* +0x0D is NOT +0x2D */
  p003_cpu_io_file=tmpfile();
  if(!p003_cpu_io_file)return 1;
  p003_v5_guest_caller('R',0x0a22,0xc10192a8,33);
