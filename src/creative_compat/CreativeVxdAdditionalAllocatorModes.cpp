@@ -42,12 +42,14 @@ std::uint32_t scoreOfEligible(
 }
 } // namespace
 
-std::optional<OriginalWin95PairSelection>
-candidateOriginalWin95Mode1Pair(
+static std::optional<OriginalWin95PairSelection>
+mode1PairWithSourceStatus(
     const std::array<OriginalWin95AllocatorVoiceSnapshot,
                      kOriginalWin95PhysicalVoiceCapacity>& voices,
     const std::uint16_t capacity,
-    const std::uint32_t driver_mode_count) noexcept {
+    const std::uint32_t driver_mode_count,
+    bool* missing_source) noexcept {
+    if(missing_source)*missing_source=false;
     if(!capacityValid(capacity)||capacity<2u)
         return std::nullopt;
 
@@ -70,7 +72,10 @@ candidateOriginalWin95Mode1Pair(
             previous=kOriginalMaxPairPriority;
             continue;
         }
-        if(!v.complete)return std::nullopt;
+        if(!v.complete) {
+            if(missing_source)*missing_source=true;
+            return std::nullopt;
+        }
 
         std::uint32_t current=scoreOfEligible(v);
         // Original +0x40B3 resets the individual score to zero
@@ -105,14 +110,24 @@ candidateOriginalWin95Mode1Pair(
     }
     return selected;
 }
+std::optional<OriginalWin95PairSelection>
+candidateOriginalWin95Mode1Pair(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& voices,
+    const std::uint16_t capacity,
+    const std::uint32_t driver_mode_count) noexcept {
+    return mode1PairWithSourceStatus(voices,capacity,driver_mode_count,nullptr);
+}
 
-std::optional<OriginalWin95MonoSelection>
-candidateOriginalWin95Mode2Range(
+static std::optional<OriginalWin95MonoSelection>
+mode2RangeWithSourceStatus(
     const std::array<OriginalWin95AllocatorVoiceSnapshot,
                      kOriginalWin95PhysicalVoiceCapacity>& voices,
     const std::uint32_t packed_range,
     const std::uint16_t capacity,
-    const std::uint32_t driver_mode_count) noexcept {
+    const std::uint32_t driver_mode_count,
+    bool* missing_source) noexcept {
+    if(missing_source)*missing_source=false;
     if(!capacityValid(capacity))return std::nullopt;
     const std::uint32_t begin=packed_range&0x000000ffu;
     const std::uint32_t end=std::min(
@@ -141,8 +156,10 @@ candidateOriginalWin95Mode2Range(
         // Require an independently verified CCCA read or a full
         // validated chip snapshot; never infer a missing chip value.
         if(v.internal_key_marker>=0x2000u) {
-            if(!v.complete && !v.ccca_read_verified)
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
                 return std::nullopt;
+            }
             if(finishedSample(v))
                 return OriginalWin95MonoSelection{
                     static_cast<std::uint8_t>(voice),
@@ -151,7 +168,10 @@ candidateOriginalWin95Mode2Range(
         }
         // Eligible marker needs source-observed live VTFT and possibly
         // DCYSUSV, so the original full snapshot contract remains.
-        if(!v.complete)return std::nullopt;
+        if(!v.complete) {
+            if(missing_source)*missing_source=true;
+            return std::nullopt;
+        }
         if(v.internal_key_marker<0x2000u) {
             std::uint32_t score=scoreOfEligible(v);
             // Original +0x423B: marker 0x0FFE + VTFT upper16 zero
@@ -176,6 +196,16 @@ candidateOriginalWin95Mode2Range(
                 OriginalWin95MonoSelectionReason::SampleEndReached,0u};
     }
     return selected;
+}
+std::optional<OriginalWin95MonoSelection>
+candidateOriginalWin95Mode2Range(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& voices,
+    const std::uint32_t packed_range,
+    const std::uint16_t capacity,
+    const std::uint32_t driver_mode_count) noexcept {
+    return mode2RangeWithSourceStatus(
+        voices,packed_range,capacity,driver_mode_count,nullptr);
 }
 
 std::optional<std::array<OriginalWin95VxdPortWrite,4>>
@@ -258,8 +288,10 @@ candidateOriginalWin95VxdDispatchAllModes(
         if (capacity<2u) return result; // original no candidate: 0xFF
         // Do not preflight every voice: the source short-circuits on
         // blocked/forbidden/idle voices before requiring all live reads.
-        const auto chosen=candidateOriginalWin95Mode1Pair(
-            voices,capacity,mode_count);
+        bool missing_source=false;
+        const auto chosen=mode1PairWithSourceStatus(
+            voices,capacity,mode_count,&missing_source);
+        if(missing_source)return std::nullopt;
         if (chosen) {
             result.physical_voices={chosen->first_voice,
                                     chosen->second_voice};
@@ -276,8 +308,11 @@ candidateOriginalWin95VxdDispatchAllModes(
         if (begin>=end) return result; // original no candidate: 0xFF
         // The candidate performs source-ordered lazy read validation;
         // a blocked row must not force a speculative chip snapshot.
-        const auto chosen=candidateOriginalWin95Mode2Range(
-            voices,input.original_mode2_packed_range,capacity,mode_count);
+        bool missing_source=false;
+        const auto chosen=mode2RangeWithSourceStatus(
+            voices,input.original_mode2_packed_range,capacity,mode_count,
+            &missing_source);
+        if(missing_source)return std::nullopt;
         if (chosen) {
             result.physical_voices[0]=chosen->physical_voice;
             result.priority=chosen->priority;
