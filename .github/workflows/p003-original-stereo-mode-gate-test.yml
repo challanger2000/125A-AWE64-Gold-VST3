@@ -1,0 +1,25 @@
+name: P003 original Creative stereo mode gate research tests
+on:
+  push:
+    branches:
+      - research/p003-v5-voice-row-capture
+    paths:
+      - 'tools/p003_audit_original_stereo_mode_gate_private.py'
+      - 'tests/test_p003_original_stereo_mode_gate.py'
+      - '.github/workflows/p003-original-stereo-mode-gate-test.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original_gate_research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deterministic public tests without private original files
+        run: python3 -m unittest discover -s tests -p 'test_p003_original_stereo_mode_gate.py' -v
+      - name: Prevent accidental private source files in the research commit
+        run: |
+          test ! -e 'Original-CPU-IO.trace'
+          test ! -e 'SBAWE.VXD'
+          test ! -e 'awe32.raw'
