@@ -30,6 +30,11 @@ struct OriginalWin95AllocatorVoiceSnapshot {
     // A high marker (>=0x2000) bypasses VTFT/DCYSUSV but still reads
     // CCCA when stored_sample_end!=0; do not imply other reads exist.
     bool ccca_read_verified=false;
+    // Narrow per-register provenance for the genuine source-ordered
+    // LCOD+41E0 VTFT and conditional +4228 DCYSUSV reads.
+    // These flags document ACTUAL verified reads, never synthetic values.
+    bool vtft_read_verified=false;
+    bool dcysusv_read_verified=false;
     bool blocked_when_few_voices=false;
     // Original VXD [+0x4C + voice*0x20 +0x10], bit zero.
     // The meaning of this descriptor/driver bit is NOT asserted.
