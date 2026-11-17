@@ -1,7 +1,7 @@
 #pragma once
 // Portable representation of the verified ORIGINAL Win95 Creative VXD
 // program table at device+0x6CA. Each native row is a normalized view
-// of the original 0x1A-byte record's WORD +0, BYTE +2 and BYTE +3;
+// of the original 0x1A-byte record's WORD +0, BYTE +2, BYTE +3 and WORD +4;
 // source sections/tables are provided separately, never invented here.
 #include <cstdint>
 #include <span>
@@ -12,6 +12,9 @@ struct OriginalPresetTableRow {
     std::uint16_t original_source_marker=0xffffu; // 0/FFFF/valid nonzero
     std::uint8_t original_program_byte=0u;        // VXD entry +0x02
     std::uint8_t original_bank_byte=0u;           // VXD entry +0x03
+    // Original Win95 row +0x04 u16 lookup index, as verified in
+    // the 17-Nov guest capture. Never replace with SF2 PHDR order.
+    std::uint16_t original_child_index=0u;
 };
 struct OriginalProgramBankSlot {
     // Empty: missing bank pointer (original device+0x6CA[index] == 0).
