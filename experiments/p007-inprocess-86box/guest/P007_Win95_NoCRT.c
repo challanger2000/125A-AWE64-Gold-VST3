@@ -156,11 +156,17 @@ static void panic(HMIDIOUT h){
 }
 __declspec(noreturn) void __cdecl P007GuestMain(void){
  HANDLE com=INVALID_HANDLE_VALUE;HMIDIOUT synth=NULL;
- int raw_mode=0,connected=0;
+ int raw_mode=1,connected=0;
  unsigned char bytes[P007_PACKET_SIZE],byte=0;
  unsigned count=0;DWORD got=0;
  log_line("P007 Windows95 original Creative AWE WinMM relay\r\n");
  if(!select_original(&synth))ExitProcess(2);
+ /* PRIVATE P007 GUEST: COM2 is dedicated and is a real emulated 16550 UART
+  * at I/O 0x2F8. Some Win95 VCOMM configurations block inside CreateFileA
+  * forever even though BIOS and original UART are healthy. Prefer direct
+  * original guest x86 IN/OUT from the outset. Never access host COM ports. */
+ uart_init_raw();
+ log_line("P007_COM2_DIRECT_ORIGINAL_16550_READY\r\n");
  for(;;){
   if(!connected){
    if(!raw_mode){
