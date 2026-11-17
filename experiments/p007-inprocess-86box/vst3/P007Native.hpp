@@ -80,6 +80,6 @@ public:
     VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,
         const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
         VSTGUI::VST3Editor*) override;
-    Steinberg::Vst::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
+    Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
 };
 } // namespace p007

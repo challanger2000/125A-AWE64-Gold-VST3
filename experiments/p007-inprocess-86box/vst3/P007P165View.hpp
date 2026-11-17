@@ -7,6 +7,7 @@
 #include "vstgui/lib/controls/cbuttons.h"
 #include "vstgui/lib/controls/ctextlabel.h"
 #include "vstgui/lib/controls/ccontrol.h"
+#include "vstgui/lib/controls/icontrollistener.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include <functional>
 namespace p007 {
