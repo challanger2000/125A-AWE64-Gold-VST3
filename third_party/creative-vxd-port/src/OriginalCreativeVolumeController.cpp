@@ -15,12 +15,12 @@ std::optional<std::uint8_t> original_creative_voice_attenuation(
     // The +0x64BF table lookup is indexed by CC11. The later +0x64E7
     // lookup is indexed by CC7, and applies a separate scaling step.
     // Original signed x86 division is truncated toward zero.
-    if(cc11<=10u)return 255u;
+    if(cc11<=10u)return std::uint8_t{255};
     const auto amplitude=(static_cast<std::int32_t>(amplitude_word)+12)/24;
     const auto weighted=static_cast<std::int32_t>(velocity_level)+
         static_cast<std::int32_t>(r.cc11_table_128[cc11])+amplitude;
     std::int32_t value=weighted*8/3+static_cast<std::int32_t>(r.device_additive);
-    if(value>=255)return 255u;
+    if(value>=255)return std::uint8_t{255};
     if(value<0)value=0;
     if(cc7<127u) {
         value+=((256-value)*static_cast<std::int32_t>(r.cc7_table_128[cc7]))/128;
