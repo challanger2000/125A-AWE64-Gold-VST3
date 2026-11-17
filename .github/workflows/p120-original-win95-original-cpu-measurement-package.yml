@@ -1,0 +1,187 @@
+name: P120 original Windows95 Pentium CPU/EMU8000 one-click original 86Box package
+on:
+  push:
+    branches: [research/p120-oneclick-original-win95-cycle-capture]
+    paths:
+      - 'tools/p120_*'
+      - 'tools/P120-*'
+      - 'tools/START-P120-*'
+      - 'tests/test_p120_*'
+      - '.github/workflows/p120-original-win95-original-cpu-measurement-package.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: P120 original-VM input separation, audit tests, and negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p120_oneclick_owner_capture.py' -v
+          python -m unittest discover -s tests -p 'test_p119_original_pending_jit_cycles.py' -v
+          python tools/p119_validate_original_deferred_jit_cycles_private.py --selftest
+          python tools/p118_join_original_runtime_opcode_site_private.py --selftest
+          python -m py_compile tools/p120_oneclick_owner_capture.py
+      - name: Verify original P003/P115 and P107–P119 untouched chip copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py --original-root third_party/86box-awe32 --disposable-root p120-source-contract
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c p120-source-contract/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c p120-source-contract/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+          echo 'P120_ORIGINAL_SOURCE_COPY_AND_PROBE_CHAIN_PASS'
+
+  original-win95-stress-guest:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install genuine original Pentium x86 Win95 crosscompiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Build native Pentium instruction set Win95 Creative 3-bank stress guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p p120-win95-guest
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 -DP003_ORIGINAL_MODE_STRESS=1 -march=pentium -mtune=pentium -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 -Wl,--disable-dynamicbase,--disable-nxcompat -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 -o p120-win95-guest/P002RAM.EXE src/win95/p002_original_creative_ram_bank_capture.c -lwinmm -lkernel32 -lgcc
+          i686-w64-mingw32-objdump -p p120-win95-guest/P002RAM.EXE > p120-win95-guest/imports.txt
+          grep -Eiq 'DLL Name:[[:space:]]+KERNEL32[.]DLL' p120-win95-guest/imports.txt
+          grep -Eiq 'DLL Name:[[:space:]]+WINMM[.]DLL' p120-win95-guest/imports.txt
+          if grep -Ei 'DLL Name:' p120-win95-guest/imports.txt | grep -Eiv 'KERNEL32|WINMM'; then echo 'P120 NO-GO unexpected Win95 import';exit 1;fi
+          i686-w64-mingw32-objdump -d p120-win95-guest/P002RAM.EXE > p120-win95-guest/disassembly.txt
+          if grep -Eiq '[[:space:]]cmov[a-z]*[[:space:]]' p120-win95-guest/disassembly.txt; then echo 'P120 NO-GO newer-than-Pentium';exit 1;fi
+          sha256sum p120-win95-guest/P002RAM.EXE > p120-win95-guest/P002RAM.sha256
+          echo 'P120_SOURCE_ORIGINAL_WIN95_GUEST_PE32_BUILD_PASS original_Creative_guest_executed=NO'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P120-original-Win95-Creative-Pentium-guest
+          path: p120-win95-guest/P002RAM.EXE
+          retention-days: 14
+          if-no-files-found: error
+
+  original-86box-win64-build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: msys2/setup-msys2@v2
+        with:
+          release: true
+          update: true
+          msystem: UCRT64
+          install: zip
+          pacboy: >-
+            ninja:p
+            cmake:p
+            gcc:p
+            pkgconf:p
+            freetype:p
+            SDL2:p
+            zlib:p
+            libpng:p
+            openal:p
+            rtmidi:p
+            libslirp:p
+            fluidsynth:p
+            libserialport:p
+            qt5-static:p
+            vulkan-headers:p
+            llvm-openmp:p
+      - name: Stage pinned original 86Box plus P003/P115/P107-P119 CPU hooks
+        shell: pwsh
+        run: |
+          python tools/p117_stage_original_p54c_epoch_probe.py --original-root third_party/86box-awe32 --disposable-root p120-original-fork
+          if ($LASTEXITCODE -ne 0) { throw 'P120 original source stage failed' }
+          $before = (Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          $after = (Get-FileHash p120-original-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          if ($before -ne $after) { throw 'P120 original EMU8000 chip altered' }
+          if (git -C third_party/86box-awe32 status --porcelain) { throw 'P120 original submodule modified' }
+          Write-Host 'P120_ORIGINAL_86BOX_WINDOWS_SOURCE_STAGED_PASS'
+      - name: Configure original Windows x64 86Box regular old dynarec GUI
+        working-directory: p120-original-fork
+        run: cmake -S . -B build --preset regular --toolchain ./cmake/flags-gcc-x86_64.cmake -D QT=on -D NEW_DYNAREC=OFF
+      - name: Compile original 86Box with actual P119 JIT callbacks
+        working-directory: p120-original-fork
+        run: cmake --build build --parallel 4
+      - name: Install original Windows 86Box executable and required runtime
+        working-directory: p120-original-fork
+        run: |
+          cmake --install build
+          ls -lah build/artifacts/
+          test -f build/artifacts/86Box.exe
+          sha256sum build/artifacts/86Box.exe > build/artifacts/P120-86Box.sha256
+          echo 'P120_ACTUAL_ORIGINAL_WINDOWS_86BOX_OLD_P54C_JIT_BUILD_PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P120-instrumented-original-86Box-Windows64
+          path: p120-original-fork/build/artifacts/**
+          retention-days: 14
+          if-no-files-found: error
+
+  windows-one-click-package:
+    needs: [source-contract, original-win95-stress-guest, original-86box-win64-build]
+    runs-on: windows-2022
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build standalone P120 original capture host without Python dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pyinstaller==6.16.0
+          python -m PyInstaller --noconfirm --clean --onefile --console --paths tools --name 125A-P120-CAPTURE tools/p120_oneclick_owner_capture.py
+          & "dist/125A-P120-CAPTURE.exe" --help
+          if ($LASTEXITCODE -ne 0) { throw 'P120 self-contained Windows host smoke test NO-GO' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: P120-original-Win95-Creative-Pentium-guest
+          path: P120-guest
+      - uses: actions/download-artifact@v4
+        with:
+          name: P120-instrumented-original-86Box-Windows64
+          path: P120-emulator
+      - name: Compose one-click ZIP excluding all original Win95, Creative, ROM, SF2
+        shell: pwsh
+        run: |
+          $folder = "P120-Original-CPU-Ein-Klick"
+          New-Item -ItemType Directory -Force $folder | Out-Null
+          Copy-Item dist/125A-P120-CAPTURE.exe $folder
+          Copy-Item P120-guest/P002RAM.EXE $folder
+          Copy-Item P120-emulator/86Box.exe $folder
+          Copy-Item tools/START-P120-Original-CPU.bat $folder
+          Copy-Item tools/P120-START-HIER.txt $folder
+          Get-ChildItem P120-emulator -File -Filter *.dll | Copy-Item -Destination $folder
+          foreach ($sub in @('platforms','styles','imageformats')) {
+            if (Test-Path "P120-emulator/$sub") { Copy-Item -Recurse "P120-emulator/$sub" "$folder/$sub" }
+          }
+          Get-FileHash "$folder/*.exe" | ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path.Split('\')[-1])" } | Set-Content -Encoding ascii "$folder/SHA256SUMS.txt"
+          $forbidden = Get-ChildItem $folder -Recurse -File | Where-Object { $_.Extension -in @('.rom','.raw','.img','.vxd','.sf2') }
+          if ($forbidden) { throw 'P120 product-source ZIP contains proprietary media' }
+          Compress-Archive -Path "$folder/*" -DestinationPath "125A-P120-Original-Win95-CPU-Ein-Klick.zip"
+          Write-Host 'P120_ORIGINAL_WIN95_P54C_ONE_CLICK_PACKAGE_BUILT; ORIGINAL_GUEST_EXECUTED=NO'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 125A-P120-Original-Win95-CPU-Ein-Klick-Paket
+          path: 125A-P120-Original-Win95-CPU-Ein-Klick.zip
+          retention-days: 14
+          if-no-files-found: error
