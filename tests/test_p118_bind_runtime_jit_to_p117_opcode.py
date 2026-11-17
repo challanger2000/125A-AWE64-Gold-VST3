@@ -67,7 +67,7 @@ class TestOriginalJitSiteBinding(unittest.TestCase):
             p118.patch(self.pristine,SOURCE_SHAPED.replace(
                 b'static uint64_t p117_selected_seq;',
                 b''))
-        with self.assertRaisesRegex(ValueError,'anchor absent/duplicated'):
+        with self.assertRaisesRegex(ValueError,'cannot prove P117 capture'):
             p118.patch(self.pristine,SOURCE_SHAPED.replace(
                 b'    p117_capture_original_selected(block,old_pc,opcode,fetchdat,op_32);\n',
                 b'    p117_capture_original_selected(block,old_pc,opcode,fetchdat,op_32);\n'*2))
