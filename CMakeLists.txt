@@ -185,6 +185,16 @@ target_link_libraries(awe64_p005_original_cpu_audio_timeline_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p005_cpu_block_to_original_emu_audio_frame_timeline
     COMMAND awe64_p005_original_cpu_audio_timeline_test)
+# Original old-Dynarec semantics: SOURCE TRANSLATION is not JIT execution.
+# Reused block generations preserve compile-time U/V/AGI costs.
+add_executable(awe64_p005_original_compiled_block_clock_test
+    tests/p005_original_compiled_block_clock.cpp)
+target_include_directories(awe64_p005_original_compiled_block_clock_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_compiled_block_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_source_p54c_compile_epoch_jit_cached_execution
+    COMMAND awe64_p005_original_compiled_block_clock_test)
 
 
 # Adversarial test for the *actual* private Creative VST3 bank state
