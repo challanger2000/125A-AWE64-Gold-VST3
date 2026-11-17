@@ -50,7 +50,9 @@ class P119Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'already patched'):
             p119.patch(self.acc,a,self.jit,j)
         with self.assertRaisesRegex(ValueError,'anchor absent/duplicated'):
-            p119.patch(self.acc,self.acc.replace(
+            # Windows Git checkouts can contain CRLF; mutate canonical LF
+            # bytes, otherwise a fake negative never changes anything.
+            p119.patch(self.acc,self.acc.replace(b'\r\n',b'\n').replace(
                 b'void\ncodegen_accumulate(int acc_reg, int delta)\n',
                 b'void\nnot_codegen_accumulate(int acc_reg, int delta)\n'),
                 self.jit,self.original_p118)
