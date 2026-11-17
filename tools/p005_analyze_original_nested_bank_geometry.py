@@ -65,6 +65,10 @@ def analyze(primary:bytes, nested:bytes)->dict:
         struct.unpack_from("<H",rows,i*26)[0]
         for i in range(len(rows)//26)
     ]
+    program_group_spans=[
+        last-first for first,last
+        in zip(program_indices,program_indices[1:])
+    ]
     index_count=len(regions[0])//4
     check(len(regions[0])%4==0 and index_count>=2,
           "nested program lookup array is not u32 aligned")
@@ -172,6 +176,11 @@ def analyze(primary:bytes, nested:bytes)->dict:
             "last_original_sentinel_index":program_indices[-1],
             "nested_u32_index_count":index_count,
             "strictly_increasing":True,
+            "total_original_preset_groups":sum(program_group_spans),
+            "group_count_per_program_distribution":{
+                str(n):program_group_spans.count(n)
+                for n in sorted(set(program_group_spans))
+            },
             "relation":"EXACT_MATCH"
         },
         "observed_structural_relations":audit,
