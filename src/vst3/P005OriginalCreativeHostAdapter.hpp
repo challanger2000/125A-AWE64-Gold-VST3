@@ -7,6 +7,8 @@
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
 #include <cstdint>
+#include <cstddef>
+#include <span>
 #include <memory>
 #include <optional>
 namespace awe64::vst3 {
@@ -127,6 +129,78 @@ public:
             return false;
         }
         ownedCatalog_=&catalog;
+        return true;
+    }
+    // Non-RT native bridge from a separately attested ORIGINAL Win95
+    // 0x1592-byte device image to the SAME device used by the original
+    // MIDI/allocator/RAM runtime. No parallel synthetic voice state.
+    //
+    // Source offsets: device+0x42, stride 0x20, 32 physical voices;
+    // device+0x06 is physical capacity; +0x18 is the mutable mode
+    // count. All values are copied from the actual owner snapshot, not
+    // inferred from a preset, PHDR or the separate 30-voice helper.
+    // This does NOT reconstruct the 16 original MIDI channel rows or
+    // attest their history, and must not authorize product startup
+    // without a separately verified pre-note channel baseline.
+    [[nodiscard]] bool activateOwnedOriginalCatalogWithDeviceNonRealtime(
+        ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
+        std::span<const std::uint8_t> originalDeviceImage,
+        bool independentGuestSessionAttested) noexcept {
+        constexpr std::size_t imageBytes=0x1592u;
+        constexpr std::size_t voiceStart=0x42u;
+        constexpr std::size_t voiceStride=0x20u;
+        constexpr std::size_t nVoices=awe64::original_vxd::physical_voices;
+        static_assert(voiceStart+nVoices*voiceStride<=imageBytes);
+        if(!independentGuestSessionAttested ||
+           originalDeviceImage.size()!=imageBytes || sourceBound())
+            return false;
+        const auto read16=[originalDeviceImage](std::size_t offset) noexcept {
+            return static_cast<std::uint16_t>(
+                std::uint16_t{originalDeviceImage[offset]} |
+                (std::uint16_t{originalDeviceImage[offset+1u]}<<8u));
+        };
+        const auto read32=[&read16](std::size_t offset) noexcept {
+            return std::uint32_t{read16(offset)} |
+                   (std::uint32_t{read16(offset+2u)}<<16u);
+        };
+        if(read32(0x158eu)!=0x4d474d31u ||
+           read16(0x06u)!=nVoices)
+            return false;
+        awe64::original_vxd::DeviceState restored{};
+        restored.physical_capacity=read16(0x06u);
+        restored.mode_count=read32(0x18u);
+        restored.original_pan_device_mode=read16(0x12u);
+        restored.original_pan_device_mode_verified=true;
+        for(std::size_t i=0u;i<nVoices;++i) {
+            const auto off=voiceStart+i*voiceStride;
+            auto& v=restored.voices[i];
+            v.key_marker=read16(off);
+            v.release_sample_end=read32(off+0x06u);
+            v.sample_end=read32(off+0x0au);
+            v.original_pitch_base=read16(off+0x0eu);
+            v.original_pitch_base_verified=true;
+            v.original_amplitude_word=
+                static_cast<std::int16_t>(read16(off+0x04u));
+            v.original_modulation_word_signed=
+                static_cast<std::int8_t>(originalDeviceImage[off+0x14u]);
+            v.original_modulation_word_verified=true;
+            v.modulation_release=originalDeviceImage[off+0x15u];
+            v.volume_release=originalDeviceImage[off+0x16u];
+            v.blocked=originalDeviceImage[off+0x17u]!=0u;
+            v.pair_penalty=(originalDeviceImage[off+0x1au]&1u)!=0u;
+            v.original_pan_base=originalDeviceImage[off+0x12u];
+            v.pan_target=originalDeviceImage[off+0x18u];
+            v.pan_current=originalDeviceImage[off+0x19u];
+            v.pan_state_verified=true;
+            // Original voice+0x02 is NOT a verified volume lookup
+            // result. Never assert volume_terms_verified from raw bytes.
+        }
+        if(!activateOwnedOriginalCatalogNonRealtime(
+               chip,catalog,independentGuestSessionAttested))
+            return false;
+        // scratch.device already points to this exact stable member.
+        // No processing can run until activation returns.
+        runtime_->midi.device=restored;
         return true;
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
