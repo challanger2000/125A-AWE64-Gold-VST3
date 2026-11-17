@@ -156,6 +156,41 @@ int main(){
     CHECK(s && s->physical_voice==10u &&
           s->reason==OriginalWin95MonoSelectionReason::CompletelyIdle);
     voices[10].volume_target_hi16=300u;
+    // Original +41D9/+41DE and +424F/+4252: high marker with zero
+    // cached sample-end never reads the physical EMU8000 registers.
+    // An incomplete CHIP snapshot is therefore legal for that row.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,
+                   kOriginalWin95PhysicalVoiceCapacity> lazy{};
+        lazy[0].internal_key_marker=0x2000u;
+        lazy[0].stored_sample_end=0u;
+        lazy[0].complete=false;
+        lazy[1].internal_key_marker=0x0ffeu;
+        lazy[1].stored_sample_end=0u;
+        lazy[1].volume_target_hi16=0u;
+        lazy[1].complete=true;
+        const auto selected=candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u);
+        CHECK(selected && selected->physical_voice==1u);
+        CHECK(selected->reason==
+              OriginalWin95MonoSelectionReason::CompletelyIdle);
+        // Nonzero sample end does need actual CCCA and cannot accept
+        // that same unverified live-chip row.
+        lazy[0].stored_sample_end=1u;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u));
+        // Low marker still requires live VTFT even when end is zero.
+        lazy[0].stored_sample_end=0u;
+        lazy[0].internal_key_marker=0x0ffeu;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u));
+        // Low-mode gate also bypasses blocked high-marker row; a
+        // nonzero sample-end does not override the original skip.
+        lazy[0].blocked_when_few_voices=true;
+        lazy[0].stored_sample_end=7u;
+        CHECK(candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,2u)->physical_voice==1u);
+    }
     // Mode2 sample-end early return, even for marker >= 0x2000.
     voices[10].internal_key_marker=0x2000u;
     voices[10].stored_sample_end=20u;
