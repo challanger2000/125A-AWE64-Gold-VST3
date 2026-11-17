@@ -1,0 +1,108 @@
+name: P003 V5 and Dynarec block clock original 86Box Windows build
+on:
+  push:
+    branches:
+      - research/p003-v5-voice-row-capture
+    paths:
+      - '.github/workflows/p003-v5-dynarec-clock-windows-build.yml'
+      - 'tools/instrument_p003_v5_voice_rows.py'
+      - 'tools/instrument_p003_86box_dynarec_clock.py'
+      - 'tests/test_p003_dynarec_instrument.py'
+      - 'tests/test_p003_v5_ci_smoke.py'
+      - 'tests/test_p003_v5_caller_frame_runtime.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  v5_windows_fork:
+    name: Original EMU8000, original voice state and source CPU block path
+    runs-on: windows-2022
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prepare the pinned 86Box compiler
+        uses: msys2/setup-msys2@v2
+        with:
+          release: true
+          update: true
+          msystem: UCRT64
+          install: zip
+          pacboy: >-
+            ninja:p
+            cmake:p
+            gcc:p
+            pkgconf:p
+            freetype:p
+            SDL2:p
+            zlib:p
+            libpng:p
+            openal:p
+            rtmidi:p
+            libslirp:p
+            fluidsynth:p
+            libserialport:p
+            qt5-static:p
+            vulkan-headers:p
+            llvm-openmp:p
+      - name: Verify original fork and create isolated V5 research copy
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V4 source tests failed' }
+          python -m unittest discover -s tests -p 'test_p003_v5_ci_smoke.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V5 source smoke tests failed' }
+          python -m unittest discover -s tests -p 'test_p003_v5_caller_frame_runtime.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'V5 parent frame C runtime tests failed' }
+          python -m unittest discover -s tests -p 'test_p003_dynarec_instrument.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Dynarec source instrumentation tests failed' }
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --verify-only
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned src/io.c mismatch' }
+          New-Item -ItemType Directory -Path p003-v5-build-source -Force | Out-Null
+          Copy-Item -Path 'third_party/86box-awe32/*' -Destination 'p003-v5-build-source' -Recurse -Force
+          $before = (Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          python tools/p003_instrument_86box_io.py --original-io-c third_party/86box-awe32/src/io.c --output-io-c p003-v5-build-source/src/io.v4.c
+          if ($LASTEXITCODE -ne 0) { throw 'V4 instrumentation failed' }
+          python tools/instrument_p003_v5_voice_rows.py --instrumented-v4-io-c p003-v5-build-source/src/io.v4.c --output-v5-io-c p003-v5-build-source/src/io.v5.c
+          if ($LASTEXITCODE -ne 0) { throw 'V5 instrumentation failed' }
+          # CPU observer patches the exact pinned 86Box CPU source, in the
+          # cloned build tree only. No changes to guest, VXD or EMU8000 DSP.
+          python tools/instrument_p003_86box_dynarec_clock.py --original-cpu-c third_party/86box-awe32/src/cpu/386_dynarec.c --verify-only
+          if ($LASTEXITCODE -ne 0) { throw 'CPU source pin mismatch' }
+          python tools/instrument_p003_86box_dynarec_clock.py --original-cpu-c third_party/86box-awe32/src/cpu/386_dynarec.c --output-cpu-c p003-v5-build-source/src/cpu/386_dynarec.p003.c
+          if ($LASTEXITCODE -ne 0) { throw 'CPU-only instrumentation failed' }
+          Move-Item -Path p003-v5-build-source/src/cpu/386_dynarec.p003.c -Destination p003-v5-build-source/src/cpu/386_dynarec.c -Force
+          Move-Item -Path p003-v5-build-source/src/io.v5.c -Destination p003-v5-build-source/src/io.c -Force
+          Remove-Item p003-v5-build-source/src/io.v4.c
+          $after = (Get-FileHash p003-v5-build-source/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
+          if ($before -ne $after) { throw 'Original EMU8000 core changed' }
+          # OpenSSL's static UCRT64 libcrypto uses BCryptGenRandom; link
+          # the Windows bcrypt import library AFTER the crypto dependency.
+          # Touch only the copied CMake build script, never the pinned fork.
+          Add-Content -Path 'p003-v5-build-source/src/CMakeLists.txt' -Value 'target_link_libraries(86Box bcrypt)'
+          Write-Host "P003_V5_ORIGINAL_EMU8000_SOURCE_UNCHANGED sha256=$after"
+      - name: Configure original 86Box for Windows
+        working-directory: p003-v5-build-source
+        run: >-
+          cmake -S . -B build --preset regular
+          --toolchain ./cmake/flags-gcc-x86_64.cmake
+          -D QT=on
+      - name: Compile actual instrumented Windows emulator
+        working-directory: p003-v5-build-source
+        run: cmake --build build --parallel 4
+      - name: Verify built executable contains the V5 instrumentation
+        working-directory: p003-v5-build-source
+        run: |
+          cmake --install build
+          python -c "from pathlib import Path; p=Path('build/artifacts/86Box.exe'); b=p.read_bytes(); assert b'P003_V5_ROW_STATE' in b, 'missing compiled V5 hook'; assert b'P003_DYNBLK_BLOCK_CLOCK_V1' in b, 'missing compiled CPU observer'; assert b'AWE64_P003_DYNAREC_BLOCK_TRACE' in b; print('P003_V5_DYNBLK_WINDOWS_PE_HOOK_CONFIRMED size='+str(len(b)))"
+          sha256sum build/artifacts/86Box.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P003-V5-86Box-original-EMU8000-and-DynarecBlock-Win64
+          path: p003-v5-build-source/build/artifacts/**
+          retention-days: 3
+          if-no-files-found: error
