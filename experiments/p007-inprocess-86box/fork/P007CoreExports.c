@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <86box/86box.h>
+#include <86box/machine.h>
+#include <86box/video.h>
+/* Configuration is owned by the original 86Box source. */
+extern int gfxcard[];
 #include "P007CoreABI.h"
 #ifdef _WIN32
 #define P007_EXPORT __declspec(dllexport)
@@ -75,7 +79,11 @@ P007_EXPORT int p007_core_guest_boot(void) {
     /* No SDL video/window/audio driver is started in the host DAW. */
     if (SDL_Init(0) != 0) return -3;
     if (!pc_init_roms()) return -4;
-    if (!pc_init_modules()) return -5;
+    /* 86Box pc_init_modules() can call exit(-1) for an unavailable
+       primary machine or video card. Never kill the DAW host. */
+    if (machine < 0 || !machine_available(machine)) return -5;
+    if (gfxcard[0] < 0 || !video_card_available(gfxcard[0])) return -6;
+    if (!pc_init_modules()) return -7;
     pc_reset_hard_init();
     s_guest_stage = 1;
     return 1;
