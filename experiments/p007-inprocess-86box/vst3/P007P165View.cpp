@@ -7,6 +7,7 @@
 #include "vstgui/lib/cfont.h"
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -60,6 +61,56 @@ private:
 };
 
 
+class BrowserPanelBacking final : public CView {
+public:
+    explicit BrowserPanelBacking(const CRect& r):CView(r) {setMouseEnabled(false);}
+    void draw(CDrawContext* c) override {
+        // Cut both lower corners away from the PCB's gold screw heads.
+        auto* border=c->createGraphicsPath();
+        if(border) {
+            border->beginSubpath({16,2});
+            for(const CPoint p:std::initializer_list<CPoint>{
+                {984,2},{984,319},{969,318},{957,321},{948,329},{944,341},{944,356},
+                {58,356},{58,343},{55,332},{47,324},{32,318},{20,321},{16,326}
+            }) border->addLine(p);
+            border->closeSubpath();
+        }
+        if(border) {
+            // Keep the whole PCB visible at the same overall opacity as P160.
+            // The muted gold edge is shared with the SYNTH control islands.
+            c->setFillColor(CColor(7,11,16,153));
+            c->drawGraphicsPath(border,CDrawContext::kPathFilled);
+            c->setFrameColor(CColor(190,131,55,220));
+            c->setLineWidth(1.);
+            c->drawGraphicsPath(border,CDrawContext::kPathStroked);
+            border->forget();
+        }
+        // P163: the rail's last button and BOTH recessed gold-field right
+        // edges finish at X=974 (10px inside the X=984 outer bezel).
+        // Preserve 394px width of the bank and search control surfaces.
+        // Bezel views remain non-interactive; input controls are unchanged.
+        const auto recessed=[&](const CRect& r,CCoord radius,
+                                 CColor backing,CColor edge) {
+            auto* p=c->createRoundRectGraphicsPath(r,radius);
+            if(!p)return;
+            c->setFillColor(backing);
+            c->drawGraphicsPath(p,CDrawContext::kPathFilled);
+            c->setFrameColor(edge);
+            c->setLineWidth(1.3);
+            c->drawGraphicsPath(p,CDrawContext::kPathStroked);
+            p->forget();
+            c->setFrameColor(CColor(250,204,126,195));
+            c->setLineWidth(1.);
+            c->drawLine({r.left+radius+3.,r.top+2.},
+                        {r.right-radius-3.,r.top+2.});
+        };
+        recessed({580,15,974,52},6.,CColor(11,13,15,230),
+                 CColor(192,132,58,245)); // search
+        recessed({24,63,974,349},7.,CColor(11,14,16,242),
+                 CColor(191,136,65,240)); // program table
+        setDirty(false);
+    }
+};
 class GoldButton final : public CTextButton {
 public:
     GoldButton(const CRect& r,IControlListener* listener,int tag,
@@ -299,6 +350,47 @@ private:
     bool dragging_=false;
     CCoord lastX_=0.,lastY_=0.;
 };
+// P165 photograph stays untouched. Original P165 gold/black translucent
+// island is redrawn ONLY behind the still-functional host master knob.
+// Empty AMP/FILTER/FX islands are not painted as if they were operational.
+class MasterHardwareBacking final : public CView {
+public:
+    explicit MasterHardwareBacking(const CRect& r):CView(r){setMouseEnabled(false);}
+    void draw(CDrawContext* c) override {
+        auto* p=c->createGraphicsPath();
+        if(!p)return;
+        p->beginSubpath({784,288});
+        for(const CPoint q:std::array<CPoint,9>{{
+            {984,288},{984,605},{969,604},{957,607},
+            {948,615},{944,628},{944,646},{784,646},{784,288}
+        }})p->addLine(q);
+        p->closeSubpath();
+        c->setFillColor(CColor(7,11,16,153));
+        c->drawGraphicsPath(p,CDrawContext::kPathFilled);
+        c->setFrameColor(CColor(190,131,55,226));
+        c->setLineWidth(1.);
+        c->drawGraphicsPath(p,CDrawContext::kPathStroked);
+        p->forget();
+        setDirty(false);
+    }
+};
+class PendingCreativeBacking final : public CView {
+public:
+    explicit PendingCreativeBacking(const CRect& r):CView(r){setMouseEnabled(false);}
+    void draw(CDrawContext* c) override {
+        CRect bg{112,608,774,642};
+        if(auto* p=c->createRoundRectGraphicsPath(bg,5.)){
+            c->setFillColor(CColor(7,11,16,225));
+            c->drawGraphicsPath(p,CDrawContext::kPathFilled);
+            c->setFrameColor(CColor(190,131,55,190));
+            c->setLineWidth(1.);
+            c->drawGraphicsPath(p,CDrawContext::kPathStroked);
+            p->forget();
+        }
+        setDirty(false);
+    }
+};
+
 } // namespace
 
 P165View::P165View(const CRect& rect,
@@ -336,6 +428,14 @@ P165View::P165View(const CRect& rect,
     auto* next=new GoldButton({561,234,601,273},this,kNext,">",201.);
     prev->setFont(kNormalFont);next->setFont(kNormalFont);
     addView(prev);addView(next);
+    synthButton_=new GoldButton({610,234,703,273},this,kSynthPage,"SYNTH",246.);
+    browserButton_=new GoldButton({712,234,811,273},this,kBrowserPage,"BROWSER",342.);
+    synthButton_->setStyle(CTextButton::kOnOffStyle);
+    browserButton_->setStyle(CTextButton::kOnOffStyle);
+    synthButton_->setFont(kNormalFont);
+    browserButton_->setFont(kNormalFont);
+    addView(synthButton_);addView(browserButton_);
+    addView(new MasterHardwareBacking({0,0,1000,708}));
     // Use the original P165 hardware master knob, not an invented design.
     auto* title=makeLabel({810,308,970,333},"MASTER VOLUME",true);
     title->setHoriAlign(kCenterText);
@@ -349,10 +449,49 @@ P165View::P165View(const CRect& rect,
     // AWE envelope/filter and FX send controls require the original Creative
     // Win95 register/WinMM control bridge. Do not fake their functionality.
     // The old 125A custom synth DSP and preset engine must NOT be reused.
-    auto* pending=makeLabel({28,610,968,638},
-        "ORIGINAL CREATIVE: AMP / FILTER / REVERB / CHORUS - ANBINDUNG AUSSTEHEND",true);
+    addView(new PendingCreativeBacking({0,0,1000,708}));
+    auto* pending=makeLabel({120,612,766,637},
+        "AMP / FILTER / FX: ORIGINALE CREATIVE-ANBINDUNG NOCH OFFEN",true);
     pending->setFontColor(CColor(208,165,94,255));
     pending->setHoriAlign(kCenterText);
+    // Original P165 browser sheet covers only the lower half of the
+    // photograph. The existing top LCD, bank and program rail remain live.
+    browserPanel_=new CViewContainer({0,287,1000,647});
+    browserPanel_->setTransparency(true);
+    addView(browserPanel_);
+    browserPanel_->addView(new BrowserPanelBacking({0,0,1000,360}));
+    auto* title=new CTextLabel({30,14,558,50},
+        "MIDI-PROGRAMME 000-127  /  NAME NOCH NICHT VOM CREATIVE-GAST GELIEFERT");
+    title->setTransparency(true);
+    title->setFont(kNormalFontSmall);
+    title->setFontColor(CColor(228,184,112,255));
+    browserPanel_->addView(title);
+    browserSearch_=new CTextEdit({588,17,968,50},this,kSearch,"");
+    browserSearch_->setPlaceholderString("Programmnummer suchen...");
+    browserSearch_->setImmediateTextChange(true);
+    browserSearch_->setBackColor(CColor(18,19,18,255));
+    browserSearch_->setFontColor(CColor(244,204,136,255));
+    browserSearch_->setFrameColor(CColor(18,19,18,255));
+    browserSearch_->setFrameWidth(0.);
+    browserSearch_->setTextInset({11.,0.});
+    browserPanel_->addView(browserSearch_);
+    browserList_=new CDataBrowser({28,67,970,344},this,
+        CScrollView::kVerticalScrollbar|CScrollView::kAutoHideScrollbars);
+    browserList_->setBackgroundColor(CColor(18,21,22,255));
+    if(auto* sb=browserList_->getVerticalScrollbar()){
+        sb->setScrollerColor(CColor(181,129,66,255));
+        sb->setBackgroundColor(CColor(17,19,20,255));
+        sb->setFrameColor(CColor(114,80,43,255));
+    }
+    browserList_->setWantsFocus(true);
+    browserPanel_->addView(browserList_);
+    browserHelp_=new CTextLabel({36,90,960,132},
+        "Keine passenden MIDI-Programmnummern.");
+    browserHelp_->setTransparency(true);
+    browserHelp_->setFontColor(CColor(217,168,91,255));
+    browserPanel_->addView(browserHelp_);
+    rebuildPrograms();
+    setPage(0);
     setWantsIdle(true);
     onIdle();
 }
@@ -403,6 +542,17 @@ void P165View::valueChanged(CControl* control) {
         case kMaster:
             sendValue(kMaster,master_->getValueNormalized(),masterEditing_);
             break;
+        case kSynthPage:
+            if(control->getValue()>0.5f)setPage(0);
+            else setPage(page_);
+            break;
+        case kBrowserPage:
+            if(control->getValue()>0.5f)setPage(1);
+            else setPage(page_);
+            break;
+        case kSearch:
+            rebuildPrograms();
+            break;
         default:break;
     }
     onIdle();
@@ -424,6 +574,7 @@ void P165View::onIdle(){
             programText_->setText(text);
         }
         lastBank_=bank;lastProgram_=program;
+        syncBrowserSelection(program);
     }
     if(volume!=lastMaster_){
         if(master_)master_->setValueNormalized(float(volume)*.01f);
@@ -447,4 +598,104 @@ void P165View::onIdle(){
     }
     CViewContainer::onIdle();
 }
+void P165View::setPage(int page) {
+    page_=std::clamp(page,0,1);
+    if(browserPanel_)browserPanel_->setVisible(page_==1);
+    if(synthButton_){
+        synthButton_->setValue(page_==0?1.f:0.f);
+        synthButton_->invalid();
+    }
+    if(browserButton_){
+        browserButton_->setValue(page_==1?1.f:0.f);
+        browserButton_->invalid();
+    }
+}
+void P165View::rebuildPrograms() {
+    std::string query=browserSearch_
+        ?std::string(browserSearch_->getText().data()):std::string();
+    std::transform(query.begin(),query.end(),query.begin(),
+        [](unsigned char c){return char(std::tolower(c));});
+    visiblePrograms_.clear();
+    for(int program=0;program<128;++program){
+        char label[16]{};
+        std::snprintf(label,sizeof(label),"%03d",program);
+        const std::string num(label);
+        // Only true original guest numerical program IDs are claimed.
+        // An SF2 preset name would require actual guest bank metadata;
+        // don't substitute guessed GM or previous 125A DSP preset labels.
+        if(query.empty() || num.find(query)!=std::string::npos ||
+           std::to_string(program).find(query)!=std::string::npos ||
+           std::string("midi").find(query)!=std::string::npos)
+            visiblePrograms_.push_back(program);
+    }
+    if(browserList_)browserList_->recalculateLayout();
+    if(browserHelp_)browserHelp_->setVisible(visiblePrograms_.empty());
+    const int current=controller_?std::clamp(
+        int(std::lround(controller_->getParamNormalized(kProgram)*127.)),0,127):0;
+    syncBrowserSelection(current);
+}
+void P165View::syncBrowserSelection(int program) {
+    if(!browserList_)return;
+    int row=-1;
+    for(size_t i=0;i<visiblePrograms_.size();++i)
+        if(visiblePrograms_[i]==program){row=int(i);break;}
+    syncingRows_=true;
+    if(row>=0)browserList_->setSelectedRow(row,true);
+    else browserList_->unselectAll();
+    syncingRows_=false;
+}
+int32_t P165View::dbGetNumRows(CDataBrowser*) {
+    return static_cast<int32_t>(visiblePrograms_.size());
+}
+int32_t P165View::dbGetNumColumns(CDataBrowser*) {return 1;}
+CCoord P165View::dbGetRowHeight(CDataBrowser*) {return 27.;}
+CCoord P165View::dbGetCurrentColumnWidth(int32_t,CDataBrowser* browser) {
+    if(!browser)return 942.;
+    const CCoord width=browser->getVisibleClientRect().getWidth();
+    return width>0. ? width : 942.;
+}
+void P165View::dbDrawCell(CDrawContext* c,const CRect& r,
+                          int32_t row,int32_t,int32_t flags,CDataBrowser*) {
+    if(row<0||size_t(row)>=visiblePrograms_.size())return;
+    const bool selected=(flags&IDataBrowserDelegate::kRowSelected)!=0;
+    c->setFillColor(selected ? CColor(78,56,27,255)
+                            : (row%2 ? CColor(21,23,22,255)
+                                     : CColor(17,20,20,255)));
+    c->drawRect(r,kDrawFilled);
+    if(selected){
+        c->setFillColor(CColor(235,178,83,255));
+        c->drawRect({r.left,r.top,r.left+3.,r.bottom},kDrawFilled);
+    }
+    const int program=visiblePrograms_[size_t(row)];
+    char label[72]{};
+    std::snprintf(label,sizeof(label),
+                  "%03d     ORIGINAL CREATIVE MIDI-PROGRAMM %03d",
+                  program,program);
+    c->setFont(kNormalFontSmall);
+    c->setFontColor(selected?CColor(255,225,161,255)
+                            :CColor(229,205,162,255));
+    CRect textRect=r;textRect.left+=11.;textRect.right-=5.;
+    c->drawString(label,textRect,kLeftText);
+    c->setFrameColor(CColor(86,66,41,155));
+    c->setLineWidth(1.);
+    c->drawLine({r.left+6.,r.bottom-1.},{r.right-5.,r.bottom-1.});
+}
+CMouseEventResult P165View::dbOnMouseDown(const CPoint&,
+    const CButtonState&,int32_t row,int32_t,CDataBrowser* table) {
+    if(row>=0&&size_t(row)<visiblePrograms_.size()){
+        const int program=visiblePrograms_[size_t(row)];
+        syncingRows_=true;
+        if(table)table->setSelectedRow(row,true);
+        syncingRows_=false;
+        sendValue(kProgram,double(program)/127.0);
+    }
+    return kMouseDownEventHandledButDontNeedMovedOrUpEvents;
+}
+void P165View::dbSelectionChanged(CDataBrowser* table) {
+    if(syncingRows_||!table)return;
+    const int row=table->getSelectedRow();
+    if(row<0||size_t(row)>=visiblePrograms_.size())return;
+    sendValue(kProgram,double(visiblePrograms_[size_t(row)])/127.0);
+}
+
 } // namespace p007
