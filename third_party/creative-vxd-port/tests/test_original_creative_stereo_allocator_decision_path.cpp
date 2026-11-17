@@ -98,6 +98,38 @@ int main(){
            finished.decisions[i].kind==StereoDecisionKind::CursorReadFinished)
             observed_finished=true;
     CHECK(observed_finished);
+    // P003/P107 cross-session guard: native mode_count has a source-based
+    // <=2 blocked-voice predicate. This deliberately tests both branches,
+    // NOT a 14-cycle patch and NOT an assertion that guest [ESI+0x18]
+    // points to this native field (that mapping still needs guest proof).
+    for(std::uint32_t mode : {0u,1u,2u,3u,4u}) {
+        DeviceState gated=state;
+        gated.physical_capacity=4u;
+        gated.mode_count=mode;
+        gated.voices[3].key_marker=0x0101u;
+        gated.voices[3].blocked=true;
+        gated.voices[2].key_marker=0x0101u;
+        gated.voices[2].blocked=false;
+        Chip witness;
+        witness.sus.fill(0x8000u);
+        witness.vtft.fill(0x03000000u);
+        const auto selected=allocate_pair_mode1(gated,witness.io());
+        CHECK(selected.status==Status::Found ||
+              selected.status==Status::NoCandidate);
+        CHECK(witness.count>0u);
+        const auto first=witness.decisions[0];
+        CHECK(first.voice==3u);
+        CHECK(first.kind==(mode<=2u ?
+              StereoDecisionKind::SkippedVoice :
+              StereoDecisionKind::ScoredVoice));
+        if(mode<=2u) {
+            CHECK(selected.vtft_reads<4u);
+            CHECK(witness.decisions[1].voice==2u);
+            CHECK(witness.decisions[1].kind==StereoDecisionKind::ScoredVoice);
+        }else {
+            CHECK(selected.vtft_reads==4u);
+        }
+    }
     // On a failed first I/O, no completed score/cursor/priority decision is emitted.
     Chip failed;failed.reject_first_read=true;
     const auto error=allocate_pair_mode1(state,failed.io());
