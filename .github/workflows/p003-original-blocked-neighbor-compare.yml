@@ -21,6 +21,7 @@ on:
       - 'src/creative_compat/CreativeAutonomousOutTiming.h'
       - 'src/creative_compat/CreativeAutonomousOutTiming.cpp'
       - 'tests/p003_autonomous_out_timing.cpp'
+      - 'tests/p003_clock_test_only_stubs/Chip.h'
       - 'tools/p003_audit_pit_clock_four_win95_sessions_private.py'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
@@ -155,6 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I tests/p003_clock_test_only_stubs \
             -I src/creative_compat \
             tests/p003_autonomous_out_timing.cpp \
             src/creative_compat/CreativeAutonomousOutTiming.cpp \
