@@ -440,7 +440,6 @@ source_note_endpoints(SourceVoice const& source) noexcept {
                 research::nrpn_detail::r16(d,0x442u+off+0x16u))<<16u);
         if(rawBend!=bend)return false;
         for(std::size_t voice=0u;voice<voices;++voice) {
-            const auto row=0x42u+voice*0x20u;
             if((e.device.voices[voice].key_marker>>8u)==channel &&
                !e.device.voices[voice].original_pitch_base_verified)
                 return false;
