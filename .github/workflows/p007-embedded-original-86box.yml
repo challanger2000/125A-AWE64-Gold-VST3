@@ -1,0 +1,67 @@
+name: P007 true in-process original 86Box core DLL
+on:
+  push:
+    branches: [experiment/p007-inprocess-86box]
+    paths:
+      - "experiments/p007-inprocess-86box/**"
+      - ".github/workflows/p007-embedded-original-86box.yml"
+permissions:
+  contents: read
+jobs:
+  windows-ucrt64:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Prepare minimal MSYS2 native x64 build
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: UCRT64
+          pacboy: >-
+            ninja:p cmake:p gcc:p pkgconf:p freetype:p SDL2:p
+            zlib:p libpng:p libslirp:p libserialport:p
+      - uses: actions/checkout@v4
+      - name: Checkout hash-pinned ORIGINAL 86Box AWE32 release sources
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/turican0/86Box-AWE32.git build/p007-original-fork
+          git -C build/p007-original-fork checkout fee1e81977824fd2d5eed4d239589dc30d251dd7
+          test "$(git -C build/p007-original-fork rev-parse HEAD)" = "fee1e81977824fd2d5eed4d239589dc30d251dd7"
+          python experiments/p007-inprocess-86box/tools/p007_patch_upstream.py --fork build/p007-original-fork
+      - name: Configure genuine emulator core as Windows DLL, not EXE
+        run: |
+          set -euo pipefail
+          cmake -S build/p007-original-fork -B build/p007-inprocess-dll \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DQT=OFF -DSTATIC_BUILD=OFF -DOPENAL=OFF \
+            -DRTMIDI=OFF -DFLUIDSYNTH=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF \
+            -DDYNAREC=ON -DVNC=OFF
+      - name: Compile unchanged original CPU/machine/EMU8000 modules into DLL
+        run: |
+          set -euo pipefail
+          cmake --build build/p007-inprocess-dll --target 86Box --parallel 3
+          find build/p007-inprocess-dll -iname "*86box*.dll" -type f -print
+      - name: Independently LoadLibrary full original emulator in a Windows process
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/tests/P007LoadDll.cpp \
+            -o build/P007CoreDllLoader.exe
+          dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
+          if [ -z "$dll" ]; then echo 'P007_NO_INPROCESS_86BOX_DLL'; exit 1; fi
+          build/P007CoreDllLoader.exe "$dll"
+      - name: Upload experimental no-Win95 in-process emulator DLL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
+          path: |
+            build/p007-inprocess-dll/**/*.dll
+            build/P007CoreDllLoader.exe
+          if-no-files-found: error
+          retention-days: 5
