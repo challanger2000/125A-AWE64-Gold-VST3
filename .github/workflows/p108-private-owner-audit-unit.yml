@@ -8,6 +8,7 @@ on:
       - '.github/workflows/p108-private-owner-audit-unit.yml'
       - 'tools/p108_private_win95_original_capture.py'
       - 'tools/p108_resolve_private_original_package.py'
+      - 'tools/p108_compare_public_stress_pe.py'
       - 'tools/p108_verify_direct_jcc.py'
       - 'tests/test_p108_private_win95_original_capture.py'
       - 'tests/test_p108_resolve_private_original_package.py'
@@ -19,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   exact-public-win95-stress-rebuild-check:
@@ -53,6 +55,22 @@ jobs:
           else
             echo 'P108_ORIGINAL_3BANK_PUBLIC_SOURCE_BINARY_REPRODUCTION_UNPROVEN'
           fi
+      - name: Retrieve only the public SHA-verified original CI stress PE32
+        uses: actions/download-artifact@v4
+        with:
+          name: P003-Win95-Original-Creative-3-Bank-Voice-Stress-PE32
+          run-id: 43787795937
+          github-token: ${{ github.token }}
+          path: /tmp/p108-published-stress
+      - name: Independently compare public PE32 code sections and COFF metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          reference=$(find /tmp/p108-published-stress -type f -name P002RAM.EXE -print -quit)
+          test -n "$reference"
+          python3 tools/p108_compare_public_stress_pe.py \
+            --published-original-pe32 "$reference" \
+            --recompiled-pe32 /tmp/p108-public-guest/P002RAM.EXE
       - name: Never publish synthetic or original guest sample data
         run: echo 'Only original public Win95 test C source compiled; no private Creative VxD, ROM or 86Box VM'
   private-source-only-unit-tests:
