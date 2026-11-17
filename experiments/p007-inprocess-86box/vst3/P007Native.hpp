@@ -4,6 +4,9 @@
 // The private Win95 headless boot is NOT implemented; this prototype
 // must not be described as a playable AWE instrument.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <cstdint>
 namespace p007 {
