@@ -35,7 +35,7 @@ int main(void) {
     p007_audio_capture_float(frame,P007_AUDIO_FRAMES+20u);
     assert(p007_audio_available()==P007_AUDIO_FRAMES);
     assert(p007_audio_dropped_frames()==20u);
-    float block[2048];
+    float block[4096];
     uint32_t read=0u;
     while(p007_audio_available()){
         uint32_t n=p007_audio_pull(block,1024u);
