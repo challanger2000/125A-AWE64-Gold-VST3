@@ -80,6 +80,19 @@ class GeometryTests(unittest.TestCase):
         struct.pack_into("<H",altered,source_start+4,1)
         with self.assertRaises(GeometryError):
             analyze(bytes(altered),bytes(n))
+    def test_packed_generator_invalid_opcode_rejected(self):
+        self.corrupt(1,0,b"\\xff")
+    def test_packed_instrument_index_out_of_range_rejected(self):
+        # A 3-byte record can advertise op 41, but its u16 target
+        # must never name a nonexistent original instrument index.
+        self.corrupt(1,0,bytes([41,255,255]))
+    def test_packed_generator_diagnostic_exposes_unproven_semantics(self):
+        p,n,places=fixture()
+        n[places[1]:places[1]+3]=bytes([41,0,0])
+        result=analyze(p,bytes(n))
+        info=result["packed_generator_evidence"]
+        self.assertEqual(info["preset_instrument_opcode_41_count"],1)
+        self.assertFalse(info["actual_creative_instruction_semantics_proven"])
     def test_index_not_monotonic(self):
         self.corrupt(0,8,struct.pack("<I",0))
     def test_index_out_of_bounds(self):
