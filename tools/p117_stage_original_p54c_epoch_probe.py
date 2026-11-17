@@ -62,13 +62,18 @@ def stage(original:Path,dest:Path)->None:
     call('p118_bind_runtime_jit_to_p117_opcode.py',
         '--pristine-old-codegen',str(original/'src/codegen/codegen_x86-64.c'),
         '--disposable-old-codegen',str(codegen))
+    call('p119_capture_original_pending_jit_cycles.py',
+        '--pristine-acc',str(original/'src/codegen/codegen_accumulate_x86-64.c'),
+        '--copy-acc',str(dest/'src/codegen/codegen_accumulate_x86-64.c'),
+        '--pristine-old-codegen',str(original/'src/codegen/codegen_x86-64.c'),
+        '--copy-old-codegen',str(codegen))
     for preserve in ('src/sound/snd_emu8k.c','src/sound/snd_sb.c'):
         if (original/preserve).read_bytes() != (dest/preserve).read_bytes():
             raise ValueError('P117 forbidden original sound core mutation')
     if (b'P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1' not in dynarec.read_bytes() or
         b'P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1' not in io.read_bytes()):
         raise ValueError('P117 P003/P115 original clock join absent')
-    print('P117_STAGE_ORIGINAL_86BOX_COPY_PROBES_PASS P003_P115_P117_P118_SAME_GUEST_BUILD_READY=TRUE source_original_unchanged=TRUE')
+    print('P117_STAGE_ORIGINAL_86BOX_COPY_PROBES_PASS P003_P115_P117_P118_P119_SAME_GUEST_BUILD_READY=TRUE source_original_unchanged=TRUE')
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
