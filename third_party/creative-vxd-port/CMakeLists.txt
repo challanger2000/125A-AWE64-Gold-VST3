@@ -151,6 +151,16 @@ add_test(NAME original_creative_ram_pcm_conditional_tsc_observation
     COMMAND test_original_creative_ram_pcm_branch_cadence)
 
 # P003 source-port branch decision observer: no live CPU scheduler.
+# SBAWE.VXD LCOD +545F/+5465/+546C actually compares MOVSX sampleID
+# against MOVZX sampleLink as 32-bit operands; neither field is signed
+# in its stored SF2 bytes. This is a source-port semantic regression.
+add_executable(test_original_creative_stereo_link_sign_extension
+    tests/test_original_creative_stereo_link_sign_extension.cpp)
+target_link_libraries(test_original_creative_stereo_link_sign_extension
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_stereo_link_mixed_movsx_movzx
+    COMMAND test_original_creative_stereo_link_sign_extension)
+
 add_executable(test_original_creative_stereo_allocator_decision_path
     tests/test_original_creative_stereo_allocator_decision_path.cpp)
 target_link_libraries(test_original_creative_stereo_allocator_decision_path
