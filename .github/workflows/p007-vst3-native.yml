@@ -1,0 +1,90 @@
+name: P007 native one-folder VST3 and original in-process core
+on:
+  push:
+    branches: [experiment/p007-inprocess-86box]
+    paths:
+      - "experiments/p007-inprocess-86box/vst3/**"
+      - ".github/workflows/p007-vst3-native.yml"
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-windows-vst3:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact previously PASSED original CPU/EMU8000 DLL
+        uses: actions/download-artifact@v4
+        with:
+          repository: challanger2000/125A-AWE64-Gold-VST3
+          run-id: 44089462094
+          github-token: ${{ github.token }}
+          name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
+          path: build/core-verified
+      - name: Verify pinned original DLL
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (!(Test-Path "build/core-verified/p007-inprocess-dll/src/lib86Box.dll")) { throw "Missing checked original 86Box DLL" }
+          Write-Host "P007_PINNED_CORE_REUSED_FROM_WINDOWS_PASS_44089462094"
+      - name: Install required VST3 runtime libraries
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: UCRT64
+          pacboy: >-
+            binutils:p SDL2:p freetype:p zlib:p libpng:p libsndfile:p
+            libslirp:p libserialport:p
+      - name: Checkout pinned Steinberg VST3 SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C external/vst3sdk submodule update --init --recursive
+      - name: Configure native P007 instrument
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G "Visual Studio 17 2022" -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+      - name: Bundle original emulator and dependencies INSIDE the VST3
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          dest=build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win
+          mkdir -p "$dest"
+          cp build/core-verified/p007-inprocess-dll/src/lib86Box.dll "$dest/125A_AWE_Core.dll"
+          for pass in 1 2 3 4 5 6; do
+            for dll in "$dest"/*.dll; do
+              for needed in $(objdump -p "$dll" | sed -n 's/^[[:space:]]*DLL Name: //p'); do
+                if test -f "/ucrt64/bin/$needed" && ! test -f "$dest/$needed"; then
+                  cp "/ucrt64/bin/$needed" "$dest/$needed"
+                  echo "P007_INTERNAL_DLL_INCLUDED $needed"
+                fi
+              done
+            done
+          done
+          echo P007_ALL_CORE_DLLS_IN_VST3_FOLDER
+      - name: Build Windows-x64 VST3 and run Steinberg validator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "VST3 compile/validator failed" }
+      - name: Independently load bundled core without MSYS2 search path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dest = (Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win").Path
+          $env:PATH = "$dest;" + $env:PATH
+          & "build/core-verified/P007CoreDllLoader.exe" "$dest/125A_AWE_Core.dll"
+          if ($LASTEXITCODE -ne 0) { throw "Original core cannot load outside MSYS2" }
+          Write-Host "P007_ONE_VST3_FOLDER_INPROCESS_CORE_LOAD_PASS"
+      - name: Upload single VST3 folder research build (NO Windows95 boot)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007-AWE64-One-Folder-VST3-INTERNAL-CORE-NOT-YET-PLAYABLE
+          path: build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
+          retention-days: 5
+          if-no-files-found: error
