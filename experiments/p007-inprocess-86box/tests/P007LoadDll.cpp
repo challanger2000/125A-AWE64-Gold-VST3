@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include "P007CoreABI.h"
+#include "P007MidiUart.h"
 using VersionFn = std::uint32_t (*)();
 using SymbolFn = std::uintptr_t (*)();
 using PullFn = std::uint32_t (*)(float*,std::uint32_t);
