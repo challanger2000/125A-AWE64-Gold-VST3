@@ -69,6 +69,41 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
             self.assertFalse(report["native_vst3_pcm_bit_exact_proved"])
             auditor.assert_called_once_with(Path("/fake/P110"),min_translations=50)
 
+    def test_p112_private_original_agreement_only_for_same_session(self):
+        proof={"original_win95_midi_send_calls":4176,
+               "original_win95_midi_api_failures":0}
+        flags={"executed_jcc_total":3450,
+               "unobserved_or_unexplained_jcc":0,
+               "next_pc_independently_confirms_flags":3410}
+        physical={"original_tsc_first":0,"original_tsc_last":2000}
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fake-I")),
+              patch.object(p,"read_direct",return_value=({1:object()},"fake-B")),
+              patch.object(p,"compare_original",return_value=flags),
+              patch.object(p,"verify_original_physical_cpu_io",return_value=physical),
+              patch.object(p,"audit_p110_translator",return_value={"status":"fictional-P110"}),
+              patch.object(p,"audit_p111_join",return_value={"status":"fictional-P111"}),
+              patch.object(p,"join_p112",return_value={
+                  "status":"SOURCE_REGMASK_ORIGINAL_JIT_GENERATION_JOIN_NOT_AGI_CAUSALITY",
+                  "91_93_95_original_tsc_causality_proven":False}) as joined):
+            with self.assertRaisesRegex(ValueError,"both authenticated original"):
+                p.verify_private_capture(Path("/fake/win95.img"),Path("/session/I"),
+                    Path("/session/B"),Path("/session/io"),None,
+                    Path("/session/P111"),True)
+            with self.assertRaisesRegex(ValueError,"same private original VM session"):
+                p.verify_private_capture(Path("/fake/win95.img"),Path("/session/I"),
+                    Path("/session/B"),Path("/session/io"),Path("/session/P110"),
+                    Path("/other-session/P111"),True)
+            report=p.verify_private_capture(Path("/fake/win95.img"),Path("/session/I"),
+                    Path("/session/B"),Path("/session/io"),Path("/session/P110"),
+                    Path("/session/P111"),True)
+            self.assertFalse(report["original_p112_carried_register_masks_vs_executed_jit"][
+                "91_93_95_original_tsc_causality_proven"])
+            self.assertFalse(report["native_vst3_pcm_bit_exact_proved"])
+            joined.assert_called_once_with(Path("/session/P110"),
+                                            Path("/session/P111"),min_common_starts=20)
+
     def test_p111_original_jit_run_join_is_opt_in_only(self):
         existing={"AWE64_P111_JIT_BLOCK_JOIN_TRACE":"stale",
                   "AWE64_P111_LCOD_SELECTOR":"bad"}
