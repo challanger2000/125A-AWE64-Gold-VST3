@@ -1,0 +1,95 @@
+name: P118 original executed JIT opcode-site ID + P117 decoder (research)
+on:
+  push:
+    branches: [research/p118-jit-executed-opcode-site-binding]
+    paths:
+      - 'tools/p118_*.py'
+      - 'tools/p117_stage_original_p54c_epoch_probe.py'
+      - 'tests/test_p118_*.py'
+      - 'docs/P118-*'
+      - '.github/workflows/p118-original-executed-jit-site-epoch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-source-and-audit-guards:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: P118 source-contract negatives + independent private auditor selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p118_bind_runtime_jit_to_p117_opcode.py' -v
+          python tools/p118_join_original_runtime_opcode_site_private.py --selftest
+          python -m py_compile \
+            tools/p118_bind_runtime_jit_to_p117_opcode.py \
+            tools/p118_join_original_runtime_opcode_site_private.py
+      - name: Stage all original P003/P115 P107-P118 in disposable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p118-fork
+          grep -q 'P118_ORIGINAL_JIT_EXECUTED_SITE_P117_TOKEN_V1' \
+            p118-fork/src/codegen/codegen_x86-64.c
+          grep -q 'P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1' \
+            p118-fork/src/cpu/386_dynarec.c
+          grep -q 'P117_ORIGINAL_P54C_SELECTED_OPCODE_JIT_EPOCH_V1' \
+            p118-fork/src/cpu/codegen_timing_pentium.c
+          grep -q 'P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK' p118-fork/src/io.c
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c p118-fork/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c p118-fork/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+          echo 'P118_PINNED_ORIGINAL_CPU_JIT_SITE_SOURCE_CHAIN_PASS'
+
+  linux-original-old-dynarec-actual-build:
+    needs: original-source-and-audit-guards
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install 86Box original old-Dynarec public dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential cmake ninja-build pkg-config \
+            libsdl2-dev libfreetype6-dev libopenal-dev libpng-dev zlib1g-dev \
+            libslirp-dev libserialport-dev libfluidsynth-dev \
+            libsamplerate0-dev libpcap-dev libglib2.0-dev \
+            librtmidi-dev libx11-dev libxext-dev
+      - name: Pin original files and stage all probes without modifying chip
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p118-fork
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c p118-fork/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c p118-fork/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+      - name: Compile actual original 86Box old x64 dynarec with execution site token
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S p118-fork -B p118-fork/build-p118 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DNEW_DYNAREC=OFF \
+            -DFLUIDSYNTH=OFF -DRTMIDI=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF
+          grep '^NEW_DYNAREC:BOOL=OFF' p118-fork/build-p118/CMakeCache.txt
+          cmake --build p118-fork/build-p118 --parallel 4
+          echo 'P118_ACTUAL_ORIGINAL_LINUX_86BOX_OLD_JIT_SITE_TOKEN_BUILD_PASS'
