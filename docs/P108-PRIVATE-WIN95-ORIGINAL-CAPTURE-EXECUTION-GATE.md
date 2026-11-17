@@ -31,3 +31,16 @@ Die **neun** *synthetischen* Positiv-/Negativtests des neuen Private-VM-Runners 
 Auch nach möglichem P108-FLAGS-GO bleibt separat der Gast-CPU-Zeitbeweis für **91/93/95 Takte** und das bitidentische dry VST3-PCM offen.
 
 **Keine Änderungen am Produkt-VST3, kein Merge, keine Studio-One-Frühabnahme. Keine Originaldaten in GitHub.**
+
+
+## Verbesserung vom 17.11.2026 – Eingangsarchiv und physische Port-TSC-Spur
+
+Der ursprünglich private P108-Runner akzeptiert jetzt optional `--private-original-v4-package`. `tools/p108_resolve_private_original_package.py` sucht **ausschließlich** das originale, bekannte und SHA-256-gepinnte verschachtelte 86Box-Win95-Archiv in der vorhandenen V4-Gesamt-ZIP und verlangt die **eindeutig** über ihre Hashes gefundenen originalen drei-Bank-PE32- und SF2-Daten. Findet sich eine dieser Quellen nicht im Gesamtpaket, wird **NO-GO** gemeldet; nichts wird ersetzt, erfunden oder aus GitHub mit privaten Daten vermischt. Das vollständige Paket wurde wegen der hier nicht verfügbaren privaten lokalen Laufzeit **nicht** erneut geöffnet; es ist deshalb nicht bewiesen, dass alle drei Quellen darin enthalten sind.
+
+Das Archivmodul prüft auch den **unveränderten ZIP-Eintragsnamen vor der Windows-Pfadnormalisierung** (`ZipInfo.orig_filename`). Eine reale plattformabhängige Testsicherheitslücke wurde damit behoben: Rückwärtsschrägstriche im ursprünglichen Archivnamen würden ansonsten durch Pythons Windows-Normalisierung unbemerkt zu normalen Pfadtrennern. Weitere negative Tests: `../`, doppelte Dateien, Symlinks, ZIP-Bombs, falsche Original-SHAs, fehlende exakte PE32-/SF2-Quellen, fehlende 512-MiB-Gastplatte und Kopieren in ein bestehendes/verbotenes Ziel.
+
+**Wichtige zusätzliche Laufzeit-Abnahmebedingung:** `verify_original_physical_cpu_io` prüft nun auch die echte physische **P003 V4 Stack CPU-EMU8000-I/O-Spur** im *selben* Originalrun. Unmittelbar gefordert: korrekter physischer V4-Header, mehr als 100.000 echte physische Portcallbacks, gültige EMU8000-Registerports (`0x620/0x622/0xA20/0xA22/0xE20/0xE22`), fortlaufende Callbacksequenz und monotoner Gast-TSC. Fehlende/duplizierte Ereignisse oder eine regredierende Uhr ergeben NO-GO. Aus den Daten wird nur SHA-256 und die geprüfte Gesamtanzahl ausgewiesen; Originalregister und x86-Rohspuren bleiben privat. Auch eine physisch korrekte I/O-Spur beweist **noch keine autonome VST3-Zeitparität**.
+
+Die neuen source-only Negativtests laufen als eigene **schnelle**, echte Windows-/Linux-CI (`.github/workflows/p108-private-owner-audit-unit.yml`), ohne für jede Python-Testkorrektur den kompletten 86Box-Emulator neu bauen zu müssen. [GitHub Actions #43995310072](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43995310072): **beide Plattformjobs PASS**. Die realen P108-Emulator-Builds waren bereits im [Lauf #43991715673](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43991715673) erfolgreich. Keine Windows-95- oder Creative-Daten waren in diesen CI-Läufen enthalten.
+
+**Weiterer Originalstatus unverändert:** P107 **3.458/3.474** echte Jcc-Next-PC-Beobachtungen, P108 mit der privaten Original-VM noch nicht neu aufgenommen. Daher **keine** Behauptung von 16/16 echten neuen Original-Zweigentscheidungen, keinen 91/93/95-Zyklen- und keinen bitgenauen trockenen VST3-PCM-Nachweis.
