@@ -30,7 +30,15 @@ Worklist original_stereo_worklist(std::span<const Descriptor> d) noexcept {
         std::size_t partner=d.size();
         for(std::size_t j=0;j<d.size();++j) {
             if(j==i || consumed[j])continue;
-            if(word(d[j],0x6a)==target) {partner=j;break;}
+            // SBAWE.VXD LCOD+0x545F MOVSX candidate.sampleID (word->dword)
+            // vs LCOD+0x5465 MOVZX current.sampleLink (word->dword),
+            // compared as DWORD at +0x546C. A high-bit sampleID is
+            // negative after MOVSX and cannot equal a zero-extended link,
+            // even when both original 16-bit values are bit-identical.
+            const auto candidate_id=static_cast<std::int32_t>(
+                static_cast<std::int16_t>(word(d[j],0x6a)));
+            const auto unsigned_link=static_cast<std::int32_t>(target);
+            if(candidate_id==unsigned_link) {partner=j;break;}
         }
         if(partner==d.size())continue; // source second pass as type 1
         consumed[i]=consumed[partner]=true;
