@@ -20,6 +20,12 @@ struct OriginalWin95MonoVoiceSnapshot {
     std::uint16_t envelope_status_reg=0x8000; // VXD bit-15 test
     std::uint32_t stored_sample_end=0; // driver's per-voice bookkeeping
     std::uint32_t chip_current_address=0; // EMU8000 register read, 24-bit
+    // Research-only validity of individual ORIGINAL EMU8000 reads:
+    // +3F07 VTFT, +3F4D optional DCYSUSV, +3F7E optional CCCA.
+    // Zero/false is NOT proof that a particular hardware read happened.
+    bool vtft_read_verified=false;
+    bool dcysusv_read_verified=false;
+    bool ccca_read_verified=false;
 };
 enum class OriginalWin95MonoSelectionReason : std::uint8_t {
     CompletelyIdle, SampleEndReached, LowestEnvelopePriority
@@ -38,6 +44,14 @@ struct OriginalWin95MonoSelection {
     const std::array<OriginalWin95MonoVoiceSnapshot,kOriginalCreativeMusicVoices>& snapshots,
     std::size_t available_music_voices,
     std::uint32_t original_driver_mode_count) noexcept;
+// Same original decision, plus source-MISSING diagnostic, so dispatch
+// can distinguish an exhausted 0xFF selection from unavailable chip data.
+[[nodiscard]] std::optional<OriginalWin95MonoSelection>
+candidateOriginalWin95Mode0MonoVoiceWithSourceStatus(
+    const std::array<OriginalWin95MonoVoiceSnapshot,kOriginalCreativeMusicVoices>& snapshots,
+    std::size_t available_music_voices,
+    std::uint32_t original_driver_mode_count,
+    bool* missing_source) noexcept;
 struct OriginalWin95VxdPortWrite {
     std::uint16_t port=0;
     std::uint32_t value=0; // exact 8-, 16-, or 32-bit I/O data word
