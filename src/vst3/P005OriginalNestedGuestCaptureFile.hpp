@@ -212,6 +212,12 @@ public:
     [[nodiscard]] std::uint32_t sourceRootGuestAddress() const noexcept {
         return ready_?root_:0u;
     }
+    [[nodiscard]] std::uint32_t sourceDeviceGuestVirtualAddress() const noexcept {
+        return ready_?deviceVa_:0u;
+    }
+    [[nodiscard]] std::uint32_t sourceCapturedGuestCr3() const noexcept {
+        return ready_?guestCr3_:0u;
+    }
     [[nodiscard]] std::size_t sourceProgramRows() const noexcept {
         return ready_?rows_.size():0u;
     }
