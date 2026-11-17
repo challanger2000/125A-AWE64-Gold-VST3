@@ -82,7 +82,7 @@ def main():
         if sound_patched.count(call)!=1:
             raise SystemExit("P007_REJECT_ORIGINAL_HOST_AUDIO_SIGNATURE: "+call)
         sound_patched=sound_patched.replace(call,
-            "/* P007 DAW owns all host audio output (no OpenAL). */",1)
+            "(void)0; /* P007: no host OpenAL playback. */",1)
     # sound_reset() must not initialize a host OpenAL playback device.
     if sound_patched.count("    inital();")!=1:
         raise SystemExit("P007_REJECT_ORIGINAL_OPENAL_INITIALIZER_SIGNATURE")
