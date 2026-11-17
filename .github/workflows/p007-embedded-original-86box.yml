@@ -82,6 +82,16 @@ jobs:
             -o build/P007GuestBootGateTest.exe
           dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
           build/P007GuestBootGateTest.exe "$dll"
+      - name: Compile research-only private Win95/Creative end-to-end boot probe
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007PrivateBootSmoke.cpp \
+            -o build/P007PrivateBootSmoke.exe
+          build/P007PrivateBootSmoke.exe --selftest
+          # Never download/provision proprietary Win95/Creative/ROM data in CI.
+          echo P007_PRIVATE_BOOT_PROBE_COMPILED_NO_PROPRIETARY_IMAGE_PASS
       - name: Checkout pinned Steinberg VST3 SDK (MSVC)
         shell: pwsh
         run: |
