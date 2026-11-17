@@ -19,3 +19,15 @@ jobs:
           cmake --build build/p006-bridge --config Release --parallel 2
       - name: Run transport and MIDI framing regression
         run: ctest --test-dir build/p006-bridge -C Release --output-on-failure
+
+      - name: Checkout pinned Steinberg VST3 SDK
+        shell: pwsh
+        run: |
+          git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C external/vst3sdk submodule update --init --recursive
+      - name: Compile native P006 Windows-x64 VST3 wrapper (no guest assets)
+        shell: pwsh
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-vst3 -G "Visual Studio 17 2022" -A x64 -DP006_BUILD_VST3=ON -DP006_SDK_ROOT="${{ github.workspace }}/external/vst3sdk"
+          cmake --build build/p006-vst3 --config Release --target AWE64_Gold_P006 --parallel 2
