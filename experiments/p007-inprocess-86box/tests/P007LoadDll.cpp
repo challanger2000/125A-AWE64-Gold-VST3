@@ -9,6 +9,8 @@
 #include "P007CoreABI.h"
 using VersionFn = std::uint32_t (*)();
 using SymbolFn = std::uintptr_t (*)();
+using PullFn = std::uint32_t (*)(float*,std::uint32_t);
+using AvailableFn = std::uint32_t (*)();
 int main(int argc,char** argv) {
     if(argc!=2||!argv[1]||!argv[1][0])return 2;
     // LoadLibrary: same-process DLL mapping, NOT CreateProcess.
@@ -25,7 +27,14 @@ int main(int argc,char** argv) {
         GetProcAddress(module,"p007_core_symbol_pc_run"));
     auto reset=std::bit_cast<SymbolFn>(
         GetProcAddress(module,"p007_core_symbol_pc_reset"));
-    if(!version||!init||!run||!reset||
+    auto audioPull=std::bit_cast<PullFn>(
+        GetProcAddress(module,"p007_audio_pull"));
+    auto audioAvailable=std::bit_cast<AvailableFn>(
+        GetProcAddress(module,"p007_audio_available"));
+    float empty[2]{};
+    if(!audioPull||!audioAvailable||audioAvailable()!=0||
+        audioPull(empty,1u)!=0||
+        !version||!init||!run||!reset||
         version()!=P007_ABI_VERSION||
         !init()||!run()||!reset()){
         std::puts("P007_DLL_ORIGINAL_CORE_SYMBOLS_FAIL");
