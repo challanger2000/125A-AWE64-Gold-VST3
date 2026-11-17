@@ -1,0 +1,59 @@
+name: P007 P165 actual Win32 EditorHost fast evidence (no private OS)
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - "experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py"
+      - ".github/workflows/p007-p165-editorhost-fast-qa.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  p165-real-editorhost:
+    runs-on: windows-2022
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get previous full verified original emulator and P165 Windows VST3
+        uses: actions/download-artifact@v4
+        with:
+          name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
+          run-id: 44143478773
+          github-token: \${{ github.token }}
+          path: build/gui-base
+      - name: Fetch SHA-pinned official Steinberg EditorHost SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw "Steinberg SDK checkout failed" }
+          $sha=(git -C external/vst3sdk rev-parse HEAD).Trim()
+          if ($sha -ne "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96") { throw "Unexpected Steinberg source: $sha" }
+      - name: Compile actual EditorHost (fast, no 86Box recompile)
+        shell: pwsh
+        run: |
+          cmake -S external/vst3sdk -B build/editorhost -G "Visual Studio 17 2022" -A x64 -DSMTG_ENABLE_VST3_PLUGIN_EXAMPLES=OFF -DSMTG_ENABLE_VST3_HOSTING_EXAMPLES=ON -DSMTG_ENABLE_VSTGUI_SUPPORT=OFF
+          if ($LASTEXITCODE -ne 0) { throw "EditorHost configuration failed" }
+          cmake --build build/editorhost --config Release --target editorhost --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "EditorHost compilation failed" }
+      - name: True Win32 GUI - screen-pixel and hardware control interactions
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference="Stop"
+          $editor=(Get-ChildItem build/editorhost -Filter editorhost.exe -File -Recurse |
+            Where-Object {$_.FullName -match "Release"} |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if (-not $editor) { throw "No actual Steinberg EditorHost.exe" }
+          $plugin=(Resolve-Path "build/gui-base/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3").Path
+          python experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py --editorhost "$editor" --plugin "$plugin" --output build/p007s-fast-gui-evidence
+          if ($LASTEXITCODE -ne 0) { throw "Actual P165 editor acceptance failed" }
+      - name: Upload actual P165 screenshots and interaction logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007S-P165-Fast-Real-GUI-Output
+          path: build/p007s-fast-gui-evidence/**
+          if-no-files-found: warn
+          retention-days: 5

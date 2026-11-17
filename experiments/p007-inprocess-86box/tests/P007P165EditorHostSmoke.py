@@ -205,6 +205,7 @@ def client_size(hwnd):
         raise RuntimeError("GetClientRect failed")
     return r.right-r.left, r.bottom-r.top
 
+CANVAS_H=708
 def layout_y(y): return y
 def screen_pos(hwnd, x, y):
     sz = client_size(hwnd)
