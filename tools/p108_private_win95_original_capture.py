@@ -33,6 +33,7 @@ from p003_private_fat16_replace import patch_disposable_guest
 from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p003_verify_original_win95_mode_stress_log import validate_original_stress_log
 from p108_verify_direct_jcc import read_direct,compare_original
+from p108_resolve_private_original_package import resolve as resolve_original_v4_package
 from p107_audit_executed_jcc_private import read_trace
 
 STRESS_EXE_SHA="3c9306261ed599073f80d9695a8d73140ea65e2de101dc431169c2e6b3f6bc9f"
@@ -171,6 +172,7 @@ def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--private-original-vm-root",type=Path)
+    p.add_argument("--private-original-v4-package",type=Path)
     p.add_argument("--private-original-stress-pe32",type=Path)
     p.add_argument("--private-original-comparison-sf2",type=Path)
     p.add_argument("--p108-instrumented-86box",type=Path)
@@ -192,25 +194,43 @@ def main():
                                           args.existing_p107_i,args.existing_p108_b)
             print("P108_PRIVATE_ORIGINAL_EXECUTION_AUDIT "+json.dumps(result,sort_keys=True))
             return 0
-        require(all((args.private_original_vm_root,
-                     args.private_original_stress_pe32,
-                     args.private_original_comparison_sf2,
-                     args.p108_instrumented_86box,
-                     args.p108_instrumented_86box_sha256)),
-                "original private VM, exact guest PE32/SF2 and SHA-pinned P108 emulator required")
+        require(args.p108_instrumented_86box and args.p108_instrumented_86box_sha256,
+                "P108 instrumented original 86Box binary and SHA are mandatory")
         require(0<args.max_run_seconds<=MAX_RUN_SECONDS,
-                "bounded private original VM execution required")
-        source=args.private_original_vm_root.resolve()
+                "bounded original 86Box session required")
         output=args.private_result_root.resolve()
-        require(output!=source and source not in output.parents,
-                "results must be outside original private VM root")
+        require(not args.private_original_v4_package or
+                (args.private_original_vm_root is None and
+                 args.private_original_stress_pe32 is None and
+                 args.private_original_comparison_sf2 is None),
+                "original V4 Gesamtpaket and individual source paths cannot be mixed")
+        if args.private_original_v4_package:
+            v4=args.private_original_v4_package.resolve()
+            require(output!=v4 and v4 not in output.parents,
+                    "original private V4 source cannot be overwritten")
+            output.mkdir(parents=True,exist_ok=True)
+            prepared=resolve_original_v4_package(v4,output/("P108-RESOLVED-V4-PRIVATE-"+
+                datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")))
+            source=Path(prepared["private_original_vm_root"]).resolve()
+            stress=Path(prepared["private_original_stress_pe32"])
+            comparison=Path(prepared["private_original_comparison_sf2"])
+        else:
+            require(all((args.private_original_vm_root,
+                         args.private_original_stress_pe32,
+                         args.private_original_comparison_sf2)),
+                    "private original VM, exact stress PE32 and SF2 required")
+            source=args.private_original_vm_root.resolve()
+            stress=args.private_original_stress_pe32
+            comparison=args.private_original_comparison_sf2
+            require(output!=source and source not in output.parents,
+                    "output must remain outside original private VM source")
         require(args.p108_instrumented_86box.is_file() and
                 sha_file(args.p108_instrumented_86box)==
                 args.p108_instrumented_86box_sha256.lower(),
                 "P108 instrumented emulator SHA mismatch")
         source_report=verify_original_guest_sources(
-            source,args.private_original_stress_pe32,
-            args.private_original_comparison_sf2)
+            source,stress,
+            comparison)
         output.mkdir(parents=True,exist_ok=True)
         session=output/("P108-PRIVATE-"+datetime.now(timezone.utc).strftime(
             "%Y%m%dT%H%M%S%fZ"))
@@ -222,8 +242,8 @@ def main():
         require(sha_file(disk)==source_report["original_disk_sha256"],
                 "private Win95 disposable clone differs before guest staging")
         stage=patch_disposable_guest(
-            disk,args.private_original_stress_pe32.read_bytes(),
-            args.private_original_comparison_sf2.read_bytes(),
+            disk,stress.read_bytes(),
+            comparison.read_bytes(),
             PINNED_OWNER_SF2_SHA)
         trace_i=session/TRACE_I_NAME
         trace_b=session/TRACE_B_NAME
