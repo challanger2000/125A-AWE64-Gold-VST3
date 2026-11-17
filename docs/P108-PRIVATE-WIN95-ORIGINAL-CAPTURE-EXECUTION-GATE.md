@@ -57,3 +57,34 @@ Die neuen source-only Negativtests laufen als eigene **schnelle**, echte Windows
 Bei fehlendem Compiler, abweichenden öffentlichen Quellblobs, anderer Sections-Anordnung, falschen Originalmetadaten oder beliebiger Abweichung des resultierenden gesamten PE32 bleibt die Rekonstruktion **NO-GO**. Der neue Test erstellt keinerlei Produkt-VST3-DSP und ersetzt **nicht** die privat unverändert zu bootende Original-Win95-VM.
 
 Diese nachweislich bitidentische öffentliche **Testmaterial-Rekonstruktion** ist klar getrennt vom weiterhin **fehlenden** P108-Original-Win95-x86-Ausführungsgate: die letzten **16** ursprünglich nicht direkt beobachteten Original-Jcc-Ausgänge und die autonome 91/93/95-Takt-Parität sind damit **nicht** automatisch gelöst.
+
+## P108-Abnahmeverschärfung – Original-Spuren müssen gemeinsam konsistent sein
+
+**Neue, im Forschungszweig implementierte NO-GO-Bedingungen:** Ein formal gültiger
+Original-Windows-95-MIDI-Abschluss plus ein P107/P108-x86-Flags-Report
+**reicht nicht** für eine positive Originalabnahme. Der private Audit verlangt
+jetzt **obligatorisch** auch den physisch aufgezeichneten P003-V4-EMU8000-I/O-Trace
+aus demselben VM-Lauf. Der P107/Jcc-TSC-Bereich muss im vom physischen
+Original-I/O-Trace umfassten monotonen Guest-TSC-Bereich liegen.
+Bei fehlendem Trace oder voneinander getrennten TSC-Fenstern wird keine
+Original-Jcc-Abnahme ausgegeben. Das ist ein KONSISTENZNACHWEIS,
+**keine** Umrechnung in instruktionsgenaue Pentium-Zyklen.
+
+Zusätzlich enthält `tools/p108_verify_direct_jcc.py` jetzt einen
+**dritten unabhängigen Original-JNE-Beleg**: Bei `LCOD+0x4027` folgt
+der Original-Jcc unmittelbar aus dem `cmp [EBP−0x18],0` an `+0x4023`.
+Wenn der P107-Gast-RAM-Beobachter den lokalen Wert tatsächlich gelesen
+hat, MUSS `P108.taken` genau mit `[EBP−0x18] != 0` übereinstimmen.
+Dieser Vergleich benötigt **keinen** protokollierten Folge-PC und darf
+deshalb nicht nur bei einem lückenlosen JIT-Trace ausgeführt werden.
+Unstimmigkeiten lösen NO-GO aus; unbekannte Gast-RAM-Werte bleiben UNKNOWN.
+Der Audit weist belegte und unbekannte RAM-/JNE-Gegenproben separat aus.
+
+Diese zusätzliche JNE-Validierung wurde ausschließlich mit fiktiven
+Original-Format-Events (inklusive eines bewusst manipulierten Gegensatzes)
+getestet, nicht durch einen neu ausgeführten privaten Win95-Gast belegt.
+
+**Weiterhin offen:** Die 15 früher offenen `+0x40F1 JAE`- und der
+eine `+0x40CB JA`-Nachfolger sind keine bestätigten Original-Flagergebnisse,
+bis die private P108-Gastaufnahme sie tatsächlich ausweist.
+Die 91/93/95-Takt-EMU8000-Zeitparität und das autonome PCM bleiben NO-GO.
