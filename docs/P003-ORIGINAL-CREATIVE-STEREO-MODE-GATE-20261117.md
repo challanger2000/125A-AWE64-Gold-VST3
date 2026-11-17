@@ -1,6 +1,6 @@
 # P003 – Original Creative Stereo-Allocator: Modus-Schwellwert und 14-Takt-Abstand (17.11.2026)
 
-> **Nachprüfung 17.11.: wichtig für die C++23-Portierung.** Im ersten V5-CALLER_FRAME-Recorder wurde das Feld `next2d` versehentlich an `DS:[EBX+0x0D]` statt am tatsächlichen originalen `DS:[EBX+0x2D]` gelesen. **Das alte `next2d` ist deshalb keine direkte Beobachtung des Nachbarstimmen-Flags.** Der Recorder und der C-Negativtest wurden auf +45 Byte korrigiert. Die neun übersprungenen Stimmengruppen bleiben unabhängig über den beobachteten echten EBX-Sprung und das korrekt erfasste `next0d` belegt. Die sieben +3-Takt-Fälle bleiben ungeklärt. [Nachprüfung der neun Stimme-4-Intervalle und Original-Opcode-Gegenbeleg](P003-ORIGINAL-VOICE4-3CYCLE-AND-NEIGHBOR-OFFSET-20261117.md).
+> **Nachprüfung 17.11.: Look-ahead exakt geklärt.** Die V5-CALLER_FRAME-Felder `next0d` und `next2d` waren korrekt für die **nächste** Stimme gemessen: Wegen `EBX_next = EBX_current − 32` entsprechen `[EBX_current−19]` und `[EBX_current+13]` den originalen nächsten Zugriffsstellen `[EBX_next+0x0D]` bzw. `[EBX_next+0x2D]`. Eine zwischenzeitliche gegenteilige Fehldiagnose und Quelländerung wurden zurückgenommen; ein Negativtest schützt die korrekte Zuordnung. Die sieben +3-Takt-Fälle bleiben ungeklärt. [Nachprüfung der Stimme-4-Originalintervalle](P003-ORIGINAL-VOICE4-3CYCLE-AND-NEIGHBOR-OFFSET-20261117.md).
 
 
 ## Zweck / Trennung der beiden Entwicklungswege
