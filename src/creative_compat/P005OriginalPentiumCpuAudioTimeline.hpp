@@ -7,6 +7,12 @@
 //  - original pit_set_clock() 400MHz/3 and 32:32 wavetable latch
 //  - source-ordered 16-bit EMU8000 OUT words, without guest trace times
 //
+// NOTE: This primitive charges an integer model at executed-block time.
+// ORIGINAL 86Box does not do that when a JIT block is reused. For actual
+// old-Dynarec code() reuse prefer P005OriginalPentiumCompiledBlockClock:
+// translate once by compile_epoch, execute the cached cycle cost later.
+// THIS primitive is deliberately a synthetic block-boundary test only.
+//
 // Caveats: the caller must still supply verified original decoded x86
 // instructions and exact executed block/OUT ordering. Interpreter paths,
 // other 86Box timers, FPU/MMX and actual instruction-site/branch replay
