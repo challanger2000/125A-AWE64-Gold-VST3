@@ -63,9 +63,9 @@ jobs:
             tests/p003_original_win95_mode0_32_physical_voices.cpp \
             "$DEV_ROOT/src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp" \
             "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
-            -o "$RUNNER_TEMP/p003-dev-mode0-32"
+            -o "$RUNNER_TEMP/p003-dev-mode0-32.bin"
           set +e
-          "$RUNNER_TEMP/p003-dev-mode0-32"
+          "$RUNNER_TEMP/p003-dev-mode0-32.bin"
           STATUS=$?
           set -e
           if [ "$STATUS" -eq 42 ]; then
