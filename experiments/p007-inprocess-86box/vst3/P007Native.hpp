@@ -5,6 +5,7 @@
  // production Windows-VST3 still needs independent DAW acceptance.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P007OutputRate.hpp"
+#include "P007StateCodec.hpp"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
 #ifndef NOMINMAX
@@ -63,8 +64,9 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     Core core_{};
     OutputRate outputRate_{};
     bool active_=false;
-    std::uint8_t midiProgram_=0u,midiBank_=0u;
-    float masterVolume_=1.f;
+    std::atomic<std::uint8_t> midiProgram_{0u},midiBank_{0u};
+    std::atomic<float> masterVolume_{1.f};
+    std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
     [[nodiscard]] int p165GuestStatus() const noexcept;
 public:
@@ -77,6 +79,11 @@ public:
     Steinberg::tresult PLUGIN_API canProcessSampleSize(Steinberg::int32) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup&) override;
     Steinberg::tresult PLUGIN_API process(Steinberg::Vst::ProcessData&) override;
+    Steinberg::tresult PLUGIN_API setParamNormalized(
+        Steinberg::Vst::ParamID,Steinberg::Vst::ParamValue) override;
+    Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream*) override;
+    Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream*) override;
+    Steinberg::tresult PLUGIN_API setComponentState(Steinberg::IBStream*) override;
     VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,
         const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
         VSTGUI::VST3Editor*) override;

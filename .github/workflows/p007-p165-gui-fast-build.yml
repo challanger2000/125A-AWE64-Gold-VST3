@@ -51,6 +51,14 @@ jobs:
           Copy-Item "$source/*" $dest -Force
           Remove-Item "$dest/AWE64_Gold_P007.vst3" -ErrorAction SilentlyContinue
           if (-not (Test-Path "$dest/125A_AWE_Core.dll")) { throw "Original 86Box DLL absent" }
+      - name: Prove 80 project-state roundtrips and 1280 tamper rejections
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          cmake --build build/p007-vst3 --config Release --target P007StateCodecTest --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "P007 state codec build failed" }
+          & build/p007-vst3/Release/P007StateCodecTest.exe
+          if ($LASTEXITCODE -ne 0) { throw "P007 state codec roundtrip failed" }
       - name: Rebuild actual VST3 with the latest P165 GUI and run Steinberg module validator
         shell: pwsh
         timeout-minutes: 8

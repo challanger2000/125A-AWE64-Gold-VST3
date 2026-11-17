@@ -65,3 +65,10 @@ if(WIN32)
   endforeach()
   target_sources(AWE64_Gold_P007 PRIVATE "${P007_P165_RC}")
 endif()
+
+# Explicitly test original Creative bank/program/master DAW project state.
+add_executable(P007StateCodecTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007StateCodecTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/P007StateCodec.hpp")
+target_include_directories(P007StateCodecTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(P007StateCodecTest PRIVATE cxx_std_20)

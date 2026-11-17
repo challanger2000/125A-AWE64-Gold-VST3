@@ -202,6 +202,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         if(!core_.openNonRealtime())return kResultFalse;
         outputRate_.reset();
         sentInitialProgram_=false;
+        programNeedsSending_.store(true,std::memory_order_release);
         active_=true;
     } else if(active_) {
         core_.closeNonRealtime();active_=false;
@@ -249,6 +250,65 @@ IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
     }
     return nullptr;
 }
+// P007-V DAW project state. Small, versioned, checked data (bank, program,
+// post-EMU8000 master) only; never embed the private Win95 HDD or ROMs.
+tresult PLUGIN_API Plugin::getState(IBStream* stream) {
+    if(!stream)return kInvalidArgument;
+    const state::Values values{
+        midiBank_.load(std::memory_order_acquire),
+        midiProgram_.load(std::memory_order_acquire),
+        state::masterToBasisPoints(masterVolume_.load(std::memory_order_acquire))
+    };
+    const auto bytes=state::encode(values);
+    int32 written=0;
+    const auto result=stream->write(const_cast<std::uint8_t*>(bytes.data()),
+            static_cast<int32>(bytes.size()),&written);
+    return result==kResultOk&&written==static_cast<int32>(bytes.size())
+        ?kResultOk:kResultFalse;
+}
+tresult PLUGIN_API Plugin::setState(IBStream* stream) {
+    if(!stream)return kInvalidArgument;
+    state::Image bytes{};
+    int32 received=0;
+    if(stream->read(bytes.data(),static_cast<int32>(bytes.size()),
+                    &received)!=kResultOk ||
+       received!=static_cast<int32>(bytes.size()))return kResultFalse;
+    state::Values values{};
+    if(!state::decode(bytes,values))return kResultFalse;
+    // In a combined IComponent+IEditController, restore BOTH the original
+    // Creative MIDI engine parameters and the visible P165 host automation.
+    (void)setParamNormalized(kP165Bank,double(values.bank)/127.);
+    (void)setParamNormalized(kP165Program,double(values.program)/127.);
+    (void)setParamNormalized(kP165Master,double(values.master)/10000.);
+    programNeedsSending_.store(true,std::memory_order_release);
+    return kResultOk;
+}
+tresult PLUGIN_API Plugin::setComponentState(IBStream* stream) {
+    return setState(stream);
+}
+tresult PLUGIN_API Plugin::setParamNormalized(ParamID tag,ParamValue value) {
+    if(!std::isfinite(value))return kInvalidArgument;
+    const tresult result=SingleComponentEffect::setParamNormalized(tag,value);
+    if(result!=kResultOk)return result;
+    const double v=std::clamp(value,0.,1.);
+    switch(tag) {
+        case kP165Bank:
+            midiBank_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
+                            std::memory_order_release);
+            programNeedsSending_.store(true,std::memory_order_release);
+            break;
+        case kP165Program:
+            midiProgram_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
+                               std::memory_order_release);
+            programNeedsSending_.store(true,std::memory_order_release);
+            break;
+        case kP165Master:
+            masterVolume_.store(static_cast<float>(v),std::memory_order_release);
+            break;
+        default:break;
+    }
+    return result;
+}
 tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // Original P165 editor -> host automation -> DAW audio thread -> same
     // bounded SPSC UART packet producer as host MIDI notes. GUI must NEVER
@@ -278,14 +338,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     }
     const bool ready=active_&&core_.guestReady()&&core_.midi;
     if(!ready)sentInitialProgram_=false;
+    const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
     if(ready){
-        if(!sentInitialProgram_||bankChanged) {
+        if(!sentInitialProgram_||bankChanged||resend) {
             // Original Win95 Creative driver receives real MIDI BankSelect.
             (void)core_.midi(0xb0u,0u,0u);  // CC0 bank MSB
-            (void)core_.midi(0xb0u,32u,midiBank_); // CC32 bank LSB
+            (void)core_.midi(0xb0u,32u,midiBank_.load(std::memory_order_acquire)); // CC32 bank LSB
         }
-        if(!sentInitialProgram_||bankChanged||programChanged){
-            (void)core_.midi(0xc0u,midiProgram_,0u); // MIDI Program Change
+        if(!sentInitialProgram_||bankChanged||programChanged||resend){
+            (void)core_.midi(0xc0u,midiProgram_.load(std::memory_order_acquire),0u); // MIDI Program Change
         }
         sentInitialProgram_=true;
     }
@@ -330,10 +391,11 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                        static_cast<std::uint32_t>(data.numSamples));
     // Host Master operates AFTER original Creative/EMU8000 mixer, not
     // inside the emulated chip. Exactly unity = unaltered original PCM.
-    if(masterVolume_!=1.f) {
+    const float gain=masterVolume_.load(std::memory_order_acquire);
+    if(gain!=1.f) {
         for(int32 i=0;i<data.numSamples;++i){
-            l[i]*=masterVolume_;
-            r[i]*=masterVolume_;
+            l[i]*=gain;
+            r[i]*=gain;
         }
     }
     output.silenceFlags=0;
