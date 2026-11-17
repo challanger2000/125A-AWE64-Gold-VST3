@@ -54,7 +54,7 @@ class P119Tests(unittest.TestCase):
                 b'void\ncodegen_accumulate(int acc_reg, int delta)\n',
                 b'void\nnot_codegen_accumulate(int acc_reg, int delta)\n'),
                 self.jit,self.original_p118)
-        with self.assertRaisesRegex(ValueError,'anchor absent/duplicated'):
+        with self.assertRaisesRegex(ValueError,'requires original P118'):
             p119.patch(self.acc,self.acc,self.jit,
                 self.original_p118.replace(
                     b'        addlong(p118_token);\n'
