@@ -94,7 +94,8 @@ int main() {
     auto jcc=op(2u);
     constexpr std::array<std::uint8_t,1> prefix0f{{0x0fu}};
     jcc.prefixes=prefix0f;
-    jcc.fetchdat=0x85u;
+    jcc.opcode=0x85u; // original 0F-prefix decoder saw opcode 85
+    jcc.fetchdat=0u;  // main opcode call has NO matching ModR/M byte
     CHECK(m.append(jcc));
     CHECK(m.endBlock());
     CHECK(m.totalCycles()==2); // original Pentium near-Jcc 0F free

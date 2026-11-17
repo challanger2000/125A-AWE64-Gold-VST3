@@ -45,6 +45,16 @@ public:
            !block_.charge_executed_cycles(cost))return fail();
         ++charges_;return true;
     }
+    // P119 original flushed JIT CPU ADD, source execution required.
+    // The untranslated or compiler-pending delta is NOT executable.
+    [[nodiscard]] bool originalExecutedJitFlush(
+        std::int32_t signed_delta) noexcept {
+        if(!blockOpen_ || failed_ ||
+           !block_.apply_source_emitted_cycles_delta(signed_delta))
+            return fail();
+        ++charges_;
+        return true;
+    }
     [[nodiscard]] bool originalAuxCycles(std::int32_t cost) noexcept {
         if(!blockOpen_ || failed_ || !block_.set_acycs(cost))return fail();
         return true;

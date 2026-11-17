@@ -125,6 +125,11 @@ public:
     // The original old-Dynarec first-run interpreter is distinct
     // from later code(). Do not silently assign JIT compiler costs
     // to that execution path.
+    // A rejected original decoder event invalidates the whole translation.
+    // No partial valid block may be completed after unknown x86 metadata.
+    [[nodiscard]] bool rejectUnverifiedSourceOpcode() noexcept {
+        return fail();
+    }
     [[nodiscard]] bool executeOriginalInterpreterWithoutModel() noexcept {
         return fail();
     }

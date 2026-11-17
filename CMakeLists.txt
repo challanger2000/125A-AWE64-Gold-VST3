@@ -209,6 +209,44 @@ target_link_libraries(awe64_p005_original_executed_port_clock_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p005_original_live_tsc_physical_emu_port_frame
     COMMAND awe64_p005_original_executed_port_clock_test)
+# P119 source compiler-deferred cycle accumulation is separate from
+# the emitted runtime x64 ADD, signed branch refunds and USE_ACYCS.
+add_executable(awe64_p005_original_p119_jit_deferred_cycles_test
+    tests/p005_original_p119_jit_deferred_cycles.cpp)
+target_include_directories(awe64_p005_original_p119_jit_deferred_cycles_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_p119_jit_deferred_cycles_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_original_p119_compiler_pending_vs_executed_jit_flush
+    COMMAND awe64_p005_original_p119_jit_deferred_cycles_test)
+# P116 runs ONLY on explicit research opt-in; generated P54C lookup
+# tables never ship with the product and are not committed to Git.
+option(AWE64_ENABLE_P116_P005_OPCODE_RESEARCH
+    "Enable source-generated original P54C lookup/translator research" OFF)
+if(AWE64_ENABLE_P116_P005_OPCODE_RESEARCH)
+    if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/p116/P116GeneratedP54cTables.hpp" OR
+       NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/p116/original-exhaustive-vectors.txt")
+        message(FATAL_ERROR
+            "P116 exact original oracle output absent: generate from pinned 86Box C first")
+    endif()
+    add_executable(awe64_p005_original_p116_lookup_differential_test
+        tests/p116_original_p54c_lookup_differential.cpp)
+    target_include_directories(awe64_p005_original_p116_lookup_differential_test
+        PRIVATE research "${CMAKE_CURRENT_BINARY_DIR}/p116")
+    add_test(NAME p005_p116_original_opcode_table_40960_source_differential
+        COMMAND awe64_p005_original_p116_lookup_differential_test
+            "${CMAKE_CURRENT_BINARY_DIR}/p116/original-exhaustive-vectors.txt")
+    add_executable(awe64_p005_original_p116_opcode_feed_test
+        tests/p005_original_p54c_opcode_source_feed.cpp)
+    target_include_directories(awe64_p005_original_p116_opcode_feed_test
+        PRIVATE src/creative_compat research
+            "${CMAKE_CURRENT_BINARY_DIR}/p116")
+    target_link_libraries(awe64_p005_original_p116_opcode_feed_test
+        PRIVATE awe64_p002_sample_clock_ports)
+    add_test(NAME p005_p116_original_opcode_timing_to_compiled_block
+        COMMAND awe64_p005_original_p116_opcode_feed_test)
+endif()
+
 
 
 # Adversarial test for the *actual* private Creative VST3 bank state
