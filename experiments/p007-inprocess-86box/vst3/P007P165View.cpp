@@ -460,12 +460,12 @@ P165View::P165View(const CRect& rect,
     browserPanel_->setTransparency(true);
     addView(browserPanel_);
     browserPanel_->addView(new BrowserPanelBacking({0,0,1000,360}));
-    auto* title=new CTextLabel({30,14,558,50},
+    auto* browserTitle=new CTextLabel({30,14,558,50},
         "MIDI-PROGRAMME 000-127  /  NAME NOCH NICHT VOM CREATIVE-GAST GELIEFERT");
-    title->setTransparency(true);
-    title->setFont(kNormalFontSmall);
-    title->setFontColor(CColor(228,184,112,255));
-    browserPanel_->addView(title);
+    browserTitle->setTransparency(true);
+    browserTitle->setFont(kNormalFontSmall);
+    browserTitle->setFontColor(CColor(228,184,112,255));
+    browserPanel_->addView(browserTitle);
     browserSearch_=new CTextEdit({588,17,968,50},this,kSearch,"");
     browserSearch_->setPlaceholderString("Programmnummer suchen...");
     browserSearch_->setImmediateTextChange(true);
