@@ -40,7 +40,7 @@ bool readPrivate(wchar_t const* ini,wchar_t const* key,
 }
 bool appendQuoted(wchar_t* dest,size_t cap,wchar_t const* piece) noexcept {
     const size_t len=wcslen(dest),n=wcslen(piece);
-    if(n+3u>cap-len)return false;
+    if(len>cap||n+4u>cap-len)return false;
     dest[len]=L' ';
     dest[len+1]=L'"';
     for(size_t i=0;i<n;++i)dest[len+2+i]=piece[i];
