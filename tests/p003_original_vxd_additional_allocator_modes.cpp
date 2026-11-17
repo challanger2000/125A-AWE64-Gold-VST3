@@ -226,9 +226,12 @@ int main(){
     dispatchVoices[31].complete=false;
     dispatchVoices[31].blocked_when_few_voices=true;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
+    // Original +403E checks the immediately higher neighbor before
+    // scoring: blocked voice31 skips voice30 as well. Voice29 then
+    // inherits the 0xFFFFF sentinel, so the first idle pair is 28+29.
     CHECK(dispatched && dispatched->voice_count==2u &&
-          dispatched->physical_voices[0]==29u &&
-          dispatched->physical_voices[1]==30u);
+          dispatched->physical_voices[0]==28u &&
+          dispatched->physical_voices[1]==29u);
     source.original_x86_dispatch_mode=2u;
     source.original_mode2_packed_range=(32u<<8u)|31u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
