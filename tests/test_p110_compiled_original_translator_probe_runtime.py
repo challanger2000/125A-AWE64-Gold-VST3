@@ -57,6 +57,7 @@ class TestActualP110ObserverCOutput(unittest.TestCase):
             trace=t/"public-fake-P110.trace"
             c.write_text(FAKE_P54C_CPP,encoding="utf8")
             build=subprocess.run([compiler,"-std=c11","-O2","-Wall","-Wextra",
+                                  "-D_CRT_SECURE_NO_WARNINGS",
                                   "-Werror",str(c),"-o",str(exe)],
                                  capture_output=True,text=True,timeout=100)
             self.assertEqual(build.returncode,0,build.stderr)
@@ -89,7 +90,7 @@ class TestActualP110ObserverCOutput(unittest.TestCase):
             self.assertIn("O 2 C101920B 75 ",raw)
             # Wrong LCOD base must NOT write a fake positive trace.
             trace.unlink()
-            env["AWE64_P110_LCOD_BASE"]="0xC1015100"
+            env["AWE64_P110_LCOD_BASE"]="0xC1000000"
             run=subprocess.run([str(exe)],env=env,capture_output=True,
                                text=True,timeout=15)
             self.assertEqual(run.returncode,0,run.stderr)
