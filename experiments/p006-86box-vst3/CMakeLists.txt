@@ -28,7 +28,7 @@ if(P006_BUILD_WIN95_GUEST)
   target_include_directories(P006_Win95_Original_Creative_Relay
     PRIVATE bridge)
   target_compile_options(P006_Win95_Original_Creative_Relay
-    PRIVATE /W4 /WX /GS- /Oi-)
+    PRIVATE /W4 /WX /GS- /Oi- /arch:IA32)
   target_link_options(P006_Win95_Original_Creative_Relay PRIVATE
     /NODEFAULTLIB /ENTRY:P006GuestMain /SUBSYSTEM:CONSOLE,5.0)
   target_link_libraries(P006_Win95_Original_Creative_Relay PRIVATE
