@@ -251,3 +251,31 @@ Die zuvor fehlenden Gastspeicherabschnitte sind bis auf den
 stabiler Original-RAM-Bereich erfasst. Die tatsächlich geladene
 Treiberidentität, der Audio-/CPU-Zeitvergleich und die semantische
 Zuordnung der Tabellen bleiben offen.
+
+
+### Programm-Datensätze sind direkt an die verschachtelte Tabelle gebunden
+
+Zusätzlich zu den drei zuvor nachgewiesenen Indexketten wurde in der
+echten Original-Besitzerdatei ein direkter Quellnachweis entdeckt:
+**BYTE +4..+5 jedes 26-Byte-Programm-Datensatzes ist ein u16-Index in
+die unmittelbar folgende 182-Werte-u32-Tabelle**. Bei den 129 echten
+Programmdatensätzen und der Original-`FFFF`-Endmarkierung steigen die
+130 Indizes streng von **0 bis 181**. Der Index des `FFFF`-Datensatzes
+ist **181** = letzter gültiger Index der 182er-Tabelle. Ihre letzte
+32-Bit-Zahl ist **466** = Anzahl 3-Byte-Datensätze im nächsten Abschnitt.
+
+Die neue Strukturkette ist daher **direkt aus Preset-Offsets und
+Quelltabellengrenzen nachprüfbar**:
+
+`26-Byte-Originalpreset (+4 u16) -> 182 × u32-Indexwerte -> 466 ×
+3-Byte-Originaldatensätze`
+
+Es wird ausdrücklich noch nicht behauptet, die Original-3-Byte-Sätze
+seien SF2-Generatoren, Modulatoren oder fertige Instrumentenzonen.
+Das muss an der echten Creative-VXD-Logik nachgewiesen werden.
+Der C++23-Port darf eine +4-Zuordnung daher nicht durch PHDR-Positionen
+oder heuristische Presetnummern ersetzen.
+
+Der Strukturprüfer und zusätzliche rein synthetische Negativproben
+verlangen jetzt die echte +4-zu-Index-Tabelle-Relation. Es werden keine
+privaten SoundFont-/ROM-/Win95-Inhalte eingecheckt.
