@@ -30,7 +30,8 @@ static void write(const fs::path& p,const void* data,size_t n) {
     if(!f)throw std::runtime_error("Cannot write synthetic BIOS");
 }
 int main(int argc,char** argv) {
-    if(argc!=2)return 2;
+    const bool dummyAwe=(argc==3 && std::string(argv[2])=="--synthetic-awe64");
+    if(argc!=2 && !dummyAwe)return 2;
     std::error_code ec;
     const fs::path dll=fs::absolute(fs::path(argv[1]),ec);
     if(ec||!fs::is_regular_file(dll,ec))return 3;
@@ -89,13 +90,26 @@ int main(int argc,char** argv) {
     dummyDisk[0]=0x07u;dummyDisk[1]=0xa5u; // read as AX=0xA507
     dummyDisk[510]=0x55u;dummyDisk[511]=0xaau;
     write(vm/L"test.img",dummyDisk.data(),dummyDisk.size());
+    if(dummyAwe){
+        fs::create_directories(rom/L"sound"/L"creative",ec);
+        if(ec)return 12;
+        // Public, zero-valued PLACEHOLDERS ONLY, NOT Creative's actual
+        // 1-MiB wavetable samples or ISA PnP ROM firmware. This checks
+        // original AWE64 hardware construction and 28-MiB RAM allocation.
+        std::vector<std::uint8_t> syntheticRom(1024u*1024u,0u);
+        std::array<std::uint8_t,512u> syntheticPnp{};
+        write(rom/L"sound"/L"creative"/L"awe32.raw",
+              syntheticRom.data(),syntheticRom.size());
+        write(rom/L"sound"/L"creative"/L"CT4540 PnP.BIN",
+              syntheticPnp.data(),syntheticPnp.size());
+    }
     std::array<std::uint8_t,32768> vga{};
     vga[0]=0x55u;vga[1]=0xaau;vga[2]=0x40u;
     unsigned checksum=0u;
     for(auto b:vga)checksum+=b;
     vga.back()=static_cast<std::uint8_t>(0u-(checksum&255u));
     write(rom/L"video"/L"vga"/L"ibm_vga.bin",vga.data(),vga.size());
-    const std::string config=R"([Machine]
+    std::string config=R"([Machine]
 machine = p55t2p4
 cpu_family = pentium_p54c
 cpu_speed = 133333333
@@ -121,6 +135,15 @@ hdd_01_speed = ramdisk
 [Ports (COM & LPT)]
 serial2_enabled = 1
 )";
+    if(dummyAwe){
+        const std::string oldSound="sndcard = none";
+        const auto at=config.find(oldSound);
+        if(at==std::string::npos)return 13;
+        config.replace(at,oldSound.size(),
+            "sndcard = sbawe64_gold\n"
+            "[Sound Blaster AWE64 Gold #1]\n"
+            "onboard_ram = 28672");
+    }
     write(vm/L"P007_SYNTH.cfg",config.data(),config.size());
     const std::string cfg="[General]\nconfirm_exit = 0\n";
     write(root/L"86box.cfg",cfg.data(),cfg.size());
@@ -151,7 +174,7 @@ serial2_enabled = 1
     using Midi=int (*)(std::uint8_t,std::uint8_t,std::uint8_t);
     auto midi=proc<Midi>(core,"p007_midi_submit");
     auto close=proc<Close>(core,"p007_core_guest_close");
-    if(!init||!boot||!step||!stage||!ready||!midi||!close){FreeLibrary(core);done();return 6;}
+    if(!init||!boot||!step||!stage||!ready||!midi||!close||!getTrace){FreeLibrary(core);done();return 6;}
     const auto a=vm.string(),b=rom.string(),g=(root/L"86box.cfg").string();
     const int ir=init(a.c_str(),b.c_str(),"P007_SYNTH.cfg",g.c_str());
     std::printf("P007_SYNTH_ORIGINAL_PROFILE=%d\n",ir);
@@ -184,15 +207,13 @@ serial2_enabled = 1
     std::printf("P007_SYNTH_ORIGINAL_CPU_STAGE=%d READY_SLICE=%d"
                 " MIDI_ACCEPTED=%d PACKET_VALIDATED_ACK_SLICE=%d\n",
                 stage(),readySlice,noteAccepted,ackSlice);
-    if(getTrace){
-        Trace disk{};
-        if(getTrace(&disk))
-            std::printf("P007_SYNTH_ORIGINAL_HDD_REQUESTS=%llu SECTORS=%llu"
-                        " LAST_LBA=%u DRIVE=%u\n",
-                static_cast<unsigned long long>(disk.reads),
-                static_cast<unsigned long long>(disk.readSectors),
-                disk.lastRead,disk.readId);
-    }
+    Trace disk{};
+    if(!getTrace(&disk)){close();FreeLibrary(core);done();return 14;}
+    std::printf("P007_SYNTH_ORIGINAL_HDD_REQUESTS=%llu SECTORS=%llu"
+                " LAST_LBA=%u DRIVE=%u SYNTH_AWE64=%d\n",
+        static_cast<unsigned long long>(disk.reads),
+        static_cast<unsigned long long>(disk.readSectors),
+        disk.lastRead,disk.readId,dummyAwe?1:0);
     std::fflush(stdout);
     close();
     const int closed=stage();
@@ -200,6 +221,10 @@ serial2_enabled = 1
     done();
     fs::remove_all(root,ec);
     if(closed!=2)return 10;
+    if(disk.reads==0u||disk.readSectors==0u||disk.lastRead!=0u){
+        std::puts("P007_SYNTH_ORIGINAL_ATA_DISK_READ_NOT_SEEN");
+        return 15;
+    }
     if(!noteAccepted){
         std::puts("P007_SYNTH_GUEST_UART_READY_NOT_RECEIVED");
         return 11;
@@ -209,6 +234,8 @@ serial2_enabled = 1
         return 12;
     }
     std::puts("P007_ORIGINAL_86BOX_SYNTHETIC_BIOS_ATA_PIO_LBA0_PLUS_X86_COM2_MIDI_CRC_PASS");
+    if(dummyAwe)
+        std::puts("P007_ORIGINAL_AWE64_GOLD_28MIB_HARDWARE_BOOT_WITH_SYNTHETIC_PLACEHOLDER_ROM_PASS");
     std::puts("P007_SYNTHETIC_ROM_ONLY_NO_REAL_CREATIVE_WINMM");
     return 0;
 }

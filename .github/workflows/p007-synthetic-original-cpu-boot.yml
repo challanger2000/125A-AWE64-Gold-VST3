@@ -20,7 +20,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          gh run download 44108401363 --repo challanger2000/125A-AWE64-Gold-VST3 -n P007-Original-86Box-InProcess-DLL-Feasibility-Only --dir build/public-core
+          gh run download 44117544854 --repo challanger2000/125A-AWE64-Gold-VST3 -n P007-Original-86Box-InProcess-DLL-Feasibility-Only --dir build/public-core
           if ($LASTEXITCODE -ne 0) { throw "Cannot retrieve already-validated public DLL" }
       - name: Compile native Windows test without 86Box EXE or licensed BIOS
         shell: pwsh
@@ -38,3 +38,8 @@ jobs:
           if (!$core) { throw "Original 86Box DLL unavailable" }
           & "build/p007-synth/Release/P007SyntheticCoreBoot.exe" $core.FullName
           if ($LASTEXITCODE -ne 0) { throw "Original 86Box synthetic CPU smoke failed: $LASTEXITCODE" }
+          # Same original core, now enable the authentic emulated AWE64 Gold
+          # with ZERO-PADDED PUBLIC SYNTHETIC ROM TEST FIXTURES ONLY.
+          # Never fetch or distribute Creative/Windows95 sample binaries.
+          & "build/p007-synth/Release/P007SyntheticCoreBoot.exe" $core.FullName --synthetic-awe64
+          if ($LASTEXITCODE -ne 0) { throw "Original AWE64 hardware boot synthetic ROM test failed: $LASTEXITCODE" }
