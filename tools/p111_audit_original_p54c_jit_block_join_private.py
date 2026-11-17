@@ -149,8 +149,8 @@ def selftest():
         assert report["original_compiled_but_unexecuted"]==1
         assert report["runtime_block_boundary_tsc_delta_sum"]==32
         tests=[
-          (header+C+F+D,"orphan old Dynarec"),
-          (header+C+R+D,"before compile finish"),
+          (header+C+F+D.replace(b"D 4 ",b"D 3 "),"orphan old Dynarec"),
+          (header+C+R.replace(b"R 3 ",b"R 2 ")+D.replace(b"D 4 ",b"D 3 "),"before compile finish"),
           (header+C+F+R,"missing old Dynarec"),
           (header+C+F+R.replace(b"R 3 ",b"R 7 ")+D,"sequence missing"),
           (header+C+F+R+D.replace(b"1032",b"999"),"TSC regressed"),
