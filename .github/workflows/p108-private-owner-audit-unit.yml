@@ -10,6 +10,7 @@ on:
       - 'tools/p108_resolve_private_original_package.py'
       - 'tools/p108_compare_public_stress_pe.py'
       - 'tools/p108_rebuild_exact_public_stress_pe.py'
+      - 'tests/test_p108_rebuild_exact_public_stress_pe.py'
       - 'tools/p108_verify_direct_jcc.py'
       - 'tests/test_p108_private_win95_original_capture.py'
       - 'tests/test_p108_resolve_private_original_package.py'
@@ -98,6 +99,11 @@ jobs:
           set -euo pipefail
           python -W error::ResourceWarning -m unittest discover -s tests \
             -p 'test_p108_resolve_private_original_package.py' -v
+      - name: Fail-closed public Win95 PE32 original metadata-only reconstruction tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p108_rebuild_exact_public_stress_pe.py' -v
       - name: Test automated private Win95 run and physical IO gates (synthetic ONLY)
         shell: bash
         run: |
