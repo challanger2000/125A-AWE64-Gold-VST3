@@ -87,6 +87,12 @@ int main() {
     // Original exact VXD root-key delta 100 cents, scale 874 -> note61.
     CHECK(compile_original_sf2_main(s,30u,61u,v,program));
     CHECK(program.data[7]==static_cast<std::uint16_t>((0xe00000u+87400u)>>8u));
+    // LCOD+0x574C SAR rounds negative pitch toward minus infinity;
+    // it is neither unsigned SHR nor C++ division toward zero.
+    w32(d,0x86u,0u);w16(d,52u,0xffffu);
+    CHECK(compile_original_sf2_main(s,0u,60u,v,program));
+    CHECK(program.data[7]==0xfffcu); // (-874 SAR 8) & 0xffff
+    w32(d,0x86u,0xe00000u);w16(d,52u,0u);
     // Zero DRY effect sends and source non-looping geometry.
     w16(d,54u,0u);v.original_voice_volume_target=0x1234u;
     CHECK(compile_original_sf2_main(s,0u,60u,v,program));
@@ -126,6 +132,22 @@ int main() {
     CHECK(program.data[17]==(0x40u<<24u | 0x20017fu));
     CHECK(program.data[18]==0x20029fu);
     CHECK(program.data[19]==0x2000fcu);
+    // Original LCOD+0x5BC8 nonloop branch applies to RAM as well as ROM.
+    // Deliberately unusable loop words must never enter its registers.
+    for(const auto mode:{0u,2u}) {
+        w16(d,54u,static_cast<std::uint16_t>(mode));
+        w32(d,0x7eu,0xffffffffu);w32(d,0x82u,0u);
+        CHECK(compile_original_sf2_main(s,30u,60u,v,program));
+        CHECK(program.data[17]==(0x40u<<24u | 0x200304u));
+        CHECK(program.data[18]==0x200308u);
+        CHECK(program.data[19]==0x2000fcu);
+    }
+    // The same malformed loop words are still rejected in looping mode.
+    w16(d,54u,1u);
+    CHECK(!compile_original_sf2_main(s,30u,60u,v,program));
+    // The 24-bit hardware pointer bounds still apply to the derived end.
+    w16(d,54u,0u);w32(d,0x7au,0xfffff8u);
+    CHECK(!compile_original_sf2_main(s,30u,60u,v,program));
     // Bad original physical RAM address range: source refuses.
     w32(d,0x76u,0x1ff000u);
     CHECK(!compile_original_sf2_main(s,30u,60u,v,program));

@@ -88,6 +88,25 @@ Bytes sf2(bool nonMono=false,bool withSm24=false,
 }
 }
 int main() {
+    // Published SHA-256("abc") vector: verify the source-binding provider
+    // independently of both the SF2 parser and physical RAM replay.
+    {
+        const Bytes abc{'a','b','c'};
+        P003RamUploadResult binding{};
+        binding.original_source_port_replay_verified=true;
+        binding.source_sf2_sha256_verified=true;
+        binding.entire_pool_readback_equal=true;
+        binding.source_sf2_sha256={
+            0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,
+            0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
+            0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,
+            0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad};
+        CHECK(p003CapturedRamMatchesExactSourceSf2(abc,binding));
+        CHECK(!p003CapturedRamMatchesExactSourceSf2(Bytes{'a','b','d'},binding));
+        CHECK(!p003CapturedRamMatchesExactSourceSf2({},binding));
+        binding.source_sf2_sha256_verified=false;
+        CHECK(!p003CapturedRamMatchesExactSourceSf2(abc,binding));
+    }
     const auto rom=std::filesystem::temp_directory_path()/
         "125a-p003-real-emu8000-synthetic-rom-mono-preload.raw";
     {

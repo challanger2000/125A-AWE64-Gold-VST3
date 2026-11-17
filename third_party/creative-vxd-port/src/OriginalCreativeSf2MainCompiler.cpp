@@ -1,5 +1,6 @@
 #include "OriginalCreativeSf2MainCompiler.hpp"
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 
 namespace awe64::original_vxd {
@@ -54,13 +55,18 @@ bool compile_original_sf2_main(SourceVoice const& source,
        attenuation>255u || word(d,26u)>128u || word(d,34u)>128u ||
        word(d,28u)>127u || word(d,29u)>127u ||
        word(d,36u)>255u || word(d,37u)>255u ||
-       start<4u || start>=end || loop_s<start ||
-       loop_s>=loop_e || (loop_e>end && loop_e-end>2u))return false;
+       start<4u || start>=end)return false;
+    // SBAWE.VXD LCOD+0x5B87 branches on mode bit 0 before loading
+    // either loop address. +0x5BC8 uses end+4/end+8 for nonlooping
+    // samples, including RAM; loop metadata cannot reject that path.
+    if((mode&1u)!=0u && (loop_s<start || loop_s>=loop_e ||
+       (loop_e>end && loop_e-end>2u)))return false;
     if(v.original_ram_sample) {
-        if((mode&1u)==0u || start<0x200004u || end>0x1000000u ||
-           loop_e>0x1000000u)
+        if(start<0x200004u || end>0x1000000u ||
+           ((mode&1u)!=0u && loop_e>0x1000000u))
             return false;
-    }else if(end>0x80000u || loop_e>0x80000u)return false;
+    }else if(end>0x80000u ||
+             ((mode&1u)!=0u && loop_e>0x80000u))return false;
     const auto psst_low=(mode&1u)?loop_s-1u:end+4u;
     const auto csl_low=(mode&1u)?loop_e-1u:end+8u;
     if(psst_low>0xffffffu || csl_low>0xffffffu)return false;
@@ -77,11 +83,14 @@ bool compile_original_sf2_main(SourceVoice const& source,
        signed_word(d,52u)+v.original_channel_tune_1_cents+
        v.original_channel_tune_2_cents+signed_word(d,51u)+
        (static_cast<std::int64_t>(key)-root)*signed_word(d,56u);
-    const auto source_pitch=static_cast<std::int64_t>(dw_pitch)+cents*874ll;
-    if(source_pitch<0ll)return false;
+    // LCOD+0x56CE..0x5753 uses wrapping DWORD IMUL/ADD, a SIGNED
+    // upper clamp at +0x573E and SAR 8 at +0x574C. Negative values
+    // are not rejected or clamped to zero. Preserve their low WORD.
+    const auto wrapped_pitch=std::bit_cast<std::int32_t>(
+        static_cast<std::uint32_t>(static_cast<std::int64_t>(dw_pitch)+
+                                   cents*874ll));
     const auto ip=static_cast<std::uint16_t>(
-        static_cast<std::uint64_t>(std::min<std::int64_t>(
-            source_pitch,0xffffffll))>>8u);
+        std::min<std::int32_t>(wrapped_pitch,0xffffff)>>8u);
     if((word(d,34u)!=128u || word(d,33u)<0x8000u) &&
        v.original_voice_volume_target!=0u)return false;
 

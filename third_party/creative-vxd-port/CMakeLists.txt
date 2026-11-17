@@ -33,6 +33,12 @@ add_test(NAME original_creative_midi_engine COMMAND test_original_creative_midi_
 add_executable(test_original_creative_sf2_main_compiler tests/test_original_creative_sf2_main_compiler.cpp)
 target_link_libraries(test_original_creative_sf2_main_compiler PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_sf2_main_compiler COMMAND test_original_creative_sf2_main_compiler)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_geometry_probe.cpp")
+    add_executable(awe64_p005_original_note_geometry_probe
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/p005_original_note_geometry_probe.cpp")
+    target_link_libraries(awe64_p005_original_note_geometry_probe
+        PRIVATE original_creative_vxd_live)
+endif()
 add_executable(test_midi_heapless tests/test_midi_heapless.cpp)
 target_link_libraries(test_midi_heapless PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_midi_zero_alloc_50000 COMMAND test_midi_heapless)

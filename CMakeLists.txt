@@ -365,6 +365,11 @@ target_link_libraries(awe64_p003_sf2_mono_ram_preload
            awe64_p002_original_ram_port_replay)
 if(WIN32)
     target_link_libraries(awe64_p003_sf2_mono_ram_preload PRIVATE bcrypt)
+else()
+    # Native source/physical-RAM regression needs the same SHA binding
+    # as Windows. Never substitute a successful unverified capture.
+    find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+    target_link_libraries(awe64_p003_sf2_mono_ram_preload PRIVATE OpenSSL::Crypto)
 endif()
 target_compile_features(awe64_p003_sf2_mono_ram_preload PUBLIC cxx_std_23)
 # Independent OFFLINE sample-bank memory allocator contract:
