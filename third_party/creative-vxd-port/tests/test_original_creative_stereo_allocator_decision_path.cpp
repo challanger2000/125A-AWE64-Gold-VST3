@@ -135,7 +135,17 @@ int main(){
         }
     }
 
-    // P003-V5 source disassembly maps [EBX+0Dh] to current row+0x17,
+    // Original V5 recorder cross-iteration address identity:
+// old EBX+0x0D == (old EBX-0x20)+0x2D.
+// Reading +0x0D after the 32-byte decrement is therefore exactly
+// the SAME absolute guest address as reading +0x2D before it.
+// These are recorder observation points, not two interchangeable
+// offsets within the SAME x86 instruction.
+static_assert(0x0Du + 0x20u == 0x2Du);
+static_assert((0x1000u + 0x0Du) ==
+              ((0x1000u - 0x20u) + 0x2Du));
+
+// P003-V5 source disassembly maps [EBX+0Dh] to current row+0x17,
     // [EBX+2Dh] to next row+0x17. Test those *separately*, including
     // the original [ESI+06h] upper capacity boundary.
     for(std::uint32_t mode : {2u,4u}) {
