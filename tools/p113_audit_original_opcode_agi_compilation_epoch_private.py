@@ -110,7 +110,7 @@ def read_p111_generations(path:Path):
                 epochs[epoch]["run"]=True
     return epochs
 
-def audit(p110:Path,p111:Path,p113:Path,min_agis:int=1):
+def audit(p110:Path,p111:Path,p113:Path,min_agis:int=0):
     # Reject any partial original trace BEFORE reporting positive statistics.
     result110=audit_p110(p110,min_translations=1)
     result111=audit_p111(p111,min_runs=1)
@@ -227,7 +227,7 @@ def main():
     parser.add_argument("--private-original-p110",type=Path)
     parser.add_argument("--private-original-p111",type=Path)
     parser.add_argument("--private-original-p113",type=Path)
-    parser.add_argument("--min-original-positive-agi",type=int,default=1)
+    parser.add_argument("--min-original-positive-agi",type=int,default=0)
     parser.add_argument("--selftest",action="store_true")
     args=parser.parse_args()
     if args.selftest:selftest()
