@@ -154,6 +154,60 @@ def analyze(primary:bytes, nested:bytes)->dict:
         int.from_bytes(rec[1:3],"little")
         for rec in instrument_triples if rec[0]==53
     ]
+    # Walk the ORIGINAL byte-index chain end-to-end, without ever
+    # fabricating sample PCM or assuming the original x86 execution.
+    # Only the authenticated owner-GM shape is treated as a complete
+    # preset->instrument->sample-ID research mapping.
+    owner_gm_source_paths=None
+    if owner_gm_shape:
+        instrument_to_bags=unpack(regions[2],2)
+        instrument_bag_to_generators=unpack(regions[3],4)
+        distinct_instruments=set()
+        distinct_sample_ids=set()
+        sample_references=0
+        instrument_bag_visits=0
+        gm_programs_with_sample_refs=0
+        for first_group,last_group in zip(
+                program_indices,program_indices[1:]):
+            found_sample=False
+            for group in range(first_group,last_group):
+                begin,end=preset_offsets[group],preset_offsets[group+1]
+                check(end>begin,"original GM preset bag missing generator")
+                record=preset_triples[end-1]
+                check(record[0]==41,
+                      "original GM preset bag has no instrument reference")
+                instrument=int.from_bytes(record[1:3],"little")
+                check(instrument+1<len(instrument_to_bags),
+                      "original GM instrument reference has no next index")
+                distinct_instruments.add(instrument)
+                for ib in range(instrument_to_bags[instrument],
+                                instrument_to_bags[instrument+1]):
+                    check(ib+1<len(instrument_bag_to_generators),
+                          "instrument points beyond original bag boundary")
+                    instrument_bag_visits+=1
+                    ibegin=instrument_bag_to_generators[ib]
+                    iend=instrument_bag_to_generators[ib+1]
+                    for gen in instrument_triples[ibegin:iend]:
+                        if gen[0]==53: # SF2 sampleID numeric opcode
+                            sample_references+=1
+                            found_sample=True
+                            distinct_sample_ids.add(
+                                int.from_bytes(gen[1:3],"little"))
+            if found_sample:gm_programs_with_sample_refs+=1
+        check(gm_programs_with_sample_refs==len(program_indices)-1,
+              "owner-GM program has no source-indexed sampleID")
+        owner_gm_source_paths={
+            "programs_with_source_sample_id_references":
+                gm_programs_with_sample_refs,
+            "unique_instrument_indices":len(distinct_instruments),
+            "instrument_bag_visits_including_aliases":
+                instrument_bag_visits,
+            "sample_id_references_including_aliases":sample_references,
+            "unique_sample_id_numbers":len(distinct_sample_ids),
+            "max_sample_id_number":max(distinct_sample_ids),
+            "sample_pcm_present":False,
+            "creative_noteon_audio_parity_proven":False
+        }
     packed_opcodes={
         "three_byte_record_layout_candidate":"u8 opcode + u16 little-endian amount",
         "all_generator_ids_within_sf2_range":True,
@@ -185,6 +239,7 @@ def analyze(primary:bytes, nested:bytes)->dict:
         },
         "observed_structural_relations":audit,
         "packed_generator_evidence":packed_opcodes,
+        "owner_gm_source_paths":owner_gm_source_paths,
         "last_region_4096_byte_sample_only":True,
         "table_semantics_independently_proven":False,
         "win95_creative_driver_execution_proven":False,

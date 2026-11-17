@@ -47,7 +47,76 @@ def fixture():
         nested+=region
     return primary,nested,locations
 
+def gm_fixture():
+    # Entirely synthetic 129-program/181-bag/179-instrument geometry.
+    # Programs refer to one synthetic instrument containing sampleID 0.
+    lengths=(728,1398,360,2976,10932,4096)
+    primary_first=76+130*26
+    offsets=[76,primary_first]
+    for length in lengths[:-1]:
+        offsets.append(offsets[-1]+length)
+    pointers=tuple(ROOT+offset for offset in offsets)
+    device=bytearray(DEVICE)
+    struct.pack_into("<H",device,6,32)
+    struct.pack_into("<I",device,0x158e,0x4d474d31)
+    struct.pack_into("<I",device,0x6ca,ROOT)
+    root_bytes=bytearray(primary_first)
+    struct.pack_into("<7I",root_bytes,0,*pointers)
+    program_indices=[0]
+    for n in range(129):
+        program_indices.append(program_indices[-1]+(1 if n<77 else 2))
+    assert program_indices[-1]==181
+    for n in range(129):
+        at=76+n*26
+        struct.pack_into("<HBBH",root_bytes,at,1,n,0,program_indices[n])
+    struct.pack_into("<H",root_bytes,76+129*26,0xffff)
+    struct.pack_into("<H",root_bytes,76+129*26+4,181)
+    primary=(b"125AVXD1"+
+             struct.pack("<7I",1,0xc30b09f0,0x3000,DEVICE,288,1,1)+
+             device+struct.pack("<II",ROOT,len(root_bytes))+root_bytes)
+    parts=[bytearray(n) for n in lengths]
+    preset_offsets=list(range(181))+[466]
+    struct.pack_into("<182I",parts[0],0,*preset_offsets)
+    for n in range(181):
+        at=(preset_offsets[n+1]-1)*3
+        parts[1][at:at+3]=bytes([41,0,0])
+    instrument_to_bags=[0,1]+[1]*177+[743]
+    struct.pack_into("<180H",parts[2],0,*instrument_to_bags)
+    bag_to_generators=[0,1]+[1]*741+[3644]
+    struct.pack_into("<744I",parts[3],0,*bag_to_generators)
+    parts[4][0:3]=bytes([53,0,0])
+    nested=bytearray(b"125AVXR1"+
+                     struct.pack("<4I",1,0xc30b09f0,0x3000,ROOT)+
+                     struct.pack("<7I",*pointers)+
+                     struct.pack("<I",6))
+    positions=[]
+    for i,part in enumerate(parts):
+        positions.append(len(nested)+12)
+        nested+=struct.pack("<3I",pointers[i+1],len(part),int(i<5))
+        nested+=part
+    return primary,nested,positions
+
 class GeometryTests(unittest.TestCase):
+    def test_full_original_gm_index_path_to_sample_id(self):
+        p,n,_=gm_fixture()
+        results=analyze(p,bytes(n))
+        path=results["owner_gm_source_paths"]
+        self.assertEqual(path["programs_with_source_sample_id_references"],129)
+        self.assertEqual(path["unique_instrument_indices"],1)
+        self.assertEqual(path["sample_id_references_including_aliases"],181)
+        self.assertEqual(path["unique_sample_id_numbers"],1)
+        self.assertFalse(path["creative_noteon_audio_parity_proven"])
+    def test_owner_gm_missing_sample_id_fails(self):
+        p,n,positions=gm_fixture()
+        n[positions[4]]=0
+        with self.assertRaises(GeometryError):
+            analyze(p,bytes(n))
+    def test_owner_gm_bad_instrument_id_fails(self):
+        p,n,positions=gm_fixture()
+        # First three-byte preset record is op=41 instrument=65535.
+        n[positions[1]+1:positions[1]+3]=bytes([255,255])
+        with self.assertRaises(GeometryError):
+            analyze(p,bytes(n))
     def test_valid_three_links(self):
         p,n,_=fixture()
         result=analyze(p,bytes(n))
@@ -81,7 +150,7 @@ class GeometryTests(unittest.TestCase):
         with self.assertRaises(GeometryError):
             analyze(bytes(altered),bytes(n))
     def test_packed_generator_invalid_opcode_rejected(self):
-        self.corrupt(1,0,b"\\xff")
+        self.corrupt(1,0,bytes([255]))
     def test_packed_instrument_index_out_of_range_rejected(self):
         # A 3-byte record can advertise op 41, but its u16 target
         # must never name a nonexistent original instrument index.

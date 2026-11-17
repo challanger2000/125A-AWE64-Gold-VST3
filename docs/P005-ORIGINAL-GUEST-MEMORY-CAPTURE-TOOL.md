@@ -316,3 +316,27 @@ abgenommen werden. Keine erfundene Umwandlung oder automatische
 Produktivfreigabe. Die neuen synthetischen Tests prüfen die
 Generator-Bytebreite, Quellindexgrenzen und die spezifisch belegte
 GM-Programm-Invariante separat.
+
+
+### Original-Programmpfade bis zum referenzierten Sample-ID-Endpunkt
+
+Aus der Besitzeraufnahme vom 17.11.2026 können die originalen
+Programm-Indexbereiche (+4 in der 26-Byte-Zeile), Presetgruppen,
+Opcode-41-Instrumentverweise, originalen Instrumentindizes und
+Instrumentgruppen bis zu den Opcode-53-`sampleID`-Werten
+**für alle 129 Original-GM-Programme durchgängig nachvollzogen** werden.
+
+In der ursprünglichen Bank werden dabei **178 verschiedene**
+Instrument-Indexnummern und **152 verschiedene Sample-ID-Nummern**
+(0..151) referenziert. Über alle 129 Programme, einschließlich
+mehrfach referenzierter Instrumente, folgen 750 Instrumentgruppen-
+Besuche und 570 Sample-ID-Referenzen. Diese Zahlen bedeuten **nicht**,
+dass die referenzierten originalen Sample-PCM-Daten vollständig
+aufgezeichnet, der 1996er Sample-Decoder portiert oder das VST3
+audiobitgenau abgenommen ist. Die Original-Sitzungsprovenienz und
+Endgrenze des letzten Samplebereichs bleiben offen.
+
+Die jetzt ergänzte synthetische 129-Programm-Gesamtprobe testet
+Programm-zu-Instrument-zu-Sample-ID-Verknüpfung inklusive mutierter
+Sample-ID- und Instrument-Zielwerte, ohne die privaten Originalbytes
+in CI oder GitHub zu übernehmen.
