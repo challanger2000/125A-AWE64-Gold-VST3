@@ -5,6 +5,7 @@
 // voice descriptor and authenticated physical sample/voice/channel state.
 // Not a SoundFont generator default converter; ROM and verified RAM only.
 #include "OriginalCreativeMidiEngine.hpp"
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -27,8 +28,11 @@ struct OriginalVoiceStartSources {
     std::int32_t original_channel_bend_delta=0;
     bool original_derive_volume_target_from_attenuation=false;
     bool original_volume_target_tables_verified=false;
-    std::span<const std::uint16_t> original_volume_positive16{};
-    std::span<const std::uint16_t> original_volume_negative15{};
+    // Own these small source tables: staged zones/catalogs may outlive
+    // their loader's temporary resource buffers. Never publish borrowed
+    // target-table pointers into an active original MIDI source.
+    std::array<std::uint16_t,16> original_volume_positive16{};
+    std::array<std::uint16_t,15> original_volume_negative15{};
 };
 // LCOD+0x56CE..0x5753 baseline stored at physical voice+0x0E,
 // before channel pitch-bend/tune are applied at LCOD+0x5B50.
