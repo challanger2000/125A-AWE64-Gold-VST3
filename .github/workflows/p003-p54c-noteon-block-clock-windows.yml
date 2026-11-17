@@ -1,0 +1,49 @@
+name: P003 Original Pentium Block CPU Clock - Windows x64 native C++23
+on:
+  push:
+    branches:
+      - research/p003-v5-voice-row-capture
+    paths:
+      - '.github/workflows/p003-p54c-noteon-block-clock-windows.yml'
+      - 'src/creative_compat/P003OriginalP54cBlockClock.cpp'
+      - 'src/creative_compat/P003OriginalP54cBlockClock.h'
+      - 'src/creative_compat/P003OriginalWavetableTimer.cpp'
+      - 'src/creative_compat/P003OriginalWavetableTimer.h'
+      - 'src/creative_compat/P003OriginalPitClock.h'
+      - 'tests/p003_original_p54c_block_noteon_clock.cpp'
+      - 'tests/p003_original_pit_fractional_clock.cpp'
+permissions:
+  contents: read
+jobs:
+  source_block_clock_win64:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          release: true
+          update: false
+          msystem: UCRT64
+          pacboy: >-
+            gcc:p
+      - name: Compile and execute source-only P54C JIT-clock and original fractional 44.1kHz timer
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_p54c_block_noteon_clock.cpp \
+            src/creative_compat/P003OriginalP54cBlockClock.cpp \
+            src/creative_compat/P003OriginalWavetableTimer.cpp \
+            -o "$RUNNER_TEMP/p003-p54c-block-clock.exe"
+          "$RUNNER_TEMP/p003-p54c-block-clock.exe"
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_pit_fractional_clock.cpp \
+            src/creative_compat/P003OriginalWavetableTimer.cpp \
+            -o "$RUNNER_TEMP/p003-pit-44khz.exe"
+          "$RUNNER_TEMP/p003-pit-44khz.exe"
+          echo "P003_WINDOWS_X64_P54C_BLOCK_CPU_CLOCK_SOURCE_PASS product_vst3_modified=NO original_win95_guest_executed=NO"
