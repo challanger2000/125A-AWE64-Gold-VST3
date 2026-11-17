@@ -46,6 +46,10 @@ jobs:
           set -euo pipefail
           python -W error::ResourceWarning -m unittest discover -s tests \
             -p 'test_p108_private_win95_original_capture.py' -v
+      - name: Verify original-stress comparison SF2 can be generated without any owner sample data
+        shell: bash
+        run: |
+          python -c "import hashlib,sys;sys.path.insert(0,'tools');from p003_owner_two_bank_run import generated_original_mode_stereo_sf2 as gen;print('P108_SOURCE_CLEAN_ORIGINAL_MODE_STEREO_SF2_SHA256='+hashlib.sha256(gen()).hexdigest())"
       - name: Test five source original Jcc flag predicates and strict trace crosscheck
         shell: bash
         run: |
