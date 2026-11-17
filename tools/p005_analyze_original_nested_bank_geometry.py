@@ -38,6 +38,46 @@ def analyze(primary:bytes, nested:bytes)->dict:
         at+=length
         regions.append(data)
     check(at==len(nested),"trailing unclassified input")
+    # Cross the source boundary from the authentic 26-byte VXD
+    # program rows into nested region #2. Offset +4 of every row is
+    # a little-endian u16 referencing a real entry of the 32-bit
+    # index array, NOT merely a guessed SoundFont/PHDR relation.
+    root=struct.unpack_from("<I",nested,20)[0]
+    pointers=struct.unpack_from("<7I",nested,24)
+    check(pointers[0]>=root and pointers[1]>=pointers[0],
+          "invalid original program-row pointers")
+    prefix=pointers[0]-root
+    row_span=pointers[1]-pointers[0]
+    check(row_span>=26 and row_span%26==0,
+          "original program rows are not 26-byte aligned")
+    primary_offset=36+0x1592
+    check(primary_offset+8<=len(primary),"missing original root")
+    listed_root,length=struct.unpack_from("<2I",primary,primary_offset)
+    check(listed_root==root and length>=prefix+row_span,
+          "original program bytes missing")
+    rows=primary[primary_offset+8+prefix:
+                 primary_offset+8+prefix+row_span]
+    program_indices=[
+        struct.unpack_from("<H",rows,i*26+4)[0]
+        for i in range(len(rows)//26)
+    ]
+    program_markers=[
+        struct.unpack_from("<H",rows,i*26)[0]
+        for i in range(len(rows)//26)
+    ]
+    index_count=len(regions[0])//4
+    check(len(regions[0])%4==0 and index_count>=2,
+          "nested program lookup array is not u32 aligned")
+    check(len(program_indices)>=2 and
+          all(program_markers[i] not in (0,0xffff)
+              for i in range(len(program_markers)-1)) and
+          program_markers[-1]==0xffff,
+          "original program list sentinel misplaced")
+    check(program_indices[0]==0 and
+          all(a<b for a,b in zip(program_indices,program_indices[1:])),
+          "original program-to-index references not strictly ascending")
+    check(program_indices[-1]==index_count-1,
+          "original sentinel does not point to terminal index")
     # The source observed on 17 Nov has three exact hierarchical
     # cardinality relations. Do not label arrays as PHDR/IBAG/IGEN etc:
     # their semantic identity must be proven from Creative VXD code.
@@ -79,6 +119,14 @@ def analyze(primary:bytes, nested:bytes)->dict:
         "status":"ORIGINAL_NESTED_INDEX_GEOMETRY_MATCH",
         "capture_sha256":verified["nested_capture_sha256"],
         "primary_capture_sha256":verified["primary_capture_sha256"],
+        "original_program_to_nested_index":{
+            "program_rows_including_sentinel":len(program_indices),
+            "first_original_row_index":program_indices[0],
+            "last_original_sentinel_index":program_indices[-1],
+            "nested_u32_index_count":index_count,
+            "strictly_increasing":True,
+            "relation":"EXACT_MATCH"
+        },
         "observed_structural_relations":audit,
         "last_region_4096_byte_sample_only":True,
         "table_semantics_independently_proven":False,
