@@ -20,7 +20,7 @@ static int contains(char const* s,char const* part){
  return 0;
 }
 static void clear(void* p,unsigned n){
- unsigned i;unsigned char* b=(unsigned char*)p;
+ unsigned i;volatile unsigned char* b=(volatile unsigned char*)p;
  for(i=0;i<n;++i)b[i]=0;
 }
 static void log_line(char const* s){
