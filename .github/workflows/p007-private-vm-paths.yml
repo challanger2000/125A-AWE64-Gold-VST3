@@ -1,0 +1,32 @@
+name: P007 private single-VST3 resource paths and persistent guest data
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - "experiments/p007-inprocess-86box/vst3/P007PrivatePaths.hpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007PrivatePathsTest.cpp"
+      - "experiments/p007-inprocess-86box/tests/private_path_test/**"
+      - ".github/workflows/p007-private-vm-paths.yml"
+permissions:
+  contents: read
+jobs:
+  windows-bundle-and-copy:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native Win64 private guest profile smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S experiments/p007-inprocess-86box/tests/private_path_test -B build/p007-paths -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) { throw "P007 private profile configure failed" }
+      - name: Build and verify bundle layout, writable guest copy and persistence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-paths --config Release --target P007PrivatePathsTest
+          if ($LASTEXITCODE -ne 0) { throw "P007 private profile build failed" }
+          & "build/p007-paths/Release/P007PrivatePathsTest.exe"
+          if ($LASTEXITCODE -ne 0) { throw "P007 private profile contract failed" }

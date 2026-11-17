@@ -1,4 +1,5 @@
 #include "P007Native.hpp"
+#include "P007PrivatePaths.hpp"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
@@ -92,20 +93,40 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
     try{
         // All resources are private and must be bundled in the one VST3.
         // No executable, external VM, OS device, BAT or named pipe.
-        // folder contains the FULL DLL filename, e.g. Contents/x86_64-win/
-        // 125A_AWE_Core.dll. Resolve from Contents, not from the DLL file.
-        const fs::path root=fs::path(folder).parent_path().parent_path()
-                            /L"Resources"/L"PrivateVM";
-        const fs::path vm=root/L"vm";
-        const fs::path roms=root/L"roms";
-        const fs::path global=root/L"86box.cfg";
-        const fs::path config=vm/L"P007_AWE64.cfg";
-        std::error_code ec;
-        if(!fs::is_directory(vm,ec)||!fs::is_directory(roms,ec)||
-           !fs::is_regular_file(global,ec)||!fs::is_regular_file(config,ec)){
-            bootStatus_.store(0,std::memory_order_release);
-            return; // research VST3 without proprietary guest remains silent
+        const fs::path root=privatevm::bundleRoot(fs::path(folder));
+        wchar_t local[4096]{};
+        const DWORD len=GetEnvironmentVariableW(L"LOCALAPPDATA",local,4096u);
+        if(!len||len>=4096u){
+            bootStatus_.store(-5,std::memory_order_release);return;
         }
+        // Guest disk is writable ONLY in per-user profile. Named Windows
+        // mutex prevents two DAW processes from writing the same guest HDD.
+        struct MutexLease {
+            HANDLE handle=nullptr;
+            bool acquired=false;
+            ~MutexLease(){
+                if(acquired)ReleaseMutex(handle);
+                if(handle)CloseHandle(handle);
+            }
+        } lease;
+        lease.handle=CreateMutexW(nullptr,FALSE,
+            L"Local\\125A_AWE64_Gold_P007_PrivateVM");
+        if(!lease.handle){
+            bootStatus_.store(-6,std::memory_order_release);return;
+        }
+        const DWORD wait=WaitForSingleObject(lease.handle,0);
+        if(wait!=WAIT_OBJECT_0&&wait!=WAIT_ABANDONED){
+            bootStatus_.store(-7,std::memory_order_release);return;
+        }
+        lease.acquired=true;
+        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM";
+        std::error_code ec;
+        if(!privatevm::prepare(root,work,ec)){
+            bootStatus_.store(-8,std::memory_order_release);return;
+        }
+        const fs::path vm=work/L"vm";
+        const fs::path roms=root/L"roms";
+        const fs::path global=work/L"86box.cfg";
         // Original 86Box is an ANSI-path C API; this initial research
         // version supports the paths which its native Win32 CRT can open.
         const auto a=vm.string(),b=roms.string(),g=global.string();

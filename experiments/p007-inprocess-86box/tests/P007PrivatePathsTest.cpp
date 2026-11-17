@@ -1,0 +1,49 @@
+#include "P007PrivatePaths.hpp"
+#include <windows.h>
+#include <filesystem>
+#include <fstream>
+#include <cassert>
+#include <cstdio>
+#include <string>
+namespace fs=std::filesystem;
+static void write(const fs::path& p,const char* text) {
+    std::ofstream out(p,std::ios::binary);
+    out<<text;
+    assert(out.good());
+}
+int main() {
+    wchar_t temp[MAX_PATH]{};
+    if(!GetTempPathW(MAX_PATH,temp)) return 10;
+    const fs::path base=fs::path(temp)/
+        (L"125A-P007-private-test-"+std::to_wstring(GetCurrentProcessId()));
+    std::error_code ec;
+    fs::create_directories(base,ec);
+    if(ec)return 11;
+    const fs::path core=base/L"OnePlugin.vst3"/L"Contents"/L"x86_64-win"/L"125A_AWE_Core.dll";
+    const fs::path bundle=p007::privatevm::bundleRoot(core);
+    if(bundle!=base/L"OnePlugin.vst3"/L"Contents"/L"Resources"/L"PrivateVM")return 12;
+    const fs::path writable=base/L"WritableVM";
+    if(p007::privatevm::prepare(bundle,writable,ec))return 13;
+    fs::create_directories(bundle/L"vm");
+    fs::create_directories(bundle/L"roms");
+    write(bundle/L"vm"/L"P007_AWE64.cfg","guest-config");
+    write(bundle/L"vm"/L"win95.img","original guest disk template");
+    write(bundle/L"86box.cfg","global");
+    if(!p007::privatevm::prepare(bundle,writable,ec))return 14;
+    if(!p007::privatevm::complete(writable))return 15;
+    write(writable/L"vm"/L"win95.img","guest modified after boot");
+    if(!p007::privatevm::prepare(bundle,writable,ec))return 16;
+    std::ifstream disk(writable/L"vm"/L"win95.img");
+    std::string persisted;
+    std::getline(disk,persisted);
+    if(persisted!="guest modified after boot")return 17;
+    const fs::path incomplete=base/L"IncompleteGuest";
+    fs::create_directories(incomplete);
+    write(incomplete/L"my-disk.img","preserve me");
+    if(p007::privatevm::prepare(bundle,incomplete,ec))return 18;
+    if(!fs::is_regular_file(incomplete/L"my-disk.img"))return 19;
+    fs::remove_all(base,ec);
+    if(ec)return 20;
+    std::puts("P007_BUNDLED_VM_RESOLUTION_AND_WRITABLE_PRIVATE_COPY_PASS");
+    return 0;
+}
