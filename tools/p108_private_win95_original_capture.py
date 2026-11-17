@@ -201,7 +201,8 @@ def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
             "original_physical_io_sha256":digest.hexdigest(),
             "original_p54c_cpu_tsc_reconstructed":False}
 
-def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path):
+def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path,
+                           trace_p110:Path|None=None):
     proof=completed_original_guest(disk)
     require(proof is not None,"guest original Creative 3-bank stress result missing")
     rows,original_i_sha=read_trace(trace_i)
@@ -218,7 +219,10 @@ def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path):
             "P108 direct original x86 flag has unconfirmed Jcc")
     require(checked["next_pc_independently_confirms_flags"]>=3000,
             "too few independently matching branch decisions")
+    translator=audit_p110_translator(
+        trace_p110,min_translations=50) if trace_p110 is not None else None
     return {
+        "original_p110_compile_time_evidence":translator,
         "schema":"P108-OWNER-ORIGINAL-WIN95-3BANK-LAZY-FLAG-CPU-CROSSCHECK",
         "status":"ORIGINAL_X86_JCC_DIRECT_FLAGS_PASS_NOT_PCM_TIMING",
         "original_guest_midi_calls":proof["original_win95_midi_send_calls"],
@@ -246,6 +250,8 @@ def main():
     p.add_argument("--existing-p107-i",type=Path)
     p.add_argument("--existing-p108-b",type=Path)
     p.add_argument("--existing-cpu-io",type=Path)
+    p.add_argument("--require-p110-translator",action="store_true")
+    p.add_argument("--existing-p110-translator",type=Path)
     p.add_argument("--max-run-seconds",type=int,default=1200)
     args=p.parse_args()
     try:
@@ -255,9 +261,13 @@ def main():
             require(args.existing_p107_i and args.existing_p108_b and
                     args.existing_cpu_io,
                     "existing PRIVATE audit requires P107-I P108-B AND original physical CPU V4 I/O traces")
+            require(not args.require_p110_translator or
+                    args.existing_p110_translator,
+                    "original P110 translator trace required but missing")
             result=verify_private_capture(args.existing_guest_image,
                                           args.existing_p107_i,args.existing_p108_b,
-                                          args.existing_cpu_io)
+                                          args.existing_cpu_io,
+                                          args.existing_p110_translator)
             print("P108_PRIVATE_ORIGINAL_EXECUTION_AUDIT "+json.dumps(result,sort_keys=True))
             return 0
         require(args.p108_instrumented_86box and args.p108_instrumented_86box_sha256,
@@ -314,7 +324,9 @@ def main():
         trace_i=session/TRACE_I_NAME
         trace_b=session/TRACE_B_NAME
         io_trace=session/"P108-PRIVATE-ORIGINAL-CPU-IO.trace"
-        env=make_probe_environment(os.environ,trace_i,trace_b,io_trace)
+        p110_trace=(session/"P110-PRIVATE-ORIGINAL-PENTIUM-COMPILE.trace"
+                    if args.require_p110_translator else None)
+        env=make_probe_environment(os.environ,trace_i,trace_b,io_trace,p110_trace)
         exe=args.p108_instrumented_86box.resolve()
         argv=[str(exe),"-P",str(vm/"VM"),"-R",str(vm/"86Box"/"roms")]
         p86=subprocess.Popen(argv,cwd=vm/"86Box",env=env)
@@ -324,7 +336,7 @@ def main():
                 p86.terminate()
                 try:p86.wait(timeout=20)
                 except subprocess.TimeoutExpired:p86.kill();p86.wait()
-        report=verify_private_capture(disk,trace_i,trace_b,io_trace)
+        report=verify_private_capture(disk,trace_i,trace_b,io_trace,p110_trace)
         report["source_identifiers"]=source_report
         report["original_guest_clone_stage"]=stage["status"]
         report["instrumented_86box_sha256"]=sha_file(exe)
