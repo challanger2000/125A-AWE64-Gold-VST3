@@ -9,6 +9,7 @@ on:
       - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_mode0_lazy_source_reads.cpp'
       - 'tests/p003_original_win95_mode0_32_physical_voices.cpp'
+      - 'tests/p003_original_mode0_highvoice_selection_ties.cpp'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
@@ -39,6 +40,17 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-legacy-mode0"
           "$RUNNER_TEMP/p003-legacy-mode0"
+      - name: Test original physical voices 30/31 busy selection, tie and sample-end
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_mode0_highvoice_selection_ties.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-original-30-31-ranked"
+          "$RUNNER_TEMP/p003-original-30-31-ranked"
       - name: Verify original mode0 32 physical voices against research source
         shell: bash
         run: |
