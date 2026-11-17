@@ -20,7 +20,7 @@ In `src/cpu/codegen_timing_pentium.c` werden **nach** dem unveränderten Origina
 
 Die Codegen-Kopie holt genau diese Werte **nach** dem Original-`codegen_timing_opcode()` und vor dem existierenden P110-Rücksetzpunkt ab. P113 protokolliert weiterhin unabhängig die bereits original berechneten AGI-Zähler. P117 prüft `block->pnt` gegen die von P111 vergebene eindeutige `compile_epoch` und gegen originalen PC/physische Blockadresse. Die Ausgabedatei ist standardmäßig AUS; nur mit `AWE64_P117_ORIGINAL_SELECTED_TRACE`, `AWE64_P117_LCOD_BASE` und `AWE64_P117_LCOD_SELECTOR=0x28` aktiv. Ein falscher/fehlender Zustand erzeugt NO-GO, keine erfundenen Aufzeichnungen.
 
-`tools/p117_stage_original_p54c_epoch_probe.py` baut P107→P108→P110→P111→P113→P117 ausschließlich in einer neuen 86Box-Quellkopie auf. Die originalen Soundkarten-/EMU8000-Quelldateien werden byteweise auf Unverändertheit geprüft.
+`tools/p117_stage_original_p54c_epoch_probe.py` baut P003-Porthooks sowie P107→P108→P110→P111→P113→P117 und den P115-Live-CPU/TSC-Beobachter ausschließlich in derselben neuen 86Box-Quellkopie auf. Die originalen Soundkarten-/EMU8000-Quelldateien werden byteweise auf Unverändertheit geprüft.
 
 `tools/p117_verify_selected_opcode_epoch_private.py` validiert die vollständigen **vier Originalspuren** P110/P111/P113/P117, die Ereignisreihenfolge und das 1:1-Verhältnis jedes P117-Decodereintrags zur P113-Epoche; gemeldete Ergebnisse sind nur redigierte Summen/Hashes. Er unterscheidet „übersetzt, später JIT-Generation ausgeführt“ und „nur übersetzt“. Aus einer ausgeführten **Blockgeneration** wird ausdrücklich **nicht** geschlossen, dass jede enthaltene Opcode-Auswahl wirklich ausgeführt wurde.
 
@@ -28,7 +28,7 @@ Die Codegen-Kopie holt genau diese Werte **nach** dem Original-`codegen_timing_o
 
 - Originalquellen-SHA, Quellanker, Double-Patch-/Fehlpfad-Negativtests und synthetische Decoder-/Epochenprüfungen.
 - Windows-2022-/Linux-Quellprüfung und vollständiger originaler Linux-86Box-OLD-Dynarec-Build mit P117 in der Wegwerfkopie. Nur abgeschlossene CI-Jobs dürfen als PASS bezeichnet werden.
-- Private Gastmessung mit echter Win95/Creative-VXD und neuem P117-Trace **steht aus**; sie findet niemals in öffentlicher CI statt.
+- Private Gastmessung mit echter Win95/Creative-VXD und gleichzeitigem P003-/P115-/P117-Trace **steht aus**; sie findet niemals in öffentlicher CI statt.
 
 ## Noch offen
 
