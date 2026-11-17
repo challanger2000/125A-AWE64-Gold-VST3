@@ -135,14 +135,14 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
     def test_private_live_original_gate_demands_io_trace(self):
         proof={"original_win95_midi_send_calls":4176,
                "original_win95_midi_api_failures":0}
-        with patch.object(p,"completed_original_guest",return_value=proof),
+        with (patch.object(p,"completed_original_guest",return_value=proof),
              patch.object(p,"read_trace",return_value=([object()],"synthetic-i")),
              patch.object(p,"read_direct",return_value=({0:object()},"synthetic-b")),
              patch.object(p,"compare_original",return_value={
                  "executed_jcc_total":3450,
                  "unobserved_or_unexplained_jcc":0,
                  "next_pc_independently_confirms_flags":3410}),
-             patch.object(p,"verify_original_physical_cpu_io",side_effect=ValueError("missing IO")):
+             patch.object(p,"verify_original_physical_cpu_io",side_effect=ValueError("missing IO"))):
             with self.assertRaisesRegex(ValueError,"missing IO"):
                 p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),
                                          Path("/fake/b"),Path("/fake/io"))
