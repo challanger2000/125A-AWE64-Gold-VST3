@@ -68,6 +68,8 @@ def read_events(path:Path):
 
 def read_p110_opcodes(path:Path):
     rows=[]
+    starts=[]
+    block=-1
     with path.open("rb") as inp:
         if not inp.readline().startswith(P110_HEADER):
             raise ValueError("P113 original P110 header missing")
@@ -75,10 +77,15 @@ def read_p110_opcodes(path:Path):
             if raw.startswith(b"#"):
                 raise ValueError("P113 P110 translator clipped/truncated")
             event=parse_p110(raw)
-            if event.kind=="O":
+            if event.kind=="S":
+                starts.append(event.pc)
+                block+=1
+            elif event.kind=="O":
+                if block<0:
+                    raise ValueError("P113 original P110 opcode lacks observed compilation start")
                 rows.append((event.pc,event.opcode,event.agi_calls,
-                             event.agi_positive))
-    return rows
+                             event.agi_positive,block))
+    return starts,rows
 
 def read_p111_generations(path:Path):
     epochs={}
@@ -107,19 +114,29 @@ def audit(p110:Path,p111:Path,p113:Path,min_agis:int=1):
     # Reject any partial original trace BEFORE reporting positive statistics.
     result110=audit_p110(p110,min_translations=1)
     result111=audit_p111(p111,min_runs=1)
-    p110_ops=read_p110_opcodes(p110)
+    p110_starts,p110_ops=read_p110_opcodes(p110)
     p113_ops,sha113=read_events(p113)
     epochs=read_p111_generations(p111)
+    p111_starts=[(epoch,info["start"]) for epoch,info in epochs.items()
+                 if WINDOW_LOW<=info["start"]<=WINDOW_HIGH]
+    if len(p110_starts)!=len(p111_starts):
+        raise ValueError("P113 original P110/P111 compiler starts do not match")
+    for start,(epoch,pc) in zip(p110_starts,p111_starts):
+        if start!=pc:
+            raise ValueError("P113 original P110/P111 compilation start order mismatch")
     if len(p110_ops)!=len(p113_ops):
         raise ValueError("P113 P110 opcode AGI and P113 epoch count differs")
     stat=Counter()
     seen_epoch=None
     closed_epochs=set()
     for ref,(epoch,pc,op,checks,positive) in zip(p110_ops,p113_ops):
-        if ref!=(pc,op,checks,positive):
+        ref_pc,ref_op,ref_checks,ref_positive,block=ref
+        if (ref_pc,ref_op,ref_checks,ref_positive)!=(pc,op,checks,positive):
             raise ValueError("P113 original AGI opcode reference inconsistent with P110")
         if epoch not in epochs or not epochs[epoch]["finished"]:
             raise ValueError("P113 original AGI epoch lacks successful P111 compiler block")
+        if epoch!=p111_starts[block][0]:
+            raise ValueError("P113 original AGI opcode epoch differs from P110/P111 compilation ordinal")
         if not (epochs[epoch]["start"]<=pc<=epochs[epoch]["start"]+1000):
             raise ValueError("P113 original AGI guest PC not within compiler block start")
         # Original 86Box old Dynarec compilations are sequential, not
@@ -189,7 +206,7 @@ def selftest():
             (p113.replace(b"E 2 2 ",b"E 2 9 "),"lacks successful"),
             (p113.replace(b"75 1 1",b"75 1 0"),"inconsistent"),
             (p113.replace(b"E 2 ",b"E 3 "),"sequence/epoch"),
-            (p113.replace(b"E 2 2 ",b"E 2 1 "),"inconsistent"),
+            (p113.replace(b"E 2 2 ",b"E 2 1 "),"differs from P110/P111 compilation ordinal"),
             (p113.split(b"E 2")[0],"count differs"),
             (p113+b"# P113_EVENT_CAP_REACHED\n","incomplete"),
         ):
