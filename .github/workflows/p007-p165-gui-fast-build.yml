@@ -1,0 +1,95 @@
+name: P007 P165 native Windows GUI incremental build and real EditorHost
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - "experiments/p007-inprocess-86box/vst3/P007P165View.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007P165View.hpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.hpp"
+      - "experiments/p007-inprocess-86box/vst3/CMakeLists.txt"
+      - "experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py"
+      - ".github/workflows/p007-p165-gui-fast-build.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  fast-original-p165:
+    runs-on: windows-2022
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reuse published original source-pinned 86Box DLL dependencies from validated Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
+          run-id: 44143478773
+          github-token: ${{ github.token }}
+          path: build/gui-base
+      - name: Fetch original Steinberg VST3 SDK at verified SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if ($LASTEXITCODE -ne 0) { throw "SDK fetch failed" }
+          $sha=(git -C external/vst3sdk rev-parse HEAD).Trim()
+          if ($sha -ne "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96") { throw "Unexpected SDK sha $sha" }
+      - name: Configure ONLY real P165 VST3 GUI and official EditorHost
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G "Visual Studio 17 2022" -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+          if ($LASTEXITCODE -ne 0) { throw "P007 P165 CMake setup failed" }
+      - name: Restore original 86Box DLLs in the one VST3 folder before validating plugin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          $source=(Resolve-Path "build/gui-base/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win").Path
+          $dest="build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item "$source/*" $dest -Force
+          Remove-Item "$dest/AWE64_Gold_P007.vst3" -ErrorAction SilentlyContinue
+          if (-not (Test-Path "$dest/125A_AWE_Core.dll")) { throw "Original 86Box DLL absent" }
+      - name: Rebuild actual VST3 with the latest P165 GUI and run Steinberg module validator
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference="Stop"
+          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 3
+          if ($LASTEXITCODE -ne 0) { throw "Latest P165 VSTGUI build or validator failed" }
+      - name: Compile real Steinberg Win32 EditorHost
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference="Stop"
+          cmake --build build/p007-vst3 --config Release --target editorhost --parallel 3
+          if ($LASTEXITCODE -ne 0) { throw "EditorHost build failed" }
+      - name: True original P165 screenshot, browser interaction and knob mouse QA
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference="Stop"
+          $editor=(Get-ChildItem build/p007-vst3 -Filter editorhost.exe -File -Recurse |
+            Where-Object { $_.FullName -match "Release" } |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if (-not $editor) { throw "No actual EditorHost.exe" }
+          $plugin=(Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3").Path
+          python experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py --editorhost "$editor" --plugin "$plugin" --output build/p007s-gui-fast-evidence
+          if ($LASTEXITCODE -ne 0) { throw "P165 native editor hardware interaction not accepted" }
+      - name: Preserve all actual Win32 EditorHost screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007U-P165-Win32-GUI-Browser-Screenshots
+          path: build/p007s-gui-fast-evidence/**
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Preserve latest source-linked Windows VST3 build (research only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007U-Win64-P165-Incremental-VST3-Research
+          path: build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
+          if-no-files-found: warn
+          retention-days: 5
