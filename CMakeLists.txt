@@ -130,7 +130,8 @@ add_test(NAME p002_native_original_chip_passive_port_trace
 # remain mandatory for any original-Win95 equivalence claim.
 add_library(awe64_p002_sample_clock_ports STATIC
     src/creative_compat/CreativeSampleClockPorts.cpp
-    src/creative_compat/CreativeAutonomousOutTiming.cpp)
+    src/creative_compat/CreativeAutonomousOutTiming.cpp
+    src/creative_compat/P003OriginalWavetableTimer.cpp)
 target_include_directories(awe64_p002_sample_clock_ports PUBLIC
     src/creative_compat)
 target_link_libraries(awe64_p002_sample_clock_ports PUBLIC awe64_fork_chip)
@@ -149,6 +150,104 @@ target_link_libraries(awe64_p003_autonomous_out_timing_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p003_autonomous_bus_pacing_candidate_negative_controls
     COMMAND awe64_p003_autonomous_out_timing_test)
+# Original (source-derived) 86Box pit_set_clock correction: Pentium 133
+# TABLE rspeed=133333333, effective 400000000/3 Hz; exact 32:32
+# wavetable latch/fractional carry. Independent of speculative x86 costs.
+# These tests never embed guest epoch phase or private Creative data.
+add_executable(awe64_p003_original_pit_fractional_clock_test
+    tests/p003_original_pit_fractional_clock.cpp)
+target_link_libraries(awe64_p003_original_pit_fractional_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p003_original_pentium_133_pit_fractional_32_32_clock
+    COMMAND awe64_p003_original_pit_fractional_clock_test)
+add_executable(awe64_p003_original_wavetable_timer_test
+    tests/p003_original_wavetable_timer.cpp)
+target_link_libraries(awe64_p003_original_wavetable_timer_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p003_original_86box_wavetable_cpu_block_timer
+    COMMAND awe64_p003_original_wavetable_timer_test)
+# Reconstructed exact ORIGINAL 86Box integer P54C compiler-accounting
+# mechanics; consumes externally decoded x86 timings/dependency fields.
+# The model is not a full autonomous original x86 execution engine.
+add_executable(awe64_p005_original_p54c_integer_timing_test
+    tests/p005_original_pentium_integer_timing.cpp)
+target_include_directories(awe64_p005_original_p54c_integer_timing_test
+    PRIVATE src/creative_compat)
+add_test(NAME p005_original_p54c_integer_pipeline_source_rules
+    COMMAND awe64_p005_original_p54c_integer_timing_test)
+# Source-derived P54C completed-block cycle accounting advances the
+# original 32:32 wavetable timer before committing output-frame stamps.
+add_executable(awe64_p005_original_cpu_audio_timeline_test
+    tests/p005_original_pentium_cpu_audio_timeline.cpp)
+target_include_directories(awe64_p005_original_cpu_audio_timeline_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_cpu_audio_timeline_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_cpu_block_to_original_emu_audio_frame_timeline
+    COMMAND awe64_p005_original_cpu_audio_timeline_test)
+# Original old-Dynarec semantics: SOURCE TRANSLATION is not JIT execution.
+# Reused block generations preserve compile-time U/V/AGI costs.
+add_executable(awe64_p005_original_compiled_block_clock_test
+    tests/p005_original_compiled_block_clock.cpp)
+target_include_directories(awe64_p005_original_compiled_block_clock_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_compiled_block_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_source_p54c_compile_epoch_jit_cached_execution
+    COMMAND awe64_p005_original_compiled_block_clock_test)
+add_executable(awe64_p005_original_dynarec_tsc_clock_test
+    tests/p114_original_dynarec_block_clock.cpp)
+target_include_directories(awe64_p005_original_dynarec_tsc_clock_test
+    PRIVATE src/creative_compat)
+add_test(NAME p005_original_update_tsc_integer_accounting
+    COMMAND awe64_p005_original_dynarec_tsc_clock_test)
+add_executable(awe64_p005_original_executed_port_clock_test
+    tests/p005_original_executed_port_clock.cpp)
+target_include_directories(awe64_p005_original_executed_port_clock_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_executed_port_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_original_live_tsc_physical_emu_port_frame
+    COMMAND awe64_p005_original_executed_port_clock_test)
+# P119 source compiler-deferred cycle accumulation is separate from
+# the emitted runtime x64 ADD, signed branch refunds and USE_ACYCS.
+add_executable(awe64_p005_original_p119_jit_deferred_cycles_test
+    tests/p005_original_p119_jit_deferred_cycles.cpp)
+target_include_directories(awe64_p005_original_p119_jit_deferred_cycles_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_p119_jit_deferred_cycles_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_original_p119_compiler_pending_vs_executed_jit_flush
+    COMMAND awe64_p005_original_p119_jit_deferred_cycles_test)
+# P116 runs ONLY on explicit research opt-in; generated P54C lookup
+# tables never ship with the product and are not committed to Git.
+option(AWE64_ENABLE_P116_P005_OPCODE_RESEARCH
+    "Enable source-generated original P54C lookup/translator research" OFF)
+if(AWE64_ENABLE_P116_P005_OPCODE_RESEARCH)
+    if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/p116/P116GeneratedP54cTables.hpp" OR
+       NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/p116/original-exhaustive-vectors.txt")
+        message(FATAL_ERROR
+            "P116 exact original oracle output absent: generate from pinned 86Box C first")
+    endif()
+    add_executable(awe64_p005_original_p116_lookup_differential_test
+        tests/p116_original_p54c_lookup_differential.cpp)
+    target_include_directories(awe64_p005_original_p116_lookup_differential_test
+        PRIVATE research "${CMAKE_CURRENT_BINARY_DIR}/p116")
+    add_test(NAME p005_p116_original_opcode_table_40960_source_differential
+        COMMAND awe64_p005_original_p116_lookup_differential_test
+            "${CMAKE_CURRENT_BINARY_DIR}/p116/original-exhaustive-vectors.txt")
+    add_executable(awe64_p005_original_p116_opcode_feed_test
+        tests/p005_original_p54c_opcode_source_feed.cpp)
+    target_include_directories(awe64_p005_original_p116_opcode_feed_test
+        PRIVATE src/creative_compat research
+            "${CMAKE_CURRENT_BINARY_DIR}/p116")
+    target_link_libraries(awe64_p005_original_p116_opcode_feed_test
+        PRIVATE awe64_p002_sample_clock_ports)
+    add_test(NAME p005_p116_original_opcode_timing_to_compiled_block
+        COMMAND awe64_p005_original_p116_opcode_feed_test)
+endif()
+
+
 
 # Adversarial test for the *actual* private Creative VST3 bank state
 # checkpoint. The source is the same one exported by the real VST3;
@@ -409,6 +508,16 @@ if(WIN32)
 endif()
 
 
+# P005 owner-side READ-ONLY 86Box source guest-memory capture.
+# The actual Win95/Creative bytes remain in the OWNER'S private process:
+# this target only ships a CPU-paging/26-byte-record parser and selftest.
+add_executable(awe64_p005_original_win95_guest_bank_capture
+    tools/p005_capture_original_win95_vxd_guest_bank.cpp)
+target_compile_features(awe64_p005_original_win95_guest_bank_capture
+    PRIVATE cxx_std_23)
+add_test(NAME p005_readonly_win95_guest_vxd_bank_capture_selftest
+    COMMAND awe64_p005_original_win95_guest_bank_capture --self-test)
+
 # MIDI NoteOn + 16-channel program state -> original Creative bank layers
 # -> genuine ROM word-address descriptors, without voice/allocation guesses.
 add_library(awe64_p002_rom_note_plan STATIC
@@ -524,6 +633,18 @@ target_link_libraries(awe64_p003_vxd_additional_allocator_modes_test PRIVATE
     awe64_p003_vxd_allocator_additional)
 add_test(NAME p003_original_vxd_mode1_pair_mode2_bounded_range_candidate
     COMMAND awe64_p003_vxd_additional_allocator_modes_test)
+
+# P003 original-source LCOD+41D9..4269: the Mode-2 VTFT-only idle,
+# conditionally needed DCYSUSV and CCCA chip-read provenance.
+add_executable(awe64_p003_mode2_register_provenance_test
+    tests/p003_original_mode2_vtft_dcysusv_provenance.cpp)
+target_link_libraries(awe64_p003_mode2_register_provenance_test PRIVATE
+    awe64_p003_vxd_allocator_additional)
+target_compile_features(awe64_p003_mode2_register_provenance_test PRIVATE cxx_std_23)
+add_test(NAME p003_original_mode2_register_provenance
+    COMMAND awe64_p003_mode2_register_provenance_test)
+
+
 
 # P002 independently derived forced original VXD group-voice termination.
 # True original per-group/voice flags required; NOT general MIDI NoteOff.
@@ -1037,4 +1158,123 @@ if(AWE64_BUILD_P001_VST3)
     target_include_directories(awe64_p001_vst3_rt_host PRIVATE "${AWE64_VST3_SDK_ROOT}")
     target_compile_features(awe64_p001_vst3_rt_host PRIVATE cxx_std_23)
     add_dependencies(awe64_p001_vst3_rt_host AWE64_Gold_P001)
+endif()
+
+# P005 Control-Chat ORIGINAL C++23 Creative-VXD port. Disabled until
+# original owner ZIP sources have been provided outside GitHub.
+# This integrates one existing source library, not an alternate DSP.
+option(AWE64_ENABLE_P005_ORIGINAL_CREATIVE
+    "Link original Creative C++23 port (research)" OFF)
+set(AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/creative-vxd-port"
+    CACHE PATH "Root of original Creative port source bundle")
+if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
+    if(NOT EXISTS
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/CMakeLists.txt" OR
+       NOT EXISTS
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/include/OriginalCreativeMidiRamRuntime.hpp")
+        message(FATAL_ERROR
+            "P005 original port source absent; no invented MIDI/DSP fallback")
+    endif()
+    add_subdirectory(
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}"
+        "${CMAKE_CURRENT_BINARY_DIR}/p005-original-creative-port")
+# Differential: two independently implemented, source-gated native mode-1
+# allocators must choose the same pair without a CPU timing approximation.
+    add_executable(awe64_p005_mode1_live_snapshot_differential
+        tests/p005_mode1_live_vs_snapshot_differential.cpp)
+    target_link_libraries(awe64_p005_mode1_live_snapshot_differential PRIVATE
+        awe64_p003_vxd_allocator_additional original_creative_vxd_live)
+    target_compile_features(awe64_p005_mode1_live_snapshot_differential PRIVATE cxx_std_23)
+    add_test(NAME p005_mode1_live_snapshot_differential
+        COMMAND awe64_p005_mode1_live_snapshot_differential)
+    # Owner-side primary 125AVXD1 + supplementary 125AVXR1 source
+    # verification with a deliberately SYNTHETIC complete index chain.
+    add_executable(awe64_p005_nested_guest_capture_native_test
+        tests/p005_nested_guest_capture_native.cpp)
+    target_include_directories(awe64_p005_nested_guest_capture_native_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_nested_guest_capture_native_test PRIVATE
+        original_creative_vxd_live)
+    target_compile_features(awe64_p005_nested_guest_capture_native_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p005_nested_guest_capture_native
+        COMMAND awe64_p005_nested_guest_capture_native_test)
+    add_executable(awe64_p005_original_creative_host_adapter_test
+        tests/p005_vst3_original_port_adapter.cpp)
+    target_include_directories(awe64_p005_original_creative_host_adapter_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_original_creative_host_adapter_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_original_creative_host_adapter_test
+        PRIVATE cxx_std_23)
+    add_test(NAME p005_one_original_midi_ram_state_no_fallback
+        COMMAND awe64_p005_original_creative_host_adapter_test)
+    # Original guest pre-Bank2 source MIDI order. Public fixture is
+    # synthetic; exact Win95 register/timing parity is separately gated.
+    add_executable(awe64_p005_prebank2_source_sequence_test
+        tests/p005_vst3_prebank2_source_sequence.cpp)
+    target_include_directories(awe64_p005_prebank2_source_sequence_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_prebank2_source_sequence_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_prebank2_source_sequence_test
+        PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_prebank2_source_sequence_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_prebank2_source_sequence_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_C4_D4_original_prebank2_no_stress
+        COMMAND awe64_p005_prebank2_source_sequence_test)
+    # Real original-port SF2 RIFF parser and Creative descriptor builder:
+    # a staged note context, not a full precompiled bank or fake DSP.
+    add_executable(awe64_p005_sf2_note_stage_test
+        tests/p005_vst3_sf2_note_stage.cpp)
+    target_include_directories(awe64_p005_sf2_note_stage_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_sf2_note_stage_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_sf2_note_stage_test PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_sf2_note_stage_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_sf2_note_stage_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_original_source_sf2_note_midi_to_chip
+        COMMAND awe64_p005_sf2_note_stage_test)
+    # Parse the ACTUAL source 288 guest VXD bank pointers and exact
+    # 26-byte rows. Test data is synthetic; real private guest pages
+    # must arrive from an independently authenticated owner capture.
+    add_executable(awe64_p005_vxd_guest_directory_import_test
+        tests/p005_vxd_original_guest_directory_import.cpp)
+    target_include_directories(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE src/vst3)
+    target_link_libraries(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE original_creative_vxd_live)
+    target_compile_features(awe64_p005_vxd_guest_directory_import_test
+        PRIVATE cxx_std_23)
+    if(MSVC)
+        target_compile_options(awe64_p005_vxd_guest_directory_import_test
+            PRIVATE /W4 /WX)
+    else()
+        target_compile_options(awe64_p005_vxd_guest_directory_import_test
+            PRIVATE -Wall -Wextra -Wconversion -Werror -pedantic)
+    endif()
+    add_test(NAME p005_source_288_guest_pointer_26byte_record_import
+        COMMAND awe64_p005_vxd_guest_directory_import_test)
+    if(AWE64_BUILD_P001_VST3)
+        target_link_libraries(AWE64_Gold_P001
+            PRIVATE original_creative_vxd_live)
+        target_include_directories(AWE64_Gold_P001
+            PRIVATE "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/include")
+        target_compile_definitions(AWE64_Gold_P001
+            PRIVATE AWE64_P005_ORIGINAL_CREATIVE_LINKED=1)
+        target_sources(AWE64_Gold_P001 PRIVATE
+            src/vst3/P005OriginalCreativeHostAdapter.hpp)
+    endif()
 endif()

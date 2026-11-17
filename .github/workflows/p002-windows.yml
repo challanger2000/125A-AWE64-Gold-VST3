@@ -1,7 +1,7 @@
 name: P002 Creative primary API and register oracle
 on:
   push:
-    branches: [develop/p002-creative-register-oracle]
+    branches: [develop/p002-creative-register-oracle, develop/p005-original-creative-port-integration]
     paths:
       - 'src/creative_compat/**'
       - 'tests/p002_midi_contract.cpp'
@@ -84,12 +84,52 @@ on:
       - 'tests/p003_candidate_ram_allocator.cpp'
       - 'tests/p003_sf2_ram_audio.cpp'
       - 'tests/p003_autonomous_out_timing.cpp'
+      - 'tests/p003_original_pit_fractional_clock.cpp'
+      - 'tests/p003_original_wavetable_timer.cpp'
+      - 'tests/p005_original_pentium_integer_timing.cpp'
+      - 'tests/p005_original_pentium_cpu_audio_timeline.cpp'
+      - 'tests/p005_original_compiled_block_clock.cpp'
+      - 'tests/p114_original_dynarec_block_clock.cpp'
+      - 'tests/p005_original_executed_port_clock.cpp'
+      - 'src/creative_compat/P005OriginalJitDeferredCycleEmitter.hpp'
+      - 'tests/p005_original_p119_jit_deferred_cycles.cpp'
+      - 'research/P116OriginalP54cOpcodeLookup.hpp'
+      - 'src/creative_compat/P005OriginalP54cOpcodeSourceFeed.hpp'
+      - 'tests/p005_original_p54c_opcode_source_feed.cpp'
+      - 'tools/p116_original_p54c_opcode_table_generator.py'
+      - 'tests/p116_original_p54c_lookup_differential.cpp'
+      - 'tests/test_p116_original_p54c_generator.py'
       - 'tests/p003_original_vxd_additional_allocator_modes.cpp'
+      - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_owner_three_tap.cpp'
       - 'src/vst3/P002PrivateRomBank.h'
       - 'src/vst3/P002PrivateRomBank.cpp'
       - 'CMakeLists.txt'
       - 'src/vst3/P001Minimal.cpp'
+      - 'third_party/creative-vxd-port/**'
+      - 'src/vst3/P005OriginalCreativeHostAdapter.hpp'
+      - 'src/vst3/P005OriginalCreativeSf2NoteStage.hpp'
+      - 'src/vst3/P005OriginalCreativeBankCatalog.hpp'
+      - 'src/vst3/P005OriginalCreativeVxdDirectoryImporter.hpp'
+      - 'src/vst3/P005OriginalVxdGuestCaptureFile.hpp'
+      - 'src/vst3/P005OriginalNestedGuestCaptureFile.hpp'
+      - 'tests/p005_nested_guest_capture_native.cpp'
+      - 'tests/p005_mode1_live_vs_snapshot_differential.cpp'
+      - 'tools/p005_capture_original_win95_vxd_guest_bank.cpp'
+      - 'tools/p005_verify_original_vxd_guest_bank_capture.py'
+      - 'tools/p005_verify_nested_guest_regions.py'
+      - 'tools/p005_analyze_original_nested_bank_geometry.py'
+      - 'tests/test_p005_nested_original_bank_geometry.py'
+      - 'tests/test_p005_verify_nested_guest_regions.py'
+      - 'tools/p005_verify_win95_disk_vxd.py'
+      - 'tests/test_p005_verify_original_vxd_guest_bank_capture.py'
+      - 'tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd'
+      - 'docs/P005-ORIGINAL-GUEST-MEMORY-CAPTURE-TOOL.md'
+      - 'tests/p005_vst3_original_port_adapter.cpp'
+      - 'tests/p005_vst3_prebank2_source_sequence.cpp'
+      - 'tests/p005_vst3_sf2_note_stage.cpp'
+      - 'tests/p005_vxd_original_guest_directory_import.cpp'
+      - 'docs/P005-INTEGRATION-README.md'
       - 'src/vst3/P002PrivateDryPcmCapture.cpp'
       - 'src/vst3/P002PrivateDryPcmCapture.h'
       - 'tests/p002_private_dry_pcm_capture.cpp'
@@ -130,12 +170,11 @@ on:
       - 'CMakeLists.txt'
       - '.github/workflows/p002-windows.yml'
   workflow_dispatch:
-# Prevent each intermediate developer commit from consuming a full set
-# of Windows runner minutes. Only the newest P002 revision is validated.
+# Avoid parallel full Windows builds of obsolete intermediate commits.
+# One in-progress run per branch is sufficient; each new push cancels older
+# branch runs so the current HEAD receives the full test budget.
 concurrency:
-  # Include the requested source SHA: delayed webhook delivery from an
-  # older commit must never cancel a newer HEAD verification run.
-  group: p002-windows-${{ github.ref }}-${{ github.sha }}
+  group: p002-windows-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -154,6 +193,11 @@ jobs:
           cmake -S . -B build-gold-source -G Ninja -DCMAKE_BUILD_TYPE=Release -DAWE64_BUILD_P001_VST3=OFF
           cmake --build build-gold-source --parallel 4 --target awe64_p002_fork_wavetable_mixer_path awe64_p002_gold_ct1745_fork_differential awe64_p002_ct1745_wavetable_contract
           ctest --test-dir build-gold-source -R 'p002_(pinned_fork_awe64_gold_wavetable_mixer_path|original_fork_ct1745_full_filter_differential|original_awe64_gold_ct1745_post_chip_vectors)' --output-on-failure -V
+          # The NEW private owner-side guest memory reader must also
+          # compile and self-test with no proprietary Win95 media.
+          cmake --build build-gold-source --parallel 2 --target awe64_p005_original_win95_guest_bank_capture
+          ctest --test-dir build-gold-source -R p005_readonly_win95_guest_vxd_bank_capture_selftest --output-on-failure -V
+          echo 'P005_GUEST_BANK_READ_ONLY_SOURCE_TOOL_SELFTEST_PASS'
           echo 'P002_PINNED_ORIGINAL_86BOX_CT1745_C_VS_VST3_CXX_1TO1_DIFFERENTIAL_PASS'
       - name: Run three independently reported RAM SMALW/SMLD trace counterexample regressions
         run: |
@@ -169,9 +213,17 @@ jobs:
       - name: Source-built Creative API and WinMM contract, original DSP hash lock
         shell: pwsh
         run: |
-          cmake -S . -B build-p002 -G 'Visual Studio 17 2022' -A x64
+          # Compile the ORIGINAL SHA-pinned 86Box-C table selector and arrays
+          # in an ephemeral build folder (no GPL tables or private Win95
+          # content enter a Git commit, artifact, or product binary).
+          New-Item -ItemType Directory -Force build-p002/p116 | Out-Null
+          python -m unittest discover -s tests -p 'test_p116_original_p54c_generator.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P116 original SHA-pinned source tests failed' }
+          python tools/p116_original_p54c_opcode_table_generator.py --original-pentium third_party/86box-awe32/src/cpu/codegen_timing_pentium.c --original-common third_party/86box-awe32/src/cpu/codegen_timing_common.c --original-header third_party/86box-awe32/src/cpu/codegen_timing_common.h --output-header build-p002/p116/P116GeneratedP54cTables.hpp --output-vectors build-p002/p116/original-exhaustive-vectors.txt --cc clang
+          if ($LASTEXITCODE -ne 0) { throw 'P116 pinned original source generator failed' }
+          cmake -S . -B build-p002 -G 'Visual Studio 17 2022' -A x64 -DAWE64_ENABLE_P005_ORIGINAL_CREATIVE=ON -DAWE64_ENABLE_P116_P005_OPCODE_RESEARCH=ON
           if ($LASTEXITCODE -ne 0) { throw 'P002 configure or pinned original DSP verification failed' }
-          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p003_sf2_preset_inventory_test awe64_p002_sf2_ram_pcm_inventory_test awe64_p003_sf2_mono_ram_preload_test awe64_p003_candidate_ram_allocator_test awe64_p003_sf2_ram_audio_test awe64_p003_observed_three_tap_test awe64_p002_original_ram_port_replay_test awe64_p002_ct1745_wavetable_contract awe64_p002_private_ram_capture_cli awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_p003_vxd_additional_allocator_modes_test awe64_p002_vxd_voice_termination_test awe64_p002_real_chip_port_bridge_test awe64_p002_vxd_sample_address_test awe64_p002_vxd_note_release_test awe64_p002_vxd_voice_envelope_prelude_test awe64_p002_sf2_voice_descriptor_test awe64_p002_sf2_note_start_ports_test awe64_p002_sf2_note_continuation_test awe64_p002_sf2_final_note_ports_test awe64_p002_sf2_full_noteon_test awe64_p002_sf2_original_targets_test awe64_p002_sf2_vxd_state_snapshot_test awe64_p002_sf2_live_vxd_allocator_test awe64_p002_sf2_source_note_release_test awe64_p002_original_sf2_dry_pcm_test awe64_p002_sf2_note_start_prefix_oracle awe64_p002_sf2_descriptor_oracle awe64_chip_contract awe64_p002_native_chip_port_trace_test awe64_p002_sample_clock_ports_test awe64_p003_autonomous_out_timing_test awe64_p002_private_vxd_checkpoint_test awe64_p003_vst_bank_state_test awe64_p002_native_dry_pcm_writer_test awe64_p002_win95_chip_prelude_negative awe64_p002_private_original_ram_descriptor_probe awe64_direct_fork_fixture awe64_replay
+          cmake --build build-p002 --config Release --parallel 2 --target awe64_p002_midi_contract awe64_p002_register_candidate_test awe64_p002_sbk_zone_test awe64_p002_sbk_layers_test awe64_p003_sf2_preset_inventory_test awe64_p002_sf2_ram_pcm_inventory_test awe64_p003_sf2_mono_ram_preload_test awe64_p003_candidate_ram_allocator_test awe64_p003_sf2_ram_audio_test awe64_p003_observed_three_tap_test awe64_p002_original_ram_port_replay_test awe64_p002_ct1745_wavetable_contract awe64_p002_private_ram_capture_cli awe64_p002_rom_note_plan_test awe64_p002_pitch_candidate_test awe64_p002_original_controller_volume_test awe64_p002_bound_voices_test awe64_p002_idle_allocator_test awe64_p002_vxd_mono_priority_test awe64_p003_vxd_additional_allocator_modes_test awe64_p003_mode2_register_provenance_test awe64_p005_mode1_live_snapshot_differential awe64_p005_nested_guest_capture_native_test awe64_p002_vxd_voice_termination_test awe64_p002_real_chip_port_bridge_test awe64_p002_vxd_sample_address_test awe64_p002_vxd_note_release_test awe64_p002_vxd_voice_envelope_prelude_test awe64_p002_sf2_voice_descriptor_test awe64_p002_sf2_note_start_ports_test awe64_p002_sf2_note_continuation_test awe64_p002_sf2_final_note_ports_test awe64_p002_sf2_full_noteon_test awe64_p002_sf2_original_targets_test awe64_p002_sf2_vxd_state_snapshot_test awe64_p002_sf2_live_vxd_allocator_test awe64_p002_sf2_source_note_release_test awe64_p002_original_sf2_dry_pcm_test awe64_p002_sf2_note_start_prefix_oracle awe64_p002_sf2_descriptor_oracle awe64_chip_contract awe64_p002_native_chip_port_trace_test awe64_p002_sample_clock_ports_test awe64_p003_autonomous_out_timing_test awe64_p003_original_pit_fractional_clock_test awe64_p003_original_wavetable_timer_test awe64_p005_original_p54c_integer_timing_test awe64_p005_original_cpu_audio_timeline_test awe64_p005_original_compiled_block_clock_test awe64_p005_original_dynarec_tsc_clock_test awe64_p005_original_executed_port_clock_test awe64_p005_original_p119_jit_deferred_cycles_test awe64_p005_original_p116_lookup_differential_test awe64_p005_original_p116_opcode_feed_test awe64_p002_private_vxd_checkpoint_test awe64_p003_vst_bank_state_test awe64_p002_native_dry_pcm_writer_test awe64_p002_win95_chip_prelude_negative awe64_p002_private_original_ram_descriptor_probe awe64_direct_fork_fixture awe64_replay awe64_p005_original_creative_host_adapter_test awe64_p005_prebank2_source_sequence_test awe64_p005_sf2_note_stage_test test_original_creative_vxd_live test_original_creative_midi_engine test_original_creative_sf2_main_compiler test_midi_heapless test_verified_sf2_bank_end_to_end test_original_creative_pan_controller test_chip_port_bridge test_original_creative_volume_controller test_original_creative_modulation_controller test_original_creative_rpn test_original_creative_all_notes test_original_creative_reset_controllers test_original_creative_channel16_idle_marker test_original_creative_program_selection test_original_creative_program_bank_map test_original_creative_percussion_program test_verified_program_bank_heapless test_original_creative_sf2_source_reader test_original_creative_sf2_resource_builder test_original_creative_sf2_ram_upload test_original_creative_ram_chip_sink test_original_creative_ram_scratch_voices test_original_creative_ram_scratch_busy_state test_original_creative_midi_ram_runtime test_original_creative_stereo_allocator_callback_profile test_original_creative_stereo_allocator_helper_order test_original_creative_cpu_frame_projection test_original_creative_guest_port_cycle_groups test_original_creative_ram_pcm_branch_cadence test_original_creative_stereo_allocator_decision_path test_original_creative_stereo_mode_gate_exhaustive test_original_creative_nested_program_path awe64_p005_vxd_guest_directory_import_test awe64_p005_original_win95_guest_bank_capture
           if ($LASTEXITCODE -ne 0) { throw 'P002 actual Windows x64 test binaries failed to compile' }
           # Build the project-state codec above before CTest; never claim
           # success for a test that was registered but never compiled.
@@ -184,6 +236,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'P002 strict oracle Python syntax invalid' }
           python -m unittest discover -s tests -p 'test_p002_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'P002 register differential negative controls FAILED' }
+          python -m py_compile tools/p005_verify_win95_disk_vxd.py
+          if ($LASTEXITCODE -ne 0) { throw 'P005 read-only original Win95 disk VXD verifier syntax failed' }
+          python -m unittest discover -s tests -p 'test_p005_verify_original_vxd_guest_bank_capture.py' -v
+          python -m unittest discover -s tests -p 'test_p005_verify_nested_guest_regions.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P005 nested original guest region owner capture controls FAILED' }
+          python -m unittest discover -s tests -p 'test_p005_nested_original_bank_geometry.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'P005 nested original index cardinality regressions FAILED' }
+          if ($LASTEXITCODE -ne 0) { throw 'P005 original guest source capture negative controls FAILED' }
           Write-Host 'P002_ORIGINAL_API_MIDI_AND_REGISTER_COMPARATOR_CONTRACT_PASS; ORIGINAL_CREATIVE_NATIVE_TRANSLATION_NOT_RUN'
 
       - name: Export tested public-only private-run auditor sources (no Creative bytes)
@@ -195,6 +255,18 @@ jobs:
             tools/p002_register_oracle.py
             tools/p002_original_ram_trace_probe.py
             build-p002/Release/awe64_p002_private_ram_capture_cli.exe
+          retention-days: 3
+          if-no-files-found: error
+      - name: Export source-only original Win95 owner capture utility (NO PRIVATE BYTES)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P005-Original-Win95-Guest-Bank-Capture-WinX64
+          path: |
+            build-p002/Release/awe64_p005_original_win95_guest_bank_capture.exe
+            tools/START-P005-ORIGINAL-GASTSPEICHER-AUFNEHMEN.cmd
+            tools/p005_verify_original_vxd_guest_bank_capture.py
+            tools/p005_verify_nested_guest_regions.py
+            docs/P005-ORIGINAL-GUEST-MEMORY-CAPTURE-TOOL.md
           retention-days: 3
           if-no-files-found: error
   real_125a_test_lab_headless_inventory:
@@ -217,7 +289,7 @@ jobs:
       - name: Build actual headless original-EMU8000 VST3 with pinned SDK
         shell: pwsh
         run: |
-          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DSMTG_RUN_VST_VALIDATOR=OFF
+          cmake -S . -B build-vst3 -G 'Visual Studio 17 2022' -A x64 -DAWE64_BUILD_P001_VST3=ON -DAWE64_ENABLE_P005_ORIGINAL_CREATIVE=ON -DSMTG_RUN_VST_VALIDATOR=OFF
           if ($LASTEXITCODE -ne 0) { throw 'Original EMU8000 VST3 configure failed' }
           cmake --build build-vst3 --config Release --parallel 2 --target AWE64_Gold_P001
           if ($LASTEXITCODE -ne 0) { throw 'Real original-core VST3 build failed' }

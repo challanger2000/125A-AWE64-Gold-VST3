@@ -44,6 +44,64 @@ std::uint32_t scoreOfEligible(
 
 // Internal status distinguishes genuine exhausted original selection
 // from an original chip-read value that was never authenticated.
+static std::optional<OriginalWin95MonoSelection>
+mode0PhysicalWithSourceStatus(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& voices,
+    const std::uint16_t capacity,
+    const std::uint32_t driver_mode_count,
+    bool* missing_source) noexcept {
+    if(missing_source)*missing_source=false;
+    if(!capacityValid(capacity))return std::nullopt;
+    std::uint32_t best=std::numeric_limits<std::uint32_t>::max();
+    std::optional<OriginalWin95MonoSelection> selected;
+    // Source LCOD+3EA1..+3FE7: 3 interleaved lane scans,
+    // indices 0,3,... then 1,4,... then 2,5,... up to device+0x06.
+    for(std::uint32_t lane=0;lane<3u;++lane) {
+        for(std::uint32_t i=lane;i<capacity;i+=3u) {
+            const auto& v=voices[i];
+            if(forbiddenByDeviceMode(v,driver_mode_count))continue;
+            const auto marker=v.internal_key_marker;
+            if(marker>=0x2000u && v.stored_sample_end==0u)continue;
+            if(marker<0x2000u) {
+                const bool needs_dcysusv =
+                    marker!=0x0ffeu && (marker&0x00ffu)!=0x00ffu;
+                if(!v.complete &&
+                   (!v.vtft_read_verified ||
+                    (needs_dcysusv && !v.dcysusv_read_verified))) {
+                    if(missing_source)*missing_source=true;
+                    return std::nullopt;
+                }
+                const auto score=scoreOfEligible(v);
+                if(marker==0x0ffeu && score==0u)
+                    return OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::CompletelyIdle,0u};
+                if(score<=best) {
+                    best=score;
+                    selected=OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::LowestEnvelopePriority,
+                        score};
+                }
+            }
+            // Cached end is original driver RAM. CCCA is read only
+            // if end is nonzero and idle did not return.
+            if(v.stored_sample_end!=0u) {
+                if(!v.complete && !v.ccca_read_verified) {
+                    if(missing_source)*missing_source=true;
+                    return std::nullopt;
+                }
+                if(finishedSample(v))
+                    return OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+            }
+        }
+    }
+    return selected;
+}
+
 static std::optional<OriginalWin95PairSelection>
 mode1PairWithSourceStatus(
     const std::array<OriginalWin95AllocatorVoiceSnapshot,
@@ -67,7 +125,14 @@ mode1PairWithSourceStatus(
         // Source LCOD tests cheap blocked/marker predicates BEFORE any
         // live chip read. A skipped voice does not need a complete chip
         // snapshot and must not turn a valid selection into nullopt.
+        // Original LCOD+4029..4042: for mode_count <= 2 the
+        // *upper* neighbor's blocked flag also rejects the CURRENT
+        // voice before its chip snapshot is read. Source +4111 stores
+        // the invalid 0xFFFFF previous-score sentinel before +411A.
+        // This is not merely a prohibition on pairing with the neighbor.
         if(forbiddenByDeviceMode(v,driver_mode_count) ||
+           (i+1u<capacity &&
+            forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) ||
            v.internal_key_marker>=0x2000u) {
             previous=kOriginalMaxPairPriority;
             continue;
@@ -82,14 +147,10 @@ mode1PairWithSourceStatus(
         // if the cached sample end was reached in the actual chip.
         if(finishedSample(v))current=0u;
 
-        // Last capacity voice has no adjacent partner; its score
-        // seeds the comparison for (capacity-2,capacity-1).
-        if(i+1u<capacity &&
-           !forbiddenByDeviceMode(voices[i+1u],driver_mode_count)) {
-            // A blocked NEXT voice invalidates only THIS pair.
-            // The current voice's genuine score still seeds the next
-            // pair below it. Otherwise a blocked voice31 wrongly
-            // hides a usable voice29+30 pair.
+        // Highest physical voice seeds the first comparison, and
+        // a current or upper-neighbor block has ALREADY been handled
+        // through original +4111 (previous = 0xFFFFF, no chip read).
+        if(i+1u<capacity) {
             const std::uint32_t sum=previous+current;
             if(sum==0u) {
                 // +0x40DA -> +0x4167 early zero-pair allocation.
@@ -149,9 +210,39 @@ mode2RangeWithSourceStatus(
         // Blocked voice is skipped in the original BEFORE reading
         // VTFT/DCYSUSV/CCCA; don't demand snapshot fields never read.
         if(forbiddenByDeviceMode(v,driver_mode_count))continue;
-        // The sample-end test below still needs the actual CCCA even
-        // for a key marker >=0x2000, so only blocked rows are skipped.
-        if(!v.complete) {
+        // Original LCOD+41D9 jumps from marker>=0x2000 directly
+        // to +424F, where cached sample_end==0 jumps to +4269.
+        // VTFT/DCYSUSV/CCCA are NOT read for that voice. Require
+        // live chip completeness only when this source short-circuit
+        // did not already reject it. Driver row fields are assumed
+        // independently verified by the caller.
+        if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
+            continue;
+        // For a disqualified marker with cached sample_end!=0,
+        // original +424F/+4254 reads ONLY CCCA (no VTFT/DCYSUSV).
+        // Require an independently verified CCCA read or a full
+        // validated chip snapshot; never infer a missing chip value.
+        if(v.internal_key_marker>=0x2000u) {
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
+                return std::nullopt;
+            }
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+            continue;
+        }
+        // Original +41E0 always reads VTFT for eligible markers.
+        // +4228 only reads DCYSUSV for marker !=0x0FFE with low byte
+        // !=0xFF. Missing source data fails closed for exactly these
+        // required reads; other original paths need not synthesize them.
+        const bool needs_dcysusv =
+            v.internal_key_marker!=0x0ffeu &&
+            (v.internal_key_marker&0x00ffu)!=0x00ffu;
+        if(!v.complete &&
+           (!v.vtft_read_verified ||
+            (needs_dcysusv && !v.dcysusv_read_verified))) {
             if(missing_source)*missing_source=true;
             return std::nullopt;
         }
@@ -171,12 +262,19 @@ mode2RangeWithSourceStatus(
                 best=score;
             }
         }
-        // The sample-end short circuit occurs even for a marker
-        // that was INELIGIBLE for ranking (source +0x424F onwards).
-        if(finishedSample(v))
-            return OriginalWin95MonoSelection{
-                static_cast<std::uint8_t>(voice),
-                OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        // Original +424F skips CCCA entirely when cached end is zero.
+        // If nonzero, +4254 reads CCCA even when scoring already picked
+        // a non-idle candidate; do not infer the missing chip address.
+        if(v.stored_sample_end!=0u) {
+            if(!v.complete && !v.ccca_read_verified) {
+                if(missing_source)*missing_source=true;
+                return std::nullopt;
+            }
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+        }
     }
     return selected;
 }
@@ -234,29 +332,16 @@ candidateOriginalWin95VxdDispatchAllModes(
     const auto capacity=input.original_device_physical_capacity;
     const auto mode_count=input.original_device_mode_count;
     if (input.original_x86_dispatch_mode==0u) {
-        // Existing mode-0 scorer has 30-voice original music-budget
-        // bounds. It must NOT infer 30 from an actual device+0x06 of
-        // 32 without a separately verified source-mode scan ceiling.
+        // Source bound is EXACTLY device+0x06 (LCOD+3ED4).
+        // The independent ceiling is a fail-closed cross-check:
+        // disagreement with the live device state is NOT original.
         const auto limit=input.independently_verified_mode0_scan_ceiling;
-        if (limit==0u || limit>kOriginalCreativeMusicVoices ||
-            limit>capacity)
+        if (limit==0u || limit!=capacity)
             return std::nullopt;
-        std::array<OriginalWin95MonoVoiceSnapshot,
-                   kOriginalCreativeMusicVoices> original{};
-        for (std::size_t i=0;i<limit;++i) {
-            const auto& src=voices[i];
-            if (!src.complete) return std::nullopt;
-            auto& dst=original[i];
-            dst.complete=true;
-            dst.blocked_when_few_voices=src.blocked_when_few_voices;
-            dst.internal_key_marker=src.internal_key_marker;
-            dst.volume_target_hi16=src.volume_target_hi16;
-            dst.envelope_status_reg=src.envelope_status_reg;
-            dst.stored_sample_end=src.stored_sample_end;
-            dst.chip_current_address=src.chip_current_address;
-        }
-        const auto chosen=candidateOriginalWin95Mode0MonoVoice(
-            original,limit,mode_count);
+        bool missing_source=false;
+        const auto chosen=mode0PhysicalWithSourceStatus(
+            voices,capacity,mode_count,&missing_source);
+        if(missing_source)return std::nullopt;
         if (chosen) {
             result.physical_voices[0]=chosen->physical_voice;
             result.priority=chosen->priority;

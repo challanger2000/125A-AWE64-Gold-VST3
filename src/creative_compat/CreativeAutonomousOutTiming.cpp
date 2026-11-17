@@ -35,7 +35,7 @@ constexpr std::uint32_t kReleaseSecondVoiceWork=177u;
 constexpr std::size_t kObservedMinPreludeWrites=12u;
 constexpr std::size_t kMaxPreludeWrites=24u;
 constexpr std::uint64_t kMaxEstimatedCycles=
-    (kP003GuestCpuHz*30u);
+    (kP003GuestCpuHzNumerator*30u)/kP003GuestCpuHzDenominator;
 
 bool allowed(const awe64::ChipPortWrite& p) noexcept {
     return p.port==0xe22u || p.port==0xe20u ||
@@ -105,7 +105,8 @@ bool p003CandidateAutonomousNoteTimelineAtPhase(
     if(native.empty() ||
        native.size()>SourceClockedPortPlayer::kMaxEvents ||
        native.size()>out.size() ||
-       static_cast<std::uint64_t>(phase_cycles)*kP003ChipHz>=kP003GuestCpuHz)
+       static_cast<std::uint64_t>(phase_cycles)*kP003ChipHz*
+           kP003GuestCpuHzDenominator>=kP003GuestCpuHzNumerator)
         return false;
     // Validate the WHOLE transaction before producing a schedule.
     for(const auto& write:native)
@@ -142,10 +143,13 @@ bool p003CandidateAutonomousNoteTimelineAtPhase(
         if(i)cycles+=cost(native[i-1u],native[i],i,note_off,
                            firstPreludeEnd,secondPreludeEnd);
         if(cycles>kMaxEstimatedCycles)return false;
+        // 86Box pit_set_clock() repairs 133333333 to 400000000/3.
+        // Correct rational frame map, source-derived, NO empirical phase.
         const std::uint64_t absoluteNumerator=
-            (static_cast<std::uint64_t>(phase_cycles)+cycles)*kP003ChipHz;
+            (static_cast<std::uint64_t>(phase_cycles)+cycles)*kP003ChipHz*
+            kP003GuestCpuHzDenominator;
         const auto frame=static_cast<std::uint32_t>(
-            absoluteNumerator/kP003GuestCpuHz);
+            absoluteNumerator/kP003GuestCpuHzNumerator);
         if(frame<previousFrame || frame>kP003ChipHz*30u)
             return false;
         out[i]={frame,native[i].port,native[i].value};
@@ -173,7 +177,8 @@ bool p003CandidateAutonomousNoteTimeline(
     // NEVER report this as authenticated Win95/Creative timing.
     constexpr std::uint32_t kUnverifiedMidSampleCpuPhase=
         static_cast<std::uint32_t>(
-            kP003GuestCpuHz/(2u*kP003ChipHz));
+            kP003GuestCpuHzNumerator/
+            (2u*kP003GuestCpuHzDenominator*kP003ChipHz));
     return p003CandidateAutonomousNoteTimelineAtPhase(
         native,note_off,kUnverifiedMidSampleCpuPhase,out,count,stats);
 }

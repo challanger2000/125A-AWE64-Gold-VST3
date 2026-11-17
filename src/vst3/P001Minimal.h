@@ -10,6 +10,11 @@
 #include "CreativeAutonomousOutTiming.h"
 #include "CreativeSf2VxdSourceRelease.h"
 #include "OriginalCt1745WavetableMixer.h"
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+#include "P005OriginalCreativeHostAdapter.hpp"
+#include "P005OriginalCreativeSf2NoteStage.hpp"
+#include "P005OriginalCreativeBankCatalog.hpp"
+#endif
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include <array>
 #include <atomic>
@@ -90,6 +95,28 @@ private:
     void write32(uint16_t reg, uint16_t voice, uint16_t port, uint32_t value) noexcept;
 
     awe64::Chip chip_;
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+    // Exactly one original Creative MIDI and RAM state, bound to chip_.
+    // Never activate without source-authenticated SF2 descriptors.
+    // Authenticated SF2 note geometry is prepared OFF the audio thread.
+    // The live adapter is not enabled until original source tables,
+    // physical RAM and complete 288-slot program identity are verified.
+    P005OriginalCreativeSf2NoteStage p005OriginalNoteStage_{};
+    // Owns ORIGINAL 288-slot records and multiple source-compiled
+    // note contexts. Publish only after private SHA provenance checks.
+    P005OriginalCreativeBankCatalog p005OriginalBankCatalog_{};
+    // Filled only from a successful private SHA-gated original P002
+    // source-RAM bank load. No SF2 or VXD constants baked into binary.
+    awe64::original_vxd::OriginalSf2SourceTables
+        p005OriginalSourceTables_{};
+    // Candidate P002 device bytes hold 288 guest bank pointer values.
+    // Their independent capture SHA is NOT checked; pointed-to guest
+    // memory is absent. STAGING ONLY; never permission to bind a bank.
+    std::array<std::uint8_t,awe64::creative::kOriginalVxdMinDeviceImage>
+        p005OriginalVxdDeviceImage_{};
+    bool p005OriginalDeviceImageStaged_=false;
+    P005OriginalCreativeHostAdapter<awe64::Chip> p005OriginalPort_{};
+#endif
     // Original 86Box SB AWE64 Gold CT1745 card stage, per-instance
     // (the pinned EMU8000 chip processing itself is unchanged).
     awe64::card::OriginalCt1745WavetableMixer originalGoldCard_{};

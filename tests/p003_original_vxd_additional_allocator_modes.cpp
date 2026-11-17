@@ -57,6 +57,48 @@ int main(){
     // Original mode_count>2 does NOT activate this gate.
     p=candidateOriginalWin95Mode1Pair(voices,4,32);
     CHECK(p && p->first_voice==0);
+    // Independently reproduced original x86 LCOD+4029..411A failure:
+    // when voice3 is blocked and incomplete, voice2 is ALSO skipped
+    // before any VTFT read, and previous resets to 0xFFFFF.
+    // The old candidate incorrectly returned pair(1,2), priority310.
+    // The original source decision path selects (0,1), priority2800.
+    for(auto& row:voices) {
+        row.complete=true;
+        row.internal_key_marker=0x0ffeu;
+        row.blocked_when_few_voices=false;
+        row.volume_target_hi16=900u;
+        row.stored_sample_end=0u;
+        row.pair_extra_penalty=false;
+    }
+    voices[0].volume_target_hi16=900u;
+    voices[1].volume_target_hi16=100u;
+    voices[2].volume_target_hi16=10u;
+    voices[3].blocked_when_few_voices=true;
+    voices[3].complete=false;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,2u);
+    CHECK(p && p->first_voice==0u && p->second_voice==1u);
+    CHECK(p->priority==2800u && !p->immediate_zero_pair);
+    // Higher mode MUST ignore the blocked flag, but not the missing
+    // snapshot: no fabricated VTFT data for voice3.
+    CHECK(!candidateOriginalWin95Mode1Pair(voices,4u,4u));
+    voices[3].complete=true;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,4u);
+    CHECK(p && p->first_voice==1u && p->second_voice==2u &&
+          p->priority==310u);
+    // Original upper capacity check: voice3 is not rejected by a
+    // nonexistent voice4 flag; voice3 itself is the blocked source.
+    voices[3].blocked_when_few_voices=false;
+    p=candidateOriginalWin95Mode1Pair(voices,4u,2u);
+    CHECK(p && p->first_voice==1u && p->second_voice==2u &&
+          p->priority==310u);
+    // Reset the synthetic state before the following older contracts.
+    for(auto& row:voices) {
+        row.complete=true;
+        row.blocked_when_few_voices=false;
+        row.volume_target_hi16=100u;
+        row.stored_sample_end=0u;
+        row.pair_extra_penalty=false;
+    }
     voices[3].blocked_when_few_voices=false;
     voices[1].internal_key_marker=0x2000u;
     p=candidateOriginalWin95Mode1Pair(voices,2,32);
@@ -114,6 +156,84 @@ int main(){
     CHECK(s && s->physical_voice==10u &&
           s->reason==OriginalWin95MonoSelectionReason::CompletelyIdle);
     voices[10].volume_target_hi16=300u;
+    // Original +41D9/+41DE and +424F/+4252: high marker with zero
+    // cached sample-end never reads the physical EMU8000 registers.
+    // An incomplete CHIP snapshot is therefore legal for that row.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,
+                   kOriginalWin95PhysicalVoiceCapacity> lazy{};
+        lazy[0].internal_key_marker=0x2000u;
+        lazy[0].stored_sample_end=0u;
+        lazy[0].complete=false;
+        lazy[1].internal_key_marker=0x0ffeu;
+        lazy[1].stored_sample_end=0u;
+        lazy[1].volume_target_hi16=0u;
+        lazy[1].complete=true;
+        const auto selected=candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u);
+        CHECK(selected && selected->physical_voice==1u);
+        CHECK(selected->reason==
+              OriginalWin95MonoSelectionReason::CompletelyIdle);
+        // Nonzero sample end does need actual CCCA and cannot accept
+        // that same unverified live-chip row.
+        lazy[0].stored_sample_end=1u;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u));
+        // Low marker still requires live VTFT even when end is zero.
+        lazy[0].stored_sample_end=0u;
+        lazy[0].internal_key_marker=0x0ffeu;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,4u));
+        // Low-mode gate also bypasses blocked high-marker row; a
+        // nonzero sample-end does not override the original skip.
+        lazy[0].blocked_when_few_voices=true;
+        lazy[0].stored_sample_end=7u;
+        CHECK(candidateOriginalWin95Mode2Range(
+            lazy,(2u<<8u)|0u,2u,2u)->physical_voice==1u);
+    }
+    // Source x86 +41D9/+41DE/+424F..+4267: high-marker, nonzero
+    // cached sample end reads CCCA ONLY. VTFT/DCYSUSV are absent.
+    // The numerical CCCA value is untrusted without provenance.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,
+                   kOriginalWin95PhysicalVoiceCapacity> cccaOnly{};
+        cccaOnly[0].internal_key_marker=0x2000u;
+        cccaOnly[0].stored_sample_end=100u;
+        cccaOnly[0].chip_current_address=100u;
+        cccaOnly[0].complete=false;
+        cccaOnly[0].ccca_read_verified=true;
+        cccaOnly[1].complete=true;
+        cccaOnly[1].internal_key_marker=0x0ffeu;
+        cccaOnly[1].volume_target_hi16=0u;
+        constexpr std::uint32_t firstTwo=(2u<<8u);
+        auto chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==0u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::SampleEndReached);
+        cccaOnly[0].chip_current_address=99u;
+        chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==1u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::CompletelyIdle);
+        cccaOnly[0].ccca_read_verified=false;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u));
+        cccaOnly[0].ccca_read_verified=true;
+        cccaOnly[0].internal_key_marker=0x0ffeu;
+        // Low-marker branches still demand full verified chip reads.
+        CHECK(!candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u));
+        cccaOnly[0].internal_key_marker=0x2000u;
+        cccaOnly[0].stored_sample_end=0u;
+        cccaOnly[0].ccca_read_verified=false;
+        chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==1u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::CompletelyIdle);
+    }
     // Mode2 sample-end early return, even for marker >= 0x2000.
     voices[10].internal_key_marker=0x2000u;
     voices[10].stored_sample_end=20u;
@@ -182,7 +302,7 @@ int main(){
     source.original_x86_dispatch_mode=0u;
     CHECK(!candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source));
-    source.independently_verified_mode0_scan_ceiling=30u;
+    source.independently_verified_mode0_scan_ceiling=32u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(
         dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==1u &&
@@ -194,6 +314,49 @@ int main(){
         dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==1u &&
           dispatched->physical_voices[0]==30u);
+    // Verified P003 Win95 VXD mode-0 high-voice evidence: 30/31
+    // are BOTH eligible, including ranked non-idle selection.
+    // Exercise this in the P005 native dispatch regression itself.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,32> high{};
+        for(auto& row:high) {
+            row.complete=true;
+            row.internal_key_marker=0x0ffeu;
+            row.volume_target_hi16=3000u;
+        }
+        source.original_x86_dispatch_mode=0u;
+        source.original_device_physical_capacity=32u;
+        source.independently_verified_mode0_scan_ceiling=32u;
+        high[30].volume_target_hi16=91u;
+        high[31].volume_target_hi16=90u;
+        auto hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->voice_count==1u &&
+              hit->physical_voices[0]==31u && hit->priority==90u);
+        high[30].volume_target_hi16=89u;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==30u &&
+              hit->priority==89u);
+        high[30].volume_target_hi16=90u;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==31u);
+        // Lazy source: immediate idle on voice30 in lane0
+        // must never read a later unknown voice31.
+        high[30].volume_target_hi16=0u;
+        high[31].complete=false;
+        hit=candidateOriginalWin95VxdDispatchAllModes(high,source);
+        CHECK(hit && hit->physical_voices[0]==30u);
+        // But missing CCCA on the actually visited sample-end
+        // branch is NOT permission to invent a finished voice.
+        high[30].volume_target_hi16=3000u;
+        high[30].stored_sample_end=100u;
+        high[30].complete=false;
+        CHECK(!candidateOriginalWin95VxdDispatchAllModes(high,source));
+        // The physical scan bound must be the real device+0x06.
+        source.independently_verified_mode0_scan_ceiling=30u;
+        CHECK(!candidateOriginalWin95VxdDispatchAllModes(high,source));
+        source.independently_verified_mode0_scan_ceiling=32u;
+        source.original_x86_dispatch_mode=2u;
+    }
     // Genuine empty range produces original 0xFF NO CANDIDATE,
     // while an unverifiable region produces nullopt instead.
     source.original_mode2_packed_range=(32u<<8u)|32u;
@@ -229,8 +392,8 @@ int main(){
     dispatchVoices[31].blocked_when_few_voices=true;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);
     CHECK(dispatched && dispatched->voice_count==2u &&
-          dispatched->physical_voices[0]==29u &&
-          dispatched->physical_voices[1]==30u);
+          dispatched->physical_voices[0]==28u &&
+          dispatched->physical_voices[1]==29u);
     source.original_x86_dispatch_mode=2u;
     source.original_mode2_packed_range=(32u<<8u)|31u;
     dispatched=candidateOriginalWin95VxdDispatchAllModes(dispatchVoices,source);

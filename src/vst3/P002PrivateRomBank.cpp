@@ -522,4 +522,49 @@ bool P002PrivateRomBank::sustain(
     const auto result=ownership_.controller64(chip,state_,channel_,value);
     return result.has_value();
 }
+#ifdef AWE64_P005_ORIGINAL_CREATIVE_LINKED
+bool P002PrivateRomBank::exportVerifiedCreativeP005SourceTables(
+    awe64::original_vxd::OriginalSf2SourceTables& out) const noexcept {
+    // Never leave an old successful owner-bank source available after
+    // a later load failure. All source flags default to FALSE.
+    out={};
+    // ready_/ram_mode_ only become true AFTER the original VXD 820-byte
+    // source SHA gate and the authentic RAM-source bank checks succeed.
+    // This does NOT authenticate a 288-slot original program directory
+    // nor guess per-note 148-byte source descriptor state.
+    if(!ready_ || !ram_mode_ ||
+       source_ram_base_<0x200000u || source_ram_pool_words_==0u ||
+       static_cast<std::uint64_t>(source_ram_base_)+
+           static_cast<std::uint64_t>(source_ram_pool_words_)>
+           0x1000000ull)
+        return false;
+    awe64::original_vxd::OriginalSf2SourceTables tables{};
+    // These are the already SHA-authenticated Creative LCOD/PDAT
+    // resources in the EXISTING VST3 P002 owner source loader.
+    tables.preset_template=resources_.preset_template;
+    tables.instrument_template=resources_.instrument_template;
+    tables.pitch_base=resources_.pitch_tables.base;
+    tables.pitch_slope=resources_.pitch_tables.slope;
+    tables.ram_base_word=source_ram_base_;
+    tables.original_generator_templates_verified=true;
+    tables.original_pitch_tables_verified=true;
+    tables.original_sample_ram_placement_verified=true;
+    // Original stereo conversion remains unproved by this bridge.
+    tables.original_stereo_descriptor_conversion_verified=false;
+    out=tables;
+    return true;
+}
+bool P002PrivateRomBank::exportP005UnattestedVxdDeviceImage(
+    std::span<std::uint8_t> out) const noexcept {
+    // Candidate guest bytes from P002 pack. The source-table SHA gate
+    // does NOT independently prove these device pointer bytes.
+    // Failed requests cannot expose a stale device pointer table.
+    std::fill(out.begin(),out.end(),std::uint8_t{0});
+    if(!ready_ || !ram_mode_ || out.size()!=state_.size())
+        return false;
+    std::copy(state_.begin(),state_.end(),out.begin());
+    return true;
+}
+#endif
+
 } // namespace awe64::vst3

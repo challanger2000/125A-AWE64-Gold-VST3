@@ -26,6 +26,14 @@ struct OriginalWin95AllocatorVoiceSnapshot {
     std::uint16_t envelope_status_reg=0x8000u;
     std::uint32_t stored_sample_end=0u;
     std::uint32_t chip_current_address=0u;
+    // Provenance of a real CCCA-only read. Distinct from 'complete':
+    // original Mode-2 high-marker path never reads VTFT/DCYSUSV.
+    // A nonzero numeric chip_current_address by itself is NOT proof.
+    bool ccca_read_verified=false;
+    // Independent original LCOD+41E0 VTFT and conditional +4228 DCYSUSV
+    // provenance. An observed value alone is never a verified chip read.
+    bool vtft_read_verified=false;
+    bool dcysusv_read_verified=false;
     bool blocked_when_few_voices=false;
     // Original VXD [+0x4C + voice*0x20 +0x10], bit zero.
     // The meaning of this descriptor/driver bit is NOT asserted.
@@ -88,6 +96,8 @@ struct OriginalWin95AllocatorDispatchInput {
     std::uint8_t original_x86_dispatch_mode=0xffu; // 0, 1, 2
     std::uint16_t original_device_physical_capacity=0u; // device+0x06
     std::uint32_t original_device_mode_count=0u; // device+0x18
+    // Independent LCOD+3ED4 source bound: must match device+0x06.
+    // Original Win95 selects physical voices 30/31 in mode 0.
     std::uint8_t independently_verified_mode0_scan_ceiling=0u;
     std::uint32_t original_mode2_packed_range=0u;
 };
