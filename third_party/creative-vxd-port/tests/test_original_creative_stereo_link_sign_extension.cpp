@@ -77,6 +77,10 @@ int main() {
         const auto zero_extended=static_cast<std::int32_t>(v);
         const bool expected=(sign_extended==zero_extended);
         CHECK(expected==(v<=0x7fffu));
+        // Exercise the ACTUAL port for every 16-bit ID instead of merely
+        // checking the mathematical prediction or a handful of examples.
+        CHECK(original_pairs(static_cast<std::uint16_t>(v),
+                             static_cast<std::uint16_t>(v))==expected);
         ++matched;
     }
     CHECK(matched==65536u);
