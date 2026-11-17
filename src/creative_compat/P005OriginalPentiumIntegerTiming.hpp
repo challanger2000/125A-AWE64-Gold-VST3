@@ -57,9 +57,7 @@ public:
         if(!block_open_ || failed_ || op.prefixes.size()>8u ||
            (op.op_32 & ~std::uint16_t{0x300u})!=0u ||
            (op.timing_word & kFpu)!=0u ||
-           (op.timing_word & kPairMask)>kPairUV ||
-           (op.dependency_word & ((1ull<<34u)-1u))>>24u &&
-           (op.dependency_word & (0x3ffull<<24u))!=0u)
+           (op.timing_word & kPairMask)>kPairUV)
             return fail();
         // Only the original integer dependencies/prefix rules are
         // admitted here. Any FPU/MMX operation needs the full model.

@@ -97,7 +97,7 @@ int main() {
     m.resetSession();
     CHECK(!m.endBlock());
     CHECK(m.beginBlock());
-    const auto invalid=op(Model::kPairUV|(1u<<8u));
+    const auto invalid=op(0u); // zero CPU-cycle entry is unsupported
     CHECK(!m.append(invalid));
     std::puts("P005_ORIGINAL_P54C_INTEGER_TRANSLATION_PIPELINE_PASS source_86box=PINNED U_V_AGI_PREFIX_BLOCK_MASK=TESTED actual_executed_guest_TSC=NOT_PROVEN");
     return 0;
