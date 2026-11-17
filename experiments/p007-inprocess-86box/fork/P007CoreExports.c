@@ -8,6 +8,10 @@
 #include <86box/86box.h>
 #include <86box/machine.h>
 #include <86box/video.h>
+#include <86box/keyboard.h>
+#include <86box/mem.h>
+#include "P007BootTrace.h"
+#include "P007MidiUart.h"
 /* Configuration is owned by the original 86Box source. */
 extern int gfxcard[];
 #include "P007CoreABI.h"
@@ -104,6 +108,63 @@ static void p007_headless_blit(int x,int y,int w,int h,int monitor_index) {
 }
 static int s_guest_stage;
 P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
+
+/* Private Win95 cold-boot aids, exclusively on the emulator worker thread.
+   All keystrokes use ORIGINAL 86Box keyboard hardware inside the guest;
+   NEVER post host OS/DAW keyboard events or run guest CPU on audio thread.
+   The first boot of this particular Win95 image exposes two known prompts:
+   - Award BIOS "Press F1 to continue" on fresh CMOS NVR;
+   - Win95 NE2000 (disabled/no-network) warning requiring Enter to dismiss.
+   These aids are bounded, evidence-gated, and stop at Creative READY. */
+static uint32_t s_f1_release_at, s_enter_release_at;
+static uint32_t s_win95_start_at, s_last_enter_at;
+static unsigned s_f1_sent, s_win95_seen, s_enter_count;
+static int p007_bios_text_contains(const char *needle) {
+    const size_t len=strlen(needle);
+    if(!len || len>80u) return 0;
+    for(uint32_t row=0;row<25u;++row) {
+        for(uint32_t col=0;col+len<=80u;++col) {
+            size_t n=0u;
+            while(n<len && mem_readb_phys(0xb8000u+
+                ((row*80u+col+(uint32_t)n)*2u))==(uint8_t)needle[n]) ++n;
+            if(n==len) return 1;
+        }
+    }
+    return 0;
+}
+P007_EXPORT int p007_core_guest_boot_assist(uint32_t tick) {
+    if(s_guest_stage!=1) return -1;
+    if(s_f1_release_at && tick>=s_f1_release_at) {
+        keyboard_input(0,0x3bu);
+        s_f1_release_at=0u;
+    }
+    if(s_enter_release_at && tick>=s_enter_release_at) {
+        keyboard_input(0,0x1cu);
+        s_enter_release_at=0u;
+    }
+    if(tick%500u != 0u) return 0;
+    if(!s_f1_sent && p007_bios_text_contains("Press F1 to continue")) {
+        keyboard_input(1,0x3bu);
+        s_f1_release_at=tick+100u;
+        s_f1_sent=1u;
+        return 1;
+    }
+    if(!s_win95_seen && p007_bios_text_contains("Starting Windows 95")) {
+        s_win95_seen=1u;
+        s_win95_start_at=tick;
+    }
+    if(!s_win95_seen || p007_midi_guest_ready() ||
+       s_enter_count>=3u || tick < s_win95_start_at+23000u ||
+       (s_last_enter_at && tick<s_last_enter_at+12000u)) return 0;
+    P007BootTrace hdd={0};
+    if(!p007_trace_get(&hdd) || hdd.read_calls<600u) return 0;
+    keyboard_input(1,0x1cu);
+    s_enter_release_at=tick+100u;
+    s_last_enter_at=tick;
+    ++s_enter_count;
+    return 2;
+}
+
 P007_EXPORT int p007_core_guest_boot(void) {
     if (!s_profile_initialized) return -1;
     if (s_guest_stage) return -2;
@@ -118,6 +179,9 @@ P007_EXPORT int p007_core_guest_boot(void) {
     /* Must register before the original BIOS/VGA first blit occurs. */
     video_setblit(p007_headless_blit);
     pc_reset_hard_init();
+    s_f1_release_at=s_enter_release_at=0u;
+    s_win95_start_at=s_last_enter_at=0u;
+    s_f1_sent=s_win95_seen=s_enter_count=0u;
     s_guest_stage = 1;
     return 1;
 }

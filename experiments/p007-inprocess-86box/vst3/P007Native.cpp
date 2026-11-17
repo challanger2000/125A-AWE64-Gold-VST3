@@ -56,7 +56,8 @@ bool Core::openNonRealtime() noexcept {
     boot=reinterpret_cast<Boot>(GetProcAddress(module_,"p007_core_guest_boot"));
     step=reinterpret_cast<Step>(GetProcAddress(module_,"p007_core_guest_step"));
     guestClose=reinterpret_cast<GuestClose>(GetProcAddress(module_,"p007_core_guest_close"));
-    if(!initProfile||!boot||!step||!guestClose){
+    bootAssist=reinterpret_cast<BootAssist>(GetProcAddress(module_,"p007_core_guest_boot_assist"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -82,6 +83,7 @@ void Core::closeNonRealtime() noexcept {
     if(emulatorThread_.joinable())emulatorThread_.join();
     pull=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
+    bootAssist=nullptr;
     if(module_){FreeLibrary(module_);module_=nullptr;}
     if(ownsInstance_){
         ownsInstance_=false;
@@ -144,8 +146,12 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
         }
         bootStatus_.store(1,std::memory_order_release);
         auto next=std::chrono::steady_clock::now();
+        std::uint32_t guestMilliseconds=0u;
         while(!stop_.load(std::memory_order_acquire)){
             if(step()!=1){bootStatus_.store(-3,std::memory_order_release);break;}
+            // Only original emulated keyboard controller receives Win95 boot
+            // keys; no real host input events, no audio-thread work.
+            (void)bootAssist(++guestMilliseconds);
             next+=std::chrono::milliseconds(1);
             // No guest CPU, disk, timers, or sleep on the DAW audio callback.
             std::this_thread::sleep_until(next);

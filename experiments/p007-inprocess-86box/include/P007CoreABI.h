@@ -21,6 +21,10 @@ int p007_core_guest_boot(void);  /* 1=hardware initialized; negative=not ready/f
 int p007_core_guest_step(void);  /* 1=original CPU slice; 0=not booted */
 void p007_core_guest_close(void);
 int p007_core_guest_stage(void); /* 0=not started, 1=running, 2=closed */
+/* Original keyboard/BIOS on guest worker only.
+   Returns 1=F1 sent at exact observed BIOS prompt, 2=Enter to dismiss
+   observed post-Win95 network modal (bounded); 0=none, -1=not booted. */
+int p007_core_guest_boot_assist(uint32_t guest_milliseconds);
 #ifdef __cplusplus
 }
 #endif

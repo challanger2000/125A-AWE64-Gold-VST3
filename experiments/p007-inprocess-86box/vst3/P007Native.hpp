@@ -1,8 +1,8 @@
 #pragma once
 // P007 – an actual native Windows-x64 VST3 with the ORIGINAL 86Box core
 // loaded inside THIS DAW process. NO CreateProcess/86Box.exe/P006 bridge.
-// The private Win95 headless boot is NOT implemented; this prototype
-// must not be described as a playable AWE instrument.
+// Original Win95/Creative has passed local Linux-core NoteOn->PCM;
+ // production Windows-VST3 still needs independent DAW acceptance.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -28,6 +28,7 @@ public:
     using Boot=int (__cdecl*)();
     using Step=int (__cdecl*)();
     using GuestClose=void (__cdecl*)();
+    using BootAssist=int (__cdecl*)(std::uint32_t);
     Pull pull=nullptr;
     Midi midi=nullptr;
     Enabled midiEnabled=nullptr;
@@ -35,6 +36,7 @@ public:
     Boot boot=nullptr;
     Step step=nullptr;
     GuestClose guestClose=nullptr;
+    BootAssist bootAssist=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
