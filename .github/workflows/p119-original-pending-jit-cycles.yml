@@ -1,0 +1,100 @@
+name: P119 original pending x64 JIT cycles read-only capture
+on:
+  push:
+    branches: [research/p119-p54c-pending-jit-cycles]
+    paths:
+      - 'tools/p119_*.py'
+      - 'tools/p117_stage_original_p54c_epoch_probe.py'
+      - 'tests/p119_*.cpp'
+      - 'tests/test_p119_*.py'
+      - '.github/workflows/p119-original-pending-jit-cycles.yml'
+      - 'docs/P119-*'
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  source-and-real-native-JIT-callback:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Source SHA, fail-closed negatives and old P118 regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_p119_original_pending_jit_cycles.py' -v
+          python -m unittest discover -s tests -p 'test_p118_bind_runtime_jit_to_p117_opcode.py' -v
+          python tools/p118_join_original_runtime_opcode_site_private.py --selftest
+      - name: ACTUALLY EXECUTE x64 fourth-argument host JIT machine code 1000 times
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/p119
+          clang++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            tests/p119_native_pending_jit_callback_abi.cpp \
+            -o build/p119/p119_native_abi.exe
+          ./build/p119/p119_native_abi.exe
+      - name: Stage original P003+P115 and P107–P119 in one disposable emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p119-fork
+          grep -q P119_ORIGINAL_X64_JIT_PENDING_CYCLES_V1 \
+            p119-fork/src/codegen/codegen_accumulate_x86-64.c
+          grep -q 'call(block, (uintptr_t)p119_x86_executed_guest_site)' \
+            p119-fork/src/codegen/codegen_x86-64.c
+          grep -q P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1 \
+            p119-fork/src/cpu/386_dynarec.c
+          cmp third_party/86box-awe32/src/sound/snd_emu8k.c p119-fork/src/sound/snd_emu8k.c
+          cmp third_party/86box-awe32/src/sound/snd_sb.c p119-fork/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+          echo 'P119_SAME_ORIGINAL_BUILD_ORIGINAL_CODEGEN_PENDING_CYCLE_PROBE_PASS'
+
+  genuine-86box-linux-old-x64-dynarec-build:
+    needs: source-and-real-native-JIT-callback
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Original old-86Box build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            build-essential cmake ninja-build pkg-config \
+            libsdl2-dev libfreetype6-dev libopenal-dev libpng-dev zlib1g-dev \
+            libslirp-dev libserialport-dev libfluidsynth-dev \
+            libsamplerate0-dev libpcap-dev libglib2.0-dev \
+            librtmidi-dev libx11-dev libxext-dev
+      - name: Recreate pinned old original source with P119 only in disposable copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p117_stage_original_p54c_epoch_probe.py \
+            --original-root third_party/86box-awe32 \
+            --disposable-root p119-fork
+          cmp p119-fork/src/sound/snd_emu8k.c third_party/86box-awe32/src/sound/snd_emu8k.c
+          cmp p119-fork/src/sound/snd_sb.c third_party/86box-awe32/src/sound/snd_sb.c
+          test -z "$(git -C third_party/86box-awe32 status --porcelain)"
+      - name: Compile real ORIGINAL 86Box old Dynarec with read-only pending JIT cycles
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S p119-fork -B p119-fork/build-p119 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DQT=OFF -DNEW_DYNAREC=OFF \
+            -DFLUIDSYNTH=OFF -DRTMIDI=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF
+          grep '^NEW_DYNAREC:BOOL=OFF' p119-fork/build-p119/CMakeCache.txt
+          cmake --build p119-fork/build-p119 --parallel 4
+          echo 'P119_GENUINE_ORIGINAL_86BOX_PENDING_JIT_CYCLE_CAPTURE_BUILD_PASS'
