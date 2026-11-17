@@ -6,10 +6,12 @@
 #include "OriginalCreativeMidiRamRuntime.hpp"
 #include "OriginalCreativeVerifiedSf2Bank.hpp"
 #include "P005OriginalCreativeBankCatalog.hpp"
+#include "P005OriginalVxdGuestCaptureFile.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <span>
 #include <memory>
+#include <new>
 #include <optional>
 namespace awe64::vst3 {
 template<class ChipT>
@@ -202,6 +204,57 @@ public:
         // No processing can run until activation returns.
         runtime_->midi.device=restored;
         return true;
+    }
+    // Complete non-RT SOURCE PREPARATION chain for the exported native
+    // VST3 host adapter:
+    // owner Win95 125AVXD1 -> exact 288-slot VXD records ->
+    // previously original-compiled note contexts -> sealed owner ->
+    // original guest device rows -> SAME native Creative MIDI/chip.
+    //
+    // The two independent attestations are supplied by the private
+    // owner-side verifier. File magic or synthetic tests do NOT confer
+    // them. Incomplete channel/CPU provenance still prevents normal
+    // product setActive() from calling this opt-in entry point.
+    [[nodiscard]] bool activateOriginalGuestCaptureBundleNonRealtime(
+        ChipT& chip,P005OriginalCreativeBankCatalog& catalog,
+        const P005OriginalVxdGuestCaptureFile& guest,
+        std::span<const P005OriginalCreativeSf2NoteStage* const> contexts,
+        bool originalGuestSessionIndependentlyAttested,
+        bool originalNoteContextsIndependentlyAttested) noexcept {
+        if(sourceBound() || catalog.runtimeLeased() ||
+           catalog.sourceSlotCount()!=0u || catalog.zoneCount()!=0u ||
+           !guest.sourceFormatReady() || contexts.empty() ||
+           !originalGuestSessionIndependentlyAttested ||
+           !originalNoteContextsIndependentlyAttested)
+            return false;
+        using ImportResult=P005OriginalVxdDirectoryImportResult;
+        if(guest.importIntoNonRealtime(
+               catalog,originalGuestSessionIndependentlyAttested)!=
+           ImportResult::Ok)
+            return false;
+        bool complete=true;
+        try {
+            for(const auto* stage:contexts) {
+                if(!stage || !stage->ready() ||
+                   !catalog.appendVerifiedNoteContext(*stage)) {
+                    complete=false;
+                    break;
+                }
+            }
+            if(complete)complete=catalog.sealNonRealtime();
+            if(complete)
+                complete=activateOwnedOriginalCatalogWithDeviceNonRealtime(
+                    chip,catalog,guest.deviceImageNonRealtime(),
+                    originalGuestSessionIndependentlyAttested);
+        }catch(const std::bad_alloc&) {
+            complete=false;
+        }
+        if(!complete) {
+            // There must be no partially published source on failure.
+            // A successful binding owns the only catalog lease.
+            (void)catalog.resetNonRealtime();
+        }
+        return complete;
     }
     // A latched source-driver or physical chip fault MUST NOT cause the
     // VST3 callback to fall back to the unrelated P001/P002 renderer.
