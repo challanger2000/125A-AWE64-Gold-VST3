@@ -84,7 +84,9 @@ std::optional<OriginalWin95MonoSelection> candidateOriginalWin95Mode0MonoVoice(
 std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95AssignedVoiceVtftWrites(
     const std::uint8_t voice) noexcept {
-    if(voice>=kOriginalCreativeMusicVoices)return std::nullopt;
+    // Original dispatcher +3DD5 can select physical voices 0..31.
+    // Authentic LCOD+3F13/+3FCE Win95 traces prove 30 and 31 used.
+    if(voice>=32u)return std::nullopt;
     // VXD +0x3DDB..+0x3E07: selector (3<<5)|voice, data DWORD 0xFFFF.
     // Its 0x3D1B writer uses OUT DX,AL for the E22 selector and
     // OUT DX,EAX for the DATA0 0x620 port. The pinned original 86Box
@@ -97,7 +99,7 @@ candidateOriginalWin95AssignedVoiceVtftWrites(
 std::optional<std::array<OriginalWin95VxdPortWrite,2>>
 candidateOriginalWin95SelectedVoiceDcysusvWrites(
     const OriginalWin95MonoSelection& selected) noexcept {
-    if(selected.physical_voice>=kOriginalCreativeMusicVoices ||
+    if(selected.physical_voice>=32u ||
        (selected.reason!=OriginalWin95MonoSelectionReason::CompletelyIdle &&
         selected.reason!=OriginalWin95MonoSelectionReason::SampleEndReached &&
         selected.reason!=OriginalWin95MonoSelectionReason::LowestEnvelopePriority))
