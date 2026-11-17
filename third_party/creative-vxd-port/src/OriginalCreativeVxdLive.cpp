@@ -310,6 +310,13 @@ Allocation allocate_pair_mode1(DeviceState const& state, PortIo io) noexcept {
     for(std::uint32_t n=state.physical_capacity; n>0; --n) {
         const std::uint8_t voice=static_cast<std::uint8_t>(n-1u);
         const auto& v=state.voices[voice];
+        // Original SBAWE.VXD LCOD+3FFD..4048 (P003 owner V5):
+        // ESI+18h <=2 activates these two 0x17 flag checks.
+        // EBX points at voice row +0x0A: [EBX+0Dh] is row+0x17,
+        // [EBX+2Dh] is row+0x37 = NEXT voice's row+0x17.
+        // The upper neighbor exists only if n < original [ESI+06h].
+        // Each skipped row follows +4111/+411A (EBX -= 0x20).
+        // There is no fabricated +14/+36 cycle charge here.
         if(forbidden(v,count) ||
            (n<state.physical_capacity && forbidden(state.voices[n],count)) ||
            v.key_marker>=0x2000u) {

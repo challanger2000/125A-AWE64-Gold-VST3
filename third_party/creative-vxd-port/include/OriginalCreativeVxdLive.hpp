@@ -18,7 +18,7 @@ struct VoiceRecord {
     std::uint32_t release_sample_end = 0; // record+0x06: sample cursor endpoint
     std::uint8_t modulation_release = 0; // record+0x15
     std::uint8_t volume_release = 0;     // record+0x16
-    bool blocked = false;                // record+0x17
+    bool blocked = false;                // record+0x17: original [EBX+0x0D] (EBX=row+0x0A)
     bool pair_penalty = false;           // record+0x1a bit0
     std::uint16_t original_pitch_base = 0; // source row+0x0e, unsigned
     bool original_pitch_base_verified = false;

@@ -134,6 +134,39 @@ int main(){
             CHECK(selected.vtft_reads==4u);
         }
     }
+
+    // P003-V5 source disassembly maps [EBX+0Dh] to current row+0x17,
+    // [EBX+2Dh] to next row+0x17. Test those *separately*, including
+    // the original [ESI+06h] upper capacity boundary.
+    for(std::uint32_t mode : {2u,4u}) {
+        DeviceState gated=state;
+        gated.physical_capacity=4u;
+        gated.mode_count=mode;
+        for(auto& voice : gated.voices)voice.blocked=false;
+        gated.voices[2].blocked=true; // NOT the initial row 3.
+        Chip witness;
+        witness.sus.fill(0x8000u);
+        witness.vtft.fill(0x03000000u);
+        const auto result=allocate_pair_mode1(gated,witness.io());
+        CHECK(result.status==Status::Found ||
+              result.status==Status::NoCandidate);
+        // Voice 3 must be scored: no non-existent next row 4 lookup.
+        CHECK(witness.decisions[0].voice==3u);
+        CHECK(witness.decisions[0].kind==StereoDecisionKind::ScoredVoice);
+        // For mode 2, current voice 2 and preceding voice 1 skip;
+        // for mode 4 neither blocked flag is enforced.
+        bool saw2=false, saw1=false;
+        for(std::size_t i=0;i<witness.count;++i){
+            const auto d=witness.decisions[i];
+            if(d.voice==2u &&
+               d.kind==StereoDecisionKind::SkippedVoice)saw2=true;
+            if(d.voice==1u &&
+               d.kind==StereoDecisionKind::SkippedVoice)saw1=true;
+        }
+        CHECK(saw2==(mode<=2u));
+        CHECK(saw1==(mode<=2u));
+        CHECK(result.vtft_reads==(mode<=2u?2u:4u));
+    }
     // On a failed first I/O, no completed score/cursor/priority decision is emitted.
     Chip failed;failed.reject_first_read=true;
     const auto error=allocate_pair_mode1(state,failed.io());
