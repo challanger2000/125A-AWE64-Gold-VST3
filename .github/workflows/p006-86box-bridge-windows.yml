@@ -37,6 +37,10 @@ jobs:
         run: |
           cmake -S experiments/p006-86box-vst3 -B build/p006-win95guest -G "Visual Studio 17 2022" -A Win32 -DP006_BUILD_WIN95_GUEST=ON
           cmake --build build/p006-win95guest --config Release --target P006_Win95_Original_Creative_Relay --parallel 2
+      - name: Build original 86Box WAV audio tail bridge (no fork rebuild)
+        shell: pwsh
+        run: |
+          cmake --build build/p006-bridge --config Release --target P006_WAV_Tail --parallel 2
       - name: Upload compiled P006 VST3 and guest EXE (no proprietary data)
         uses: actions/upload-artifact@v4
         with:
@@ -44,5 +48,6 @@ jobs:
           path: |
             build/p006-vst3/VST3/Release/AWE64_Gold_P006.vst3/**
             build/p006-win95guest/Release/P006_Win95_Original_Creative_Relay.exe
+            build/p006-bridge/Release/P006_WAV_Tail.exe
           retention-days: 5
           if-no-files-found: error
