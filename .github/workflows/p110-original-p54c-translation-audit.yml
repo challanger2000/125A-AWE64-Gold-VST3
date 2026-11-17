@@ -6,6 +6,8 @@ on:
       - research/p107-original-x64-dynarec-guest-branch-capture
     paths:
       - 'tools/p110_audit_original_p54c_translation_private.py'
+      - 'tools/p110_instrument_original_p54c_compile_timing.py'
+      - 'tests/test_p110_compiled_original_translator_probe_runtime.py'
       - '.github/workflows/p110-original-p54c-translation-audit.yml'
   workflow_dispatch:
 
@@ -35,4 +37,5 @@ jobs:
         run: |
           set -euo pipefail
           python -W error::ResourceWarning tools/p110_audit_original_p54c_translation_private.py --selftest
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p110_compiled_original_translator_probe_runtime.py' -v
           echo 'P110_FAIL_CLOSED_SYNTHETIC_TRANSLATOR_SOURCE_ONLY_PASS'
