@@ -32,6 +32,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_p119_original_pending_jit_cycles.py' -v
           python -m unittest discover -s tests -p 'test_p118_bind_runtime_jit_to_p117_opcode.py' -v
           python tools/p118_join_original_runtime_opcode_site_private.py --selftest
+          python tools/p119_validate_original_deferred_jit_cycles_private.py --selftest
       - name: ACTUALLY EXECUTE x64 fourth-argument host JIT machine code 1000 times
         shell: bash
         run: |
