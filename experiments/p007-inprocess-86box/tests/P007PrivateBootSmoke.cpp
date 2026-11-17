@@ -59,7 +59,7 @@ int main(int argc,char** argv) {
         budget=static_cast<std::uint32_t>(v);
     }
     std::error_code ec;
-    fs::path dll=fs::absolute(fs::u8path(argv[1]),ec);
+    fs::path dll=fs::absolute(fs::path(argv[1]),ec);
     if(ec||!fs::is_regular_file(dll,ec))return 4;
     const fs::path bundled=p007::privatevm::bundleRoot(dll);
     if(!fs::is_regular_file(bundled/L"vm"/L"win95.img",ec) ||
