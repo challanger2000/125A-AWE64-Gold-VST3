@@ -5,6 +5,12 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <string>
+#include <system_error>
+#include <thread>
 #include <cwchar>
 namespace p007 {
 using namespace Steinberg;
@@ -12,6 +18,8 @@ using namespace Steinberg::Vst;
 namespace {
 // Address within THIS plugin module, not Studio Pro executable.
 static unsigned char anchor=0;
+// 86Box uses process-wide globals; do not allow two plugin instances to own it.
+static std::atomic<bool> s_originalCoreOwner{false};
 std::uint8_t midiVelocity(float x) noexcept {
     if(!std::isfinite(x))return 0u;
     return static_cast<std::uint8_t>(
@@ -43,15 +51,81 @@ bool Core::openNonRealtime() noexcept {
         closeNonRealtime();
         return false;
     }
-    // The guest has NOT booted; no MIDI is accepted until Win95/AWE is ready.
+    initProfile=reinterpret_cast<InitProfile>(GetProcAddress(module_,"p007_core_init_profile"));
+    boot=reinterpret_cast<Boot>(GetProcAddress(module_,"p007_core_guest_boot"));
+    step=reinterpret_cast<Step>(GetProcAddress(module_,"p007_core_guest_step"));
+    guestClose=reinterpret_cast<GuestClose>(GetProcAddress(module_,"p007_core_guest_close"));
+    if(!initProfile||!boot||!step||!guestClose){
+        closeNonRealtime();return false;
+    }
+    bool expected=false;
+    if(!s_originalCoreOwner.compare_exchange_strong(expected,true)){
+        closeNonRealtime();return false;
+    }
+    ownsInstance_=true;
+    // Neither a BIOS reset nor the start of Win95 proves Creative WinMM ready.
+    // Leave MIDI disabled until a *real guest-ready acknowledgment* exists.
     midiEnabled(0);
+    try{
+        const std::wstring folder(path);
+        stop_.store(false,std::memory_order_release);
+        emulatorThread_=std::thread([this,folder](){runPrivateGuest(folder);});
+    }catch(...){
+        closeNonRealtime();return false;
+    }
     return true;
 }
 void Core::closeNonRealtime() noexcept {
-    if(module_) {
-        if(midiEnabled)midiEnabled(0);
-        pull=nullptr;midi=nullptr;midiEnabled=nullptr;
-        FreeLibrary(module_);module_=nullptr;
+    if(midiEnabled)midiEnabled(0);
+    stop_.store(true,std::memory_order_release);
+    if(emulatorThread_.joinable())emulatorThread_.join();
+    pull=nullptr;midi=nullptr;midiEnabled=nullptr;
+    initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
+    if(module_){FreeLibrary(module_);module_=nullptr;}
+    if(ownsInstance_){
+        ownsInstance_=false;
+        s_originalCoreOwner.store(false,std::memory_order_release);
+    }
+}
+void Core::runPrivateGuest(std::wstring folder) noexcept {
+    namespace fs=std::filesystem;
+    try{
+        // All resources are private and must be bundled in the one VST3.
+        // No executable, external VM, OS device, BAT or named pipe.
+        const fs::path root=fs::path(folder)/L".."/L"Resources"/L"PrivateVM";
+        const fs::path vm=root/L"vm";
+        const fs::path roms=root/L"roms";
+        const fs::path global=root/L"86box.cfg";
+        const fs::path config=vm/L"P007_AWE64.cfg";
+        std::error_code ec;
+        if(!fs::is_directory(vm,ec)||!fs::is_directory(roms,ec)||
+           !fs::is_regular_file(global,ec)||!fs::is_regular_file(config,ec)){
+            bootStatus_.store(0,std::memory_order_release);
+            return; // research VST3 without proprietary guest remains silent
+        }
+        // Original 86Box is an ANSI-path C API; this initial research
+        // version supports the paths which its native Win32 CRT can open.
+        const auto a=vm.string(),b=roms.string(),g=global.string();
+        if(stop_.load(std::memory_order_acquire))return;
+        if(initProfile(a.c_str(),b.c_str(),"P007_AWE64.cfg",g.c_str())!=1){
+            bootStatus_.store(-1,std::memory_order_release);return;
+        }
+        if(stop_.load(std::memory_order_acquire))return;
+        if(boot()!=1){
+            bootStatus_.store(-2,std::memory_order_release);return;
+        }
+        bootStatus_.store(1,std::memory_order_release);
+        auto next=std::chrono::steady_clock::now();
+        while(!stop_.load(std::memory_order_acquire)){
+            if(step()!=1){bootStatus_.store(-3,std::memory_order_release);break;}
+            next+=std::chrono::milliseconds(1);
+            // No guest CPU, disk, timers, or sleep on the DAW audio callback.
+            std::this_thread::sleep_until(next);
+        }
+        guestClose();
+        bootStatus_.store(2,std::memory_order_release);
+    }catch(...){
+        bootStatus_.store(-4,std::memory_order_release);
     }
 }
 tresult PLUGIN_API Plugin::initialize(FUnknown* context) {
