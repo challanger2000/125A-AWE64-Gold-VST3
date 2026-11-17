@@ -195,9 +195,9 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     // Original 86Box WT_FREQ is EXACTLY 44100 Hz. The output adapter
     // converts this stream to the DAW rate without modifying the chip DSP.
     // setupProcessing is a non-audio-thread lifecycle call.
-    if(!std::isfinite(setup.sampleRate)||
-       setup.sampleRate<22050.0||setup.sampleRate>384000.0)
-        return kResultFalse;
+    // Some SDK test hosts initialize with a zero/sentinel sample rate.
+    // Preserve Steinberg's original lifecycle return semantics. Our
+    // adapter already clamps unsupported/invalid values to native 44.1 kHz.
     const auto result=SingleComponentEffect::setupProcessing(setup);
     if(result==kResultOk)outputRate_.configure(setup.sampleRate);
     return result;
