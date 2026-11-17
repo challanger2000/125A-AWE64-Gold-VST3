@@ -152,8 +152,14 @@ mode2RangeWithSourceStatus(
         // Blocked voice is skipped in the original BEFORE reading
         // VTFT/DCYSUSV/CCCA; don't demand snapshot fields never read.
         if(forbiddenByDeviceMode(v,driver_mode_count))continue;
-        // The sample-end test below still needs the actual CCCA even
-        // for a key marker >=0x2000, so only blocked rows are skipped.
+        // Original LCOD+41D9/+41DE -> +424F/+4252/+4269:
+        // a high marker and ZERO cached sample-end bypass the entire
+        // live-chip read path. Do not demand VTFT/DCYSUSV/CCCA for a
+        // source voice that the original VXD never accesses.
+        if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
+            continue;
+        // With a nonzero sample-end, the original tests live CCCA
+        // even for marker >=0x2000. All other paths still fail closed.
         if(!v.complete) {
             if(missing_source)*missing_source=true;
             return std::nullopt;
