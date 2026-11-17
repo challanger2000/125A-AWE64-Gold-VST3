@@ -24,7 +24,7 @@ def main():
     cm=fork/"src/CMakeLists.txt"
     original=cm.read_text(encoding="utf-8")
     before="add_executable(86Box\n    86box.c\n"
-    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n"
+    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n    P007BootTrace.c\n"
     if original.count(before)!=1:
         raise SystemExit("P007_REJECT_UPSTREAM_BUILD_LAYOUT")
     dst=fork/"src/P007CoreExports.c"
@@ -38,10 +38,12 @@ def main():
     dst.write_bytes((source/"fork/P007CoreExports.c").read_bytes())
     shutil.copyfile(source/"fork/P007AudioRing.c",fork/"src/P007AudioRing.c")
     shutil.copyfile(source/"fork/P007MidiUart.c",fork/"src/P007MidiUart.c")
+    shutil.copyfile(source/"fork/P007BootTrace.c",fork/"src/P007BootTrace.c")
     include=fork/"src/include/P007CoreABI.h"
     shutil.copyfile(source/"include/P007CoreABI.h",include)
     shutil.copyfile(source/"include/P007AudioRing.h",fork/"src/include/P007AudioRing.h")
     shutil.copyfile(source/"include/P007MidiUart.h",fork/"src/include/P007MidiUart.h")
+    shutil.copyfile(source/"include/P007BootTrace.h",fork/"src/include/P007BootTrace.h")
     # Connect directly to the ORIGINAL 86Box post-mixer wavetable
     # before its SDL/OpenAL audio device. Never mutate snd_emu8k.c.
     sound_file=fork/"src/sound/sound.c"
@@ -142,6 +144,36 @@ def main():
     ).replace(uart_origin,uart_replace,1
     ).replace(tx_origin,tx_replace,1),encoding="utf-8",newline="\n")
 
+
+    # Expose diagnostic counts at the ORIGINAL disk-image read/write entry
+    # points. These are passive counters, never replace I/O or alter timing
+    # or HDD contents; intended for private Win95 boot diagnostics only.
+    hdd=fork/"src/disk/hdd_image.c"
+    hddtext=hdd.read_text(encoding="utf-8")
+    old_hdd_header="#include <86box/hdd.h>"
+    old_hdd_read="""    size_t num_read;
+
+    if (hdd_images[id].type == HDD_IMAGE_VHD) {"""
+    old_hdd_write="""    size_t num_write;
+
+    if (hdd_images[id].type == HDD_IMAGE_VHD) {"""
+    if (hddtext.count(old_hdd_header)!=1 or
+        hddtext.count(old_hdd_read)!=1 or
+        hddtext.count(old_hdd_write)!=1):
+        raise SystemExit("P007_REJECT_ORIGINAL_HDD_IMAGE_SIGNATURE")
+    hddtext=hddtext.replace(old_hdd_header,
+        old_hdd_header+"\n#include <P007BootTrace.h>",1)
+    hddtext=hddtext.replace(old_hdd_read,
+        """    size_t num_read;
+    p007_trace_hdd_read(id,sector,count);
+
+    if (hdd_images[id].type == HDD_IMAGE_VHD) {""",1)
+    hddtext=hddtext.replace(old_hdd_write,
+        """    size_t num_write;
+    p007_trace_hdd_write(id,sector,count);
+
+    if (hdd_images[id].type == HDD_IMAGE_VHD) {""",1)
+    hdd.write_text(hddtext,encoding="utf-8",newline="\n")
 
     # The original SDL frontend assumes a window and mutex. The VST3 never
     # creates either; guard only host-side UI calls, never CPU/EMU8000 code.

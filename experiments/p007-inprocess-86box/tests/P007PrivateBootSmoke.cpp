@@ -104,6 +104,9 @@ int main(int argc,char** argv) {
     const PullFn pull=bind<PullFn>(core,"p007_audio_pull");
     const AvailableFn available=bind<AvailableFn>(core,"p007_audio_available");
     const DropFn dropped=bind<DropFn>(core,"p007_audio_dropped_frames");
+    struct DiskTrace {std::uint64_t readCalls,readSectors,writeCalls,writeSectors;
+                      std::uint32_t lastReadLba,lastWriteLba,lastReadId,lastWriteId;};
+    const auto diskTrace=bind<int (*)(DiskTrace*)>(core,"p007_trace_get");
     if(!init||!boot||!step||!close||!ready||!midi||!pull||!available||!dropped){
         std::puts("P007_PRIVATE_CORE_EXPORTS_MISSING");
         FreeLibrary(core);done();return 8;
@@ -149,8 +152,15 @@ int main(int argc,char** argv) {
         }
         if(noteOff && tick-noteAt>=5500u && nonzero>0u) {rc=0;break;}
         if(tick%10000u==0u) {
-            std::printf("P007_PRIVATE_BOOT_PROGRESS slices=%u ready=%d audio_frames=%llu peak=%.6f\n",
-                tick,ready(),static_cast<unsigned long long>(frames),static_cast<double>(peak));
+            DiskTrace disk{};
+            if(diskTrace) (void)diskTrace(&disk);
+            std::printf("P007_PRIVATE_BOOT_PROGRESS slices=%u ready=%d"
+                        " audio_frames=%llu peak=%.6f hdd_reads=%llu"
+                        " last_lba=%u hdd_writes=%llu\n",
+                tick,ready(),static_cast<unsigned long long>(frames),
+                static_cast<double>(peak),
+                static_cast<unsigned long long>(disk.readCalls),disk.lastReadLba,
+                static_cast<unsigned long long>(disk.writeCalls));
             std::fflush(stdout);
         }
         next+=1ms;

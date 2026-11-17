@@ -59,6 +59,15 @@ jobs:
             experiments/p007-inprocess-86box/tests/P007MidiUartTest.c \
             -o build/P007MidiUartTest.exe
           build/P007MidiUartTest.exe
+      - name: Validate passive ORIGINAL 86Box HDD request counters
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007BootTrace.c \
+            experiments/p007-inprocess-86box/tests/P007BootTraceTest.c \
+            -o build/P007BootTraceTest.exe
+          build/P007BootTraceTest.exe
       - name: Compile unchanged original CPU/machine/EMU8000 modules into DLL
         run: |
           set -euo pipefail

@@ -139,6 +139,9 @@ serial2_enabled = 1
     auto step=proc<Fn>(core,"p007_core_guest_step");
     auto stage=proc<Fn>(core,"p007_core_guest_stage");
     auto ready=proc<Fn>(core,"p007_midi_guest_ready");
+    struct Trace { std::uint64_t reads,readSectors,writes,writeSectors;
+                   std::uint32_t lastRead,lastWrite,readId,writeId; };
+    auto getTrace=proc<int (*)(Trace*)>(core,"p007_trace_get");
     using Midi=int (*)(std::uint8_t,std::uint8_t,std::uint8_t);
     auto midi=proc<Midi>(core,"p007_midi_submit");
     auto close=proc<Close>(core,"p007_core_guest_close");
@@ -169,6 +172,15 @@ serial2_enabled = 1
     std::printf("P007_SYNTH_ORIGINAL_CPU_STAGE=%d READY_SLICE=%d"
                 " MIDI_ACCEPTED=%d PACKET_VALIDATED_ACK_SLICE=%d\n",
                 stage(),readySlice,noteAccepted,ackSlice);
+    if(getTrace){
+        Trace disk{};
+        if(getTrace(&disk))
+            std::printf("P007_SYNTH_ORIGINAL_HDD_REQUESTS=%llu SECTORS=%llu"
+                        " LAST_LBA=%u DRIVE=%u\n",
+                static_cast<unsigned long long>(disk.reads),
+                static_cast<unsigned long long>(disk.readSectors),
+                disk.lastRead,disk.readId);
+    }
     std::fflush(stdout);
     close();
     const int closed=stage();
