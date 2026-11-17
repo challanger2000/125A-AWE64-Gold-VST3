@@ -42,6 +42,67 @@ std::uint32_t scoreOfEligible(
 }
 } // namespace
 
+// Original LCOD+3ED4 reads WORD [ESI+0x06] as mode-0 scan bound.
+// Two SHA-pinned Win95 traces show actual VTFT reads and release
+// writes for physical voices 30 and 31. Not a 30-music budget.
+static std::optional<OriginalWin95MonoSelection>
+mode0PhysicalWithSourceStatus(
+    const std::array<OriginalWin95AllocatorVoiceSnapshot,
+                     kOriginalWin95PhysicalVoiceCapacity>& voices,
+    const std::uint16_t capacity,
+    const std::uint32_t driver_mode_count,
+    bool* missing_source) noexcept {
+    if(missing_source)*missing_source=false;
+    if(!capacityValid(capacity))return std::nullopt;
+    std::uint32_t best=std::numeric_limits<std::uint32_t>::max();
+    std::optional<OriginalWin95MonoSelection> selected;
+    // Source LCOD+3EA1..+3FE7: 3 interleaved lane scans,
+    // indices 0,3,... then 1,4,... then 2,5,... up to device+0x06.
+    for(std::uint32_t lane=0;lane<3u;++lane) {
+        for(std::uint32_t i=lane;i<capacity;i+=3u) {
+            const auto& v=voices[i];
+            if(forbiddenByDeviceMode(v,driver_mode_count))continue;
+            const auto marker=v.internal_key_marker;
+            if(marker>=0x2000u && v.stored_sample_end==0u)continue;
+            if(marker<0x2000u) {
+                const bool needs_dcysusv =
+                    marker!=0x0ffeu && (marker&0x00ffu)!=0x00ffu;
+                if(!v.complete &&
+                   (!v.vtft_read_verified ||
+                    (needs_dcysusv && !v.dcysusv_read_verified))) {
+                    if(missing_source)*missing_source=true;
+                    return std::nullopt;
+                }
+                const auto score=scoreOfEligible(v);
+                if(marker==0x0ffeu && score==0u)
+                    return OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::CompletelyIdle,0u};
+                if(score<=best) {
+                    best=score;
+                    selected=OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::LowestEnvelopePriority,
+                        score};
+                }
+            }
+            // Cached end is original driver RAM. CCCA is read only
+            // if end is nonzero and idle did not return.
+            if(v.stored_sample_end!=0u) {
+                if(!v.complete && !v.ccca_read_verified) {
+                    if(missing_source)*missing_source=true;
+                    return std::nullopt;
+                }
+                if(finishedSample(v))
+                    return OriginalWin95MonoSelection{
+                        static_cast<std::uint8_t>(i),
+                        OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+            }
+        }
+    }
+    return selected;
+}
+
 static std::optional<OriginalWin95PairSelection>
 mode1PairWithSourceStatus(
     const std::array<OriginalWin95AllocatorVoiceSnapshot,
@@ -265,32 +326,15 @@ candidateOriginalWin95VxdDispatchAllModes(
     const auto capacity=input.original_device_physical_capacity;
     const auto mode_count=input.original_device_mode_count;
     if (input.original_x86_dispatch_mode==0u) {
-        // Existing mode-0 scorer has 30-voice original music-budget
-        // bounds. It must NOT infer 30 from an actual device+0x06 of
-        // 32 without a separately verified source-mode scan ceiling.
+        // Source bound is EXACTLY device+0x06 (LCOD+3ED4).
+        // The independent ceiling is a fail-closed cross-check:
+        // disagreement with the live device state is NOT original.
         const auto limit=input.independently_verified_mode0_scan_ceiling;
-        if (limit==0u || limit>kOriginalCreativeMusicVoices ||
-            limit>capacity)
+        if (limit==0u || limit!=capacity)
             return std::nullopt;
-        std::array<OriginalWin95MonoVoiceSnapshot,
-                   kOriginalCreativeMusicVoices> original{};
-        for (std::size_t i=0;i<limit;++i) {
-            const auto& src=voices[i];
-            auto& dst=original[i];
-            dst.complete=src.complete;
-            dst.blocked_when_few_voices=src.blocked_when_few_voices;
-            dst.internal_key_marker=src.internal_key_marker;
-            dst.volume_target_hi16=src.volume_target_hi16;
-            dst.envelope_status_reg=src.envelope_status_reg;
-            dst.stored_sample_end=src.stored_sample_end;
-            dst.chip_current_address=src.chip_current_address;
-            dst.vtft_read_verified=src.vtft_read_verified;
-            dst.dcysusv_read_verified=src.dcysusv_read_verified;
-            dst.ccca_read_verified=src.ccca_read_verified;
-        }
         bool missing_source=false;
-        const auto chosen=candidateOriginalWin95Mode0MonoVoiceWithSourceStatus(
-            original,limit,mode_count,&missing_source);
+        const auto chosen=mode0PhysicalWithSourceStatus(
+            voices,capacity,mode_count,&missing_source);
         if(missing_source)return std::nullopt;
         if (chosen) {
             result.physical_voices[0]=chosen->physical_voice;
