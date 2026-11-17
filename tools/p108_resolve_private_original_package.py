@@ -39,9 +39,12 @@ def validate_zip(z:zipfile.ZipFile,cap:int):
     seen=set()
     total=0
     for item in files:
-        name=item.filename
+        # ZipInfo.filename is normalized by Python on Windows:
+        # a malicious raw backslash is silently converted to '/'.
+        # orig_filename retains the actual archive member spelling.
+        name=getattr(item,"orig_filename",item.filename)
         parts=PurePosixPath(name).parts
-        if (not parts or name.startswith(("/", "\\")) or
+        if (name != item.filename or not parts or name.startswith(("/", "\\")) or
             "\\" in name or ":" in name or
             any(p in (".","..") for p in parts) or
             ((item.external_attr>>16)&0o170000)==0o120000):
