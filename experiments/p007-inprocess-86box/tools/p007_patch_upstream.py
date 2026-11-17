@@ -64,8 +64,8 @@ def main():
     if sound_original.count("#include <86box/sound.h>")!=1:
         raise SystemExit("P007_REJECT_ORIGINAL_WAVETABLE_HEADER")
     sound_file.write_text(sound_original.replace(
-        "#include <86box/sound.h>", "#include <86box/sound.h>\\n#include <P007AudioRing.h>",1
-    ).replace(original_hook,replacement_hook,1),encoding="utf-8",newline="\\n")
+        "#include <86box/sound.h>", "#include <86box/sound.h>\n#include <P007AudioRing.h>",1
+    ).replace(original_hook,replacement_hook,1),encoding="utf-8",newline="\n")
 
     cm.write_text(original.replace(before,after),encoding="utf-8",newline="\n")
     dsp_after=hashlib.sha256(core.read_bytes()).hexdigest()
