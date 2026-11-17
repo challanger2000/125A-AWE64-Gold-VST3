@@ -1,0 +1,54 @@
+name: P108 private original Win95 runner source-only negative tests
+
+on:
+  push:
+    branches:
+      - research/p107-original-x64-dynarec-guest-branch-capture
+    paths:
+      - '.github/workflows/p108-private-owner-audit-unit.yml'
+      - 'tools/p108_private_win95_original_capture.py'
+      - 'tools/p108_resolve_private_original_package.py'
+      - 'tools/p108_verify_direct_jcc.py'
+      - 'tests/test_p108_private_win95_original_capture.py'
+      - 'tests/test_p108_resolve_private_original_package.py'
+  workflow_dispatch:
+
+concurrency:
+  group: p108-private-python-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  private-source-only-unit-tests:
+    name: P108 safe fake-data source tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test exact SHA-locked, fail-closed original package resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -W error::ResourceWarning -m unittest discover -s tests \
+            -p 'test_p108_resolve_private_original_package.py' -v
+      - name: Test automated private Win95 run and physical IO gates (synthetic ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -W error::ResourceWarning -m unittest discover -s tests \
+            -p 'test_p108_private_win95_original_capture.py' -v
+      - name: Test five source original Jcc flag predicates and strict trace crosscheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/p108_verify_direct_jcc.py --selftest
+          echo 'P108_PRIVATE_WIN95_RUNNER_UNIT_GATE_PASS no_original_VM_or_Creative_data_uploaded=TRUE'
