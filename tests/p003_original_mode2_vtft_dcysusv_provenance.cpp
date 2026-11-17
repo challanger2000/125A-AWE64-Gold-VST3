@@ -114,6 +114,54 @@ int main() {
         std::puts("P003_MODE2_MISSING_REQUIRED_VTFT_NOT_REJECTED");
         return 3;
     }
+    // P005/P110 boundary regression: a high-marker row with a cached
+    // sample end executes ONLY the original CCCA branch. The eight
+    // combinations of unrelated VTFT/DCYSUSV evidence and snapshot
+    // completeness must not change a verified CCCA result. This is
+    // source-ordered register validation, NOT a CPU timing model.
+    for (const std::uint16_t marker : {0x2000u, 0x2fffu, 0xffffu}) {
+        for (unsigned evidence=0; evidence<8u; ++evidence) {
+            std::array<OriginalWin95AllocatorVoiceSnapshot,
+                       kOriginalWin95PhysicalVoiceCapacity> only{};
+            auto& high=only[0];
+            high.internal_key_marker=marker;
+            high.stored_sample_end=0x0100u;
+            high.chip_current_address=0x0100u;
+            high.complete=(evidence&1u)!=0u;
+            mark_vtft(high,(evidence&2u)!=0u);
+            mark_dcysusv(high,(evidence&4u)!=0u);
+            mark_ccca(high,true);
+            const auto accepted=candidateOriginalWin95Mode2Range(
+                only,one,1u,32u);
+            if(!accepted || accepted->physical_voice!=0u ||
+               accepted->reason!=OriginalWin95MonoSelectionReason::SampleEndReached) {
+                std::puts("P005_MODE2_HIGH_MARKER_VERIFIED_CCCA_DEPENDS_ON_IRRELEVANT_READ");
+                return 42;
+            }
+            // An incomplete source with no CCCA provenance must
+            // fail, even if every unrelated register is verified.
+            high.complete=false;
+            mark_ccca(high,false);
+            if(candidateOriginalWin95Mode2Range(only,one,1u,32u)) {
+                std::puts("P005_MODE2_HIGH_MARKER_UNVERIFIED_CCCA_ACCEPTED");
+                return 3;
+            }
+            // With a verified but not-yet-finished CCCA, no idle
+            // voice may be fabricated from the missing VTFT data.
+            mark_ccca(high,true);
+            high.chip_current_address=0x00ffu;
+            if(candidateOriginalWin95Mode2Range(only,one,1u,32u)) {
+                std::puts("P005_MODE2_HIGH_MARKER_UNFINISHED_VOICE_FABRICATED");
+                return 3;
+            }
+            high.stored_sample_end=0u;
+            mark_ccca(high,false);
+            if(candidateOriginalWin95Mode2Range(only,one,1u,32u)) {
+                std::puts("P005_MODE2_HIGH_MARKER_NO_CCCA_PATH_FABRICATED");
+                return 3;
+            }
+        }
+    }
     std::puts("P003_MODE2_VTFT_DCYSUSV_CCCA_SOURCE_PROVENANCE_PASS");
     return 0;
 }
