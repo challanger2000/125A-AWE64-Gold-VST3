@@ -383,6 +383,63 @@ source_note_endpoints(SourceVoice const& source) noexcept {
     // still a fully executed MIDI handler, not a port-failure condition.
     return MidiResult::Applied;
 }
+// LCOD+0x6B69/+0x6BE5: CC6/CC38 modify the genuine VXD channel
+// WORD +0x464 and invoke the installed +0xB52 = LCOD+0x70E5 callback.
+// A complete private device/table/voice mapping is mandatory: never
+// invent register parameters or synthesize an NRPN fallback.
+[[nodiscard]] bool has_original_nrpn_parameter_callback(
+    MidiEngine const& e, std::uint8_t channel, PortIo const io) noexcept {
+    if(!has_original_nrpn_callbacks(e) ||
+       e.original_reset_callback_absent_verified ||
+       !e.original_nrpn_parameter_callback_installed_verified ||
+       !e.original_nrpn_parameter_tables_verified ||
+       !e.original_nrpn_voice_rows_verified ||
+       e.original_nrpn_parameter_entries.size()!=30u*6u ||
+       e.original_nrpn_parameter_lookup.size()!=128u ||
+       !io.out8 || !io.in16 || !io.out16)return false;
+    const auto d=std::span<const std::uint8_t>(e.original_nrpn_memory.device);
+    const auto off=static_cast<std::size_t>(channel)*0x24u;
+    const auto voices=research::nrpn_detail::r16(d,6u);
+    return voices<=physical_voices &&
+           voices==e.device.physical_capacity &&
+           research::nrpn_detail::r16(d,0x45eu+off)==0x0200u &&
+           research::nrpn_detail::r16(d,0x462u+off)==
+               e.channel[channel].original_rpn_aux_462;
+}
+[[nodiscard]] MidiResult original_nrpn_data_entry(
+    MidiEngine& e, std::uint8_t channel, std::uint8_t controller,
+    std::uint8_t value, PortIo io) noexcept {
+    if(!has_original_nrpn_parameter_callback(e,channel,io))
+        return MidiResult::MissingSource;
+    auto& d=e.original_nrpn_memory.device;
+    const auto off=0x464u+static_cast<std::size_t>(channel)*0x24u;
+    const auto old=research::nrpn_detail::r16(d,off);
+    // Source x86: CC6 (SHL SI,7; OR masked AX), CC38 (OR CX, AX).
+    const auto next=static_cast<std::uint16_t>(controller==6u
+        ? (static_cast<unsigned>(value)<<7u)|(old&0x007fu)
+        : (old&0xff80u)|static_cast<unsigned>(value));
+    research::nrpn_detail::w16(d,off,next);
+    const research::Lcod70e5Inputs original{
+        d, e.original_nrpn_parameter_entries,
+        e.original_nrpn_parameter_lookup, true, io};
+    const auto r=research::originalLcod70e5(original,channel);
+    if(r==research::Lcod70e5Status::RejectedSource) {
+        // Input provenance error: the callback has not emitted any port IO
+        // or changed parameter records; restore the just-written data WORD.
+        research::nrpn_detail::w16(d,off,old);
+        return MidiResult::MissingSource;
+    }
+    // The original callback may return EAX=1 for an invalid parameter
+    // select; that is a *handled MIDI message*, not a port error.
+    e.channel[channel].original_rpn_data_lsb=next;
+    if(r==research::Lcod70e5Status::PortError) {
+        // The original writes its parameter state before chip IO, so
+        // after a real partial OUT, never attempt a fictitious rollback.
+        e.fault=true;
+        return MidiResult::PortError;
+    }
+    return MidiResult::Applied;
+}
 [[nodiscard]] bool original_nrpn_rpn_preflight(MidiEngine const& e) noexcept {
     if(!e.original_nrpn_callbacks_installed_verified &&
        e.original_nrpn_memory.device.empty())return true;
@@ -539,7 +596,7 @@ MidiResult dispatch_midi(MidiEngine& eng,std::uint8_t status,
                 // AFTER rewriting channel+0x464. Its complete parameter
                 // source is not attached here, so refuse before mutation.
                 if(state.original_rpn_mode==0x0200u)
-                    return MidiResult::MissingSource;
+                    return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
                     return MidiResult::Unsupported;
                 if(!original_nrpn_rpn_preflight(eng))
@@ -556,7 +613,7 @@ MidiResult dispatch_midi(MidiEngine& eng,std::uint8_t status,
                 // parameter writer. No source-verified 30x6 record/table
                 // is bound to this MIDI runtime yet: fail closed.
                 if(state.original_rpn_mode==0x0200u)
-                    return MidiResult::MissingSource;
+                    return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
                     return MidiResult::Unsupported;
                 if(!original_nrpn_rpn_preflight(eng))
