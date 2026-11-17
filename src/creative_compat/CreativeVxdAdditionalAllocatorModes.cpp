@@ -128,8 +128,16 @@ candidateOriginalWin95Mode2Range(
         // Blocked voice is skipped in the original BEFORE reading
         // VTFT/DCYSUSV/CCCA; don't demand snapshot fields never read.
         if(forbiddenByDeviceMode(v,driver_mode_count))continue;
-        // The sample-end test below still needs the actual CCCA even
-        // for a key marker >=0x2000, so only blocked rows are skipped.
+        // Original LCOD+41D9 jumps from marker>=0x2000 directly
+        // to +424F, where cached sample_end==0 jumps to +4269.
+        // VTFT/DCYSUSV/CCCA are NOT read for that voice. Require
+        // live chip completeness only when this source short-circuit
+        // did not already reject it. Driver row fields are assumed
+        // independently verified by the caller.
+        if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
+            continue;
+        // When a cached sample_end exists, original still reads CCCA,
+        // including when the marker disqualifies ordinary ranking.
         if(!v.complete)return std::nullopt;
         if(v.internal_key_marker<0x2000u) {
             std::uint32_t score=scoreOfEligible(v);
