@@ -18,6 +18,9 @@ on:
       - 'tests/p003_original_wavetable_timer.cpp'
       - 'src/creative_compat/P003OriginalPitClock.h'
       - 'tests/p003_original_pit_fractional_clock.cpp'
+      - 'src/creative_compat/CreativeAutonomousOutTiming.h'
+      - 'src/creative_compat/CreativeAutonomousOutTiming.cpp'
+      - 'tests/p003_autonomous_out_timing.cpp'
       - 'tools/p003_audit_pit_clock_four_win95_sessions_private.py'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
@@ -147,6 +150,16 @@ jobs:
             echo "P003_DEV_MODE0_UNEXPECTED_EXIT=$STATUS"
             exit 1
           fi
+      - name: Regress existing autonomous port scheduler with source-correct fractional 133MHz CPU clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_autonomous_out_timing.cpp \
+            src/creative_compat/CreativeAutonomousOutTiming.cpp \
+            -o "$RUNNER_TEMP/p003-native-autonomous-clock-regression"
+          "$RUNNER_TEMP/p003-native-autonomous-clock-regression"
       - name: Original pit_set_clock fractional Pentium133 and exact wavetable latch
         shell: bash
         run: |
