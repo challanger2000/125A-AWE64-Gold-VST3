@@ -6,7 +6,7 @@
 #define P006_ABI_VERSION 1u
 #define P006_RATE 44100u
 #define P006_CHANNELS 2u
-#define P006_AUDIO_CAPACITY 32768u
+#define P006_AUDIO_CAPACITY 65536u
 #define P006_PACKET_MAGIC 0xA5u
 #define P006_PACKET_SIZE 6u
 #ifdef __cplusplus
