@@ -2,6 +2,7 @@
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P006WindowsBridge.hpp"
 #include "P006WindowsWavTail.hpp"
+#include "P006PrivateBootstrap.hpp"
 namespace p006 {
 class Plugin final : public Steinberg::Vst::SingleComponentEffect {
     AudioMapping audio_{};

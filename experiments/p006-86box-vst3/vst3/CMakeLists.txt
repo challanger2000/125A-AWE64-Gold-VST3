@@ -12,7 +12,8 @@ set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P006_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 smtg_add_vst3plugin(AWE64_Gold_P006
-  P006Bridge.hpp P006Bridge.cpp P006WindowsBridge.hpp P006WindowsWavTail.hpp P006Factory.cpp
+  P006Bridge.hpp P006Bridge.cpp P006WindowsBridge.hpp P006WindowsWavTail.hpp
+  P006PrivatePaths.hpp P006PrivateBootstrap.hpp P006Factory.cpp
   "${P006_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
   "${P006_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
 target_include_directories(AWE64_Gold_P006 PRIVATE

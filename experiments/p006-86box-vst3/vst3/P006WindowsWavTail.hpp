@@ -25,7 +25,7 @@ class OriginalWavTail final {
     std::atomic<bool> stop_{false};
     std::thread worker_{};
     P006AudioShared* shared_=nullptr;
-    char path_[512]{};
+    wchar_t path_[1024]{};
     static std::uint16_t le16(unsigned char const* b) noexcept {
         return static_cast<std::uint16_t>(
             static_cast<unsigned>(b[0])|(static_cast<unsigned>(b[1])<<8u));
@@ -53,7 +53,7 @@ class OriginalWavTail final {
         std::array<float,4096> floats{};
         while(!stop_.load(std::memory_order_acquire)){
             if(file==INVALID_HANDLE_VALUE) {
-                file=CreateFileA(path_,GENERIC_READ,
+                file=CreateFileW(path_,GENERIC_READ,
                     FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
                     nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
                 if(file==INVALID_HANDLE_VALUE){Sleep(15u);continue;}
@@ -98,10 +98,10 @@ class OriginalWavTail final {
                 floats[2u*i]=static_cast<float>(left)*(1.f/32768.f);
                 floats[2u*i+1u]=static_cast<float>(right)*(1.f/32768.f);
             }
-            if(frames>0u && shared_)
-                (void)p006::write(*shared_,floats.data(),frames);
-            cursor+=static_cast<std::uint64_t>(frames)*4u;
-            if(frames==0u)Sleep(5u);
+            const auto written=frames>0u && shared_ ?
+                p006::write(*shared_,floats.data(),frames):0u;
+            cursor+=static_cast<std::uint64_t>(written)*4u;
+            if(written<frames||frames==0u)Sleep(5u);
         }
         if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
     }
@@ -111,7 +111,7 @@ public:
     OriginalWavTail& operator=(OriginalWavTail const&)=delete;
     ~OriginalWavTail(){stopNonRealtime();}
     [[nodiscard]] bool startNonRealtime(P006AudioShared* ring,
-                                        const char* path) noexcept {
+                                        const wchar_t* path) noexcept {
         if(worker_.joinable()||ring==nullptr||path==nullptr)return false;
         std::size_t n=0u;
         while(n+1u<sizeof(path_)&&path[n]){

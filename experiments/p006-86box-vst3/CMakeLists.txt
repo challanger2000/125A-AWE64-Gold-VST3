@@ -49,3 +49,14 @@ if(WIN32)
   endif()
   target_compile_features(P006_WAV_Tail PRIVATE cxx_std_23)
 endif()
+
+# Companion process is independent from the DAW; the VM is never
+# force-terminated at plugin destruction (guest FAT16 write safety).
+if(WIN32)
+  add_executable(P006Supervisor vst3/P006Supervisor.cpp)
+  target_include_directories(P006Supervisor PRIVATE vst3)
+  target_compile_features(P006Supervisor PRIVATE cxx_std_23)
+  if(MSVC)
+    target_compile_options(P006Supervisor PRIVATE /W4 /WX /permissive-)
+  endif()
+endif()
