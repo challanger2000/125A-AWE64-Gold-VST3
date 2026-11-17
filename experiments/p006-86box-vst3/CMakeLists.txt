@@ -40,3 +40,12 @@ if(P006_BUILD_WIN95_GUEST)
       "$<TARGET_FILE:P006_Win95_Original_Creative_Relay>"
     VERBATIM)
 endif()
+
+if(WIN32)
+  add_executable(P006_WAV_Tail bridge/P006WaveTail.cpp)
+  target_include_directories(P006_WAV_Tail PRIVATE bridge)
+  if(MSVC)
+    target_compile_options(P006_WAV_Tail PRIVATE /W4 /WX /permissive-)
+  endif()
+  target_compile_features(P006_WAV_Tail PRIVATE cxx_std_23)
+endif()
