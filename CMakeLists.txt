@@ -166,6 +166,15 @@ target_link_libraries(awe64_p003_original_wavetable_timer_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p003_original_86box_wavetable_cpu_block_timer
     COMMAND awe64_p003_original_wavetable_timer_test)
+# Reconstructed exact ORIGINAL 86Box integer P54C compiler-accounting
+# mechanics; consumes externally decoded x86 timings/dependency fields.
+# The model is not a full autonomous original x86 execution engine.
+add_executable(awe64_p005_original_p54c_integer_timing_test
+    tests/p005_original_pentium_integer_timing.cpp)
+target_include_directories(awe64_p005_original_p54c_integer_timing_test
+    PRIVATE src/creative_compat)
+add_test(NAME p005_original_p54c_integer_pipeline_source_rules
+    COMMAND awe64_p005_original_p54c_integer_timing_test)
 
 
 # Adversarial test for the *actual* private Creative VST3 bank state
