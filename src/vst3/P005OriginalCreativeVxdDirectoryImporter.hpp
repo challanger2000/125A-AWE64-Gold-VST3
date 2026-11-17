@@ -169,9 +169,16 @@ public:
                 if(ordinal==0u && !followedBankHeader) {
                     const auto a=read32(joined.data());
                     const auto b=read32(joined.data()+4u);
-                    const bool header=a>ptr && a-ptr>=28u &&
-                        a-ptr<=4096u && a<b &&
+                    // A plausible original indirect-bank address MUST
+                    // be treated as a header candidate even if its
+                    // second pointer is corrupt. Otherwise an invalid
+                    // b<=a silently falls through to the flat-row parser.
+                    const bool headerCandidate=a>ptr && a-ptr>=28u &&
+                        a-ptr<=4096u &&
                         (a&0xff000000u)==(ptr&0xff000000u);
+                    if(headerCandidate && a>=b)
+                        return Result::InvalidGuestMapping;
+                    const bool header=headerCandidate;
                     if(header) {
                         // Seven 32-bit guest pointers occupy 28 bytes,
                         // whereas a program row is only 26 bytes.
