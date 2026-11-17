@@ -14,7 +14,7 @@ P007-R adds a private, fixed-stack, single-consumer `P007OutputRate` adapter bet
 - Host **96,000 Hz:** 1,182 source -> 2,570 output, expected time alignment.
 - Host **32,000 Hz:** 3,543 source -> 2,570 output, expected time alignment.
 - Cross-block continuity (257-sample block × 10), stereo sign/amplitude, underrun+reprimes, invalid host sample-rate fallback: **PASS**.
-- Source unit tests run locally and in Windows original-core CI; original VST3 build and Steinberg validator still under integration verification for this commit.
+- [Native Windows original-core and VST3 CI PASS](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44136861756): four host sample rates, stereo continuity, invalid-rate fallback and underrun tests pass; **47/47 Steinberg VST3 validator**; in-folder original core DLL load passes. The validation error from the prior run was addressed by preserving Steinberg's `setupProcessing` lifecycle semantics.
 
 ## PRIVATE real Windows95/Creative sound check at **48,000 Hz**
 Used exact pinned original 86Box core, a **private copy** of the actual Win95 HDD, Creative AWE64 Gold VXD/DRV, genuine ROM assets, original Win95 guest relay and automatic keyboard boot assistant. The Linux host deliberately provided no audio callbacks during the approximate 40-second boot; after real Creative READY, it simulated a real-time **48-frame stereo callback every 1 ms**, consuming the original 44.1-kHz wavetable via the P007-R source-compatible rate adapter. No audio wav files were replayed or substituted.
@@ -27,3 +27,6 @@ Recorded output:
 - `P007_REAL_CREATIVE_48000_HOST_RATE_NOTEON_PCM_PASS`; process exit code 0.
 
 **Limitations:** 48k adapter uses initial linear reconstruction (not yet a studio-quality bandlimited SRC). Only 44.1k is bit-identical to the original wavetable output. The private-test pass is for the same-source Linux QA emulator and does **not** yet establish native Windows VST3 StudioPro/ASIO audio, GUI, latency or multi-instance acceptance. All proprietary files remain outside public GitHub.
+
+## Private single-VST3 package
+A locally generated research package **125A-AWE64-Gold-P007R-44100-48000-96000-PRIVATE-20261117.zip**, 89.99 MiB compressed, contains exactly one `AWE64_Gold_P007.vst3` folder with 21 native Windows CI components from the passing run, the unchanged private 512 MiB FAT16 Win95 Creative guest and ROM assets. The ZIP CRC, original OS disk SHA-256, original Creative VXD/DRV, guest relay and source-pinned core are checked; **no private binaries are stored in the public repository**. Native VST3 SHA256 `dd263014ea853e9686aa3f189231abe68f81a23ba086dc0f78142e3b19aa3d76`. Original core DLL SHA256 `eea32ff8727cf38f1cf80dfdaca00c78e136dc1047249d36d58249d19ce5349a`.
