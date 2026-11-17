@@ -26,6 +26,15 @@ int main() {
     CHECK(m.append(op(2u,Model::kModRm,0x00u)));
     CHECK(m.endBlock());
     CHECK(m.lastBlockCycles()==3 && m.totalCycles()==5);
+    // 16-bit address-form source quirk: original 86Box ORs numeric
+    // register IDs (3|6=7) in its AGI mask, rather than shifting
+    // logical BX/SI bits. Preserve the ORIGINAL behavior exactly.
+    m.resetSession();
+    CHECK(m.beginBlock());
+    CHECK(m.append(op(2u,1ull<<12u)));
+    CHECK(m.append(op(2u,Model::kModRm,0u,0x100u)));
+    CHECK(m.endBlock());
+    CHECK(m.totalCycles()==5);
     m.resetSession();
     CHECK(m.beginBlock());
     CHECK(m.append(op(Model::kPairU)));
@@ -45,6 +54,14 @@ int main() {
     CHECK(m.append(op(Model::kPairV|1u))); // Reg+RM timing table=2
     CHECK(m.endBlock());
     CHECK(m.totalCycles()==2);
+    // Original COUNT() ignores immediate-width bits of a PAIR_V
+    // integer class; they do not turn a legal opcode into INVALID.
+    m.resetSession();
+    CHECK(m.beginBlock());
+    CHECK(m.append(op(Model::kPairU)));
+    CHECK(m.append(op(Model::kPairV|(1ull<<2u))));
+    CHECK(m.endBlock());
+    CHECK(m.totalCycles()==1);
     m.resetSession();
     CHECK(m.beginBlock());
     CHECK(m.append(op(2u,(1ull<<(12u+4u))))); // explicit ESP write
@@ -97,7 +114,7 @@ int main() {
     m.resetSession();
     CHECK(!m.endBlock());
     CHECK(m.beginBlock());
-    const auto invalid=op(Model::kPairUV|(1u<<8u));
+    const auto invalid=op(0u); // zero CPU-cycle entry is unsupported
     CHECK(!m.append(invalid));
     std::puts("P005_ORIGINAL_P54C_INTEGER_TRANSLATION_PIPELINE_PASS source_86box=PINNED U_V_AGI_PREFIX_BLOCK_MASK=TESTED actual_executed_guest_TSC=NOT_PROVEN");
     return 0;

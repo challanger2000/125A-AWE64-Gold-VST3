@@ -57,9 +57,7 @@ public:
         if(!block_open_ || failed_ || op.prefixes.size()>8u ||
            (op.op_32 & ~std::uint16_t{0x300u})!=0u ||
            (op.timing_word & kFpu)!=0u ||
-           (op.timing_word & kPairMask)>kPairUV ||
-           (op.dependency_word & ((1ull<<34u)-1u))>>24u &&
-           (op.dependency_word & (0x3ffull<<24u))!=0u)
+           (op.timing_word & kPairMask)>kPairUV)
             return fail();
         // Only the original integer dependencies/prefix rules are
         // admitted here. Any FPU/MMX operation needs the full model.
@@ -79,14 +77,14 @@ public:
         const auto dst=destinationMask(op);
         if(pipe_.valid) {
             const auto pairKind=(op.timing_word & kPairMask);
-            const auto src=sourceMask(op,pipe_.op_32);
+            const auto src=sourceMask(op,pipe_.op.op_32);
             const bool allowPair=
                 (pairKind&kPairV)!=0u &&
                 (pipe_.destination_mask&src)==0u &&
                 (decode_delay_+decode_offset_+pipe_.decode_offset)<=0 &&
                 !hasDisplacement(op);
             if(allowPair) {
-                const auto a=static_cast<unsigned>(pipe_.timing_word&3u);
+                const auto a=static_cast<unsigned>(pipe_.op.timing_word&3u);
                 const auto b=static_cast<unsigned>(op.timing_word&3u);
                 constexpr std::int32_t pairs[4][4]={
                     {1,2,3,2},{2,2,3,3},{3,4,5,4},{-1,-1,-1,-1}
@@ -179,7 +177,10 @@ private:
             return static_cast<std::int64_t>(
                 (t>>((op.op_32&0x100u)?8u:0u))&0xffu);
         if(!(t&kPairMask))return static_cast<std::int64_t>(t&0xffffu);
-        switch(t&0x7fu) {
+        // Original COUNT strips prefix/immediate flags for pairable
+        // integer opcodes before reading the Reg/RM/RMW/Branch class.
+        // Without this, legal immediate opcodes spuriously fail timing.
+        switch(t&3u) {
             case 0: return 1;
             case 1: return 2;
             case 2: return 3;
@@ -219,10 +220,15 @@ private:
                     }
                 }else if((m&0xc7u)!=5u)mask=1u<<(m&7u);
             }else if((m&0xc7u)!=6u) {
+                // Source quirk, NOT idealized x86 semantics:
+                // original get_addr_regmask() uses REG_BX | REG_SI,
+                // etc., where src/codegen/codegen_ops.h defines
+                // REG_BX=3, REG_SI=6, REG_BP=5, REG_DI=7 as
+                // *numeric register IDs*, not bit positions.
+                // Retaining this is essential for 86Box-identical
+                // translation accounting on 16-bit address forms.
                 constexpr std::uint8_t regs[8]{
-                    (1u<<3u)|(1u<<6u),(1u<<3u)|(1u<<7u),
-                    (1u<<5u)|(1u<<6u),(1u<<5u)|(1u<<7u),
-                    (1u<<6u),(1u<<7u),(1u<<5u),(1u<<3u)};
+                    3u|6u,3u|7u,5u|6u,5u|7u,6u,7u,5u,3u};
                 mask=regs[m&7u];
             }
         }
