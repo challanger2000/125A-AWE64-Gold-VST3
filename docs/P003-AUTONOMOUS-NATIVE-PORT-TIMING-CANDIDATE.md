@@ -245,3 +245,44 @@ PCM words bit-identical; that does not mean these autonomous model
 statistics establish any PCM parity. A genuinely independent native
 exported Windows VST3 audio run is required for every new code
 revision. **Release gate remains NO-GO for autonomous timing.**
+
+
+## 17.11.2026 – unabhängiger Originalzustandswechsel in neun Stereo-Scans
+
+Der Zuarbeiter meldet für die beiden echten Original-Windows-95-Sitzungen
+einen klaren Gegenbeweis gegen den ehemals genau passenden
+**93-Takt-Übergangsansatz**: Die bisherigen neun Allokationen trafen
+243/243 Übergänge, im neueren Gastlauf davon **0/243**; bei
+**227/243** lagen die beobachteten Abstände exakt **14 CPU-Takte**
+über der Prognose, 16 waren komplexer. Beide Aufnahmen durchliefen
+4.176 fehlerfreie MIDI-Aufrufe; die neue Aufnahme enthält 1.529.747
+konsistente Portereignisse. Die private Dynarec-Blockspur der
+neuen Sitzung fehlt noch.
+
+Als **Original-Zustandsbeobachtung** berichtet der Zuarbeiter:
+`[ESI+0x18]=4` im älteren und `[ESI+0x18]=2` im neueren
+Allokationspfad. Bei >2 geht der Original-x86-Weg direkt zu
+`LCOD+0x4048`, bei <=2 durchläuft er zusätzlich
+`LCOD+0x4029..0x4042`, also die Prüfungen der aktuellen und
+benachbarten Stimme. Das ist eine *belegte plausible
+Kontrollflussursache* für den systematischen Mehraufwand,
+**kein** schon nachgewiesener exakter 14-Zyklus-Wirkzusammenhang.
+
+Im bestehenden portierten `allocate_pair_mode1` ist die
+**native** Modusgrenze `DeviceState.mode_count<=2` bereits
+bei der Blockiert-Prüfung vorhanden (einschließlich Nachbarstimme).
+Zusätzliche Windows-Regressionen vergleichen daher Zustände
+0/1/2 mit 3/4 und prüfen beide möglichen Verläufe, ohne
+das Verhalten mit einer konstanten Zeitzugabe zu übermalen.
+**Die Registerbasis ESI im Original und ihre Abbildung auf den
+nativen DeviceState sind separat zu authentifizieren:** Die
+Ähnlichkeit der Offsets allein beweist keine Zeigeridentität.
+`[EBP-0x18]` aus P107 ist wiederum ein unabhängiger
+Stackwert und darf nicht ersetzt oder gleichgesetzt werden.
+
+Bis P108 die fehlenden 16 Original-Jcc per CPU-Flags belegt,
+die neue Dynarec-/P54C-Instruktionsspur für **beide**
+Originalzustandsklassen vorliegt und unabhängige Win95-VST3-
+Register-/PCM-Gegenproben bestanden sind, bleiben die 14 Takte
+und die ehemaligen 91/93/95-Klassen **ausschließlich
+Forschungsbefunde**, nicht Produkt-Zeitkonstanten.
