@@ -74,6 +74,46 @@ jobs:
           dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
           if [ -z "$dll" ]; then echo 'P007_NO_INPROCESS_86BOX_DLL'; exit 1; fi
           build/P007CoreDllLoader.exe "$dll"
+      - name: Checkout pinned Steinberg VST3 SDK (MSVC)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C external/vst3sdk submodule update --init --recursive
+      - name: Build real Windows-x64 P007 VST3 using in-process 86Box core
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G "Visual Studio 17 2022" -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 2
+      - name: Pack original core and runtime DLLs INSIDE single VST3 folder
+        run: |
+          set -euo pipefail
+          dest=build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win
+          test -f "$dest/AWE64_Gold_P007.vst3"
+          test -f build/p007-inprocess-dll/src/lib86Box.dll
+          cp build/p007-inprocess-dll/src/lib86Box.dll "$dest/125A_AWE_Core.dll"
+          for pass in 1 2 3 4 5; do
+            for dll in "$dest"/*.dll; do
+              for needed in $(objdump -p "$dll" | sed -n 's/^[[:space:]]*DLL Name: //p'); do
+                if test -f "/ucrt64/bin/$needed" && ! test -f "$dest/$needed"; then
+                  cp "/ucrt64/bin/$needed" "$dest/$needed"
+                  echo "P007_COPY_INTERNAL_LIBRARY $needed"
+                fi
+              done
+            done
+          done
+          echo "P007_SINGLE_VST3_FOLDER_ALL_INTERNAL_DLLS_PACKAGED_PASS"
+          ls -lh "$dest"
+      - name: Check in-process core load OUTSIDE MSYS2 helper environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dest = (Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win").Path
+          $env:PATH = "$dest;" + $env:PATH
+          & "build/P007CoreDllLoader.exe" "$dest/125A_AWE_Core.dll"
+          if ($LASTEXITCODE -ne 0) { throw "Original in-process DLL could not load in Windows" }
       - name: Upload experimental no-Win95 in-process emulator DLL
         if: success()
         uses: actions/upload-artifact@v4
@@ -84,5 +124,6 @@ jobs:
             build/P007CoreDllLoader.exe
             build/P007AudioRingTest.exe
             build/P007MidiUartTest.exe
+            build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
           if-no-files-found: error
           retention-days: 5
