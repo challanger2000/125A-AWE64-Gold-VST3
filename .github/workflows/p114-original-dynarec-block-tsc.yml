@@ -1,0 +1,28 @@
+name: P114 original dynarec block TSC (research only)
+on:
+  push:
+    branches:
+      - research/p114-original-p54c-block-clock
+  workflow_dispatch:
+jobs:
+  synthetic-accounting:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            cxx: g++
+          - os: ubuntu-24.04
+            cxx: clang++
+          - os: windows-2022
+            cxx: clang++
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile P114 C++23 unit oracle
+        shell: bash
+        run: ${{ matrix.cxx }} -std=c++23 -O2 -Wall -Wextra -Werror -pedantic tests/p114_original_dynarec_block_clock.cpp -o p114_test
+      - name: Run P114 synthetic test
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then ./p114_test.exe; else ./p114_test; fi
