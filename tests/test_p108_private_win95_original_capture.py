@@ -14,8 +14,8 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         env=p.make_probe_environment(existing,Path("/fictional/i.trace"),
                                      Path("/fictional/b.trace"),Path("/fictional/io.trace"))
         self.assertEqual(existing,orig)
-        self.assertEqual(env["AWE64_P107_EXECUTED_X86_TRACE"],"/fictional/i.trace")
-        self.assertEqual(env["AWE64_P108_DIRECT_BRANCH_TRACE"],"/fictional/b.trace")
+        self.assertEqual(env["AWE64_P107_EXECUTED_X86_TRACE"],str(Path("/fictional/i.trace")))
+        self.assertEqual(env["AWE64_P108_DIRECT_BRANCH_TRACE"],str(Path("/fictional/b.trace")))
         self.assertEqual(env["AWE64_P107_LCOD_BASE"],"0xC10151E4")
         self.assertEqual(env["AWE64_P107_LCOD_SELECTOR"],"0x28")
         self.assertEqual(env["AWE64_P003_GUEST_CALLSTACK"],"1")
