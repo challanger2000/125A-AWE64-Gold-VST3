@@ -17,6 +17,7 @@ static float s_data[P007_AUDIO_FRAMES * 2u];
 static _Atomic uint64_t s_produced = 0u;
 static _Atomic uint64_t s_consumed = 0u;
 static _Atomic uint64_t s_dropped = 0u;
+static _Atomic uint64_t s_trimmed = 0u;
 
 static uint32_t reserve_frames(uint32_t count, uint64_t *start) {
     const uint64_t produced = atomic_load_explicit(&s_produced, memory_order_relaxed);
@@ -76,6 +77,26 @@ P007_EXPORT uint32_t p007_audio_available(void) {
     return (uint32_t)(wr-rd);
 }
 
+P007_EXPORT uint32_t p007_audio_trim_backlog(uint32_t max_backlog,uint32_t retain_frames) {
+    /* The VST3 process callback is the ONLY consumer. We must never
+       overwrite producer-owned indices or mutate the original mixer state.
+       The original 86Box producer publishes full frames with release;
+       acquiring s_produced ensures all retained data is committed. */
+    const uint64_t consumed=atomic_load_explicit(&s_consumed,memory_order_relaxed);
+    const uint64_t produced=atomic_load_explicit(&s_produced,memory_order_acquire);
+    const uint64_t pending=produced-consumed;
+    if(pending<=(uint64_t)max_backlog || pending<=(uint64_t)retain_frames)
+        return 0u;
+    const uint64_t discarded=pending-(uint64_t)retain_frames;
+    atomic_store_explicit(&s_consumed,consumed+discarded,memory_order_release);
+    atomic_fetch_add_explicit(&s_trimmed,discarded,memory_order_relaxed);
+    return (uint32_t)discarded;
+}
+
+P007_EXPORT uint64_t p007_audio_trimmed_frames(void) {
+    return atomic_load_explicit(&s_trimmed,memory_order_relaxed);
+}
+
 P007_EXPORT uint64_t p007_audio_dropped_frames(void) {
     return atomic_load_explicit(&s_dropped,memory_order_relaxed);
 }
@@ -85,4 +106,5 @@ P007_EXPORT void p007_audio_reset_quiescent(void) {
     atomic_store_explicit(&s_produced,0u,memory_order_relaxed);
     atomic_store_explicit(&s_consumed,0u,memory_order_relaxed);
     atomic_store_explicit(&s_dropped,0u,memory_order_relaxed);
+    atomic_store_explicit(&s_trimmed,0u,memory_order_relaxed);
 }

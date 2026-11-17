@@ -22,6 +22,7 @@ class Core final {
     void runPrivateGuest(std::wstring moduleFolder) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
+    using Trim=std::uint32_t (__cdecl*)(std::uint32_t,std::uint32_t);
     using Midi=int (__cdecl*)(std::uint8_t,std::uint8_t,std::uint8_t);
     using Enabled=void (__cdecl*)(int);
     using InitProfile=int (__cdecl*)(const char*,const char*,const char*,const char*);
@@ -30,6 +31,7 @@ public:
     using GuestClose=void (__cdecl*)();
     using BootAssist=int (__cdecl*)(std::uint32_t);
     Pull pull=nullptr;
+    Trim trimBacklog=nullptr;
     Midi midi=nullptr;
     Enabled midiEnabled=nullptr;
     InitProfile initProfile=nullptr;

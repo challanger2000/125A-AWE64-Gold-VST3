@@ -46,9 +46,10 @@ bool Core::openNonRealtime() noexcept {
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if(!module_)return false;
     pull=reinterpret_cast<Pull>(GetProcAddress(module_,"p007_audio_pull"));
+    trimBacklog=reinterpret_cast<Trim>(GetProcAddress(module_,"p007_audio_trim_backlog"));
     midi=reinterpret_cast<Midi>(GetProcAddress(module_,"p007_midi_submit"));
     midiEnabled=reinterpret_cast<Enabled>(GetProcAddress(module_,"p007_midi_uart_enable"));
-    if(!pull||!midi||!midiEnabled) {
+    if(!pull||!trimBacklog||!midi||!midiEnabled) {
         closeNonRealtime();
         return false;
     }
@@ -81,7 +82,7 @@ void Core::closeNonRealtime() noexcept {
     if(midiEnabled)midiEnabled(0);
     stop_.store(true,std::memory_order_release);
     if(emulatorThread_.joinable())emulatorThread_.join();
-    pull=nullptr;midi=nullptr;midiEnabled=nullptr;
+    pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
     bootAssist=nullptr;
     if(module_){FreeLibrary(module_);module_=nullptr;}
@@ -214,6 +215,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     if(output.numChannels<2||!output.channelBuffers32)return kResultOk;
     float* l=output.channelBuffers32[0],*r=output.channelBuffers32[1];
     if(!l||!r)return kResultOk;
+    // When the DAW transport is stopped, its process callback may not be
+    // invoked for the full 40-second original Win95 boot. Drop *stale*
+    // queued audio in O(1) when the host eventually resumes; otherwise the
+    // fixed FIFO can contain ~1.5 seconds of pre-boot silence and present
+    // stale notes rather than the newly played original Creative sound.
+    // 8192-frame (~186ms at 44.1k) trigger; retain 2048 (~46ms).
+    // No extra thread, DSP change, heap allocation or host API call.
+    if(active_&&core_.trimBacklog)
+        (void)core_.trimBacklog(8192u,2048u);
     constexpr std::uint32_t kChunk=512u;
     std::array<float,kChunk*2u> temp{};
     const auto count=static_cast<std::uint32_t>(data.numSamples);
