@@ -393,7 +393,25 @@ def main():
               "Master percentage value is live, not a bitmap label",records)
         check(process.poll() is None,
               "EditorHost remains stable after controls and redraw",records)
-        print("P007S_REAL_EDITORHOST_P165_MOUSE_STATUS_LAYOUT_PASS",flush=True)
+        # P007-U: the actual old P165 hardware BROWSER tab is functional
+        # and not a dead decorative button. Inspect native Win32 pixels.
+        click(hwnd,761,253)
+        browser=snap(hwnd,a.output/"05-original-p165-browser.bmp")
+        check(diff_pixels(fourth,browser,(45,342,764,626))>600,
+              "Original P165 BROWSER tab displays the real scrollable program list",records)
+        # The second visible MIDI row is program 001. A real mouse click
+        # must update the host Program parameter and the LCD's live text.
+        click(hwnd,190,394)
+        selected=snap(hwnd,a.output/"06-browser-select-program-001.bmp")
+        check(diff_pixels(browser,selected,(370,118,727,145))>8,
+              "Browser row click selects actual original Creative MIDI program 001",records)
+        click(hwnd,660,253)
+        synth=snap(hwnd,a.output/"07-return-synth-page.bmp")
+        check(diff_pixels(selected,synth,(45,342,764,626))>600,
+              "Original P165 SYNTH tab returns to the live master-control view",records)
+        check(process.poll() is None,
+              "EditorHost remains stable after real browser selection and page switching",records)
+        print("P007U_REAL_EDITORHOST_P165_BROWSER_MOUSE_PASS",flush=True)
     except Exception:
         import traceback
         traceback.print_exc()
