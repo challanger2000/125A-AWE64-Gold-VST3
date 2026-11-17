@@ -1,10 +1,12 @@
 #pragma once
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P006WindowsBridge.hpp"
+#include "P006WindowsWavTail.hpp"
 namespace p006 {
 class Plugin final : public Steinberg::Vst::SingleComponentEffect {
     AudioMapping audio_{};
     MidiPipe midi_{};
+    OriginalWavTail wavTail_{};
     bool active_=false;
 public:
     static Steinberg::FUnknown* createInstance(void*) {
