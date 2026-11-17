@@ -24,6 +24,7 @@ from pathlib import Path
 import secrets
 import shutil
 import sys
+import tempfile
 import zipfile
 
 from p003_owner_two_bank_run import (
@@ -36,7 +37,7 @@ from p118_join_original_runtime_opcode_site_private import (
     join as join118,
 )
 from p115_join_p003_original_cpu_snapshot import (
-    join_traces as join115,
+    audit as audit115,
 )
 
 ORIGINAL_LCOD_BASE="0xC10151E4"
@@ -186,6 +187,19 @@ def run(private_archive:Path,original_stress_guest:Path,
         for key,file in paths.items():
             require(file.is_file() and file.stat().st_size>0,
                     "P120 original "+key+" observer missing/unrecorded")
+        # The primary P003 physical I/O source trace is inside the
+        # existing owner P003 result ZIP; inspect only that whitelisted
+        # member, never import ROM/Win95/SF2 from the private archive.
+        with tempfile.TemporaryDirectory(dir=trace_root,
+                                         prefix="p120-source-io-") as td:
+            io=Path(td)/"ORIGINAL-P003-CPU-IO.trace"
+            with zipfile.ZipFile(host_zip) as source:
+                require("Original-CPU-IO.trace" in source.namelist(),
+                        "P120 original physical CPU I/O trace absent")
+                with source.open("Original-CPU-IO.trace") as src,io.open("xb") as dst:
+                    shutil.copyfileobj(src,dst,1024*1024)
+            report["p115_original_physical_io_clock_join"]=audit115(
+                io,paths["p115"],minimum=100)
         p118_join=join118(paths["p107"],paths["p111"],paths["p117"],
                            paths["p118"],paths["p110"],paths["p113"],
                            minimum=100)
