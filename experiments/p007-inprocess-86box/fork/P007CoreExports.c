@@ -80,7 +80,16 @@ P007_EXPORT int p007_core_init_profile(
 }
 
 /* Original 86Box's guest launch sequence, invoked only on the private
-   emulator thread. Neither original chip DSP nor x86 timing is replaced. */
+   emulator thread. Neither original chip DSP nor x86 timing is replaced.
+   The ORIGINAL VGA/video blit thread expects its buffer-in-use event to be
+   acknowledged on every blit. With no frontend window and a NULL blit
+   callback that event is never signaled, and guest VGA processing can hang.
+   Explicit headless video drain supplies the ORIGINAL completion event
+   without creating a DAW window or modifying emulated video register state. */
+static void p007_headless_blit(int x,int y,int w,int h,int monitor_index) {
+    (void)x;(void)y;(void)w;(void)h;
+    video_blit_complete_monitor(monitor_index);
+}
 static int s_guest_stage;
 P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
 P007_EXPORT int p007_core_guest_boot(void) {
@@ -94,6 +103,8 @@ P007_EXPORT int p007_core_guest_boot(void) {
     if (machine < 0 || !machine_available(machine)) return -5;
     if (gfxcard[0] < 0 || !video_card_available(gfxcard[0])) return -6;
     if (!pc_init_modules()) return -7;
+    /* Must register before the original BIOS/VGA first blit occurs. */
+    video_setblit(p007_headless_blit);
     pc_reset_hard_init();
     s_guest_stage = 1;
     return 1;
@@ -106,6 +117,7 @@ P007_EXPORT int p007_core_guest_step(void) {
 P007_EXPORT void p007_core_guest_close(void) {
     if (s_guest_stage != 1) return;
     pc_close(NULL);
+    video_setblit(NULL);
     s_guest_stage = 2;
     SDL_Quit();
 }
