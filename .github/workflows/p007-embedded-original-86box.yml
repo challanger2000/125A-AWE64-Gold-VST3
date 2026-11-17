@@ -81,17 +81,16 @@ jobs:
           git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
           git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
           git -C external/vst3sdk submodule update --init --recursive
-      - name: Build real Windows-x64 P007 VST3 using in-process 86Box core
+      - name: Configure real Windows-x64 P007 VST3 bundle (MSVC)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G "Visual Studio 17 2022" -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
-          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 2
-      - name: Pack original core and runtime DLLs INSIDE single VST3 folder
+      - name: Pack core DLLs BEFORE Steinberg's post-build validator
         run: |
           set -euo pipefail
           dest=build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win
-          test -f "$dest/AWE64_Gold_P007.vst3"
+          mkdir -p "$dest"
           test -f build/p007-inprocess-dll/src/lib86Box.dll
           cp build/p007-inprocess-dll/src/lib86Box.dll "$dest/125A_AWE_Core.dll"
           for pass in 1 2 3 4 5; do
@@ -106,6 +105,11 @@ jobs:
           done
           echo "P007_SINGLE_VST3_FOLDER_ALL_INTERNAL_DLLS_PACKAGED_PASS"
           ls -lh "$dest"
+      - name: Build actual VST3 with its embedded original 86Box DLL already available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 2
       - name: Check in-process core load OUTSIDE MSYS2 helper environment
         shell: pwsh
         run: |
