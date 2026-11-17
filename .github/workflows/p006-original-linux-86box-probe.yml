@@ -1,0 +1,31 @@
+name: P006 verified original Linux 86Box-AWE32 guest probe binary
+on:
+  push:
+    branches: [experiment/p006-86box-win95-vst3-bridge]
+    paths:
+      - '.github/workflows/p006-original-linux-86box-probe.yml'
+permissions:
+  contents: read
+jobs:
+  pinned-linux-fork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download hash-pinned original upstream Linux release
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://github.com/turican0/86Box-AWE32/releases/download/v6.0-AWE32-0.93/86Box-AWE32-v6.0-AWE32-0.93-Linux-x86_64.tar.gz'
+          curl --fail --location --retry 3 -o /tmp/86box-linux.tar.gz "$URL"
+          echo '5d92ab7bc78ef971acfb776575987ec17c81386d90c3d144e46661a1649ffb6d  /tmp/86box-linux.tar.gz' | sha256sum -c
+          mkdir -p build/p006-original-linux
+          tar -xzf /tmp/86box-linux.tar.gz -C build/p006-original-linux
+          find build/p006-original-linux -type f | head -30
+          echo 'P006_PINNED_ORIGINAL_86BOX_LINUX_SHA256_PASS'
+      - name: Upload original public Linux 86Box probe binary only
+        uses: actions/upload-artifact@v4
+        with:
+          name: P006-Pinned-Original-86Box-Linux-Probe
+          path: build/p006-original-linux/**
+          retention-days: 3
+          if-no-files-found: error
