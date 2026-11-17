@@ -21,6 +21,40 @@ permissions:
   contents: read
 
 jobs:
+  exact-public-win95-stress-rebuild-check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install public Win95-targeted P54C i586 compiler
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-mingw-w64-i686 binutils-mingw-w64-i686
+      - name: Reproduce the exact public Creative three-bank stress PE32
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/p108-public-guest
+          i686-w64-mingw32-gcc -Os -Wall -Wextra -Werror -std=c99 \
+            -DP003_ORIGINAL_MODE_STRESS=1 \
+            -march=pentium -mtune=pentium -ffreestanding -fno-builtin \
+            -fno-stack-protector -nostdlib -Wl,-e,_p002_ram_entry@0 \
+            -Wl,--disable-dynamicbase,--disable-nxcompat \
+            -Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+            -o /tmp/p108-public-guest/P002RAM.EXE \
+            src/win95/p002_original_creative_ram_bank_capture.c \
+            -lwinmm -lkernel32 -lgcc
+          sha256sum /tmp/p108-public-guest/P002RAM.EXE
+          echo 'P108_EXPECTED_ORIGINAL_WIN95_3BANK_PE32_SHA256=3c9306261ed599073f80d9695a8d73140ea65e2de101dc431169c2e6b3f6bc9f'
+          actual=$(sha256sum /tmp/p108-public-guest/P002RAM.EXE | cut -d' ' -f1)
+          if [[ "$actual" == "3c9306261ed599073f80d9695a8d73140ea65e2de101dc431169c2e6b3f6bc9f" ]]; then
+            echo 'P108_ORIGINAL_3BANK_PUBLIC_SOURCE_EXACT_BINARY_REPRODUCTION_PASS'
+          else
+            echo 'P108_ORIGINAL_3BANK_PUBLIC_SOURCE_BINARY_REPRODUCTION_UNPROVEN'
+          fi
+      - name: Never publish synthetic or original guest sample data
+        run: echo 'Only original public Win95 test C source compiled; no private Creative VxD, ROM or 86Box VM'
   private-source-only-unit-tests:
     name: P108 safe fake-data source tests (${{ matrix.os }})
     strategy:
