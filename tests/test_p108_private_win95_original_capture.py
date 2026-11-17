@@ -21,6 +21,54 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         self.assertEqual(env["AWE64_P107_LCOD_SELECTOR"],"0x28")
         self.assertEqual(env["AWE64_P003_GUEST_CALLSTACK"],"1")
         self.assertEqual(env["KEEP"],"yes")
+    def test_original_p110_translation_probe_off_by_default_and_private_opt_in(self):
+        env=p.make_probe_environment(
+            {"AWE64_P110_TIMING_TRANSLATION_TRACE":"stale",
+             "AWE64_P110_LCOD_BASE":"bogus"},
+            Path("/fake/I"),Path("/fake/B"),Path("/fake/IO"))
+        self.assertNotIn("AWE64_P110_TIMING_TRANSLATION_TRACE",env)
+        self.assertNotIn("AWE64_P110_LCOD_BASE",env)
+        trace=Path("/fake/T")
+        selected=p.make_probe_environment({},Path("/fake/I"),
+                 Path("/fake/B"),Path("/fake/IO"),trace)
+        self.assertEqual(selected["AWE64_P110_TIMING_TRANSLATION_TRACE"],str(trace))
+        self.assertEqual(selected["AWE64_P110_LCOD_BASE"],"0xC10151E4")
+        self.assertEqual(selected["AWE64_P110_LCOD_SELECTOR"],"0x28")
+
+    def test_original_p110_translator_requested_requires_real_private_trace(self):
+        proof={"original_win95_midi_send_calls":4176,
+               "original_win95_midi_api_failures":0}
+        valid={"executed_jcc_total":3450,"unobserved_or_unexplained_jcc":0,
+               "next_pc_independently_confirms_flags":3410}
+        physical={"original_tsc_first":0,"original_tsc_last":2000}
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fixtureI")),
+              patch.object(p,"read_direct",return_value=({0:object()},"fixtureB")),
+              patch.object(p,"compare_original",return_value=valid),
+              patch.object(p,"verify_original_physical_cpu_io",return_value=physical),
+              patch.object(p,"audit_p110_translator",
+                           side_effect=ValueError("absent P110 translation source"))):
+            with self.assertRaisesRegex(ValueError,"absent P110"):
+                p.verify_private_capture(Path("/fake/img"),Path("/fake/I"),
+                                         Path("/fake/B"),Path("/fake/IO"),
+                                         Path("/fake/P110"))
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fixtureI")),
+              patch.object(p,"read_direct",return_value=({0:object()},"fixtureB")),
+              patch.object(p,"compare_original",return_value=valid),
+              patch.object(p,"verify_original_physical_cpu_io",return_value=physical),
+              patch.object(p,"audit_p110_translator",return_value={
+                  "status":"PENTIUM_SOURCE_TRANSLATION_ONLY_NOT_EXECUTED_TIMING",
+                  "original_agi_positive":0}) as auditor):
+            report=p.verify_private_capture(Path("/fake/img"),Path("/fake/I"),
+                          Path("/fake/B"),Path("/fake/IO"),Path("/fake/P110"))
+            self.assertEqual(report["original_p110_compile_time_evidence"]["original_agi_positive"],0)
+            self.assertFalse(report["original_tsc_reproduction_proved"])
+            self.assertFalse(report["native_vst3_pcm_bit_exact_proved"])
+            auditor.assert_called_once_with(Path("/fake/P110"),min_translations=50)
+
     def test_fake_three_bank_guest_success_is_still_not_enough_without_x86(self):
         fake_log={"original_win95_midi_send_calls":4176,
                   "original_win95_midi_api_failures":0}
