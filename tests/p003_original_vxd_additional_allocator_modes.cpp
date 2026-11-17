@@ -191,6 +191,49 @@ int main(){
         CHECK(candidateOriginalWin95Mode2Range(
             lazy,(2u<<8u)|0u,2u,2u)->physical_voice==1u);
     }
+    // Source x86 +41D9/+41DE/+424F..+4267: high-marker, nonzero
+    // cached sample end reads CCCA ONLY. VTFT/DCYSUSV are absent.
+    // The numerical CCCA value is untrusted without provenance.
+    {
+        std::array<OriginalWin95AllocatorVoiceSnapshot,
+                   kOriginalWin95PhysicalVoiceCapacity> cccaOnly{};
+        cccaOnly[0].internal_key_marker=0x2000u;
+        cccaOnly[0].stored_sample_end=100u;
+        cccaOnly[0].chip_current_address=100u;
+        cccaOnly[0].complete=false;
+        cccaOnly[0].ccca_read_verified=true;
+        cccaOnly[1].complete=true;
+        cccaOnly[1].internal_key_marker=0x0ffeu;
+        cccaOnly[1].volume_target_hi16=0u;
+        constexpr std::uint32_t firstTwo=(2u<<8u);
+        auto chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==0u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::SampleEndReached);
+        cccaOnly[0].chip_current_address=99u;
+        chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==1u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::CompletelyIdle);
+        cccaOnly[0].ccca_read_verified=false;
+        CHECK(!candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u));
+        cccaOnly[0].ccca_read_verified=true;
+        cccaOnly[0].internal_key_marker=0x0ffeu;
+        // Low-marker branches still demand full verified chip reads.
+        CHECK(!candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u));
+        cccaOnly[0].internal_key_marker=0x2000u;
+        cccaOnly[0].stored_sample_end=0u;
+        cccaOnly[0].ccca_read_verified=false;
+        chosen=candidateOriginalWin95Mode2Range(
+            cccaOnly,firstTwo,2u,4u);
+        CHECK(chosen && chosen->physical_voice==1u &&
+              chosen->reason==
+                  OriginalWin95MonoSelectionReason::CompletelyIdle);
+    }
     // Mode2 sample-end early return, even for marker >= 0x2000.
     voices[10].internal_key_marker=0x2000u;
     voices[10].stored_sample_end=20u;
