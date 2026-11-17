@@ -1,4 +1,7 @@
 #include "P007StateCodec.hpp"
+#ifdef NDEBUG
+#undef NDEBUG // enforce actual assertions in Release Windows QA binaries
+#endif
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>
