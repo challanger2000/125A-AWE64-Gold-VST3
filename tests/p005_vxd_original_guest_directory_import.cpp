@@ -103,10 +103,13 @@ int main() {
     put16(indirectBank,76u,1u);
     indirectBank[76u+2u]=7u;
     indirectBank[76u+3u]=1u;
+    put16(indirectBank,76u+4u,12u);
     put16(indirectBank,76u+Importer::kOriginalRowBytes,1u);
     indirectBank[76u+Importer::kOriginalRowBytes+2u]=9u;
     indirectBank[76u+Importer::kOriginalRowBytes+3u]=1u;
+    put16(indirectBank,76u+Importer::kOriginalRowBytes+4u,20u);
     put16(indirectBank,76u+2u*Importer::kOriginalRowBytes,0xffffu);
+    put16(indirectBank,76u+2u*Importer::kOriginalRowBytes+4u,21u);
     auto indirectDevice=sourceDevice;
     put32(indirectDevice,ptrOffset+5u*4u,bankRoot);
     put32(indirectDevice,ptrOffset+6u*4u,bankRoot);
@@ -118,6 +121,9 @@ int main() {
     CHECK(catalog.sourceRowCountNonRealtime(5u)==3u);
     CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_program_byte==7u);
     CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_program_byte==9u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,0u)->original_child_index==12u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,1u)->original_child_index==20u);
+    CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_child_index==21u);
     CHECK(catalog.originalSourceRowNonRealtime(6u,2u)->original_source_marker==0xffffu);
     CHECK(catalog.resetNonRealtime());
     // The seventh 32-bit header pointer straddles byte 26 of a
@@ -156,9 +162,13 @@ int main() {
         put16(gmBlock,at,1u);
         gmBlock[at+2u]=static_cast<std::uint8_t>(i);
         gmBlock[at+3u]=0u;
+        put16(gmBlock,at+4u,static_cast<std::uint16_t>(
+            i==128u?180u:i));
     }
     put16(gmBlock,
         76u+nOriginalPrograms*Importer::kOriginalRowBytes,0xffffu);
+    put16(gmBlock,
+        76u+nOriginalPrograms*Importer::kOriginalRowBytes+4u,181u);
     const std::array<P005OriginalGuestMemorySegment,1> gmMemory{{
         {bankRoot,gmBlock}
     }};
@@ -174,6 +184,10 @@ int main() {
         ->original_program_byte==128u);
     CHECK(catalog.originalSourceRowNonRealtime(5u,129u)
         ->original_source_marker==0xffffu);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,128u)
+        ->original_child_index==180u);
+    CHECK(catalog.originalSourceRowNonRealtime(5u,129u)
+        ->original_child_index==181u);
     CHECK(catalog.resetNonRealtime());
 
     CHECK(Importer::importNonRealtime(
