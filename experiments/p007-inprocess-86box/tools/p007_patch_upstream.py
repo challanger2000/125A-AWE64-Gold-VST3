@@ -91,10 +91,32 @@ def main():
     if uart_text.count(uart_origin)!=1 or \
        uart_text.count("#include <86box/serial.h>")!=1:
         raise SystemExit("P007_REJECT_ORIGINAL_UART_RECEIVE_SIGNATURE")
+    # Serial guest TX emits a ready signal only when the original Win95
+    # helper actually opened original Creative WinMM. All COM2 guest traffic
+    # stays in memory; no external host COM port, Named Pipe or 86Box process.
+    tx_origin="""    if (dev->mctrl & 0x10)
+        write_fifo(dev, val);
+    else if (dev->sd && dev->sd->dev_write)
+        dev->sd->dev_write(dev, dev->sd->priv, val);
+    else if (dev->char_port.chardev.write)
+        dev->char_port.chardev.write(&val, sizeof(val), dev->char_port.chardev.priv);
+"""
+    tx_replace="""    if (dev->mctrl & 0x10)
+        write_fifo(dev, val);
+    else if (dev->inst == 1)
+        p007_midi_guest_tx_byte(val);
+    else if (dev->sd && dev->sd->dev_write)
+        dev->sd->dev_write(dev, dev->sd->priv, val);
+    else if (dev->char_port.chardev.write)
+        dev->char_port.chardev.write(&val, sizeof(val), dev->char_port.chardev.priv);
+"""
+    if uart_text.count(tx_origin)!=1:
+        raise SystemExit("P007_REJECT_ORIGINAL_UART_TRANSMIT_SIGNATURE")
     uart.write_text(uart_text.replace(
         "#include <86box/serial.h>",
         "#include <86box/serial.h>\n#include <P007MidiUart.h>",1
-    ).replace(uart_origin,uart_replace,1),encoding="utf-8",newline="\n")
+    ).replace(uart_origin,uart_replace,1
+    ).replace(tx_origin,tx_replace,1),encoding="utf-8",newline="\n")
 
 
     # The original SDL frontend assumes a window and mutex. The VST3 never

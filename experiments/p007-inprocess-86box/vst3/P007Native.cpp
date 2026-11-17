@@ -92,7 +92,10 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
     try{
         // All resources are private and must be bundled in the one VST3.
         // No executable, external VM, OS device, BAT or named pipe.
-        const fs::path root=fs::path(folder)/L".."/L"Resources"/L"PrivateVM";
+        // folder contains the FULL DLL filename, e.g. Contents/x86_64-win/
+        // 125A_AWE_Core.dll. Resolve from Contents, not from the DLL file.
+        const fs::path root=fs::path(folder).parent_path().parent_path()
+                            /L"Resources"/L"PrivateVM";
         const fs::path vm=root/L"vm";
         const fs::path roms=root/L"roms";
         const fs::path global=root/L"86box.cfg";
