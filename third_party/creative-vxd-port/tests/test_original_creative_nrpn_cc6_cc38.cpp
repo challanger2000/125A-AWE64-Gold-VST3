@@ -53,6 +53,15 @@ int main() {
     w16(d,0x442u+channel+0x14u,5000u);
     MidiEngine e{};
     e.device.physical_capacity=2u;
+    // Native allocator and the historical VXD snapshot MUST select
+    // the very same physical voices, cached pitch bases and channel bend.
+    e.device.voices[0].key_marker=0x0300u;
+    e.device.voices[1].key_marker=0x0301u;
+    e.device.voices[0].original_pitch_base=300u;
+    e.device.voices[1].original_pitch_base=301u;
+    e.device.voices[0].original_pitch_base_verified=true;
+    e.device.voices[1].original_pitch_base_verified=true;
+    e.channel[ch].original_bend_delta=5000;
     e.original_nrpn_memory={d,true};
     e.original_nrpn_callbacks_installed_verified=true;
     e.original_nrpn_parameter_callback_installed_verified=true;
@@ -80,6 +89,18 @@ int main() {
     e.device.physical_capacity=1u;
     REQUIRE(cc(38u,32u)==MidiResult::MissingSource);
     e.device.physical_capacity=2u;
+    // An original VXD snapshot becomes stale as soon as the live
+    // native allocator changes voice ownership. Fail BEFORE touching
+    // the source parameter word, source state, or actual chip ports.
+    e.device.voices[0].key_marker=0x0302u;
+    REQUIRE(cc(6u,65u)==MidiResult::MissingSource);
+    REQUIRE(r16(d,0x464u+channel)==0x2000u);
+    REQUIRE(bus.event.empty());
+    e.device.voices[0].key_marker=0x0300u;
+    e.device.voices[1].original_pitch_base=777u;
+    REQUIRE(cc(6u,65u)==MidiResult::MissingSource);
+    REQUIRE(bus.event.empty());
+    e.device.voices[1].original_pitch_base=301u;
     // Real CC6 -> B52 -> LCOD+0x70E5, two original voice RMW pairs.
     REQUIRE(cc(6u,65u)==MidiResult::Applied);
     REQUIRE(r16(d,0x464u+channel)==0x2080u);
@@ -102,6 +123,16 @@ int main() {
     // Original code4 parameter uses DIRECT 16-bit OUT (no read).
     bus.event.clear();
     REQUIRE(cc(98u,0u)==MidiResult::Applied);
+    // Stale channel bend or unverified active voice pitch blocks this
+    // callback, even when the 30x6 lookup table was source-attested.
+    e.channel[ch].original_bend_delta=4999;
+    REQUIRE(cc(6u,65u)==MidiResult::MissingSource);
+    REQUIRE(bus.event.empty());
+    e.channel[ch].original_bend_delta=5000;
+    e.device.voices[0].original_pitch_base_verified=false;
+    REQUIRE(cc(6u,65u)==MidiResult::MissingSource);
+    REQUIRE(bus.event.empty());
+    e.device.voices[0].original_pitch_base_verified=true;
     REQUIRE(cc(6u,65u)==MidiResult::Applied);
     REQUIRE(bus.event.size()==4u);
     REQUIRE(bus.event[0u].op=='S' && bus.event[0u].value==0u);
