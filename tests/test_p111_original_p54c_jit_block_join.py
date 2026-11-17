@@ -9,13 +9,15 @@ from p111_join_original_p54c_jit_compile_execute import (
 
 FAKE_CPU=b'''#include "386_common.h"
 /* P107_OLD_DYNAREC_INTERPRETER_FALLBACK_V2 */
+extern void p107_old_dynarec_interpreter_exec(void);
 void sample(void){
         inrecomp = 1;
         code();
 #    ifdef USE_ACYCS
 }
 '''
-FAKE_JIT=b'''/* P108_DIRECT_EXECUTED_X86_JCC_CF_ZF_V1 */
+FAKE_JIT=b'''/* P107_OLD_DYNAREC_INTERPRETER_FALLBACK_V2 */
+/* P108_DIRECT_EXECUTED_X86_JCC_CF_ZF_V1 */
 /* P110_ORIGINAL_P54C_TRANSLATION_TIMING_V1 */
 int        block_pos;
 void sample(void) {
@@ -47,7 +49,7 @@ class TestP111OriginalJitGenerationJoin(unittest.TestCase):
             patch_pair(b"synthetic",FAKE_CPU,FAKE_JIT)
     def test_no_p107_or_p110_original_instrumentation_rejected(self):
         for src,guest in ((FAKE_CPU.replace(
-              b'P107_OLD_DYNAREC_INTERPRETER_FALLBACK_V2',b'bad'),FAKE_JIT),
+              b'p107_old_dynarec_interpreter_exec',b'bad'),FAKE_JIT),
               (FAKE_CPU,FAKE_JIT.replace(
               b'P110_ORIGINAL_P54C_TRANSLATION_TIMING_V1',b'bad')),
               (FAKE_CPU,FAKE_JIT.replace(
