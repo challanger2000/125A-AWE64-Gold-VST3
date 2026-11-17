@@ -1,0 +1,53 @@
+125A P120 – ORIGINAL CREATIVE WIN95: P54C/JIT/CPU EIN-KLICK-PACKET
+=================================================================
+
+Dies ist das ORIGINAL-86Box/EMU8000-Forschungspaket, kein VST3-Release.
+
+1. Das vollstaendige P120-Windows-ZIP in einen eigenen Ordner
+   entpacken. Nicht nur einzelne EXE-Dateien verschieben.
+2. Das bereits vorhandene private Original-Archiv
+   "125A-AWE64-P002-Win95-CC0-korrigiert-PRIVATE.zip"
+   in denselben Ordner kopieren. Falls es anderswo liegt,
+   oeffnet sich beim Start eine Windows-Dateiauswahl.
+3. START-P120-Original-CPU.bat doppelklicken. Python ist
+   dafuer nicht erforderlich.
+4. P120 prueft die Original-VM/Creative-Treiber-/ROM-SHAs,
+   klont die VM, startet den originalen Creative-Win95-Treiber
+   im originalen 86Box-AWE32/EMU8000-Rechenkern und zeichnet
+   P003/P107–P119-Proben in EINER originalen Sitzung auf.
+5. Nachdem der Win95-Gasttest automatisch fertig ist,
+   86Box REGULAER ueber Datei/Beenden schliessen. Nicht
+   im Task-Manager beenden (virtuelles FAT16-Laufwerk!).
+6. Nur die entstandene Datei
+   "P120-Original-CPU-Messung-...-ERGEBNIS.zip" PRIVAT
+   in diesen Chat hochladen. NICHT nach GitHub!
+   Die Original-ZIP bleibt stets unveraendert.
+
+Das P120-Messarchiv enthaelt ausschliesslich Laufzeit-
+Diagnosedaten, Originalregister-/DRY-Audio-Spuren und SHA-
+Pruefsummen. Es enthaelt KEIN Windows-95-Image, KEIN
+Creative-Treiber-Binary, KEINE ROM und KEINE SF2-Bank.
+Die Originalregister und Gastadressen sind PRIVATE Daten.
+
+P120 unterscheidet:
+- P003: reale originale EMU8000-Portereignisse
+- P115: originaler CPU-/TSC-Zustand am echten I/O-Port
+- P107: tatsaechlich betretene x86-Gaststellen
+- P110/P111/P113: originale P54C-Compiler-/JIT-Generationen
+- P117: originale Pentium-Timing-/Registerabhaengigkeitswoerter
+- P118: eindeutiger Original-Opcode-Site-ID in der JIT-Laufzeit
+- P119: originaler verbuchter und noch offener CPU-Zyklenanteil
+
+Eine erfolgreiche Originalaufnahme ist noch KEIN Nachweis
+einer autonomen VST3-NoteOn-Timing-/PCM-Bitgleichheit. Der
+Original-I/O-/PCM-Vergleich gegen den eigenstaendigen
+C++23-Port bleibt eine separate Endabnahme.
+
+WICHTIG:
+- Urspruengliche ROM, VXD/DLL, Windows 95 sowie SF2 sind
+  lizenzpflichtige, PRIVATE Benutzerdateien und sind nicht
+  im GitHub-Build enthalten.
+- Keine Arbeit am Produkt-P005/PR #6, keine DSP-Aenderung.
+- Das Original-86Box-Source-Repo unterliegt seinen Lizenzen.
+- Wenn P120 fehlschlaegt, wird das als NO-GO ausgewiesen;
+  fehlende Originaltreiber-Daten werden NIE simuliert.
