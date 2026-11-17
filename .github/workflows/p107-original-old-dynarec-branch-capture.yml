@@ -11,6 +11,9 @@ on:
       - 'tools/p107_audit_executed_jcc_private.py'
       - 'tools/p107_patch_old_dynarec_interpreter_fallback.py'
       - 'tests/test_p107_interpreter_fallback.py'
+      - 'tools/p108_direct_executed_jcc_flags.py'
+      - 'tests/test_p108_direct_executed_jcc.py'
+      - 'tools/p108_verify_direct_jcc.py'
   workflow_dispatch:
 
 permissions:
@@ -30,6 +33,8 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
           python3 -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
+          python3 -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
+          python3 tools/p108_verify_direct_jcc.py --selftest
           python3 tools/p107_audit_executed_jcc_private.py --selftest
           python3 -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
           python3 tools/p107_instrument_old_dynarec.py \
@@ -80,6 +85,10 @@ jobs:
             --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c \
             --copy-dynarec /tmp/p107-fork/src/cpu/386_dynarec.c \
             --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          python3 tools/p108_direct_executed_jcc_flags.py \
+            --copy-old-codegen /tmp/p107-fork/src/codegen/codegen_x86-64.c
+          grep -q 'P108_DIRECT_EXECUTED_X86_JCC_CF_ZF_V1' \
+            /tmp/p107-fork/src/codegen/codegen_x86-64.c
           cmp third_party/86box-awe32/src/sound/snd_emu8k.c /tmp/p107-fork/src/sound/snd_emu8k.c
           cmp third_party/86box-awe32/src/sound/snd_sb.c /tmp/p107-fork/src/sound/snd_sb.c
           test "$(git -C third_party/86box-awe32 status --porcelain | wc -l)" -eq 0
@@ -148,6 +157,8 @@ jobs:
           $ErrorActionPreference='Stop'
           python -m unittest discover -s tests -p 'test_p107_instrument_old_dynarec.py' -v
           python -m unittest discover -s tests -p 'test_p107_interpreter_fallback.py' -v
+          python -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
+          python tools/p108_verify_direct_jcc.py --selftest
           python tools/p107_audit_executed_jcc_private.py --selftest
           if($LASTEXITCODE -ne 0) { throw 'P107 Python guards failed' }
           New-Item -ItemType Directory -Path p107-fork -Force | Out-Null
@@ -160,6 +171,8 @@ jobs:
           Move-Item p107-fork/src/io.p107.c p107-fork/src/io.c -Force
           python tools/p107_patch_old_dynarec_interpreter_fallback.py --original-dynarec third_party/86box-awe32/src/cpu/386_dynarec.c --copy-dynarec p107-fork/src/cpu/386_dynarec.c --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
           if($LASTEXITCODE -ne 0) { throw 'P107 interpreted original x86 path patch failed' }
+          python tools/p108_direct_executed_jcc_flags.py --copy-old-codegen p107-fork/src/codegen/codegen_x86-64.c
+          if($LASTEXITCODE -ne 0) { throw 'P108 direct original CF/ZF Jcc patch failed' }
           $a=(Get-FileHash third_party/86box-awe32/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           $b=(Get-FileHash p107-fork/src/sound/snd_emu8k.c -Algorithm SHA256).Hash
           if($a -ne $b) {throw 'Original EMU8000 DSP modified'}
