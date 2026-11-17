@@ -50,7 +50,8 @@ class OriginalMode0ReleaseAuditTests(unittest.TestCase):
         self.assertEqual(result["correlated_followup_writes"],128)
         self.assertEqual(result["physical_30_selections"],1)
         self.assertEqual(result["physical_31_selections"],1)
-        self.assertEqual(result["ranked_after_last_voice29"],0)
+        # Synthetic voice29 release follows its own VTFT scan, once.
+        self.assertEqual(result["ranked_after_last_voice29"],1)
         self.assertEqual(result["distinct_tsc_gaps"],1)
 
     def test_neighbor_voice_swap_mutant_is_rejected(self):
