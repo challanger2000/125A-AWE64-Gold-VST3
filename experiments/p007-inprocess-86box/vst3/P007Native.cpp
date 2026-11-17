@@ -126,6 +126,10 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
         }
         const fs::path vm=work/L"vm";
         const fs::path roms=root/L"roms";
+        const fs::path assets=root/L"assets";
+        if(!fs::is_directory(assets,ec)){
+            bootStatus_.store(-9,std::memory_order_release);return;
+        }
         const fs::path global=work/L"86box.cfg";
         // Original 86Box is an ANSI-path C API; this initial research
         // version supports the paths which its native Win32 CRT can open.

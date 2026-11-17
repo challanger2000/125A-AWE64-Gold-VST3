@@ -48,7 +48,7 @@ P007_EXPORT int p007_core_init_profile(
         const char *vm_path,const char *rom_path,
         const char *config_basename,const char *global_config) {
     if(s_profile_initialized) return -2;
-    char vm[768]={0},rom[768]={0},global[768]={0},cfg[128]={0};
+    char vm[768]={0},rom[768]={0},global[768]={0},asset[768]={0},cfg[128]={0};
     if(!checked_path(vm_path,vm,sizeof(vm)) ||
        !checked_path(rom_path,rom,sizeof(rom)) ||
        !checked_path(global_config,global,sizeof(global)) ||
@@ -58,13 +58,23 @@ P007_EXPORT int p007_core_init_profile(
        strchr(config_basename,'\\') ||
        strchr(config_basename,':')) return -1;
     strcpy(cfg,config_basename);
+    /* ROM and assets are both private children of the installed VST3's
+       Contents/Resources/PrivateVM. Never resolve guest assets against
+       Studio Pro's process working directory or 86Box.exe location. */
+    const char *sep=strrchr(rom,'\\');
+    if (!sep) sep=strrchr(rom,'/');
+    if (!sep) return -1;
+    const size_t prefix=(size_t)(sep-rom)+1u;
+    if(prefix+sizeof("assets")>sizeof(asset)) return -1;
+    memcpy(asset,rom,prefix);
+    memcpy(asset+prefix,"assets",sizeof("assets"));
     char program[]="P007_Embedded_Guest";
-    char vmpath[]="--vmpath",rompath[]="--rompath";
+    char vmpath[]="--vmpath",rompath[]="--rompath",assetopt[]="--assetpath";
     char config[]="--config",globalopt[]="--global";
     char *argv[]={
-      program,vmpath,vm,rompath,rom,config,cfg,globalopt,global
+      program,vmpath,vm,rompath,rom,assetopt,asset,config,cfg,globalopt,global
     };
-    const int result=pc_init(9,argv);
+    const int result=pc_init(11,argv);
     if(result==1) s_profile_initialized=1;
     return result;
 }
