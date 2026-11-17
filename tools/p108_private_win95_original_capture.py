@@ -36,6 +36,7 @@ from p108_verify_direct_jcc import read_direct,compare_original
 from p110_audit_original_p54c_translation_private import audit as audit_p110_translator
 from p111_audit_original_p54c_jit_block_join_private import audit as audit_p111_join
 from p112_join_original_p110_register_mask_to_executed_p111_block import join as join_p112
+from p113_audit_original_opcode_agi_compilation_epoch_private import audit as audit_p113
 from p108_resolve_private_original_package import resolve as resolve_original_v4_package
 from p107_audit_executed_jcc_private import read_trace
 
@@ -91,7 +92,8 @@ def verify_original_guest_sources(original_vm:Path,guest_exe:Path,bank:Path):
 
 def make_probe_environment(environ,trace_i:Path,trace_b:Path,io_path:Path,
                            trace_p110:Path|None=None,
-                           trace_p111:Path|None=None):
+                           trace_p111:Path|None=None,
+                           trace_p113:Path|None=None):
     env=environ.copy()
     env["AWE64_P107_EXECUTED_X86_TRACE"]=str(trace_i)
     env["AWE64_P108_DIRECT_BRANCH_TRACE"]=str(trace_b)
@@ -113,6 +115,13 @@ def make_probe_environment(environ,trace_i:Path,trace_b:Path,io_path:Path,
         env["AWE64_P111_JIT_BLOCK_JOIN_TRACE"]=str(trace_p111)
         env["AWE64_P111_LCOD_BASE"]=ORIGINAL_LCOD_RUNTIME_BASE
         env["AWE64_P111_LCOD_SELECTOR"]="0x28"
+    for key in ("AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE",
+                "AWE64_P113_LCOD_BASE","AWE64_P113_LCOD_SELECTOR"):
+        env.pop(key,None)
+    if trace_p113 is not None:
+        env["AWE64_P113_ORIGINAL_AGI_EPOCH_TRACE"]=str(trace_p113)
+        env["AWE64_P113_LCOD_BASE"]=ORIGINAL_LCOD_RUNTIME_BASE
+        env["AWE64_P113_LCOD_SELECTOR"]="0x28"
     return env
 
 def completed_original_guest(disk:Path):
@@ -214,7 +223,8 @@ def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
 def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path,
                            trace_p110:Path|None=None,
                            trace_p111:Path|None=None,
-                           require_p112_join:bool=False):
+                           require_p112_join:bool=False,
+                           trace_p113:Path|None=None):
     proof=completed_original_guest(disk)
     require(proof is not None,"guest original Creative 3-bank stress result missing")
     rows,original_i_sha=read_trace(trace_i)
@@ -242,7 +252,16 @@ def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path,
                 trace_i.resolve().parent,
                 "P112 traces must originate from same private original VM session")
     p112_result=join_p112(trace_p110,trace_p111,min_common_starts=20) if require_p112_join else None
+    if trace_p113 is not None:
+        require(trace_p110 is not None and trace_p111 is not None,
+                "P113 original AGI opcode epoch requires both P110 and P111")
+        require(trace_p110.resolve().parent==trace_p111.resolve().parent==
+                trace_p113.resolve().parent==trace_i.resolve().parent,
+                "P113 original CPU traces must be from same private Win95 session")
+    p113_result=audit_p113(trace_p110,trace_p111,trace_p113,
+                           min_agis=0) if trace_p113 is not None else None
     return {
+        "original_p113_opcode_agi_to_executed_epoch":p113_result,
         "original_p112_carried_register_masks_vs_executed_jit":p112_result,
         "original_p111_jit_compilation_execution_join":joined,
         "original_p110_compile_time_evidence":translator,
@@ -278,6 +297,8 @@ def main():
     p.add_argument("--require-p111-jit-join",action="store_true")
     p.add_argument("--existing-p111-join",type=Path)
     p.add_argument("--require-p112-block-mask-join",action="store_true")
+    p.add_argument("--require-p113-opcode-agi-epoch",action="store_true")
+    p.add_argument("--existing-p113-opcode-agi-epoch",type=Path)
     p.add_argument("--max-run-seconds",type=int,default=1200)
     args=p.parse_args()
     try:
@@ -296,17 +317,26 @@ def main():
             require(not args.require_p112_block_mask_join or
                     (args.existing_p110_translator and args.existing_p111_join),
                     "P112 original compilation-mask/actual-JIT join requires BOTH traces")
+            require(not args.require_p113_opcode_agi_epoch or
+                    (args.existing_p110_translator and
+                     args.existing_p111_join and
+                     args.existing_p113_opcode_agi_epoch),
+                    "P113 original opcode epoch requires all P110/P111/P113 traces")
             result=verify_private_capture(args.existing_guest_image,
                                           args.existing_p107_i,args.existing_p108_b,
                                           args.existing_cpu_io,
                                           args.existing_p110_translator,
                                           args.existing_p111_join,
-                                          args.require_p112_block_mask_join)
+                                          args.require_p112_block_mask_join,
+                                          args.existing_p113_opcode_agi_epoch)
             print("P108_PRIVATE_ORIGINAL_EXECUTION_AUDIT "+json.dumps(result,sort_keys=True))
             return 0
         require(not args.require_p112_block_mask_join or
                 (args.require_p110_translator and args.require_p111_jit_join),
                 "P112 requires opt-in original P110 and P111 recording in same VM")
+        require(not args.require_p113_opcode_agi_epoch or
+                (args.require_p110_translator and args.require_p111_jit_join),
+                "P113 requires source-original P110 and P111 recordings in same VM")
         require(args.p108_instrumented_86box and args.p108_instrumented_86box_sha256,
                 "P108 instrumented original 86Box binary and SHA are mandatory")
         require(0<args.max_run_seconds<=MAX_RUN_SECONDS,
@@ -365,8 +395,10 @@ def main():
                     if args.require_p110_translator else None)
         p111_trace=(session/"P111-PRIVATE-ORIGINAL-JIT-COMPILE-RUN.trace"
                     if args.require_p111_jit_join else None)
+        p113_trace=(session/"P113-PRIVATE-ORIGINAL-AGI-OPCODE-EPOCH.trace"
+                    if args.require_p113_opcode_agi_epoch else None)
         env=make_probe_environment(os.environ,trace_i,trace_b,io_trace,
-                                   p110_trace,p111_trace)
+                                   p110_trace,p111_trace,p113_trace)
         exe=args.p108_instrumented_86box.resolve()
         argv=[str(exe),"-P",str(vm/"VM"),"-R",str(vm/"86Box"/"roms")]
         p86=subprocess.Popen(argv,cwd=vm/"86Box",env=env)
@@ -378,7 +410,7 @@ def main():
                 except subprocess.TimeoutExpired:p86.kill();p86.wait()
         report=verify_private_capture(disk,trace_i,trace_b,io_trace,
                                       p110_trace,p111_trace,
-                                      args.require_p112_block_mask_join)
+                                      args.require_p112_block_mask_join,p113_trace)
         report["source_identifiers"]=source_report
         report["original_guest_clone_stage"]=stage["status"]
         report["instrumented_86box_sha256"]=sha_file(exe)
