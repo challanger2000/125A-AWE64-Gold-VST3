@@ -136,8 +136,21 @@ candidateOriginalWin95Mode2Range(
         // independently verified by the caller.
         if(v.internal_key_marker>=0x2000u && v.stored_sample_end==0u)
             continue;
-        // When a cached sample_end exists, original still reads CCCA,
-        // including when the marker disqualifies ordinary ranking.
+        // For a disqualified marker with cached sample_end!=0,
+        // original +424F/+4254 reads ONLY CCCA (no VTFT/DCYSUSV).
+        // Require an independently verified CCCA read or a full
+        // validated chip snapshot; never infer a missing chip value.
+        if(v.internal_key_marker>=0x2000u) {
+            if(!v.complete && !v.ccca_read_verified)
+                return std::nullopt;
+            if(finishedSample(v))
+                return OriginalWin95MonoSelection{
+                    static_cast<std::uint8_t>(voice),
+                    OriginalWin95MonoSelectionReason::SampleEndReached,0u};
+            continue;
+        }
+        // Eligible marker needs source-observed live VTFT and possibly
+        // DCYSUSV, so the original full snapshot contract remains.
         if(!v.complete)return std::nullopt;
         if(v.internal_key_marker<0x2000u) {
             std::uint32_t score=scoreOfEligible(v);
