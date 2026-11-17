@@ -157,3 +157,13 @@ target_link_libraries(test_original_creative_stereo_allocator_decision_path
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_stereo_allocator_decision_path
     COMMAND test_original_creative_stereo_allocator_decision_path)
+
+# Original V5 mode gate across every synthetic blocked-neighbor mask.
+# No guest recordings, CPU-timing heuristics, or alternate DSP.
+add_executable(test_original_creative_stereo_mode_gate_exhaustive
+    tests/test_original_creative_stereo_mode_gate_exhaustive.cpp)
+target_link_libraries(test_original_creative_stereo_mode_gate_exhaustive
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_stereo_mode_gate_exhaustive
+    COMMAND test_original_creative_stereo_mode_gate_exhaustive)
+
