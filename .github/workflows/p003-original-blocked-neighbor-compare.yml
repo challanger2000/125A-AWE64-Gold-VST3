@@ -7,6 +7,9 @@ on:
       - 'tests/p003_original_mode2_high_marker_lazy_chip_read.cpp'
       - 'tests/p003_original_mode2_ccca_only_validated.cpp'
       - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
+      - 'tests/p003_original_mode0_lazy_source_reads.cpp'
+      - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
+      - 'src/creative_compat/CreativeVxdMonoVoiceRanking.h'
       - 'tests/p003_original_vxd_additional_allocator_modes.cpp'
       - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.h'
       - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp'
@@ -23,6 +26,41 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
+      - name: Verify source-ordered original mode0 early reads in corrected research source
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_mode0_lazy_source_reads.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-mode0-source"
+          "$RUNNER_TEMP/p003-mode0-source"
+      - name: Compare original mode0 early exit against pinned developer C++23
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA=940098bd3e35f5b2b2b7c94ec9283b5b45067990
+          git fetch --depth=1 origin "$DEV_SHA"
+          DEV_ROOT="$RUNNER_TEMP/p003-dev-mode0"
+          git worktree add --detach "$DEV_ROOT" FETCH_HEAD
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I "$DEV_ROOT/src/creative_compat" \
+            tests/p003_original_mode0_lazy_source_reads.cpp \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
+            -o "$RUNNER_TEMP/p003-dev-mode0-source"
+          set +e
+          "$RUNNER_TEMP/p003-dev-mode0-source"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 42 ]; then
+            echo "P003_DEV_MODE0_SPECULATIVE_UNVISITED_CHIP_READ_REPRODUCED sha=$DEV_SHA"
+          elif [ "$STATUS" -eq 0 ]; then
+            echo "P003_DEV_MODE0_ORIGINAL_EARLY_READ_PASS sha=$DEV_SHA"
+          else
+            echo "P003_DEV_MODE0_UNEXPECTED_EXIT=$STATUS"
+            exit 1
+          fi
       - name: Validate original x86 blocked-neighbor semantics against research candidate
         shell: bash
         run: |
