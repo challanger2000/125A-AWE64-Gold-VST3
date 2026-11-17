@@ -534,6 +534,17 @@ target_link_libraries(awe64_p003_vxd_additional_allocator_modes_test PRIVATE
     awe64_p003_vxd_allocator_additional)
 add_test(NAME p003_original_vxd_mode1_pair_mode2_bounded_range_candidate
     COMMAND awe64_p003_vxd_additional_allocator_modes_test)
+# Differential: two independently implemented, source-gated native mode-1
+# allocators must choose the same pair without a CPU timing approximation.
+if(TARGET original_creative_vxd_live)
+    add_executable(awe64_p005_mode1_live_snapshot_differential
+        tests/p005_mode1_live_vs_snapshot_differential.cpp)
+    target_link_libraries(awe64_p005_mode1_live_snapshot_differential PRIVATE
+        awe64_p003_vxd_allocator_additional original_creative_vxd_live)
+    target_compile_features(awe64_p005_mode1_live_snapshot_differential PRIVATE cxx_std_23)
+    add_test(NAME p005_mode1_live_snapshot_differential
+        COMMAND awe64_p005_mode1_live_snapshot_differential)
+endif()
 
 # P002 independently derived forced original VXD group-voice termination.
 # True original per-group/voice flags required; NOT general MIDI NoteOff.
