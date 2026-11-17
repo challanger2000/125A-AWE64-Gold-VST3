@@ -3,6 +3,7 @@ import sys
 import unittest
 from unittest.mock import patch,Mock
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"))
 import p108_private_win95_original_capture as p
@@ -24,15 +25,16 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         fake_log={"original_win95_midi_send_calls":4176,
                   "original_win95_midi_api_failures":0}
         with patch.object(p,"completed_original_guest",return_value=fake_log),\
-             patch.object(p,"read_trace",return_value=([object()], "fake-i")) as rt,\
+             patch.object(p,"read_trace",return_value=([SimpleNamespace(tsc=1000)], "fake-i")) as rt,\
              patch.object(p,"read_direct",return_value=({0:object()},"fake-b")) as rd,\
              patch.object(p,"compare_original",return_value={
                  "executed_jcc_total":3000,
                  "unobserved_or_unexplained_jcc":0,
                  "next_pc_independently_confirms_flags":2999
-             }):
+             }),\
+             patch.object(p,"verify_original_physical_cpu_io",return_value={"original_tsc_first":0,"original_tsc_last":2000}):
             with self.assertRaisesRegex(ValueError,"too few independently"):
-                p.verify_private_capture(Path("/fictional/img"),Path("/fake/i"),Path("/fake/b"))
+                p.verify_private_capture(Path("/fictional/img"),Path("/fake/i"),Path("/fake/b"),Path("/fake/io"))
             rt.assert_called_once()
             rd.assert_called_once()
     def test_completely_crosschecked_synthetic_requires_status_not_pcm(self):
@@ -43,7 +45,8 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         with patch.object(p,"completed_original_guest",return_value=proof),\
              patch.object(p,"read_trace",return_value=([object()],"sha-i")) as rt,\
              patch.object(p,"read_direct",return_value=({3:object()},"sha-b")) as rd,\
-             patch.object(p,"compare_original",return_value=fake):
+             patch.object(p,"compare_original",return_value=fake),\
+             patch.object(p,"verify_original_physical_cpu_io",return_value={"original_tsc_first":0,"original_tsc_last":2000}):
             result=p.verify_private_capture(Path("/fictional/img"),Path("/fake/i"),Path("/fake/b"))
             self.assertTrue(result["status"].startswith("ORIGINAL_X86"))
             self.assertFalse(result["original_tsc_reproduction_proved"])
@@ -59,9 +62,39 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
                  "executed_jcc_total":3450,
                  "unobserved_or_unexplained_jcc":1,
                  "next_pc_independently_confirms_flags":3410
-             }):
+             }),\
+             patch.object(p,"verify_original_physical_cpu_io",return_value={"original_tsc_first":0,"original_tsc_last":2000}):
             with self.assertRaisesRegex(ValueError,"unconfirmed Jcc"):
-                p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),Path("/fake/b"))
+                p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),Path("/fake/b"),Path("/fake/io"))
+    def test_private_original_audit_refuses_missing_physical_cpu_io(self):
+        with patch.object(p,"completed_original_guest",return_value={
+                  "original_win95_midi_send_calls":4176,
+                  "original_win95_midi_api_failures":0}), \
+             patch.object(p,"read_trace",return_value=([SimpleNamespace(tsc=1000)],"fake-i")), \
+             patch.object(p,"read_direct",return_value=({1:object()},"fake-b")), \
+             patch.object(p,"compare_original",return_value={
+                  "executed_jcc_total":3450,
+                  "unobserved_or_unexplained_jcc":0,
+                  "next_pc_independently_confirms_flags":3410}):
+            with self.assertRaisesRegex(ValueError,"physical CPU V4 I/O evidence required"):
+                p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),
+                                         Path("/fake/b"),None)
+
+    def test_guest_tsc_disjoint_from_physical_original_io_is_no_go(self):
+        with patch.object(p,"completed_original_guest",return_value={
+                  "original_win95_midi_send_calls":4176,
+                  "original_win95_midi_api_failures":0}), \
+             patch.object(p,"read_trace",return_value=([SimpleNamespace(tsc=9000)],"fake-i")), \
+             patch.object(p,"read_direct",return_value=({1:object()},"fake-b")), \
+             patch.object(p,"compare_original",return_value={
+                  "executed_jcc_total":3450,
+                  "unobserved_or_unexplained_jcc":0,
+                  "next_pc_independently_confirms_flags":3410}), \
+             patch.object(p,"verify_original_physical_cpu_io",return_value={
+                  "original_tsc_first":0,"original_tsc_last":2000}):
+            with self.assertRaisesRegex(ValueError,"disjoint guest-TSC"):
+                p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),
+                                         Path("/fake/b"),Path("/fake/io"))
     def test_no_automatic_success_without_guest_log(self):
         proc=Mock()
         proc.poll.return_value=0
