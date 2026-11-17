@@ -144,12 +144,57 @@ def watch_guest_until_done(proc,disk,env,max_run_seconds,poll_seconds=3):
     require(code==0,"86Box guest runtime exited with nonzero result")
     return proof
 
-def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path):
+P003_PHYSICAL_HEADER=b"# P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK "
+EMU8K_PHYSICAL_PORTS=frozenset((0xe22,0xe20,0xa20,0xa22,0x620,0x622))
+
+def verify_original_physical_cpu_io(path:Path,min_samples:int=100000):
+    """Streaming proof: real SHA-pinned 86Box physical 8/16/32 callbacks.
+
+    Strict contiguous original physical I/O sequence and Pentium TSC;
+    never expose private CPU GPRs/stack or raw port readings.
+    """
+    require(path.is_file() and 10_000<path.stat().st_size<400_000_000,
+            "authentic P003 original source physical IO trace missing/oversized")
+    digest=hashlib.sha256()
+    count=0
+    previous_tsc=None
+    with path.open("rb") as stream:
+        first=stream.readline()
+        digest.update(first)
+        require(first.startswith(P003_PHYSICAL_HEADER),
+                "P003 original physical guest CPU V4-stack header missing")
+        for raw in stream:
+            digest.update(raw)
+            chunks=raw.split()
+            require(len(chunks)==17 and chunks[0] in (b"r",b"w"),
+                    "original physical I/O callback layout invalid")
+            try:
+                tsc=int(chunks[1],10)
+                port=int(chunks[5],16)
+                seq=int(chunks[7],10)
+            except ValueError as exc:
+                raise ValueError("malformed physical guest callback") from exc
+            require(tsc>=0 and (previous_tsc is None or tsc>=previous_tsc),
+                    "original physical CPU-TSC regressed")
+            require(port in EMU8K_PHYSICAL_PORTS,
+                    "original physical callback port outside EMU8000 bus")
+            require(seq==count, "original physical callback sequence missing or duplicated")
+            previous_tsc=tsc
+            count+=1
+            require(count<=3_000_000, "original physical callback count over cap")
+    require(count>=min_samples,
+            "too few original physical EMU8000 register callbacks")
+    return {"original_physical_callback_count":count,
+            "original_physical_io_sha256":digest.hexdigest(),
+            "original_p54c_cpu_tsc_reconstructed":False}
+
+def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path,trace_io:Path|None=None):
     proof=completed_original_guest(disk)
     require(proof is not None,"guest original Creative 3-bank stress result missing")
     rows,original_i_sha=read_trace(trace_i)
     branches,original_b_sha=read_direct(trace_b)
     checked=compare_original(rows,branches)
+    physical=verify_original_physical_cpu_io(trace_io) if trace_io else None
     require(checked["executed_jcc_total"]>=3000,
             "not sufficient original Creative stereo x86 Jcc executions")
     require(checked["unobserved_or_unexplained_jcc"]==0,
@@ -164,6 +209,7 @@ def verify_private_capture(disk:Path,trace_i:Path,trace_b:Path):
         "p107_trace_sha256":original_i_sha,
         "p108_direct_jcc_sha256":original_b_sha,
         "independent_flags_next_pc_audit":checked,
+        "original_cpu_io_evidence":physical,
         "original_tsc_reproduction_proved":False,
         "native_vst3_pcm_bit_exact_proved":False,
         "private_trace_or_creative_rom_published":False
@@ -182,6 +228,7 @@ def main():
                    help="Only audit a previously executed PRIVATE capture")
     p.add_argument("--existing-p107-i",type=Path)
     p.add_argument("--existing-p108-b",type=Path)
+    p.add_argument("--existing-cpu-io",type=Path)
     p.add_argument("--max-run-seconds",type=int,default=1200)
     args=p.parse_args()
     try:
@@ -191,7 +238,8 @@ def main():
             require(args.existing_p107_i and args.existing_p108_b,
                     "existing PRIVATE audit requires both original x86 traces")
             result=verify_private_capture(args.existing_guest_image,
-                                          args.existing_p107_i,args.existing_p108_b)
+                                          args.existing_p107_i,args.existing_p108_b,
+                                          args.existing_cpu_io)
             print("P108_PRIVATE_ORIGINAL_EXECUTION_AUDIT "+json.dumps(result,sort_keys=True))
             return 0
         require(args.p108_instrumented_86box and args.p108_instrumented_86box_sha256,
@@ -258,7 +306,7 @@ def main():
                 p86.terminate()
                 try:p86.wait(timeout=20)
                 except subprocess.TimeoutExpired:p86.kill();p86.wait()
-        report=verify_private_capture(disk,trace_i,trace_b)
+        report=verify_private_capture(disk,trace_i,trace_b,io_trace)
         report["source_identifiers"]=source_report
         report["original_guest_clone_stage"]=stage["status"]
         report["instrumented_86box_sha256"]=sha_file(exe)
