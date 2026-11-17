@@ -1,0 +1,31 @@
+name: P003 Source-derived NRPN Windows C++23
+
+on:
+  push:
+    branches:
+      - research/p003-pcod37ba-source-port-20261117
+    paths:
+      - 'third_party/creative-vxd-port/**'
+      - '.github/workflows/p003-nrpn-windows.yml'
+  pull_request:
+    branches:
+      - develop/p005-original-creative-port-integration
+    paths:
+      - 'third_party/creative-vxd-port/**'
+      - '.github/workflows/p003-nrpn-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  win2022-msvc-cpp23:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure native source port (MSVC x64, C++23)
+        run: cmake -S third_party/creative-vxd-port -B build/p003-source-windows -G "Visual Studio 17 2022" -A x64
+      - name: Build source port and all standalone tests
+        run: cmake --build build/p003-source-windows --config Release --parallel 2
+      - name: Run native CTest suite
+        run: ctest --test-dir build/p003-source-windows -C Release --output-on-failure

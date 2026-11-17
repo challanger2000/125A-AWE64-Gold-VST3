@@ -176,3 +176,75 @@ target_link_libraries(test_original_creative_nested_program_path
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_nested_program_path
     COMMAND test_original_creative_nested_program_path)
+
+# P003 research-only port of the original PCOD+0x37BA parameter transform.
+# Synthetic lookup fixture only. Does not enable the live VST3 driver.
+add_executable(test_original_creative_pcod37ba
+    tests/test_original_creative_pcod37ba.cpp)
+target_link_libraries(test_original_creative_pcod37ba
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_pcod37ba_integer_branch_contract
+    COMMAND test_original_creative_pcod37ba)
+
+
+# Source-derived LCOD+0x70E5 register read/modify/write port. No
+# private table bytes; purely synthetic device/PortIo test.
+add_executable(test_original_creative_lcod70e5
+    tests/test_original_creative_lcod70e5.cpp)
+target_link_libraries(test_original_creative_lcod70e5
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_lcod70e5_register_source_contract
+    COMMAND test_original_creative_lcod70e5)
+
+
+# Original Win95 SBAWE.VXD LCOD+0x7309/0x7350/0x740A NRPN
+# callbacks: source-derived channel memory, no private driver bytes.
+# Standalone research only, NOT productive VST3 MIDI activation.
+add_executable(test_original_creative_lcod73xx_nrpn
+    tests/test_original_creative_lcod73xx_nrpn.cpp)
+target_link_libraries(test_original_creative_lcod73xx_nrpn
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_lcod73xx_nrpn_source_contract
+    COMMAND test_original_creative_lcod73xx_nrpn)
+
+
+# Source-gated original NRPN branch in the actual MIDI dispatcher.
+# Tests CC98/CC99 and the CC121 installed +0xB5A callback path.
+add_executable(test_original_creative_nrpn_midi_bridge
+    tests/test_original_creative_nrpn_midi_bridge.cpp)
+target_link_libraries(test_original_creative_nrpn_midi_bridge
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_midi_bridge_source_gated
+    COMMAND test_original_creative_nrpn_midi_bridge)
+
+
+# Original NRPN CC6/CC38 -> device+B52/LCOD+0x70E5. Provenance-gated.
+# Register I/O fixture is synthetic; no private driver bytes in CI.
+add_executable(test_original_creative_nrpn_cc6_cc38
+    tests/test_original_creative_nrpn_cc6_cc38.cpp)
+target_link_libraries(test_original_creative_nrpn_cc6_cc38
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_cc6_cc38_chip_port_contract
+    COMMAND test_original_creative_nrpn_cc6_cc38)
+
+
+# Owner holds the original Win95 0x1592 device, 30x6 parameter bytes,
+# and 128 lookup WORDs in stable per-instance fixed-size storage.
+add_executable(test_original_creative_nrpn_owner
+    tests/test_original_creative_nrpn_owner.cpp)
+target_link_libraries(test_original_creative_nrpn_owner
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_owner_lifetime_no_heap
+    COMMAND test_original_creative_nrpn_owner)
+
+
+# The actual P005 VST3 host adapter owns original NRPN data and detaches
+# pointers before destroying the MIDI/chip runtime. Synthetic fixture.
+add_executable(test_original_creative_nrpn_host_owner
+    tests/test_original_creative_nrpn_host_owner.cpp)
+target_link_libraries(test_original_creative_nrpn_host_owner
+    PRIVATE original_creative_vxd_live)
+target_include_directories(test_original_creative_nrpn_host_owner
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../src/vst3")
+add_test(NAME original_creative_nrpn_p005_host_lifecycle
+    COMMAND test_original_creative_nrpn_host_owner)

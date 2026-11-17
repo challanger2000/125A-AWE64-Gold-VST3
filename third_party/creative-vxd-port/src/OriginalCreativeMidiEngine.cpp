@@ -352,9 +352,165 @@ source_note_endpoints(SourceVoice const& source) noexcept {
 // pitch bend center, modulation(0), and optional original device callback.
 // All known source inputs are checked first, so a missing VXD state never
 // triggers a partial reset or any speculative hardware writes.
+// Canonical owner image needed by LCOD+0x7309/0x740A/0x7350.
+// This source view must be attached by the owner before audio processing,
+// and must not alias recycled or truncated host memory.
+[[nodiscard]] bool has_original_nrpn_callbacks(MidiEngine const& e) noexcept {
+    return e.original_nrpn_callbacks_installed_verified &&
+        e.original_nrpn_memory.original_source_authenticated &&
+        e.original_nrpn_memory.device.size()>=
+            research::nrpn_detail::kMinimumDevice;
+}
+[[nodiscard]] MidiResult original_nrpn_controller(MidiEngine& e,
+    std::uint8_t channel,std::uint8_t controller,
+    std::uint8_t value) noexcept {
+    if(!has_original_nrpn_callbacks(e) ||
+       e.original_reset_callback_absent_verified)
+        return MidiResult::MissingSource;
+    auto const result=(controller==98u)
+        ?research::originalLcod7309(e.original_nrpn_memory,channel,value)
+        :research::originalLcod740a(e.original_nrpn_memory,channel,value);
+    if(!result)return MidiResult::MissingSource;
+    const auto d=std::span<const std::uint8_t>(e.original_nrpn_memory.device);
+    const auto row=static_cast<std::size_t>(channel)*0x24u;
+    auto& c=e.channel[channel];
+    c.original_rpn_mode=research::nrpn_detail::r16(d,0x45eu+row);
+    c.original_rpn_aux_462=research::nrpn_detail::r16(d,0x462u+row);
+    // In NRPN mode source channel+0x464 is the selected 16-bit parameter
+    // value, rather than an RPN data-entry LSB. Do not truncate it.
+    c.original_rpn_data_lsb=research::nrpn_detail::r16(d,0x464u+row);
+    // Original EAX==1 for invalid selection and for a reset. This is
+    // still a fully executed MIDI handler, not a port-failure condition.
+    return MidiResult::Applied;
+}
+// LCOD+0x6B69/+0x6BE5: CC6/CC38 modify the genuine VXD channel
+// WORD +0x464 and invoke the installed +0xB52 = LCOD+0x70E5 callback.
+// A complete private device/table/voice mapping is mandatory: never
+// invent register parameters or synthesize an NRPN fallback.
+[[nodiscard]] bool has_original_nrpn_parameter_callback(
+    MidiEngine const& e, std::uint8_t channel, PortIo const io) noexcept {
+    if(!has_original_nrpn_callbacks(e) ||
+       e.original_reset_callback_absent_verified ||
+       !e.original_nrpn_parameter_callback_installed_verified ||
+       !e.original_nrpn_parameter_tables_verified ||
+       !e.original_nrpn_voice_rows_verified ||
+       e.original_nrpn_parameter_entries.size()!=30u*6u ||
+       e.original_nrpn_parameter_lookup.size()!=128u ||
+       !io.out8 || !io.in16 || !io.out16)return false;
+    const auto d=std::span<const std::uint8_t>(e.original_nrpn_memory.device);
+    const auto off=static_cast<std::size_t>(channel)*0x24u;
+    const auto voices=research::nrpn_detail::r16(d,6u);
+    if(voices>physical_voices ||
+       voices!=e.device.physical_capacity ||
+       research::nrpn_detail::r16(d,0x45eu+off)!=0x0200u ||
+       research::nrpn_detail::r16(d,0x462u+off)!=
+           e.channel[channel].original_rpn_aux_462)
+        return false;
+    // The authentic VXD parameter callback enumerates ORIGINAL device
+    // voice rows at +0x42 (stride 0x20), whereas the native NoteOn/
+    // NoteOff allocator writes MidiEngine::device.voices. If those two
+    // representations have diverged, writing NRPN to the chip would
+    // affect the WRONG physical voice. This must be checked BEFORE
+    // writing channel+0x464 or emitting ANY hardware I/O.
+    for(std::size_t voice=0u;voice<voices;++voice) {
+        const auto row=0x42u+voice*0x20u;
+        const auto& native=e.device.voices[voice];
+        if(research::nrpn_detail::r16(d,row)!=native.key_marker)
+            return false;
+        // +0x70E5's parameter opcode 4 uses this cached pitch base.
+        // Do not accept a raw value if native ownership has a verified
+        // different pitch base.
+        if(native.original_pitch_base_verified &&
+           research::nrpn_detail::r16(d,row+0x0eu)!=
+               native.original_pitch_base)
+            return false;
+    }
+    const auto selection=research::nrpn_detail::r16(d,0x462u+off);
+    const auto slot=static_cast<std::size_t>(selection&0x7fu);
+    if((selection>>8u)==0x7fu && slot<30u &&
+       e.original_nrpn_parameter_entries[slot*6u]==4u) {
+        // Original opcode 4 computes the pitch update from the current
+        // channel+0x14 bend delta and the voice-row cached pitch.
+        // Refuse a stale raw device rather than silently emit bad pitch.
+        const auto bend=static_cast<std::uint32_t>(
+            e.channel[channel].original_bend_delta);
+        const auto rawBend=static_cast<std::uint32_t>(
+            research::nrpn_detail::r16(d,0x442u+off+0x14u))|
+            (static_cast<std::uint32_t>(
+                research::nrpn_detail::r16(d,0x442u+off+0x16u))<<16u);
+        if(rawBend!=bend)return false;
+        for(std::size_t voice=0u;voice<voices;++voice) {
+            if((e.device.voices[voice].key_marker>>8u)==channel &&
+               !e.device.voices[voice].original_pitch_base_verified)
+                return false;
+        }
+    }
+    return true;
+}
+[[nodiscard]] MidiResult original_nrpn_data_entry(
+    MidiEngine& e, std::uint8_t channel, std::uint8_t controller,
+    std::uint8_t value, PortIo io) noexcept {
+    if(!has_original_nrpn_parameter_callback(e,channel,io))
+        return MidiResult::MissingSource;
+    auto& d=e.original_nrpn_memory.device;
+    const auto off=0x464u+static_cast<std::size_t>(channel)*0x24u;
+    const auto old=research::nrpn_detail::r16(d,off);
+    // Source x86: CC6 (SHL SI,7; OR masked AX), CC38 (OR CX, AX).
+    const auto next=static_cast<std::uint16_t>(controller==6u
+        ? (static_cast<unsigned>(value)<<7u)|(old&0x007fu)
+        : (old&0xff80u)|static_cast<unsigned>(value));
+    research::nrpn_detail::w16(d,off,next);
+    const research::Lcod70e5Inputs original{
+        d, e.original_nrpn_parameter_entries,
+        e.original_nrpn_parameter_lookup, true, io};
+    const auto r=research::originalLcod70e5(original,channel);
+    if(r==research::Lcod70e5Status::RejectedSource) {
+        // Input provenance error: the callback has not emitted any port IO
+        // or changed parameter records; restore the just-written data WORD.
+        research::nrpn_detail::w16(d,off,old);
+        return MidiResult::MissingSource;
+    }
+    // The original callback may return EAX=1 for an invalid parameter
+    // select; that is a *handled MIDI message*, not a port error.
+    e.channel[channel].original_rpn_data_lsb=next;
+    if(r==research::Lcod70e5Status::PortError) {
+        // The original writes its parameter state before chip IO, so
+        // after a real partial OUT, never attempt a fictitious rollback.
+        e.fault=true;
+        return MidiResult::PortError;
+    }
+    return MidiResult::Applied;
+}
+[[nodiscard]] bool original_nrpn_rpn_preflight(MidiEngine const& e) noexcept {
+    if(!e.original_nrpn_callbacks_installed_verified &&
+       e.original_nrpn_memory.device.empty())return true;
+    return has_original_nrpn_callbacks(e) &&
+        !e.original_reset_callback_absent_verified;
+}
+// Keep original channel-row mirror consistent when CC100/101 changes
+// mode or RPN selector after a previously source-bound CC98/99.
+inline void original_rpn_write_to_owner(MidiEngine& e,
+    std::uint8_t ch,bool clearData) noexcept {
+    if(!has_original_nrpn_callbacks(e))return;
+    const auto row=static_cast<std::size_t>(ch)*0x24u;
+    auto& d=e.original_nrpn_memory.device;
+    auto const& c=e.channel[ch];
+    research::nrpn_detail::w16(d,0x45eu+row,c.original_rpn_mode);
+    research::nrpn_detail::w16(d,0x460u+row,c.original_rpn_number);
+    if(clearData)
+        research::nrpn_detail::w16(d,0x464u+row,0u);
+}
 [[nodiscard]] MidiResult original_reset_controllers(MidiEngine& e,
     std::uint8_t ch,PortIo io) noexcept {
-    if(!e.original_reset_callback_absent_verified)return MidiResult::MissingSource;
+    const bool callbackInstalled=has_original_nrpn_callbacks(e);
+    if(!e.original_reset_callback_absent_verified && !callbackInstalled)
+        return MidiResult::MissingSource;
+    // An attested NULL callback and an attested installed callback cannot
+    // both describe the same original owner device state.
+    if(e.original_reset_callback_absent_verified &&
+       (e.original_nrpn_callbacks_installed_verified ||
+        !e.original_nrpn_memory.device.empty()))
+        return MidiResult::MissingSource;
     if(e.device.physical_capacity==0u ||
        e.device.physical_capacity>physical_voices)return MidiResult::Invalid;
     bool active=false;
@@ -373,6 +529,15 @@ source_note_endpoints(SourceVoice const& source) noexcept {
            !e.channel[ch].original_modulation_byte_44d_verified ||
            !io.out8 || !io.out16 || !io.in16 || !io.in32 || !io.out32)
             return MidiResult::MissingSource;
+    }
+    if(callbackInstalled) {
+        // Original +0x6C2C..+0x6C3B clears owner channel's three
+        // selectors BEFORE calling the optional +0xB5A callback.
+        auto& d=e.original_nrpn_memory.device;
+        const auto row=static_cast<std::size_t>(ch)*0x24u;
+        research::nrpn_detail::w16(d,0x45eu+row,0u);
+        research::nrpn_detail::w16(d,0x460u+row,0u);
+        research::nrpn_detail::w16(d,0x462u+row,0u);
     }
     auto& c=e.channel[ch];
     c.original_rpn_mode=0u;
@@ -395,7 +560,21 @@ source_note_endpoints(SourceVoice const& source) noexcept {
     c.original_modulation_byte_44d=0u;
     c.original_modulation_byte_44d_verified=true;
     const auto modulation=original_cc1_modulation_live(e,ch,0u,io);
-    return modulation;
+    if(modulation!=MidiResult::Applied)return modulation;
+    if(callbackInstalled) {
+        // The original CC121 invokes device+0xB5A with value 0 at the
+        // end, which is precisely LCOD+0x740A, then +0x7350 resets
+        // the 30 parameter flags/words and returns EAX=1.
+        const auto result=research::originalLcod740a(
+            e.original_nrpn_memory,ch,0u);
+        if(!result)return MidiResult::MissingSource;
+        const auto d=std::span<const std::uint8_t>(e.original_nrpn_memory.device);
+        const auto row=static_cast<std::size_t>(ch)*0x24u;
+        c.original_rpn_mode=research::nrpn_detail::r16(d,0x45eu+row);
+        c.original_rpn_aux_462=research::nrpn_detail::r16(d,0x462u+row);
+        c.original_rpn_data_lsb=research::nrpn_detail::r16(d,0x464u+row);
+    }
+    return MidiResult::Applied;
 }
 [[nodiscard]] MidiResult from_release(ReleaseResult const& r) noexcept {
     switch(r.status) {
@@ -434,26 +613,50 @@ MidiResult dispatch_midi(MidiEngine& eng,std::uint8_t status,
         auto& state=eng.channel[ch];
         switch(d1) {
             case 0u: state.bank_msb=d2;return MidiResult::Applied;
+            case 98u: // original CC98 -> +0x67B9 -> B56 -> LCOD+0x7309
+            case 99u: // original CC99 -> +0x67DB -> B5A -> LCOD+0x740A
+                return original_nrpn_controller(eng,ch,d1,d2);
             case 100u: // original +0x6A35: RPN LSB selection
+                if(!original_nrpn_rpn_preflight(eng))return MidiResult::MissingSource;
                 state.original_rpn_mode=0x0100u;
                 state.original_rpn_number=static_cast<std::uint16_t>(
                     (state.original_rpn_number&0xff00u)|d2);
+                original_rpn_write_to_owner(eng,ch,false);
                 return MidiResult::Applied;
             case 101u: // original +0x6A6C: RPN MSB clears data fine
+                if(!original_nrpn_rpn_preflight(eng))return MidiResult::MissingSource;
                 state.original_rpn_mode=0x0100u;
                 state.original_rpn_number=static_cast<std::uint16_t>(
                     (state.original_rpn_number&0x00ffu)|
                     (static_cast<unsigned>(d2)<<8u));
                 state.original_rpn_data_lsb=0u;
+                original_rpn_write_to_owner(eng,ch,true);
                 return MidiResult::Applied;
             case 38u: // original +0x6BA5
+                // Source-gated original B52 callback reads the owner's
+                // authentic parameter rows and emits live chip port writes.
+                if(state.original_rpn_mode==0x0200u)
+                    return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
                     return MidiResult::Unsupported;
+                if(!original_nrpn_rpn_preflight(eng))
+                    return MidiResult::MissingSource;
                 state.original_rpn_data_lsb=d2;
+                if(has_original_nrpn_callbacks(eng)) {
+                    auto& d=eng.original_nrpn_memory.device;
+                    const auto row=static_cast<std::size_t>(ch)*0x24u;
+                    research::nrpn_detail::w16(d,0x464u+row,d2);
+                }
                 return MidiResult::Applied;
             case 6u: { // original +0x6AB1 Data Entry MSB
+                // Source-gated original B52 callback updates channel
+                // parameter state and the active EMU8000 voice registers.
+                if(state.original_rpn_mode==0x0200u)
+                    return original_nrpn_data_entry(eng,ch,d1,d2,io);
                 if(state.original_rpn_mode!=0x0100u)
                     return MidiResult::Unsupported;
+                if(!original_nrpn_rpn_preflight(eng))
+                    return MidiResult::MissingSource;
                 if(state.original_rpn_number==0u) {
                     state.original_bend_range=d2;
                     return MidiResult::Applied;
