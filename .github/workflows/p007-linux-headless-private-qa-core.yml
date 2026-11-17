@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           cmake -S build/p007-original-fork -B build/p007-linux-qa \
-            -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=OFF \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DQT=OFF -DOPENAL=OFF -DRTMIDI=OFF -DFLUIDSYNTH=OFF \
             -DMUNT=OFF -DSOUNDCANVAS=OFF -DDISCORD=OFF \
             -DDYNAREC=ON -DVNC=OFF
