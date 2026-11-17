@@ -91,6 +91,62 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             with self.assertRaisesRegex(ValueError,"original 512 MiB"):
                 p.verify_original_guest_sources(Path(t),Path(t)/"fake.exe",Path(t)/"fake.sf2")
+    @staticmethod
+    def _fictional_physical_rows(n=145, bad_at=None, mutation=None):
+        lines=[b"# P003_CPU_GUEST_PHYSICAL_8_16_32_V4_STACK synthetic-only\n"]
+        for i in range(n):
+            port=0x620 if i%2==0 else 0xe22
+            seq=i
+            tsc=1000+i*4
+            if i==bad_at and mutation=="seq":seq=i+1
+            if i==bad_at and mutation=="tsc":tsc=1
+            if i==bad_at and mutation=="port":port=0x123
+            line=(f"r {tsc} 0 0028 C10151E4 {port:04X} 1234 {seq} "+
+                  ("00000000 "*8)+"00000000\n")
+            lines.append(line.encode("ascii"))
+        return b"".join(lines)
+
+    def test_private_physical_guest_source_trace_is_verified_and_redacted(self):
+        with tempfile.TemporaryDirectory() as t:
+            f=Path(t)/"fictional-io.trace"
+            f.write_bytes(self._fictional_physical_rows())
+            result=p.verify_original_physical_cpu_io(f,min_samples=120)
+            self.assertEqual(result["original_physical_callback_count"],145)
+            self.assertEqual(len(result["original_physical_io_sha256"]),64)
+            self.assertFalse(result["original_p54c_cpu_tsc_reconstructed"])
+            self.assertNotIn("1234",str(result))
+
+    def test_missing_or_mutated_physical_callbacks_fail_closed(self):
+        with tempfile.TemporaryDirectory() as t:
+            f=Path(t)/"fictional-io.trace"
+            for mutation,err in (("seq","sequence"),("tsc","regressed"),
+                                 ("port","outside EMU8000")):
+                with self.subTest(mutation=mutation):
+                    f.write_bytes(self._fictional_physical_rows(145,55,mutation))
+                    with self.assertRaisesRegex(ValueError,err):
+                        p.verify_original_physical_cpu_io(f,min_samples=120)
+            f.write_bytes(self._fictional_physical_rows())
+            with self.assertRaisesRegex(ValueError,"too few"):
+                p.verify_original_physical_cpu_io(f,min_samples=150)
+            f.write_bytes(b"WRONG HEADER\n"+self._fictional_physical_rows())
+            with self.assertRaisesRegex(ValueError,"header"):
+                p.verify_original_physical_cpu_io(f,min_samples=2)
+
+    def test_private_live_original_gate_demands_io_trace(self):
+        proof={"original_win95_midi_send_calls":4176,
+               "original_win95_midi_api_failures":0}
+        with patch.object(p,"completed_original_guest",return_value=proof),
+             patch.object(p,"read_trace",return_value=([object()],"synthetic-i")),
+             patch.object(p,"read_direct",return_value=({0:object()},"synthetic-b")),
+             patch.object(p,"compare_original",return_value={
+                 "executed_jcc_total":3450,
+                 "unobserved_or_unexplained_jcc":0,
+                 "next_pc_independently_confirms_flags":3410}),
+             patch.object(p,"verify_original_physical_cpu_io",side_effect=ValueError("missing IO")):
+            with self.assertRaisesRegex(ValueError,"missing IO"):
+                p.verify_private_capture(Path("/fake/img"),Path("/fake/i"),
+                                         Path("/fake/b"),Path("/fake/io"))
+
     def test_private_report_sha_only_does_not_require_trace_in_public_ci(self):
         with tempfile.TemporaryDirectory() as t:
             f=Path(t)/"synthetic.txt"
