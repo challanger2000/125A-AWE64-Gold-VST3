@@ -1,0 +1,50 @@
+name: Creative original SBAWE stereo MOVSX/MOVZX source port
+on:
+  push:
+    branches:
+      - fix/original-creative-stereo-link-sign-extended-compare
+    paths:
+      - 'third_party/creative-vxd-port/src/OriginalCreativeStereoWorklist.cpp'
+      - 'third_party/creative-vxd-port/include/OriginalCreativeStereoWorklist.hpp'
+      - 'third_party/creative-vxd-port/tests/test_original_creative_stereo_link_sign_extension.cpp'
+      - 'third_party/creative-vxd-port/CMakeLists.txt'
+      - '.github/workflows/creative-original-stereo-link-x86-source-compare.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpp23-original-opcode-semantics:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            compiler: g++
+          - os: windows-2022
+            compiler: clang++
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and execute actual ported C++23 original Creative stereo sample-link comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd third_party/creative-vxd-port
+          "${{ matrix.compiler }}" -std=c++23 -O2 -Wall -Wextra -Wconversion -Werror -pedantic \
+            -I include \
+            src/OriginalCreativeStereoWorklist.cpp \
+            tests/test_original_creative_stereo_link_sign_extension.cpp \
+            -o original_stereo_opcode_compare.exe
+          ./original_stereo_opcode_compare.exe
+      - name: Build entire original Creative port and execute registered CTest suite (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S third_party/creative-vxd-port -B /tmp/awe-original-creative-stereo-test \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/awe-original-creative-stereo-test --parallel 3
+          ctest --test-dir /tmp/awe-original-creative-stereo-test --output-on-failure
