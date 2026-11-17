@@ -1,5 +1,8 @@
 # P003 – CPU-TSC-Phasen und Dynarec-Blockverfolgung (17.11.2026)
 
+> **ZEITBASIS-KORREKTUR (17.11.2026):** Die separate Untersuchung von Original-CPU-Budget-/Dynarec-**14-Zyklen-Phasen** bleibt als Gastzustandsbeobachtung erhalten. Sie darf aber **nicht** als Ursache der früheren **CPU-TSC→EMU-Audioframe-Fehler** ausgegeben werden: Der echte 86Box-Code korrigiert den nominalen Pentium-133-Tabellenwert `133333333` intern auf **400000000/3**. Mit dieser originalen Audio-Timerfrequenz sind **4.366.834/4.366.834** Port-Framezuordnungen in vier echten Originalaufnahmen bitgenau; kein +14- oder +3-Zyklen-Frame-Hack erforderlich. Die unabhängigen echten x86-Intervall-Unterschiede bleiben als gesonderte CPU-Programmzustandsfrage offen. [Vollständiger Ursachennachweis](P003-CPU-TIMING-ORIGINAL-PIT-CLOCK-FOUR-WIN95-SESSIONS-20261117.md).
+
+
 > **WICHTIGE KORREKTUR / NEUER ORIGINALNACHWEIS (17.11.2026):**
 > Die nachstehend dokumentierte 14-Takt-Differenz ist als Messung richtig, war
 > aber **nicht als Ursache eines 86Box-Dynarec-Fehlers nachgewiesen**. Ein
