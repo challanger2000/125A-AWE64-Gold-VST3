@@ -56,10 +56,7 @@ def main():
             p007_audio_capture_float(outbuffer_w_ex, WTBUFLEN);
         else
             p007_audio_capture_pcm16(outbuffer_w_ex_int16, WTBUFLEN);
-        if (sound_is_float)
-            givealbuffer_wt(outbuffer_w_ex);
-        else
-            givealbuffer_wt(outbuffer_w_ex_int16);
+        /* In a VST3 the host owns audio: no SDL/OpenAL device output. */
 """
     if sound_original.count(original_hook)!=1:
         raise SystemExit("P007_REJECT_ORIGINAL_WAVETABLE_SIGNATURE")
@@ -98,6 +95,65 @@ def main():
         "#include <86box/serial.h>",
         "#include <86box/serial.h>\n#include <P007MidiUart.h>",1
     ).replace(uart_origin,uart_replace,1),encoding="utf-8",newline="\n")
+
+
+    # The original SDL frontend assumes a window and mutex. The VST3 never
+    # creates either; guard only host-side UI calls, never CPU/EMU8000 code.
+    sdlmain=fork/"src/unix/sdl_main.c"
+    maintext=sdlmain.read_text(encoding="utf-8")
+    old_blit="""void
+startblit(void)
+{
+    SDL_LockMutex(blitmtx);
+}
+
+void
+endblit(void)
+{
+    SDL_UnlockMutex(blitmtx);
+}"""
+    new_blit="""void
+startblit(void)
+{
+    if (blitmtx) SDL_LockMutex(blitmtx);
+}
+
+void
+endblit(void)
+{
+    if (blitmtx) SDL_UnlockMutex(blitmtx);
+}"""
+    if maintext.count(old_blit)!=1: raise SystemExit("P007_REJECT_HEADLESS_BLIT_SIGNATURE")
+    sdlmain.write_text(maintext.replace(old_blit,new_blit,1),encoding="utf-8",newline="\n")
+
+    render=fork/"src/unix/sdl_render.c"
+    rendertext=render.read_text(encoding="utf-8")
+    for old_guard,new_guard in (
+        ("    SDL_LockMutex(sdl_mutex);\n    SDL_SetRelativeMouseMode",
+         "    if (!sdl_mutex) { mouse_capture = on; return; }\n    SDL_LockMutex(sdl_mutex);\n    SDL_SetRelativeMouseMode"),
+        ("    SDL_LockMutex(sdl_mutex);\n    resize_w",
+         "    if (!sdl_mutex) return;\n    SDL_LockMutex(sdl_mutex);\n    resize_w"),
+        ("    SDL_SetWindowTitle(sdl_win, sdl_win_title);",
+         "    if (sdl_win) SDL_SetWindowTitle(sdl_win, sdl_win_title);"),
+    ):
+        if rendertext.count(old_guard)!=1: raise SystemExit("P007_REJECT_HEADLESS_RENDER_SIGNATURE")
+        rendertext=rendertext.replace(old_guard,new_guard,1)
+    render.write_text(rendertext,encoding="utf-8",newline="\n")
+
+    ui=fork/"src/unix/sdl_ui.c"
+    uitext=ui.read_text(encoding="utf-8")
+    old_modal="    SDL_ShowMessageBox(&msgdata, &button);"
+    if uitext.count(old_modal)!=1: raise SystemExit("P007_REJECT_HEADLESS_UI_MODAL")
+    uitext=uitext.replace(old_modal,"    (void)msgdata; /* No modal dialog inside host DAW. */",1)
+    for line in (
+        "    osd_ui_sb_update_icon_state(tag, state);",
+        "    osd_ui_sb_update_icon(tag, active);",
+        "    osd_ui_sb_update_icon_write(tag, active);",
+        "    osd_ui_sb_update_icon_wp(tag, state);",
+    ):
+        if uitext.count(line)!=1: raise SystemExit("P007_REJECT_HEADLESS_UI_OSD")
+        uitext=uitext.replace(line,"    /* No host emulator window or OSD. */",1)
+    ui.write_text(uitext,encoding="utf-8",newline="\n")
 
     cm.write_text(original.replace(before,after),encoding="utf-8",newline="\n")
     dsp_after=hashlib.sha256(core.read_bytes()).hexdigest()

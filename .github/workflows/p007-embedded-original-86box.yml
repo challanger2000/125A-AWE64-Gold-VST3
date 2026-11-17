@@ -1,7 +1,7 @@
 name: P007 true in-process original 86Box core DLL
 on:
   push:
-    branches: [experiment/p007-inprocess-86box]
+    branches: [experiment/p007-inprocess-86box, research/p007-b-headless-boot-20261117]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007-embedded-original-86box.yml"
@@ -74,6 +74,14 @@ jobs:
           dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
           if [ -z "$dll" ]; then echo 'P007_NO_INPROCESS_86BOX_DLL'; exit 1; fi
           build/P007CoreDllLoader.exe "$dll"
+      - name: Verify safe no-profile guest boot gate (no private assets in CI)
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror \
+            experiments/p007-inprocess-86box/tests/P007GuestBootGateTest.cpp \
+            -o build/P007GuestBootGateTest.exe
+          dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
+          build/P007GuestBootGateTest.exe "$dll"
       - name: Checkout pinned Steinberg VST3 SDK (MSVC)
         shell: pwsh
         run: |

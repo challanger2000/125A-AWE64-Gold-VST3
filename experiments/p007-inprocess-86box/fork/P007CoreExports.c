@@ -2,6 +2,7 @@
    C unit. The original snd_emu8k.c, Creative guest and x86 CPU are unchanged.
    These probes must NEVER call into the emulation before core init. */
 #include <stdint.h>
+#include <SDL.h>
 #include <stdio.h>
 #include <string.h>
 #include <86box/86box.h>
@@ -62,4 +63,31 @@ P007_EXPORT int p007_core_init_profile(
     const int result=pc_init(9,argv);
     if(result==1) s_profile_initialized=1;
     return result;
+}
+
+/* Original 86Box's guest launch sequence, invoked only on the private
+   emulator thread. Neither original chip DSP nor x86 timing is replaced. */
+static int s_guest_stage;
+P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
+P007_EXPORT int p007_core_guest_boot(void) {
+    if (!s_profile_initialized) return -1;
+    if (s_guest_stage) return -2;
+    /* No SDL video/window/audio driver is started in the host DAW. */
+    if (SDL_Init(0) != 0) return -3;
+    if (!pc_init_roms()) return -4;
+    if (!pc_init_modules()) return -5;
+    pc_reset_hard_init();
+    s_guest_stage = 1;
+    return 1;
+}
+P007_EXPORT int p007_core_guest_step(void) {
+    if (s_guest_stage != 1) return 0;
+    pc_run();
+    return 1;
+}
+P007_EXPORT void p007_core_guest_close(void) {
+    if (s_guest_stage != 1) return;
+    pc_close(NULL);
+    s_guest_stage = 2;
+    SDL_Quit();
 }
