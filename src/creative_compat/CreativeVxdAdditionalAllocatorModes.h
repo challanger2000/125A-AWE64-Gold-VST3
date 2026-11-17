@@ -97,6 +97,9 @@ struct OriginalWin95AllocatorDispatchInput {
     std::uint8_t original_x86_dispatch_mode=0xffu; // 0, 1, 2
     std::uint16_t original_device_physical_capacity=0u; // device+0x06
     std::uint32_t original_device_mode_count=0u; // device+0x18
+    // Independently verified original LCOD+3ED4 [device+0x06].
+    // Must equal physical capacity (1..32); 30 is NOT a universal
+    // mode-0 limit. Authentic Win95 +3F13/+3FCE reaches voices 30/31.
     std::uint8_t independently_verified_mode0_scan_ceiling=0u;
     std::uint32_t original_mode2_packed_range=0u;
 };
