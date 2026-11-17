@@ -226,3 +226,13 @@ target_link_libraries(test_original_creative_nrpn_cc6_cc38
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_nrpn_cc6_cc38_chip_port_contract
     COMMAND test_original_creative_nrpn_cc6_cc38)
+
+
+# Owner holds the original Win95 0x1592 device, 30x6 parameter bytes,
+# and 128 lookup WORDs in stable per-instance fixed-size storage.
+add_executable(test_original_creative_nrpn_owner
+    tests/test_original_creative_nrpn_owner.cpp)
+target_link_libraries(test_original_creative_nrpn_owner
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_owner_lifetime_no_heap
+    COMMAND test_original_creative_nrpn_owner)
