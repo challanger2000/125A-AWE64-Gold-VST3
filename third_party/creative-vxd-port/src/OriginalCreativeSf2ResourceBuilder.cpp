@@ -163,7 +163,8 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
     before[0x8bu]=static_cast<std::uint8_t>(s.sample.correction);
     set(before,0x8cu/2u,s.sample.sample_type);
     set(before,0x8eu/2u,s.sample.sample_link);
-    set_dword(before,0x90u,s.preset_row);
+    set_dword(before,0x90u,ctx.original_source_preset_binding_verified?
+        ctx.original_descriptor_group:s.preset_row);
     after=before;
     set(after,0x8cu/2u,1u);
     if(ctx.original_note_volume_source) {
@@ -177,7 +178,11 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
     }else set(after,19u,ctx.original_encoded_attenuation);
     const auto attack=attack_rate(get(before,34u));
     const auto cutoff=static_cast<std::int32_t>(clamp_word(get(before,8u),0,255));
-    const auto actual_cutoff=(s.bank<128u && attack<125u)?
+    // Original +0x59FC/+0x5803 inspect the selected PROGRAM WORD at
+    // channel+2. The legacy note-only API lacks that VXD/source binding.
+    const bool melodic=ctx.original_source_preset_binding_verified?
+        s.program<128u:s.bank<128u;
+    const auto actual_cutoff=(melodic && attack<125u)?
         (static_cast<std::int32_t>(std::max(70u,static_cast<unsigned>(s.velocity)))*
          cutoff+160)/128:cutoff;
     set(after,8u,static_cast<std::uint16_t>(actual_cutoff));
@@ -190,7 +195,7 @@ void set_dword(Descriptor& d,unsigned at,std::uint32_t v) noexcept {
            {{27u,31u}},{{28u,32u}},{{35u,39u}},{{36u,40u}}}}) {
         const auto value=fields[entry[0]]+
             (60-static_cast<std::int32_t>(s.key))*fields[entry[1]];
-        if(s.bank<128u)fields[entry[0]]=std::clamp(value,-32768,32767);
+        if(melodic)fields[entry[0]]=std::clamp(value,-32768,32767);
     }
     for(const auto op:std::array<unsigned,14>{
         26u,34u,21u,23u,25u,33u,28u,36u,30u,38u,27u,35u,22u,24u})
@@ -252,7 +257,9 @@ OriginalSf2PreparedBank prepare_original_sf2_zones(
             result.status=Sf2BuildStatus::Unsupported;return result;
         }
         if(!c.original_program_identity_verified ||
-           c.original_program_preset_row!=s.preset_row ||
+           (c.original_source_preset_binding_verified?
+                c.original_source_preset_row!=s.preset_row:
+                c.original_program_preset_row!=s.preset_row) ||
            (!c.original_voice_pitch_base_verified &&
             !c.original_voice_start.original_derive_pitch_target_from_channel) ||
            !c.original_voice_start.original_descriptor_verified ||
@@ -301,6 +308,17 @@ OriginalSf2PreparedBank prepare_original_sf2_zones(
             v.original_velocity_volume_level=
                 c.original_note_volume_source->velocity_table[s.velocity];
             v.volume_terms_verified=true;
+        }
+        if(c.original_source_preset_binding_verified) {
+            // Original LCOD+0x5A94..+0x5AD9 retains these descriptor
+            // terms for later source CC10 and modulation updates.
+            v.original_pan_base=static_cast<std::uint8_t>(std::clamp(
+                get(original,17u)*16/125+64,0,127));
+            v.pan_target=static_cast<std::uint8_t>(get(started,17u));
+            v.pan_current=v.pan_target;
+            v.pan_state_verified=true;
+            v.original_modulation_word_signed=static_cast<std::int8_t>(get(started,5u));
+            v.original_modulation_word_verified=true;
         }
         out.original_state=c.original_voice_start;
         if(c.original_voice_start.original_derive_pitch_target_from_channel ||

@@ -67,6 +67,9 @@ struct SourceVoice {
     bool original_live_pitch_state_verified=false;
     std::int16_t original_live_pitch_tune=0;
     std::int32_t original_live_bend_delta=0;
+    // Native source capability generation, not an original VXD field.
+    // Streaming sources invalidate selected descriptors on every resolve.
+    std::uint64_t original_source_generation=0;
 };
 
 // Fixed original VXD LCOD+0x5BE4..0x6021 main register order (28 x E22+DATA).

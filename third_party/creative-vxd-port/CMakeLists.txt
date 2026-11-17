@@ -8,6 +8,7 @@ add_library(original_creative_vxd_live STATIC
     src/OriginalCreativeVerifiedSf2Bank.cpp
     src/OriginalCreativeSf2SourceReader.cpp
     src/OriginalCreativeSf2ResourceBuilder.cpp
+    src/OriginalCreativeSf2RuntimeBank.cpp
     src/OriginalCreativeSf2RamUpload.cpp
     src/OriginalCreativeRamScratchVoices.cpp
     src/OriginalCreativePanController.cpp
@@ -65,6 +66,9 @@ add_test(NAME original_creative_volume_controller COMMAND test_original_creative
 add_executable(test_original_creative_note_volume tests/test_original_creative_note_volume.cpp)
 target_link_libraries(test_original_creative_note_volume PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_note_volume COMMAND test_original_creative_note_volume)
+add_executable(test_original_creative_sf2_runtime_bank tests/test_original_creative_sf2_runtime_bank.cpp)
+target_link_libraries(test_original_creative_sf2_runtime_bank PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_sf2_runtime_bank_zero_heap COMMAND test_original_creative_sf2_runtime_bank)
 add_executable(test_original_creative_modulation_controller tests/test_original_creative_modulation_controller.cpp)
 target_link_libraries(test_original_creative_modulation_controller PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_modulation_controller COMMAND test_original_creative_modulation_controller)

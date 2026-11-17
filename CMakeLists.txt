@@ -1147,6 +1147,17 @@ if(AWE64_ENABLE_P005_ORIGINAL_CREATIVE)
     add_subdirectory(
         "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}"
         "${CMAKE_CURRENT_BINARY_DIR}/p005-original-creative-port")
+    add_executable(awe64_p005_sf2_runtime_host_test tests/p005_sf2_runtime_host.cpp)
+    target_include_directories(awe64_p005_sf2_runtime_host_test PRIVATE src/vst3
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/tests")
+    target_link_libraries(awe64_p005_sf2_runtime_host_test PRIVATE original_creative_vxd_live)
+    add_test(NAME p005_runtime_sf2_host_shared_state_lifetime COMMAND awe64_p005_sf2_runtime_host_test)
+    add_executable(awe64_p005_sf2_runtime_real_chip_test tests/p005_sf2_runtime_real_chip.cpp)
+    target_include_directories(awe64_p005_sf2_runtime_real_chip_test PRIVATE
+        "${AWE64_P005_ORIGINAL_CREATIVE_SOURCE_DIR}/tests")
+    target_link_libraries(awe64_p005_sf2_runtime_real_chip_test PRIVATE original_creative_vxd_live awe64_fork_chip)
+    add_test(NAME p005_runtime_sf2_original_chip_generated_pcm COMMAND awe64_p005_sf2_runtime_real_chip_test)
+    set_tests_properties(p005_runtime_sf2_original_chip_generated_pcm PROPERTIES TIMEOUT 30)
 # Differential: two independently implemented, source-gated native mode-1
 # allocators must choose the same pair without a CPU timing approximation.
     add_executable(awe64_p005_mode1_live_snapshot_differential
