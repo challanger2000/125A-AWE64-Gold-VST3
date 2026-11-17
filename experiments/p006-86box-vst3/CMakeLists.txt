@@ -28,9 +28,15 @@ if(P006_BUILD_WIN95_GUEST)
   target_include_directories(P006_Win95_Original_Creative_Relay
     PRIVATE bridge)
   target_compile_options(P006_Win95_Original_Creative_Relay
-    PRIVATE /W4 /WX /GS-)
+    PRIVATE /W4 /WX /GS- /Oi-)
   target_link_options(P006_Win95_Original_Creative_Relay PRIVATE
-    /NODEFAULTLIB /ENTRY:P006GuestMain /SUBSYSTEM:CONSOLE,4.0)
+    /NODEFAULTLIB /ENTRY:P006GuestMain /SUBSYSTEM:CONSOLE,5.0)
   target_link_libraries(P006_Win95_Original_Creative_Relay PRIVATE
     kernel32 winmm)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_custom_command(TARGET P006_Win95_Original_Creative_Relay POST_BUILD
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/guest/patch_win95_pe.py"
+      "$<TARGET_FILE:P006_Win95_Original_Creative_Relay>"
+    VERBATIM)
 endif()
