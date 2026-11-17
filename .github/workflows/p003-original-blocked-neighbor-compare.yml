@@ -8,6 +8,7 @@ on:
       - 'tests/p003_original_mode2_ccca_only_validated.cpp'
       - 'tests/p003_original_mode2_vtft_dcysusv_provenance.cpp'
       - 'tests/p003_original_mode0_lazy_source_reads.cpp'
+      - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.h'
       - 'tests/p003_original_vxd_additional_allocator_modes.cpp'
@@ -26,6 +27,16 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
+      - name: Run complete legacy mode0 C++23 numeric and release-write regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p002_native_vxd_mono_ranking.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-legacy-mode0"
+          "$RUNNER_TEMP/p003-legacy-mode0"
       - name: Verify source-ordered original mode0 early reads in corrected research source
         shell: bash
         run: |
