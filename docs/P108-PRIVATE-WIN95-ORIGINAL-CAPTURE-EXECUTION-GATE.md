@@ -24,7 +24,7 @@ Der strikt implementierte Vergleich in `tools/p108_verify_direct_jcc.py` fordert
 
 ## Wirklich ausgeführte Tests bis jetzt
 
-Die *synthetischen* Negativtests des neuen Readers und des Private-VM-Handlers sind unter `tests/test_p108_private_win95_original_capture.py` dokumentiert. `.github/workflows/p107-original-old-dynarec-branch-capture.yml` führt sie unter Ubuntu und Windows aus. Der vollständig instrumentierte Linux- und Windows-86Box-Build ist durch getrennte CI-Jobs gegen die vorgegebene Original-Quellcodebasis prüfbar. Die öffentliche CI enthält **keinen** Microsoft-/Creative-Binärcode, keine privaten VM-/SF2-/ROM-/WAV-Daten und keinen echten Original-Gastausführungstest.
+Die **neun** *synthetischen* Positiv-/Negativtests des neuen Private-VM-Runners sind unter `tests/test_p108_private_win95_original_capture.py` implementiert. **Tatsächlich überprüft:** [GitHub-Actions-Lauf #43991715673](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/43991715673) **3/3 PASS**: Quell- und Negativtests (einschließlich 9/9 Runner-Gates), voll instrumentierter Linux-x64-86Box-Build und voll instrumentierter Windows-2022-x64-86Box-Build. Die beiden nativen CI-Builds verwenden ausschließlich öffentliches, SHA-gepinntes 86Box-Quellmaterial; **keinen Original-Win95-Gast**. Die öffentliche CI enthält **keinen** Microsoft-/Creative-Binärcode, keine privaten VM-/SF2-/ROM-/WAV-Daten und keinen echten Original-Gastausführungstest.
 
 **Bisherige belegte Originalaufnahme:** P107 mit 36.784 Guest-I-Ereignissen und 3.458/3.474 Jcc-Next-PC-Befunden; P108 hat für die 16 noch keine **private Originalergebnisdatei**. Deshalb status `P108_PRIVATE_ORIGINAL_EXECUTION_PENDING`, nicht P108 Original PASS.
 
