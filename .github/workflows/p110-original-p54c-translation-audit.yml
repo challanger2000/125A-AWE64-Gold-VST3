@@ -1,0 +1,38 @@
+name: P110 original Pentium translator private trace auditor guards
+
+on:
+  push:
+    branches:
+      - research/p107-original-x64-dynarec-guest-branch-capture
+    paths:
+      - 'tools/p110_audit_original_p54c_translation_private.py'
+      - '.github/workflows/p110-original-p54c-translation-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p110-original-translator-audit-unit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-only-audit:
+    name: P110 source-time-only trace fail-closed (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run strictly synthetic original Pentium translator audit guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -W error::ResourceWarning tools/p110_audit_original_p54c_translation_private.py --selftest
+          echo 'P110_FAIL_CLOSED_SYNTHETIC_TRANSLATOR_SOURCE_ONLY_PASS'
