@@ -34,6 +34,19 @@ static void log_line(char const* s){
  if(h && h!=INVALID_HANDLE_VALUE)
   (void)WriteFile(h,s,(DWORD)lstrlenA(s),&written,NULL);
 }
+/* Research diagnostics: report each failing COM2 Win32 API exactly once.
+ * These are the original Windows95 error codes, not synthetic status.
+ * No CRT dependency and no additional host process. */
+static unsigned s_com_stage_logged=0u;
+static void log_com_error(unsigned stage,char const* label,DWORD err){
+ char hex[]="0x00000000";
+ static const char digits[]="0123456789ABCDEF";
+ unsigned i;
+ if(stage>=8u || (s_com_stage_logged & (1u<<stage)))return;
+ s_com_stage_logged |= 1u<<stage;
+ for(i=0u;i<8u;++i)hex[2u+i]=digits[(err>>(28u-4u*i))&15u];
+ log_line(label);log_line(hex);log_line("\r\n");
+}
 static int select_original(HMIDIOUT* out){
  UINT i,n=midiOutGetNumDevs();MIDIOUTCAPSA cap;
  for(i=0;i<n;++i){
@@ -53,8 +66,14 @@ static HANDLE open_serial(void){
  HANDLE h;DCB dcb;COMMTIMEOUTS t;
  h=CreateFileA("COM2",GENERIC_READ|GENERIC_WRITE,0,NULL,
   OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
- if(h==INVALID_HANDLE_VALUE)return h;
- if(!GetCommState(h,&dcb)){CloseHandle(h);return INVALID_HANDLE_VALUE;}
+ if(h==INVALID_HANDLE_VALUE){
+  log_com_error(0u,"P007_COM2_CREATEFILE_ERR=",GetLastError());
+  return h;
+ }
+ if(!GetCommState(h,&dcb)){
+  log_com_error(1u,"P007_COM2_GETCOMMSTATE_ERR=",GetLastError());
+  CloseHandle(h);return INVALID_HANDLE_VALUE;
+ }
  dcb.BaudRate=115200;dcb.ByteSize=8;
  dcb.Parity=NOPARITY;dcb.StopBits=ONESTOPBIT;
  dcb.fBinary=TRUE;dcb.fParity=FALSE;
@@ -62,12 +81,18 @@ static HANDLE open_serial(void){
  dcb.fDtrControl=DTR_CONTROL_ENABLE;
  dcb.fRtsControl=RTS_CONTROL_ENABLE;
  dcb.fOutX=FALSE;dcb.fInX=FALSE;
- if(!SetCommState(h,&dcb)){CloseHandle(h);return INVALID_HANDLE_VALUE;}
+ if(!SetCommState(h,&dcb)){
+  log_com_error(2u,"P007_COM2_SETCOMMSTATE_ERR=",GetLastError());
+  CloseHandle(h);return INVALID_HANDLE_VALUE;
+ }
  clear(&t,(unsigned)sizeof(t));
  t.ReadIntervalTimeout=MAXDWORD;
  t.ReadTotalTimeoutConstant=50;
  t.WriteTotalTimeoutConstant=100;
- if(!SetCommTimeouts(h,&t)){CloseHandle(h);return INVALID_HANDLE_VALUE;}
+ if(!SetCommTimeouts(h,&t)){
+  log_com_error(3u,"P007_COM2_SETTIMEOUTS_ERR=",GetLastError());
+  CloseHandle(h);return INVALID_HANDLE_VALUE;
+ }
  return h;
 }
 static int send_guest_marker(HANDLE port,const char* msg){
