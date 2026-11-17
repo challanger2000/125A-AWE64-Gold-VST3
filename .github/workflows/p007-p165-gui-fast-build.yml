@@ -9,6 +9,8 @@ on:
       - "experiments/p007-inprocess-86box/vst3/P007Native.hpp"
       - "experiments/p007-inprocess-86box/vst3/CMakeLists.txt"
       - "experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py"
+      - "experiments/p007-inprocess-86box/tests/P007StateCodecTest.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007StateCodec.hpp"
       - ".github/workflows/p007-p165-gui-fast-build.yml"
   workflow_dispatch:
 permissions:
