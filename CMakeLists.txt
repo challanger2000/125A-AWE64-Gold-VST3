@@ -195,6 +195,20 @@ target_link_libraries(awe64_p005_original_compiled_block_clock_test
     PRIVATE awe64_p002_sample_clock_ports)
 add_test(NAME p005_source_p54c_compile_epoch_jit_cached_execution
     COMMAND awe64_p005_original_compiled_block_clock_test)
+add_executable(awe64_p005_original_dynarec_tsc_clock_test
+    tests/p114_original_dynarec_block_clock.cpp)
+target_include_directories(awe64_p005_original_dynarec_tsc_clock_test
+    PRIVATE src/creative_compat)
+add_test(NAME p005_original_update_tsc_integer_accounting
+    COMMAND awe64_p005_original_dynarec_tsc_clock_test)
+add_executable(awe64_p005_original_executed_port_clock_test
+    tests/p005_original_executed_port_clock.cpp)
+target_include_directories(awe64_p005_original_executed_port_clock_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_executed_port_clock_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_original_live_tsc_physical_emu_port_frame
+    COMMAND awe64_p005_original_executed_port_clock_test)
 
 
 # Adversarial test for the *actual* private Creative VST3 bank state

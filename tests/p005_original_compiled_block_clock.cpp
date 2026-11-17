@@ -4,6 +4,7 @@
 #include <cstdio>
 using awe64::creative::P005OriginalPentiumCompiledBlockClock;
 using awe64::creative::P005OriginalP54cDecodedIntegerOp;
+using awe64::creative::P005OriginalPentiumIntegerTiming;
 using awe64::creative::P005UntimedChipOut16;
 #define CHECK(v) do { if(!(v)) { \
   std::printf("P005_COMPILED_P54C_TEST_FAIL line=%d: %s\n",__LINE__,#v); \

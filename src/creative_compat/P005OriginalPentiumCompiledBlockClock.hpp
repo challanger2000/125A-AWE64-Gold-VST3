@@ -146,6 +146,15 @@ public:
     [[nodiscard]] std::uint64_t newestCompiledEpoch() const noexcept {
         return lastEpoch_;
     }
+    [[nodiscard]] bool sourceGenerationMatches(
+        std::size_t slot,std::uint64_t epoch,std::uint32_t pc,
+        std::uint32_t phys) const noexcept {
+        return ready_ && !failed_ && !translating_ &&
+               slot<kMaxSlots && blocks_[slot].valid &&
+               blocks_[slot].epoch==epoch &&
+               blocks_[slot].guestPc==pc &&
+               blocks_[slot].physicalAddress==phys;
+    }
     [[nodiscard]] std::uint32_t compiledCost(
         std::size_t slot,std::uint64_t epoch) const noexcept {
         if(slot>=kMaxSlots || !blocks_[slot].valid ||
