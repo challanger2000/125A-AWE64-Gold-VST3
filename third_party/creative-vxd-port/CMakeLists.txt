@@ -206,3 +206,13 @@ target_link_libraries(test_original_creative_lcod73xx_nrpn
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_lcod73xx_nrpn_source_contract
     COMMAND test_original_creative_lcod73xx_nrpn)
+
+
+# Source-gated original NRPN branch in the actual MIDI dispatcher.
+# Tests CC98/CC99 and the CC121 installed +0xB5A callback path.
+add_executable(test_original_creative_nrpn_midi_bridge
+    tests/test_original_creative_nrpn_midi_bridge.cpp)
+target_link_libraries(test_original_creative_nrpn_midi_bridge
+    PRIVATE original_creative_vxd_live)
+add_test(NAME original_creative_nrpn_midi_bridge_source_gated
+    COMMAND test_original_creative_nrpn_midi_bridge)
