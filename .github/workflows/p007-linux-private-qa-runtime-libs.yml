@@ -1,0 +1,31 @@
+name: P007 standalone Linux QA dependent libraries (no private data)
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths: [".github/workflows/p007-linux-private-qa-runtime-libs.yml"]
+permissions: { contents: read }
+jobs:
+  runtime-libs:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime ELF dependencies absent in the private offline environment
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libserialport0 libslirp0 libfaudio0
+          mkdir -p build/runtime-libs
+          for lib in libserialport.so.0 libslirp.so.0 libFAudio.so.0; do
+            match="$(ldconfig -p | awk -v lib="$lib" '$1==lib {print $NF; exit}')"
+            if test ! -f "$match"; then echo "P007_MISSING_LIB $lib $match"; exit 1; fi
+            cp -L "$match" "build/runtime-libs/$lib"
+            file "build/runtime-libs/$lib"
+          done
+          echo P007_LINUX_PRIVATE_OFFLINE_THREE_RUNTIME_LIBS_READY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P007-Linux-Private-QA-Runtime-Only
+          path: build/runtime-libs/*
+          retention-days: 3
+          if-no-files-found: error
