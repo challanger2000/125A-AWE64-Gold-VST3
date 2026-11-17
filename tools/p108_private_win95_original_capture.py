@@ -33,6 +33,7 @@ from p003_private_fat16_replace import patch_disposable_guest
 from p002_extract_original_win95_ram_log_fat16 import PrivateFat16Reader
 from p003_verify_original_win95_mode_stress_log import validate_original_stress_log
 from p108_verify_direct_jcc import read_direct,compare_original
+from p110_audit_original_p54c_translation_private import audit as audit_p110_translator
 from p108_resolve_private_original_package import resolve as resolve_original_v4_package
 from p107_audit_executed_jcc_private import read_trace
 
@@ -86,7 +87,8 @@ def verify_original_guest_sources(original_vm:Path,guest_exe:Path,bank:Path):
             "original_guest_stress_sha256":STRESS_EXE_SHA,
             "original_second_sf2_sha256":STRESS_SECOND_SF2_SHA}
 
-def make_probe_environment(environ,trace_i:Path,trace_b:Path,io_path:Path):
+def make_probe_environment(environ,trace_i:Path,trace_b:Path,io_path:Path,
+                           trace_p110:Path|None=None):
     env=environ.copy()
     env["AWE64_P107_EXECUTED_X86_TRACE"]=str(trace_i)
     env["AWE64_P108_DIRECT_BRANCH_TRACE"]=str(trace_b)
@@ -94,6 +96,13 @@ def make_probe_environment(environ,trace_i:Path,trace_b:Path,io_path:Path):
     env["AWE64_P107_LCOD_SELECTOR"]="0x28"
     env["AWE64_P003_CPU_IO_TRACE"]=str(io_path)
     env["AWE64_P003_GUEST_CALLSTACK"]="1"
+    for key in ("AWE64_P110_TIMING_TRANSLATION_TRACE",
+                "AWE64_P110_LCOD_BASE","AWE64_P110_LCOD_SELECTOR"):
+        env.pop(key,None)
+    if trace_p110 is not None:
+        env["AWE64_P110_TIMING_TRANSLATION_TRACE"]=str(trace_p110)
+        env["AWE64_P110_LCOD_BASE"]=ORIGINAL_LCOD_RUNTIME_BASE
+        env["AWE64_P110_LCOD_SELECTOR"]="0x28"
     return env
 
 def completed_original_guest(disk:Path):
