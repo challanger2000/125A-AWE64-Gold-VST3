@@ -195,8 +195,13 @@ def patch_pair(pristine_dynarec:bytes,
         raise ValueError("P111 requires P107 interpreted guest-original source")
     if P107_MARKER not in code:
         raise ValueError("P111 requires P107 original executed-x86 codegen")
-    for marker in (P110_MARKER,P108_MARKER):
-        if marker not in code:raise ValueError("P111 requires P108/P110 old x64 JIT source")
+    # P110's marker is in codegen_timing_pentium.c, not codegen_x86-64.c.
+    # Guard real original P110 JIT callback sites instead.
+    if P108_MARKER not in code or not all(x in code for x in (
+        "p110_original_p54c_translator_block_begin",
+        "p110_original_p54c_translator_opcode_before",
+        "p110_original_p54c_translator_opcode_after")):
+        raise ValueError("P111 requires P108/P110 old x64 JIT source")
     if P111_MARKER in cpu or P111_MARKER in code:
         raise ValueError("P111 already present in old 86Box")
     code=once(code,JIT_GLOBAL_ANCHOR,
