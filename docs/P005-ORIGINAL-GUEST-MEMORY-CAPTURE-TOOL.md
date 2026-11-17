@@ -213,3 +213,41 @@ Die vorherige Besitzeraufnahme vom 16.11.2026 enthält diese neuen
 Zusatzbytes **nicht**. Ein künftiger vollständigerer Quellenvergleich
 benötigt eine weitere tatsächliche Gast-RAM-Aufnahme. Bis dahin bleiben
 Originaltreiber-Live-Sitzungsbindung, Bank2 und PCM-/CPU-Parität offen.
+
+
+## Originalbesitzer-Aufnahme vom 17.11.2026 – rekonstruiertes Tabellen-Layout
+
+Die beiden privaten Dateien `125AVXD1` und `125AVXR1` wurden
+gegen die ältere Besitzeraufnahme vom 16.11.2026 verglichen.
+**0 von 10.790 überlappenden Gast-Speicherbytes unterscheiden sich**;
+ebenso sind Gerätebild, CR3 und alle sieben Bankzeiger identisch.
+Die neue, lückenlos zusammenhängende Kopie reicht nun über
+**23.946 Originalbytes** ab Root-Gast-VA (die ersten 3.456 Bytes in
+`125AVXD1`, alle zusätzlichen Abschnitte in `125AVXR1`).
+
+Die neue Quelle beweist folgende **rein strukturelle Beziehungen**:
+
+| Originalbereich | Bytezahl | Sicher abgeleiteter Index-Typ | Beziehung |
+|---|---:|---|---|
+| 2. Kindregion | 728 | 182 × u32 | Letzter Index = 466 |
+| 3. Kindregion | 1.398 | 466 × 3 Bytes | Indexgrenze oben = 466 |
+| 4. Kindregion | 360 | 180 × u16 | Letzter Index = 743 |
+| 5. Kindregion | 2.976 | 744 × u32 | Letzter gültiger Index = 743; letzter Index des 744er-Vektors = 3.644 |
+| 6. Kindregion | 10.932 | 3.644 × 3 Bytes | Indexgrenze oben = 3.644 |
+| 7. Kindregion | 4.096 aufgezeichnet | unbekannt | ausdrücklich nur Stichprobe ohne Quell-Endadresse |
+
+Damit sind **drei originale Index-zu-Datensatz-Verkettungen
+arithmetisch exakt** belegt. Die Tabellen sind weder automatisch
+SF2-`PHDR`, `IBAG` oder `IGEN`, noch darf man ohne
+Quellcode-/Registerspurenanalyse daraus Instrumente, Zonen oder
+Modulatornamen ableiten. Das neue, rein lesende Werkzeug
+`tools/p005_analyze_original_nested_bank_geometry.py` validiert
+diese drei Verkettungen auch bei künftigen Aufnahmen; seine Tests
+nutzen ausschließlich synthetische Daten. Es werden keine privaten
+Creative-Bytes veröffentlicht.
+
+Die zuvor fehlenden Gastspeicherabschnitte sind bis auf den
+**unbegrenzt lange möglichen Rest ab dem siebten Pointer** nun als
+stabiler Original-RAM-Bereich erfasst. Die tatsächlich geladene
+Treiberidentität, der Audio-/CPU-Zeitvergleich und die semantische
+Zuordnung der Tabellen bleiben offen.
