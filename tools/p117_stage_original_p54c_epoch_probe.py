@@ -22,6 +22,12 @@ def stage(original:Path,dest:Path)->None:
     codegen=dest/'src/codegen/codegen_x86-64.c'
     dynarec=dest/'src/cpu/386_dynarec.c'
     pentium=dest/'src/cpu/codegen_timing_pentium.c'
+    io=dest/'src/io.c'
+    io_scratch=dest/'src/io.p003.p117.tmp'
+    call('p003_instrument_86box_io.py',
+        '--original-io-c',str(original/'src/io.c'),
+        '--output-io-c',str(io_scratch))
+    io_scratch.replace(io)
     scratch=dest/'src/codegen/codegen_x86-64.p117.tmp'
     call('p107_instrument_old_dynarec.py',
         '--original-codegen',str(original/'src/codegen/codegen_x86-64.c'),
@@ -49,10 +55,17 @@ def stage(original:Path,dest:Path)->None:
         '--original-pentium',str(original/'src/cpu/codegen_timing_pentium.c'),
         '--copy-pentium',str(pentium),
         '--copy-old-codegen',str(codegen))
+    call('p115_original_live_cpu_tsc_probe.py',
+        '--original-dynarec',str(original/'src/cpu/386_dynarec.c'),
+        '--copy-dynarec',str(dynarec),
+        '--copy-p003-io',str(io))
     for preserve in ('src/sound/snd_emu8k.c','src/sound/snd_sb.c'):
         if (original/preserve).read_bytes() != (dest/preserve).read_bytes():
             raise ValueError('P117 forbidden original sound core mutation')
-    print('P117_STAGE_ORIGINAL_86BOX_COPY_PROBES_PASS source_original_unchanged=TRUE')
+    if (b'P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1' not in dynarec.read_bytes() or
+        b'P115_ORIGINAL_DYNAREC_LIVE_CPU_TSC_V1' not in io.read_bytes()):
+        raise ValueError('P117 P003/P115 original clock join absent')
+    print('P117_STAGE_ORIGINAL_86BOX_COPY_PROBES_PASS P003_P115_P117_SAME_GUEST_BUILD_READY=TRUE source_original_unchanged=TRUE')
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
