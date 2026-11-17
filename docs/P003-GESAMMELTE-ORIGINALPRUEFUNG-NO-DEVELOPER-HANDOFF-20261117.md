@@ -60,6 +60,32 @@ Ein [privater, SHA-gepinnter Original-Auditor](../tools/p003_audit_original_mode
 
 **Keine neue Entwicklerübergabe, kein PR-Kommentar und keine Änderung an P005.**
 
+## Originales Modus-0-Stimmenfreigabe-Protokoll jetzt über **alle 32 Stimmen** geprüft
+
+Über den oben dokumentierten ursprünglichen Voice-30/31-Nachweis hinaus wurden **beide vollständigen, SHA-256-authentifizierten Win95-Creative-CPU-I/O-Spuren** erneut auf **jede** ausgeführte Original-Freigabe bei `LCOD+3FCE` und die unmittelbar folgenden Porttransaktionen bei `LCOD+3E0C` geprüft.
+
+| Tatsächlich ausgeführte Originalereignisse | Sitzung A | Sitzung B | Beide |
+|---|---:|---:|---:|
+| Modus-0-Stimmenfreigaben (`E22 = 0xA0 | voice`) | 5.878 | 5.878 | **11.756** |
+| Verifizierte unmittelbar folgende Port-Writes (`A20`, `E22`, `620`, `622`) | 23.512 | 23.512 | **47.024** |
+| Falsche Stimme / falscher Caller / falscher Hilfs-Program Counter / falscher Wert / falsche Reihenfolge | 0 | 0 | **0** |
+| Unterbrochene oder unvollständige Freigabesequenzen | 0 | 0 | **0** |
+| Tatsächlich ausgewählte physische Stimmennummern | 0–31 | 0–31 | **alle 32** |
+
+**Originale Ereignisfolge (pro Auswahl, unabhängig von der Voice-ID):** `E22 (8-Bit) = 0xA0|voice` bei Original `+3FCE` → `A20 (16-Bit) = 0x00FF` am selben Original-Caller → `E22 (8-Bit) = 0x60|SAME_voice` bei Original `+3E0C` → `620 (16-Bit) = 0xFFFF` → `622 (16-Bit) = 0x0000`. Der letzte doppelte Port-Write ist das physische Original `VTFT=0x0000FFFF` als DATA0-32-Bit-Wort. Der Nachweis umfasst **11.756/11.756** vollständige Originalauswahlen, nicht nur 448 High-Voice-Fälle.
+
+**Timing-Negativbeweis gegen eine universelle Offsetkonstante:** Der gemessene Original-CPU-TSC-Abstand von der Freigabe-E22-Ausgabe bis zum nachfolgenden VTFT-E22-Selektor schwankt in Sitzung A von **91 bis 4.062** Gast-TSC-Takten (häufigster Wert 92, 2.527 Vorkommen), in Sitzung B von **91 bis 701** Takten (häufigster Wert 94, 2.204 Vorkommen). Das ist ein **Verteilungs-/Originalzustandsbefund**, kein isolierter Beweis einer CPU-Zeitformel oder der Ursache einzelner Ausreißer. Eine pauschale harte Zeitkonstante wäre aus diesen zwei Originalmessungen nicht gerechtfertigt.
+
+**Nachweis und maschinelle Verifikation im getrennten Forschungszweig:**
+- [Strikter, SHA-gepinnter Original-Win95-Auditor](../tools/p003_audit_original_mode0_complete_release_private.py): prüft Original-Quelladresse, reale x86-Helfer-Program Counter, vollständige physische I/O-Reihenfolge und 32-Voice-Abdeckung; gibt nur aggregierte Daten aus. Private ROM-/SF2-/Win95-Daten sind NICHT veröffentlicht.
+- [Sieben unabhängige synthetische Negativ-/Positivtests des Auditors](../tests/test_p003_original_mode0_complete_release_audit.py): falsche Voice, falsches A20-Wort, falscher PC, fehlende Folgeoperation, ersetzter Read und unzulässiger TSC-Rücksprung müssen als Fehler erkannt werden.
+- [C++23-Originalausgabe für ALLE 32 Stimmen und drei Freigabegründe](../tests/p003_original_all32_release_vtft_words.cpp): kontrastiert die vorhandenen Writer mit der gesicherten Original-Registerfolge und verbietet Stimme 32/255.
+- [GitHub-CI mit vollständiger vorheriger Suite und neuen Prüfungen](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44009319217). Dieser Lauf muss PASS sein; bis dahin darf keine neue Testfreigabe behauptet werden.
+
+**Abnahmegrenze:** Dies bestätigt den Original-Register-/Port-Ablauf für die beobachteten 11.756 Freigaben und die Übereinstimmung der isolierten C++23-Ausgabehelfer mit diesem Format. **Nicht** getestet ist damit die produktive VST3-Audioausgabe, die vollständige Creative-Note-On-Registerfolge ab dem VST3-Einstieg oder autonom exakt reproduziertes Pentium-Timing.
+
+**Kein GitHub-Kommentar am Entwickler-PR, keine Einzelübergabe und kein Eingriff in P005 oder den separaten REA-Port.**
+
 ## Offene und bewusste Grenzen
 
 1. **Modus 0: die originale physische Grenze 32 ist inzwischen BEWIESEN.** Zwei unabhängig SHA-gepinnte echte Windows-95-Portaufnahmen zeigen `LCOD+3F13`-VTFT-Lesungen **und** `LCOD+3FCE`-DCYSUSV-Freigabeschreibzugriffe für Stimmen 30 und 31. Der Original-x86-Loop bei `+3ED4` verwendet direkt `[ESI+0x06]` (tatsächlich 32), **keine** generelle 30-Stimmen-Grenze. Der isolierte Forschungsdispatcher und die Port-Wort-Helfer sind auf die Quelle korrigiert; die alte bewusst enger definierte 30-Music-Voice-Hilfs-API bleibt getrennt. Details, genaue Originalanzahlen und Gegenprüfung: [Mode-0-32-Originalbeweis](P003-ORIGINAL-WIN95-MODE0-32-PHYSICAL-VOICES-EVIDENCE-20261117.md). **Noch offen** sind die restlichen Volltreiber-/VST3-Integrationsschritte, keine Zahlengrenze mehr.
