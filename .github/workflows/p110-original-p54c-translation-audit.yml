@@ -8,6 +8,10 @@ on:
       - 'tools/p110_audit_original_p54c_translation_private.py'
       - 'tools/p110_instrument_original_p54c_compile_timing.py'
       - 'tests/test_p110_compiled_original_translator_probe_runtime.py'
+      - 'tools/p111_join_original_p54c_jit_compile_execute.py'
+      - 'tools/p111_audit_original_p54c_jit_block_join_private.py'
+      - 'tests/test_p111_original_p54c_jit_block_join.py'
+      - 'tests/test_p111_actual_c_compiled_block_callbacks.py'
       - '.github/workflows/p110-original-p54c-translation-audit.yml'
   workflow_dispatch:
 
@@ -37,5 +41,8 @@ jobs:
         run: |
           set -euo pipefail
           python -W error::ResourceWarning tools/p110_audit_original_p54c_translation_private.py --selftest
+          python -W error::ResourceWarning tools/p111_audit_original_p54c_jit_block_join_private.py --selftest
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p111_original_p54c_jit_block_join.py' -v
+          python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p111_actual_c_compiled_block_callbacks.py' -v
           python -W error::ResourceWarning -m unittest discover -s tests -p 'test_p110_compiled_original_translator_probe_runtime.py' -v
           echo 'P110_FAIL_CLOSED_SYNTHETIC_TRANSLATOR_SOURCE_ONLY_PASS'
