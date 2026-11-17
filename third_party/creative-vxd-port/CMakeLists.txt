@@ -236,3 +236,15 @@ target_link_libraries(test_original_creative_nrpn_owner
     PRIVATE original_creative_vxd_live)
 add_test(NAME original_creative_nrpn_owner_lifetime_no_heap
     COMMAND test_original_creative_nrpn_owner)
+
+
+# The actual P005 VST3 host adapter owns original NRPN data and detaches
+# pointers before destroying the MIDI/chip runtime. Synthetic fixture.
+add_executable(test_original_creative_nrpn_host_owner
+    tests/test_original_creative_nrpn_host_owner.cpp)
+target_link_libraries(test_original_creative_nrpn_host_owner
+    PRIVATE original_creative_vxd_live)
+target_include_directories(test_original_creative_nrpn_host_owner
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../src/vst3")
+add_test(NAME original_creative_nrpn_p005_host_lifecycle
+    COMMAND test_original_creative_nrpn_host_owner)
