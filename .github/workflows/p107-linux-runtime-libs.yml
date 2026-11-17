@@ -1,0 +1,40 @@
+name: P107 public Ubuntu 22 runtime libraries for private Linux VM smoke
+
+on:
+  push:
+    branches:
+      - research/p107-original-x64-dynarec-guest-branch-capture
+    paths:
+      - '.github/workflows/p107-linux-runtime-libs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage-public-runtime:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    steps:
+      - name: Install official public Ubuntu runtime libraries only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            libserialport0 libslirp0
+          mkdir -p public-lib
+          for lib in libserialport.so.0 libslirp.so.0; do
+            src=$(ldconfig -p | awk -v lib="$lib" '$1==lib && $0~/x86-64/ {print $NF; exit}')
+            test -f "$src"
+            cp -L "$src" "public-lib/$lib"
+            file "public-lib/$lib"
+          done
+          sha256sum public-lib/* > public-lib/SHA256SUMS
+          printf '%s\n' 'Official freely distributable Ubuntu 22 shared libs only. No Win95/ROM/Creative data.' > public-lib/README
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P107-PUBLIC-UBUNTU22-LIBSERIALPORT-LIBSLIRP
+          path: public-lib/
+          retention-days: 2
+          if-no-files-found: error
