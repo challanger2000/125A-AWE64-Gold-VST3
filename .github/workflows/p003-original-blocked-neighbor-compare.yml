@@ -5,6 +5,8 @@ on:
     paths:
       - 'tests/p003_original_blocked_neighbor_previous_sentinel.cpp'
       - 'tests/p003_original_mode2_high_marker_lazy_chip_read.cpp'
+      - 'tests/p003_original_mode2_ccca_only_validated.cpp'
+      - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.h'
       - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp'
       - '.github/workflows/p003-original-blocked-neighbor-compare.yml'
   workflow_dispatch:
@@ -41,6 +43,43 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-research-mode2"
           "$RUNNER_TEMP/p003-research-mode2"
+      - name: Verify authentic CCCA-only original source branch with explicit per-read validity
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_mode2_ccca_only_validated.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-research-ccca-only"
+          "$RUNNER_TEMP/p003-research-ccca-only"
+      - name: Reproduce verified CCCA-only source gap in pinned actual P002 developer code
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_SHA=940098bd3e35f5b2b2b7c94ec9283b5b45067990
+          git fetch --depth=1 origin "$DEV_SHA"
+          DEV_ROOT="$RUNNER_TEMP/p003-dev-ccca-only"
+          git worktree add --detach "$DEV_ROOT" FETCH_HEAD
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I "$DEV_ROOT/src/creative_compat" \
+            tests/p003_original_mode2_ccca_only_validated.cpp \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp" \
+            "$DEV_ROOT/src/creative_compat/CreativeVxdMonoVoiceRanking.cpp" \
+            -o "$RUNNER_TEMP/p003-dev-ccca-only-test"
+          set +e
+          "$RUNNER_TEMP/p003-dev-ccca-only-test"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 42 ]; then
+            echo "P003_P002_HEAD_MISSING_CCCA_ONLY_PARTIAL_SNAPSHOT_REPRODUCED pinned_sha=$DEV_SHA"
+          elif [ "$STATUS" -eq 0 ]; then
+            echo "P003_P002_HEAD_CCCA_ONLY_PARTIAL_SNAPSHOT_PASS pinned_sha=$DEV_SHA"
+          else
+            echo "P003_P002_HEAD_CCCA_ONLY_UNEXPECTED_STATUS=$STATUS"
+            exit 1
+          fi
       - name: Reproduce mode2 original x86 high-marker skip against actual P002
         shell: bash
         run: |
