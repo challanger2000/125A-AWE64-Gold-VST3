@@ -77,14 +77,14 @@ public:
         const auto dst=destinationMask(op);
         if(pipe_.valid) {
             const auto pairKind=(op.timing_word & kPairMask);
-            const auto src=sourceMask(op,pipe_.op_32);
+            const auto src=sourceMask(op,pipe_.op.op_32);
             const bool allowPair=
                 (pairKind&kPairV)!=0u &&
                 (pipe_.destination_mask&src)==0u &&
                 (decode_delay_+decode_offset_+pipe_.decode_offset)<=0 &&
                 !hasDisplacement(op);
             if(allowPair) {
-                const auto a=static_cast<unsigned>(pipe_.timing_word&3u);
+                const auto a=static_cast<unsigned>(pipe_.op.timing_word&3u);
                 const auto b=static_cast<unsigned>(op.timing_word&3u);
                 constexpr std::int32_t pairs[4][4]={
                     {1,2,3,2},{2,2,3,3},{3,4,5,4},{-1,-1,-1,-1}
