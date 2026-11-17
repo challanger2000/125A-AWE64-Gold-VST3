@@ -154,14 +154,8 @@ def patch(original_codegen:bytes,existing_p117_codegen:bytes)->bytes:
     if P118_MARKER in src:
         raise ValueError('P118 already instrumented')
     if (P107_MARKER not in src or P111_MARKER not in src or
-        P117_MARKER not in src or
-        P107_CALLBACK_ANCHOR not in original and P107_CALLBACK_ANCHOR not in src):
-        # P107 callback only exists in the PATCHED codegen.
-        if not (P107_MARKER in src and P111_MARKER in src and
-                P117_MARKER in src and P107_CALLBACK_ANCHOR in src):
-            raise ValueError('P118 requires the original P107/P111/P117 source pipeline')
-    if P107_CALLBACK_ANCHOR not in src:
-        raise ValueError('P118 P107 exact JIT callback anchor absent')
+        P117_MARKER not in src or P107_CALLBACK_ANCHOR not in src):
+        raise ValueError('P118 requires the original P107/P111/P117 source pipeline')
     src=once(src,JIT_GLOBAL_ANCHOR,JIT_GLOBAL_ANCHOR+'\n'+JIT_CODE)
     src=once(src,RESET_ANCHOR,RESET_ANCHOR+'''
     p118_last_p117_site=0u;
