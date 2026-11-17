@@ -48,6 +48,20 @@ Beide Aufnahmen enthalten bei beiden genannten echten Original-Rücksprungadress
 - Private neuere ZIP: `P003-20261117T010413Z-9c86c813-ERGEBNIS.zip`, SHA-256 `28aea68657e48dfaeec8cdd675f01fbab1eee00a771abfa3872a6e97041b543c`.
 - [SHA-gepinnter, privater Read-only-Gegenprüfer (nur Quellcode, keine Gästedaten)](../tools/p003_audit_win95_original_mode0_32_private.py)
 
+## Zusätzlicher echter Win95-Nachweis: Rangwahl und unmittelbarer Voice-Start
+
+Die bisherigen Originalzahlen belegen nicht bloß, dass die Hardware-Register für physische Stimmen 30/31 gelesen werden. Sie belegen eine **tatsächliche Auswahl, anschließende Freigabe und sofortige VTFT-Initialisierung**:
+
+- Sitzung A: Stimme **30** insgesamt **101-mal**, Stimme **31** insgesamt **117-mal** als Original-Modus-0-Ergebnis ausgegeben.
+- Sitzung B: Stimme **30** insgesamt **108-mal**, Stimme **31** insgesamt **122-mal** als Original-Modus-0-Ergebnis ausgegeben.
+- **Rangbasierte Auswahl nach vollständigem Dreier-Lane-Scan:** In Sitzung A erfolgt eine Original-Freigabe der Stimme 30 **33-mal** beziehungsweise der Stimme 31 **50-mal**, obwohl die **unmittelbar letzte VTFT-Registerlesung** die letzte Stimme der dritten Lane (**29**) betraf. In Sitzung B sind es entsprechend **40** und **56** Fälle. Weil der Originalcode bei einem sofortigen Idle- oder Sample-End-Treffer **vor** dem Durchlauf bis Stimme 29 abbricht, sind dies konkrete Fälle einer später freigegebenen **bereits gespeicherten Bestscore-Stimme**, keine bloßen frühen Leer-Stimmen-Treffer. Nicht als vollständige akustische Voice-Steal-/PCM-Parität interpretieren.
+- **Ausnahmslos in allen 448 Fällen beider Sitzungen (218 + 230):** Der originale Programmablauf schreibt direkt nach dem Auswahl-Callback `LCOD+3FCE` zunächst `DCYSUSV=0x00FF` an `A20`, dann über den nachfolgenden Original-Caller `LCOD+3E0C` den echten `VTFT-DATA0`-Wert `0x0000FFFF` an dieselbe physische Voice. Die vier aufeinanderfolgenden I/O-Transaktionsereignisse sind `A20=0x00FF`, `E22=0x60|voice` (`0x7E`/ `0x7F`), `620=0xFFFF`, `622=0x0000`. **448/448 vollständig** und ohne I/O-Sequenz-Abweichung. Die letzten beiden halben Portdaten ergeben das echte 32-Bit-Originalwort.
+- Originalbezug: `LCOD+3FBA..3FCE` gibt den ausgewählten physikalischen Voice-Index frei; `LCOD+3DDC..3E0C` initialisiert anschließend `VTFT` mit `0x0000FFFF` (Schreiben über den originalen DATA0-Writer). Der numerische Stimme-Index bleibt in beiden Schritten unverändert.
+
+Der neue [SHA-256-gepinnte, nur lokal auf den privaten Originalarchiven ausführbare Auditor](../tools/p003_audit_original_mode0_highvoice_select_start_private.py) kontrolliert **beide unabhängigen Sitzungen**, die originalen Rücksprungstellen und die komplette Folge der vier Original-I/O-Ereignisse; er gibt nur aggregierte Zahlen aus. Auf GitHub werden **keine** Windows-95-Tracebytes, Creative-Binärdaten oder ROM-/SF2-Daten gespeichert.
+
+Ergänzende **synthetische** C++23-Regression: [Stimmen 30/31 bei normaler Score-Rangwahl, Gleichstand, Sample-Ende und frühem Return](../tests/p003_original_mode0_highvoice_selection_ties.cpp), [GitHub CI – PASS](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44008082076). Dies ist kein Ersatz für den oben ausdrücklich getrennten Original-Win95-Laufzeitbeweis.
+
 ## Separat geprüfte Forschungsimplementierung
 
 Im isolierten Branch `research/p003-v5-voice-row-capture` wertet der Modus-0-Dispatcher nun **alle `device+0x06` physischen Stimmen** aus, einschließlich 30 und 31. Die gesonderte Source-Ceiling-Eingabe muss exakt mit der verifizierten Gerätegrenze übereinstimmen; ein widersprechendes `30` bei originalem `32` scheitert bewusst **fail closed**. Die bisherigen dreigeteilten Scans, vorzeitigen Return-Pfade, Einzelregister-Nachweise und Fehlerstatus bleiben unverändert.
