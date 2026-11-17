@@ -5,6 +5,7 @@ on:
     paths:
       - 'tests/p003_original_blocked_neighbor_previous_sentinel.cpp'
       - 'tests/p003_original_mode2_high_marker_lazy_chip_read.cpp'
+      - 'src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp'
       - '.github/workflows/p003-original-blocked-neighbor-compare.yml'
   workflow_dispatch:
 permissions:
@@ -29,6 +30,17 @@ jobs:
             src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
             -o "$RUNNER_TEMP/p003-research-original"
           "$RUNNER_TEMP/p003-research-original"
+      - name: Verify mode2 high-marker source short-circuit in research correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_mode2_high_marker_lazy_chip_read.cpp \
+            src/creative_compat/CreativeVxdAdditionalAllocatorModes.cpp \
+            src/creative_compat/CreativeVxdMonoVoiceRanking.cpp \
+            -o "$RUNNER_TEMP/p003-research-mode2"
+          "$RUNNER_TEMP/p003-research-mode2"
       - name: Reproduce mode2 original x86 high-marker skip against actual P002
         shell: bash
         run: |
