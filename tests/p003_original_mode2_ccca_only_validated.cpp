@@ -17,6 +17,17 @@ template<class T> void mark_verified_ccca(T& item) {
         item.ccca_read_verified=true;
 }
 
+template<class T, std::size_t N>
+bool rejects_unverified_ccca(std::array<T,N>& voices,
+                            std::uint32_t packed_range) {
+    if constexpr (requires(T x) { x.ccca_read_verified; }) {
+        voices[0].ccca_read_verified=false;
+        return !candidateOriginalWin95Mode2Range(
+            voices,packed_range,2u,32u);
+    }
+    return true; // legacy API has no per-register validity field
+}
+
 int main() {
     std::array<OriginalWin95AllocatorVoiceSnapshot,
                kOriginalWin95PhysicalVoiceCapacity> voices{};
@@ -53,15 +64,9 @@ int main() {
     // Case C: if no CCCA read has actually been validated, fail closed.
     // The independently verified flag is a research extension; old
     // developer snapshot representation inherently cannot express it.
-    if constexpr (requires(OriginalWin95AllocatorVoiceSnapshot z) {
-        z.ccca_read_verified;
-    }) {
-        a.ccca_read_verified=false;
-        x=candidateOriginalWin95Mode2Range(voices,r,2u,32u);
-        if(x) {
-            std::puts("P003_MODE2_CCCA_MISSING_MUST_FAIL_CLOSED");
-            return 3;
-        }
+    if(!rejects_unverified_ccca(voices,r)) {
+        std::puts("P003_MODE2_CCCA_MISSING_MUST_FAIL_CLOSED");
+        return 3;
     }
     std::puts("P003_MODE2_CCCA_ONLY_SOURCE_CONTRACT_PASS");
     return 0;
