@@ -10,6 +10,8 @@ on:
       - 'tests/p003_original_mode0_lazy_source_reads.cpp'
       - 'tests/p003_original_win95_mode0_32_physical_voices.cpp'
       - 'tests/p003_original_mode0_highvoice_selection_ties.cpp'
+      - 'tools/p003_audit_original_mode0_complete_release_private.py'
+      - 'tests/test_p003_original_mode0_complete_release_audit.py'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
@@ -30,6 +32,11 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
+      - name: Adversarial audit of original mode0 release→VTFT trace parser (synthetic only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_p003_original_mode0_complete_release_audit.py' -v
       - name: Run complete legacy mode0 C++23 numeric and release-write regression
         shell: bash
         run: |
