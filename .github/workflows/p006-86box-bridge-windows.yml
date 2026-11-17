@@ -1,0 +1,21 @@
+name: P006 86Box AWE64 private bridge (source-only tests)
+on:
+  push:
+    branches: [experiment/p006-86box-win95-vst3-bridge]
+    paths:
+      - 'experiments/p006-86box-vst3/**'
+      - '.github/workflows/p006-86box-bridge-windows.yml'
+permissions:
+  contents: read
+jobs:
+  win2022-transport:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build C++23 bridge contract (MSVC x64)
+        run: |
+          cmake -S experiments/p006-86box-vst3 -B build/p006-bridge -G "Visual Studio 17 2022" -A x64
+          cmake --build build/p006-bridge --config Release --parallel 2
+      - name: Run transport and MIDI framing regression
+        run: ctest --test-dir build/p006-bridge -C Release --output-on-failure
