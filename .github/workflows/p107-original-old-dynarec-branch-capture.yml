@@ -16,6 +16,8 @@ on:
       - 'tools/p108_verify_direct_jcc.py'
       - 'tools/p108_private_win95_original_capture.py'
       - 'tests/test_p108_private_win95_original_capture.py'
+      - 'tools/p108_resolve_private_original_package.py'
+      - 'tests/test_p108_resolve_private_original_package.py'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +40,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
           python3 tools/p108_verify_direct_jcc.py --selftest
           python3 -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
+          python3 -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
           python3 tools/p107_audit_executed_jcc_private.py --selftest
           python3 -m unittest discover -s tests -p 'test_p003_instrument_86box_io.py' -v
           python3 tools/p107_instrument_old_dynarec.py \
@@ -163,6 +166,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_p108_direct_executed_jcc.py' -v
           python tools/p108_verify_direct_jcc.py --selftest
           python -m unittest discover -s tests -p 'test_p108_private_win95_original_capture.py' -v
+          python -m unittest discover -s tests -p 'test_p108_resolve_private_original_package.py' -v
           python tools/p107_audit_executed_jcc_private.py --selftest
           if($LASTEXITCODE -ne 0) { throw 'P107 Python guards failed' }
           New-Item -ItemType Directory -Path p107-fork -Force | Out-Null
