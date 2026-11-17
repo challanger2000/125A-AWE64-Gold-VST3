@@ -69,6 +69,55 @@ class TestP108PrivateOriginalWin95Capture(unittest.TestCase):
             self.assertFalse(report["native_vst3_pcm_bit_exact_proved"])
             auditor.assert_called_once_with(Path("/fake/P110"),min_translations=50)
 
+    def test_p111_original_jit_run_join_is_opt_in_only(self):
+        existing={"AWE64_P111_JIT_BLOCK_JOIN_TRACE":"stale",
+                  "AWE64_P111_LCOD_SELECTOR":"bad"}
+        env=p.make_probe_environment(existing,Path("/fake/i"),Path("/fake/b"),
+                                     Path("/fake/io"))
+        self.assertNotIn("AWE64_P111_JIT_BLOCK_JOIN_TRACE",env)
+        self.assertNotIn("AWE64_P111_LCOD_SELECTOR",env)
+        candidate=Path("/fake/p111")
+        selected=p.make_probe_environment({},Path("/fake/i"),Path("/fake/b"),
+                                          Path("/fake/io"),None,candidate)
+        self.assertEqual(selected["AWE64_P111_JIT_BLOCK_JOIN_TRACE"],str(candidate))
+        self.assertEqual(selected["AWE64_P111_LCOD_BASE"],"0xC10151E4")
+        self.assertEqual(selected["AWE64_P111_LCOD_SELECTOR"],"0x28")
+        self.assertEqual(existing["AWE64_P111_JIT_BLOCK_JOIN_TRACE"],"stale")
+
+    def test_requested_original_p111_block_run_requires_real_trace(self):
+        proof={"original_win95_midi_send_calls":4176,
+               "original_win95_midi_api_failures":0}
+        orig={"executed_jcc_total":3450,
+              "unobserved_or_unexplained_jcc":0,
+              "next_pc_independently_confirms_flags":3410}
+        physical={"original_tsc_first":0,"original_tsc_last":2000}
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fixtureI")),
+              patch.object(p,"read_direct",return_value=({0:object()},"fixtureB")),
+              patch.object(p,"compare_original",return_value=orig),
+              patch.object(p,"verify_original_physical_cpu_io",return_value=physical),
+              patch.object(p,"audit_p111_join",
+                           side_effect=ValueError("missing original JIT execution"))):
+            with self.assertRaisesRegex(ValueError,"missing original JIT"):
+                p.verify_private_capture(Path("/fake/win95.img"),Path("/fake/i"),
+                     Path("/fake/b"),Path("/fake/io"),None,Path("/fake/p111"))
+        with (patch.object(p,"completed_original_guest",return_value=proof),
+              patch.object(p,"read_trace",
+                           return_value=([SimpleNamespace(tsc=1000)],"fixtureI")),
+              patch.object(p,"read_direct",return_value=({0:object()},"fixtureB")),
+              patch.object(p,"compare_original",return_value=orig),
+              patch.object(p,"verify_original_physical_cpu_io",return_value=physical),
+              patch.object(p,"audit_p111_join",return_value={
+                  "original_compiled_but_unexecuted":5,
+                  "per_instruction_cpu_tsc_proven":False})):
+            result=p.verify_private_capture(Path("/fake/win95.img"),Path("/fake/i"),
+                     Path("/fake/b"),Path("/fake/io"),None,Path("/fake/p111"))
+            self.assertEqual(result["original_p111_jit_compilation_execution_join"][
+                "original_compiled_but_unexecuted"],5)
+            self.assertFalse(result["original_tsc_reproduction_proved"])
+            self.assertFalse(result["native_vst3_pcm_bit_exact_proved"])
+
     def test_fake_three_bank_guest_success_is_still_not_enough_without_x86(self):
         fake_log={"original_win95_midi_send_calls":4176,
                   "original_win95_midi_api_failures":0}
