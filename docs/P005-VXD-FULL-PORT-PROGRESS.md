@@ -1,7 +1,8 @@
 # P005 native Creative port: NOT COMPLETE
 
-This change ports two additional original note-start branches and fixes
-native validation. It does not activate an incomplete driver in the VST3.
+This branch ports recovered note-start arithmetic into the existing C++23
+source pipeline and fixes native validation. It does not activate an
+incomplete driver in the VST3.
 
 ## Implemented original branches
 
@@ -32,8 +33,9 @@ The original EMU8000/CT1745 sources and the already verified PCOD
 ## Validation performed
 
 - Root native Debug build with `AWE64_ENABLE_P005_ORIGINAL_CREATIVE=ON`:
-  **85/85 CTests passed** (baseline: 84/85; RAM source SHA unavailable).
-- Original-port GCC ASan/UBSan build: **32/32 CTests passed**, including
+  **88/88 CTests passed**, including the merged P54C/timeline tests
+  (initial baseline: 84/85; RAM source SHA unavailable).
+- Original-port GCC ASan/UBSan build: **33/33 CTests passed**, including
   the existing zero-heap MIDI tests.
 - **4,096 synthetic descriptor cases executed against the actual private
   original x86 blocks** using Unicorn, then compared with the compiled
@@ -88,8 +90,79 @@ only. REA, Ghidra and IDA were not available in this environment; Capstone
 - Autonomous x86-derived timing, complete pre-bank-2 state and full
   native register/frame/DRY-PCM parity remain unproven. The supplied
   measurement report itself marks CPU/frame calibration false.
-- Windows x64/MSVC, the VST3 host and 125A Plugin Test Lab are unavailable
-  in this Linux instance. No Windows build or plugin-host pass is claimed.
+- Windows x64/MSVC and the actual Plugin Test Lab are validated separately
+  by the existing GitHub Windows-2022 workflow. Local Linux checks do not
+  establish Windows/VST3 acceptance; see PR #12 for the current CI result.
 
 Private drivers, ROMs, SoundFonts, measurements, generated port dumps and
 extracted code stay outside the repository and public artifacts.
+
+## Source-derived NoteOn state (continuation)
+
+- LCOD `+0x5753..+0x5800`: the resource builder can derive gen19 from
+  generator48, velocity and current CC7/CC11 using the authenticated
+  original `+0x2E20`, `+0x2EA0`, `+0x2F20` tables. CC11 <= 10 is
+  the early mute gate. ROM/1MGM adjustment and signed division order
+  follow the original. The same arithmetic serves live CC7/CC11 updates.
+- The original velocity/amplitude terms survive in the original device
+  voice metadata for later controller updates. A contradictory externally
+  supplied attenuation is rejected.
+- The source-derived path can compute its baseline pitch from the original
+  descriptor instead of requiring an externally supplied per-note word.
+  The resolver preserves current RPN tuning in that baseline and applies
+  channel pitch tune/bend when compiling IP and PTRX/CPF. A tampered
+  baseline is rejected before register programming.
+- Existing LCOD `+0x5B50..+0x5B7E` / `+0x5D7B..+0x5ECE` target arithmetic
+  is shared with the older snapshot compiler via
+  `OriginalCreativeSf2TargetMath.hpp`. No independent target algorithm or
+  DSP was introduced. The optional attack128 lookup tables belong to the
+  note/catalog state; they cannot dangle after temporary loader buffers
+  or a note stage are destroyed. The lifetime regression also passed
+  ASan/UBSan through the P005 stage/catalog test.
+- Additional original-instruction differentials: **99,700 volume cases**
+  (including all signed generator48 values and all CC7/CC11 pairs) and
+  **131,372 target cases** (all baseline WORDs and signed attenuation
+  inputs), both **0 mismatches**. The inputs are synthetic. The actual
+  original arithmetic blocks execute under Unicorn; native original
+  Win95/VST3 register/timing/PCM parity is still unproven.
+
+Reproduce these private arithmetic checks after the root build above:
+
+```sh
+python tools/p005_compare_original_note_volume.py \
+  --private-vxd /private/SBAWE.VXD \
+  --compiled-probe /workspace/awe64-build/p005-original-creative-port/awe64_p005_original_note_volume_probe
+python tools/p005_compare_original_note_targets.py \
+  --private-vxd /private/SBAWE.VXD \
+  --compiled-probe /workspace/awe64-build/p005-original-creative-port/awe64_p005_original_note_targets_probe
+```
+
+Both scripts require `unicorn==2.1.4`, verify the original driver SHA,
+remove temporary private table files and emit aggregate results only.
+The Windows source workflow explicitly builds the new CTest and probes.
+The 16,384-zone catalog limit and the remaining full-bank/modulator/CPU
+control-flow work are not solved by this note-state change.
+
+## Windows CI evidence for source commit 239af36
+
+[Workflow 44061330173](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44061330173)
+completed successfully with Visual Studio 2022 x64:
+
+- **89/89 Windows CTests passed**, including the original-port tests and
+  the new NoteOn-volume test; strict source/negative-control Python
+  suites passed as well. Linux and Windows have platform-specific tests.
+- The actual exported VST3 built with the pinned Steinberg SDK. The
+  existing original-core/card-mixer host check and two-run PCM16 WAV
+  determinism check passed (18,432 frames).
+- Actual exported VST3 heap audits passed for 1,200 process blocks in
+  each existing pre-card/card-output path, with zero heap allocations.
+  These are the existing ROM diagnostic paths, not a complete autonomous
+  P005 RAM-driver acceptance claim.
+- Existing 125A Plugin Test Lab P74: `INVENTORY_COMPLETE`, discovery
+  `PASS`, no faults. Its `native_technical`/commercial DAW session are
+  `NOT RUN` and `release_approved` is false. This is an ABI inventory,
+  not complete feature, original-driver or acoustic acceptance.
+
+[Draft PR #12](https://github.com/challanger2000/125A-AWE64-Gold-VST3/pull/12)
+contains the code and review boundary. Documentation-only follow-ups do
+not change the source commit validated by the linked run.
