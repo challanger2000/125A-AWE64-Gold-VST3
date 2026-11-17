@@ -92,7 +92,7 @@ std::optional<S> original_range(const std::array<V,32>& v,
 }
 std::optional<S> original_mode0(const std::array<V,32>& v,
                                 unsigned cap,std::uint32_t mode) {
-    if(!cap||cap>30)return {};
+    if(!cap||cap>32)return {};
     std::uint32_t best=0xffffffffu;
     std::optional<S> chosen;
     // Original +3EA1, triple interleaved scan lanes 0,1,2.
@@ -175,8 +175,30 @@ int main(){
         auto mono_ref=original_mode0(v,mono_limit,mode);
         auto mono_impl=ac::candidateOriginalWin95Mode0MonoVoice(mono,mono_limit,mode);
         if(!eq(mono_ref,mono_impl)){
-            std::printf("P003_DIFF_MODE0 test=%u cap=%u mode=%u\n",test,capacity,mode);
+            std::printf("P003_DIFF_MODE0_LEGACY30 test=%u cap=%u mode=%u\n",
+                        test,capacity,mode);
             return 3;
+        }
+        // Unlike legacy 30-voice shorthand, the ORIGINAL +3ED4
+        // dispatcher is bounded by verified device+0x06 up to 32.
+        const auto full_ref=original_mode0(v,capacity,mode);
+        ac::OriginalWin95AllocatorDispatchInput input{};
+        input.independently_verified_source_state=true;
+        input.original_x86_dispatch_mode=0u;
+        input.original_device_physical_capacity=
+            static_cast<std::uint16_t>(capacity);
+        input.original_device_mode_count=mode;
+        input.independently_verified_mode0_scan_ceiling=
+            static_cast<std::uint8_t>(capacity);
+        const auto full_impl=ac::candidateOriginalWin95VxdDispatchAllModes(v,input);
+        if(!full_impl ||
+           full_impl->voice_count!=(full_ref?1u:0u) ||
+           (full_ref &&
+            (full_impl->physical_voices[0]!=full_ref->physical_voice ||
+             full_impl->priority!=full_ref->priority))) {
+            std::printf("P003_DIFF_MODE0_PHYSICAL32 test=%u cap=%u mode=%u\n",
+                        test,capacity,mode);
+            return 4;
         }
     }
     std::puts("P003_SOURCE_DERIVED_MODE0_MODE1_MODE2_DIFFERENTIAL_15000_PASS"
