@@ -13,6 +13,9 @@ on:
       - 'tools/p003_audit_original_mode0_complete_release_private.py'
       - 'tests/test_p003_original_mode0_complete_release_audit.py'
       - 'tests/p003_original_all32_release_vtft_words.cpp'
+      - 'src/creative_compat/P003OriginalWavetableTimer.h'
+      - 'src/creative_compat/P003OriginalWavetableTimer.cpp'
+      - 'tests/p003_original_wavetable_timer.cpp'
       - 'tests/p003_original_modes_deterministic_differential_15000.cpp'
       - 'tests/p002_native_vxd_mono_ranking.cpp'
       - 'src/creative_compat/CreativeVxdMonoVoiceRanking.cpp'
@@ -141,6 +144,16 @@ jobs:
             echo "P003_DEV_MODE0_UNEXPECTED_EXIT=$STATUS"
             exit 1
           fi
+      - name: Verify original 86Box CPU-block / 32:32 wavetable timer mechanism
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -O2 -Wall -Wextra -Werror \
+            -I src/creative_compat \
+            tests/p003_original_wavetable_timer.cpp \
+            src/creative_compat/P003OriginalWavetableTimer.cpp \
+            -o "$RUNNER_TEMP/p003-virtual-wavetable-timer"
+          "$RUNNER_TEMP/p003-virtual-wavetable-timer"
       - name: Run 15k seeded original-x86 mode0/1/2 differential vectors
         shell: bash
         run: |
