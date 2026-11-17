@@ -175,6 +175,16 @@ target_include_directories(awe64_p005_original_p54c_integer_timing_test
     PRIVATE src/creative_compat)
 add_test(NAME p005_original_p54c_integer_pipeline_source_rules
     COMMAND awe64_p005_original_p54c_integer_timing_test)
+# Source-derived P54C completed-block cycle accounting advances the
+# original 32:32 wavetable timer before committing output-frame stamps.
+add_executable(awe64_p005_original_cpu_audio_timeline_test
+    tests/p005_original_pentium_cpu_audio_timeline.cpp)
+target_include_directories(awe64_p005_original_cpu_audio_timeline_test
+    PRIVATE src/creative_compat)
+target_link_libraries(awe64_p005_original_cpu_audio_timeline_test
+    PRIVATE awe64_p002_sample_clock_ports)
+add_test(NAME p005_cpu_block_to_original_emu_audio_frame_timeline
+    COMMAND awe64_p005_original_cpu_audio_timeline_test)
 
 
 # Adversarial test for the *actual* private Creative VST3 bank state
