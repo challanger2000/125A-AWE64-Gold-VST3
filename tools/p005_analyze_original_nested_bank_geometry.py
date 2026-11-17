@@ -63,10 +63,10 @@ def analyze(primary:bytes, nested:bytes)->dict:
                             else target_count-1),
               "index terminal does not match next original region")
         audit.append({
-            "source_region":origin+1,
+            "source_region":origin+2,
             "source_integer_width_bytes":width,
             "source_index_count":len(offsets),
-            "target_region":target+1,
+            "target_region":target+2,
             "target_record_bytes":element_size,
             "target_record_count":target_count,
             "terminal_index":offsets[-1],
