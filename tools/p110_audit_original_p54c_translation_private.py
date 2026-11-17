@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import tempfile
 
-from p107_audit_executed_jcc_private import LCOD_BASE,ORIGINAL_SELECTOR,read_trace
+from p107_audit_executed_jcc_private import LCOD_BASE
 HEADER=b"# P110_ORIGINAL_P54C_TRANSLATION_TIMING_V1 "
 MAX_ROWS=500000
 BRANCH_OPCODES={
@@ -161,7 +161,7 @@ def selftest():
         for error,replacement in (
           ("sequence discontinuity",b"O 3 "),
           ("original LCOD Jcc opcode",b"77 00000001"),
-          ("positive original AGI count",b"3 1 0"),
+          ("positive original AGI count",b"1 3 0 1"),
           ("outside original LCOD",b"00000002 75"),
         ):
             if error=="sequence discontinuity":
