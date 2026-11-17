@@ -1,0 +1,36 @@
+name: P006 verified original 86Box-AWE32 public release
+on:
+  push:
+    branches: [experiment/p006-86box-win95-vst3-bridge]
+    paths:
+      - '.github/workflows/p006-original-fork-release.yml'
+permissions:
+  contents: read
+jobs:
+  acquire-pinned-original:
+    runs-on: windows-2022
+    timeout-minutes: 6
+    steps:
+      - name: Fetch exact public ORIGINAL 86Box-AWE32 release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://github.com/turican0/86Box-AWE32/releases/download/v6.0-AWE32-0.93/86Box-AWE32-v6.0-AWE32-0.93-Windows-x64.zip"
+          New-Item -ItemType Directory -Force build/p006-public-fork | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP 'P006-ORIGINAL-86BOX.zip'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $expected = "CEFD28B691BFE1149719D26F54729356AF91F9C3F713CFA6BAB747AA0FA16B09"
+          $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          if ($actual -ne $expected) { throw "P006 original release digest mismatch: $actual" }
+          Expand-Archive -LiteralPath $zip -DestinationPath build/p006-public-fork -Force
+          $exe = Get-ChildItem -LiteralPath build/p006-public-fork -Filter 86Box.exe -Recurse -File | Select-Object -First 1
+          if (!$exe) { throw 'Original fork release lacks 86Box.exe' }
+          Write-Host "P006_PINNED_ORIGINAL_86BOX_RELEASE_SHA256_PASS $actual"
+          Write-Host "P006_ORIGINAL_86BOX_EXE $($exe.FullName)"
+      - name: Upload verified public 86Box fork binaries, NO guest/ROM/driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: P006-Verified-Original-Public-86Box-Fork
+          path: build/p006-public-fork/**
+          if-no-files-found: error
+          retention-days: 7
