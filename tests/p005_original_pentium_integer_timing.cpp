@@ -45,6 +45,14 @@ int main() {
     CHECK(m.append(op(Model::kPairV|1u))); // Reg+RM timing table=2
     CHECK(m.endBlock());
     CHECK(m.totalCycles()==2);
+    // Original COUNT() ignores immediate-width bits of a PAIR_V
+    // integer class; they do not turn a legal opcode into INVALID.
+    m.resetSession();
+    CHECK(m.beginBlock());
+    CHECK(m.append(op(Model::kPairU)));
+    CHECK(m.append(op(Model::kPairV|(1ull<<2u))));
+    CHECK(m.endBlock());
+    CHECK(m.totalCycles()==1);
     m.resetSession();
     CHECK(m.beginBlock());
     CHECK(m.append(op(2u,(1ull<<(12u+4u))))); // explicit ESP write

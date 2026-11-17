@@ -177,7 +177,10 @@ private:
             return static_cast<std::int64_t>(
                 (t>>((op.op_32&0x100u)?8u:0u))&0xffu);
         if(!(t&kPairMask))return static_cast<std::int64_t>(t&0xffffu);
-        switch(t&0x7fu) {
+        // Original COUNT strips prefix/immediate flags for pairable
+        // integer opcodes before reading the Reg/RM/RMW/Branch class.
+        // Without this, legal immediate opcodes spuriously fail timing.
+        switch(t&3u) {
             case 0: return 1;
             case 1: return 2;
             case 2: return 3;
