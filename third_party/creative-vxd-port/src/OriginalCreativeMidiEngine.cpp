@@ -400,11 +400,53 @@ source_note_endpoints(SourceVoice const& source) noexcept {
     const auto d=std::span<const std::uint8_t>(e.original_nrpn_memory.device);
     const auto off=static_cast<std::size_t>(channel)*0x24u;
     const auto voices=research::nrpn_detail::r16(d,6u);
-    return voices<=physical_voices &&
-           voices==e.device.physical_capacity &&
-           research::nrpn_detail::r16(d,0x45eu+off)==0x0200u &&
-           research::nrpn_detail::r16(d,0x462u+off)==
-               e.channel[channel].original_rpn_aux_462;
+    if(voices>physical_voices ||
+       voices!=e.device.physical_capacity ||
+       research::nrpn_detail::r16(d,0x45eu+off)!=0x0200u ||
+       research::nrpn_detail::r16(d,0x462u+off)!=
+           e.channel[channel].original_rpn_aux_462)
+        return false;
+    // The authentic VXD parameter callback enumerates ORIGINAL device
+    // voice rows at +0x42 (stride 0x20), whereas the native NoteOn/
+    // NoteOff allocator writes MidiEngine::device.voices. If those two
+    // representations have diverged, writing NRPN to the chip would
+    // affect the WRONG physical voice. This must be checked BEFORE
+    // writing channel+0x464 or emitting ANY hardware I/O.
+    for(std::size_t voice=0u;voice<voices;++voice) {
+        const auto row=0x42u+voice*0x20u;
+        const auto& native=e.device.voices[voice];
+        if(research::nrpn_detail::r16(d,row)!=native.key_marker)
+            return false;
+        // +0x70E5's parameter opcode 4 uses this cached pitch base.
+        // Do not accept a raw value if native ownership has a verified
+        // different pitch base.
+        if(native.original_pitch_base_verified &&
+           research::nrpn_detail::r16(d,row+0x0eu)!=
+               native.original_pitch_base)
+            return false;
+    }
+    const auto selection=research::nrpn_detail::r16(d,0x462u+off);
+    const auto slot=static_cast<std::size_t>(selection&0x7fu);
+    if((selection>>8u)==0x7fu && slot<30u &&
+       e.original_nrpn_parameter_entries[slot*6u]==4u) {
+        // Original opcode 4 computes the pitch update from the current
+        // channel+0x14 bend delta and the voice-row cached pitch.
+        // Refuse a stale raw device rather than silently emit bad pitch.
+        const auto bend=static_cast<std::uint32_t>(
+            e.channel[channel].original_bend_delta);
+        const auto rawBend=static_cast<std::uint32_t>(
+            research::nrpn_detail::r16(d,0x442u+off+0x14u))|
+            (static_cast<std::uint32_t>(
+                research::nrpn_detail::r16(d,0x442u+off+0x16u))<<16u);
+        if(rawBend!=bend)return false;
+        for(std::size_t voice=0u;voice<voices;++voice) {
+            const auto row=0x42u+voice*0x20u;
+            if((e.device.voices[voice].key_marker>>8u)==channel &&
+               !e.device.voices[voice].original_pitch_base_verified)
+                return false;
+        }
+    }
+    return true;
 }
 [[nodiscard]] MidiResult original_nrpn_data_entry(
     MidiEngine& e, std::uint8_t channel, std::uint8_t controller,
