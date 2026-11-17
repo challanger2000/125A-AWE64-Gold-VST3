@@ -2,6 +2,7 @@
 #include "P007PrivatePaths.hpp"
 #include "P007P165View.hpp"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/base/ibstream.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include <cstring>
 #include "pluginterfaces/vst/ivstevents.h"
