@@ -26,6 +26,10 @@ struct OriginalWin95AllocatorVoiceSnapshot {
     std::uint16_t envelope_status_reg=0x8000u;
     std::uint32_t stored_sample_end=0u;
     std::uint32_t chip_current_address=0u;
+    // Independent validation of ONLY the original EMU8000 CCCA read.
+    // A high marker (>=0x2000) bypasses VTFT/DCYSUSV but still reads
+    // CCCA when stored_sample_end!=0; do not imply other reads exist.
+    bool ccca_read_verified=false;
     bool blocked_when_few_voices=false;
     // Original VXD [+0x4C + voice*0x20 +0x10], bit zero.
     // The meaning of this descriptor/driver bit is NOT asserted.
