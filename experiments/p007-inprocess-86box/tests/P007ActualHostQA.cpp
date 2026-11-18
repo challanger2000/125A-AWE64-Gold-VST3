@@ -140,6 +140,97 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
     std::puts("P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS");
 }
 
+
+void publicWindowsAudioLifecycle(const VST3::Hosting::PluginFactory& factory,
+                                 const VST3::UID& id,FUnknown* host,
+                                 const fs::path& bundle) {
+    // Public CI intentionally has NO Win95/Creative assets. This verifies
+    // the real Windows VST3 event->audio host API + activation, not sound.
+    // NEVER call missing-guest silence a Creative MIDI-to-PCM PASS.
+    const auto privateDisk=bundle/"Contents"/"Resources"/"PrivateVM"/"vm"/"win95.img";
+    require(!fs::exists(privateDisk),
+        "public QA must not run if a private licensed Win95 disk is present");
+    unsigned calls=0, midiEvents=0;
+    for(double sampleRate : {44100.,48000.,96000.}) {
+        auto plugin=instantiate(factory,id,host);
+        ProcessSetup setup{};
+        setup.processMode=kRealtime;
+        setup.symbolicSampleSize=kSample32;
+        setup.maxSamplesPerBlock=block;
+        setup.sampleRate=sampleRate;
+        require(plugin.processor->canProcessSampleSize(kSample32)==kResultTrue,
+            "actual plugin rejects 32bit float audio");
+        require(plugin.processor->setupProcessing(setup)==kResultOk,
+            "actual plugin setupProcessing failed");
+        require(plugin.component->setActive(true)==kResultOk,
+            "actual in-process native core activation failed");
+        bool active=true,processing=false;
+        try {
+            require(plugin.processor->setProcessing(true)==kResultOk,
+                "actual plugin setProcessing failed");
+            processing=true;
+            std::array<float,block> left{},right{};
+            float* channels[2]={left.data(),right.data()};
+            AudioBusBuffers output{};
+            output.numChannels=2;
+            output.channelBuffers32=channels;
+            EventList events;
+            ProcessData data{};
+            data.processMode=kRealtime;
+            data.symbolicSampleSize=kSample32;
+            data.numSamples=block;
+            data.numInputs=0;
+            data.numOutputs=1;
+            data.outputs=&output;
+            data.inputEvents=&events;
+            for(unsigned iteration=0;iteration<300;++iteration) {
+                events.clear();
+                if(iteration%20==0) {
+                    Event e{};
+                    e.type=Event::kNoteOnEvent;
+                    e.noteOn.channel=0;
+                    e.noteOn.pitch=60;
+                    e.noteOn.velocity=.8f;
+                    require(events.addEvent(e)==kResultOk,"host NoteOn addEvent");
+                    ++midiEvents;
+                } else if(iteration%20==10) {
+                    Event e{};
+                    e.type=Event::kNoteOffEvent;
+                    e.noteOff.channel=0;
+                    e.noteOff.pitch=60;
+                    require(events.addEvent(e)==kResultOk,"host NoteOff addEvent");
+                    ++midiEvents;
+                }
+                left.fill(-123.f);
+                right.fill(123.f);
+                require(plugin.processor->process(data)==kResultOk,
+                    "real VST3 processing failed");
+                ++calls;
+                for(unsigned i=0;i<block;++i) {
+                    require(std::isfinite(left[i])&&std::isfinite(right[i]),
+                        "nonfinite VST3 public-host output");
+                    // No original licensed guest was booted. The real native
+                    // plugin must output silence, never stale buffer contents.
+                    require(left[i]==0.f&&right[i]==0.f,
+                        "nonzero audio without original Creative guest");
+                }
+            }
+        }catch(...) {
+            if(processing)(void)plugin.processor->setProcessing(false);
+            if(active)(void)plugin.component->setActive(false);
+            throw;
+        }
+        require(plugin.processor->setProcessing(false)==kResultOk,
+            "VST3 stop processing failed");
+        require(plugin.component->setActive(false)==kResultOk,
+            "VST3 deactivate/cleanup failed");
+    }
+    require(calls==900&&midiEvents==90,"incomplete public-host callback coverage");
+    std::printf("P007W_REAL_WINDOWS_VST3_44K_48K_96K_MIDI_AUDIO_LIFECYCLE_PASS"
+                " callbacks=%u midi_events=%u guest=ABSENT_OUTPUT_SILENCE_ONLY\\n",
+                calls,midiEvents);
+}
+
 void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
                       const VST3::UID& id,FUnknown* host,
                       const fs::path& bundle) {
@@ -275,6 +366,7 @@ int main(int argc,char** argv) {
         require(choice!=classes.end(),"no instrument IComponent in real VST3");
         auto host=owned(new HostApplication());
         stateRoundtrip(factory,choice->ID(),host.get());
+        if(argc==2) publicWindowsAudioLifecycle(factory,choice->ID(),host.get(),bundle);
         if(argc==3) privateMidiAudio(factory,choice->ID(),host.get(),bundle);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
