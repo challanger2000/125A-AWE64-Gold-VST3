@@ -222,8 +222,10 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         sentInitialProgram_=false;
         programNeedsSending_.store(true,std::memory_order_release);
         creativeGuestWasReady_=false;
+        creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
-            if(creativeMod_[i].load(std::memory_order_acquire)!=0u)
+            if(creative_nrpn::shouldTransmit(
+                i,creativeMod_[i].load(std::memory_order_acquire)))
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
         active_=true;
     } else if(active_) {
@@ -376,8 +378,11 @@ tresult PLUGIN_API Plugin::setParamNormalized(ParamID tag,ParamValue value) {
         default:
             if(tag>=kP165ModFirst && tag<kP165ModFirst+creative_nrpn::count) {
                 const unsigned index=tag-kP165ModFirst;
-                creativeMod_[index].store(state::normalizedToBasisPoints(v),
-                                          std::memory_order_release);
+                const auto next=state::normalizedToBasisPoints(v);
+                const auto old=creativeMod_[index].exchange(
+                                      next,std::memory_order_acq_rel);
+                if(creative_nrpn::needsSoundFontReset(index,old,next))
+                    creativeResetRequested_.store(true,std::memory_order_release);
                 creativeModPending_.fetch_or(1u<<index,std::memory_order_acq_rel);
             }
             break;
@@ -411,8 +416,11 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                     if(queue->getParameterId()>=kP165ModFirst &&
                        queue->getParameterId()<kP165ModFirst+creative_nrpn::count) {
                         const unsigned index=queue->getParameterId()-kP165ModFirst;
-                        creativeMod_[index].store(state::normalizedToBasisPoints(value),
-                                                  std::memory_order_release);
+                        const auto next=state::normalizedToBasisPoints(value);
+                        const auto old=creativeMod_[index].exchange(
+                                                  next,std::memory_order_acq_rel);
+                        if(creative_nrpn::needsSoundFontReset(index,old,next))
+                            creativeResetRequested_.store(true,std::memory_order_release);
                         creativeModPending_.fetch_or(1u<<index,std::memory_order_acq_rel);
                     }
                     break;
@@ -424,11 +432,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         sentInitialProgram_=false;
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
-        // Original guest restarted: reassert only user-modified generator
-        // values, never override original SoundFont defaults at 0%.
+        // Original guest restarted: reassert modified generators and
+        // always enforce 0% truly DRY for original Creative FX sends.
+        // For tone controls, 0% does NOT send NRPN=0: that would replace
+        // the source SoundFont cutoff/envelope with a destructive value.
         creativeGuestWasReady_=true;
+        creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
-            if(creativeMod_[i].load(std::memory_order_acquire)!=0u)
+            if(creative_nrpn::shouldTransmit(
+                i,creativeMod_[i].load(std::memory_order_acquire)))
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
     }
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
@@ -452,28 +464,57 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                        midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
         }
         sentInitialProgram_=accepted;
+        // Program/bank changes can reset Creative generator offsets. Reapply
+        // all active user offsets AND zero FX sends after valid selection.
+        if(accepted&&sendProgram) {
+            for(unsigned i=0;i<creative_nrpn::count;++i)
+                if(creative_nrpn::shouldTransmit(
+                   i,creativeMod_[i].load(std::memory_order_acquire)))
+                    creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
+        }
     }
     if(ready&&sentInitialProgram_) {
-        // At most one complete Creative NRPN transaction = FOUR UART
-        // messages per callback. On any queue rejection retry the entire
-        // transaction in a later callback. No file I/O, locks, heap or guest
-        // CPU work is performed on the DAW audio thread.
-        std::uint32_t bits=creativeModPending_.exchange(0u,std::memory_order_acq_rel);
-        if(bits) {
-            unsigned index=nextCreativeMod_;
-            for(unsigned k=0;k<creative_nrpn::count;++k) {
-                const unsigned candidate=(index+k)%creative_nrpn::count;
-                if(bits&(1u<<candidate)){index=candidate;break;}
+        // CC121 is specified by Creative to restore the original SoundFont
+        // settings. This is essential when an ADSR/filter knob moves BACK
+        // to 0% (neutral). Unlike FX sends, a raw NRPN value of zero on
+        // those generators would change the preset, not restore it.
+        // After a reset, replay other active generator offsets and both
+        // dry/wet FX sends. Never run original guest CPU on the audio thread.
+        const bool reset=creativeResetRequested_.exchange(
+                                false,std::memory_order_acq_rel);
+        if(reset) {
+            if(core_.midi(0xb0u,121u,0u)!=1)
+                creativeResetRequested_.store(true,std::memory_order_release);
+            else for(unsigned i=0;i<creative_nrpn::count;++i)
+                if(creative_nrpn::shouldTransmit(
+                      i,creativeMod_[i].load(std::memory_order_acquire)))
+                    creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
+        }else{
+            // At most ONE four-CC Creative NRPN transaction per callback.
+            // On a rejected packet replay the entire transaction later.
+            std::uint32_t bits=creativeModPending_.exchange(
+                                    0u,std::memory_order_acq_rel);
+            if(bits) {
+                unsigned index=nextCreativeMod_;
+                for(unsigned k=0;k<creative_nrpn::count;++k) {
+                    const unsigned candidate=(index+k)%creative_nrpn::count;
+                    if(bits&(1u<<candidate)){index=candidate;break;}
+                }
+                const std::uint32_t mask=1u<<index;
+                bits&=~mask;
+                nextCreativeMod_=(index+1u)%creative_nrpn::count;
+                const auto value=creativeMod_[index].load(std::memory_order_acquire);
+                // AMP/filter neutral is represented by no NRPN override;
+                // CC121 above restores the actual patch defaults.
+                if(creative_nrpn::shouldTransmit(index,value) &&
+                   !creative_nrpn::submit(index,value,
+                       [this](std::uint8_t controller,
+                              std::uint8_t amount) noexcept {
+                          return core_.midi(0xb0u,controller,amount)==1;
+                       }))bits|=mask;
+                if(bits)creativeModPending_.fetch_or(bits,
+                                      std::memory_order_acq_rel);
             }
-            const std::uint32_t mask=1u<<index;
-            bits&=~mask;
-            nextCreativeMod_=(index+1u)%creative_nrpn::count;
-            const auto value=creativeMod_[index].load(std::memory_order_acquire);
-            if(!creative_nrpn::submit(index,value,
-                [this](std::uint8_t controller,std::uint8_t amount) noexcept {
-                    return core_.midi(0xb0u,controller,amount)==1;
-                }))bits|=mask;
-            if(bits)creativeModPending_.fetch_or(bits,std::memory_order_acq_rel);
         }
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
