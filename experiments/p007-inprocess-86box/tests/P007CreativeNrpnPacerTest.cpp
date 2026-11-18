@@ -88,7 +88,9 @@ int main(){
             samples+=blockFrames;
         }
         assert(accepts>=1u);
-        if(blockFrames==64u)assert(accepts<30u); // time, not callback
+        const auto maximum=static_cast<unsigned>(500.*double(blockFrames)/
+                             (rate*.020))+2u;
+        assert(accepts<=maximum); // rate-scaled 20ms, never per tiny callback
     }
  }
  std::puts("P007AE_REAL_16550_FIFO_ONE_MIDI_PACKET_PER_AUDIO_CALLBACK_PASS"
