@@ -83,4 +83,4 @@ add_executable(P007ActualHostQA
   "${P007_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp")
 target_include_directories(P007ActualHostQA PRIVATE "${P007_SDK_ROOT}")
 target_link_libraries(P007ActualHostQA PRIVATE sdk_hosting)
-target_compile_features(P007ActualHostQA PRIVATE cxx_std_20)
+target_compile_features(P007ActualHostQA PRIVATE cxx_std_17)
