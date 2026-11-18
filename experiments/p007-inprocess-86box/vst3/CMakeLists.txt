@@ -15,11 +15,13 @@ set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P007_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 smtg_add_vst3plugin(AWE64_Gold_P007
   P007Native.hpp P007Native.cpp P007Factory.cpp
-  P007P165View.hpp P007P165View.cpp
+  # P007Z: owner-approved COMPLETE P165 original, not P007 minimalist stub.
+  p165/PresetBrowserView.h p165/PresetBrowserView.cpp
+  p165/PresetCatalog.h p165/PresetBrowserModel.h p165/IbkBank.h
   "${P007_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
   "${P007_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
 target_include_directories(AWE64_Gold_P007 PRIVATE "${P007_SDK_ROOT}")
-target_link_libraries(AWE64_Gold_P007 PRIVATE sdk vstgui_support)
+target_link_libraries(AWE64_Gold_P007 PRIVATE sdk vstgui_support comdlg32)
 target_compile_features(AWE64_Gold_P007 PRIVATE cxx_std_23)
 smtg_target_configure_version_file(AWE64_Gold_P007)
 
