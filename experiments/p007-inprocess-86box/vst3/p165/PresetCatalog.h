@@ -24,6 +24,16 @@ struct PresetEntry {
 class PresetCatalog {
 public:
     const std::vector<PresetEntry>& Entries() const noexcept {return entries_;}
+    // Original P007 guest is managed by Creative Win95, not by our direct
+    // historical SF2 synth. Number-only display is the truthful fallback;
+    // it does NOT claim any loaded SF2 preset names or synth-bank contents.
+    void SetOriginalCreativeMidiNumbers() {
+        entries_.clear();
+        entries_.reserve(128);
+        for(unsigned i=0;i<128;++i)
+            entries_.push_back({0u,static_cast<uint8_t>(i),
+                 "MIDI-PROGRAMM "+std::to_string(i),false});
+    }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;
         return nullptr;
