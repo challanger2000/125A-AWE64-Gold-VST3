@@ -14,6 +14,30 @@
 #include <cstdint>
 
 namespace p007::creative_nrpn {
+// Unlike host block-size pacing, real elapsed-audio-time pacing also
+// works with a 64/128-sample Studio Pro/ASIO buffer.
+class FramePace final {
+    std::uint32_t minGapFrames_=882u;
+    std::uint32_t untilNext_=0u;
+public:
+    void configure(double sampleRate) noexcept {
+        // Configure from non-RT setupProcessing(), never on the audio thread.
+        if(!(sampleRate>=8000.0 && sampleRate<=192000.0))
+            sampleRate=44100.0;
+        minGapFrames_=static_cast<std::uint32_t>(sampleRate*.020 + .5);
+        untilNext_=0u;
+    }
+    void reset() noexcept {untilNext_=0u;}
+    [[nodiscard]] bool due(std::uint32_t blockFrames) noexcept {
+        if(blockFrames==0u)return false;
+        if(untilNext_>blockFrames) {
+            untilNext_-=blockFrames;
+            return false;
+        }
+        untilNext_=minGapFrames_;
+        return true;
+    }
+};
 class Pacer final {
     unsigned current_=0u,stage_=0u,next_=0u;
     std::uint16_t target_=0u;
