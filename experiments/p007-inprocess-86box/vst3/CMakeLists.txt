@@ -129,3 +129,13 @@ add_executable(P007CreativeNrpnPacerTest
   "${CMAKE_CURRENT_SOURCE_DIR}/P007CreativeNrpnPacer.hpp")
 target_include_directories(P007CreativeNrpnPacerTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(P007CreativeNrpnPacerTest PRIVATE cxx_std_20)
+
+# P007AG: pure acoustic classifier for the TEN still-unverified original
+# Creative P165 knobs. Negative controls must not create fake PCM PASS.
+add_executable(P007TenControlMatrixTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007TenControlMatrixTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007TenControlMatrix.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalControlDifferential.hpp")
+target_include_directories(P007TenControlMatrixTest PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+target_compile_features(P007TenControlMatrixTest PRIVATE cxx_std_20)
