@@ -54,7 +54,7 @@ private:
                          kMainPage=3111,
                          kReverbType=1200,kChorusType=1201;
     static constexpr int kGuiFirst=1100,kGuiCount=12;
-    static constexpr int kMasterVolume=1001 // P007 original Win95 host master; old 1003 was NOT our ID;
+    static constexpr int kMasterVolume=1001; // preserve P007 original Win95 master ParamID
     Steinberg::Vst::EditController* controller_;
     const PresetCatalog& sf_;
     const PresetCatalog& fm_; // legacy catalog only; never user-selectable
