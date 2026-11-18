@@ -1411,7 +1411,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         // IMPORTANT: each VST3 0%-return emits CC121 and resets NRPN24.
         // Reapply depth before A-back notes for a truthful A/B/A contrast.
         constexpr std::array<unsigned,4> selected{3u,4u,5u,6u};
-        std::array<Scenario,14> scenarios{};
+        // P007AO separates real Sustain A/B/A and Release A/B/A.
+        std::array<Scenario,15> scenarios{};
         scenarios[0]={"ORIGINAL_PAD8_A1",0u,0.};
         scenarios[1]={"ORIGINAL_PAD8_A2",0u,0.};
         scenarios[2]={"SIGNED_DEPTH_NEGATIVE96",0u,0.,-1,0,-96};
@@ -1424,10 +1425,22 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 knob.vstId,0.};
         }
         scenarios[13]={"RESTORE_ORIGINAL_SOUNDFONT_CC121",0u,0.,-1,0,1000};
+        const unsigned scenarioCount=correctedFilterProbe?15u:14u;
+        if(correctedFilterProbe) {
+            // Sustain A/B/A: 8 normal, 9 changed, 10 restored (not held).
+            // Release A/B/A: 11 held, 12 changed, 13 restored (held).
+            scenarios[14]=scenarios[13];
+            scenarios[11]={"RELEASE_A_BASELINE_HELD_MOD_SUSTAIN",0u,0.};
+            const auto& releaseKnob=p007::ten_matrix::knobs[selected[3]];
+            scenarios[12]={releaseKnob.title,releaseKnob.vstId,
+                           releaseKnob.normalized};
+            scenarios[13]={"RELEASE_A_RETURN_HELD_MOD_SUSTAIN",
+                           releaseKnob.vstId,0.};
+        }
         namespace proof=p007::original_control_proof;
-        std::array<proof::Take,14> takes{};
-        std::array<p007::original_spectral_proof::Capture,14> spectra{};
-        std::array<p007::original_chip_register_proof::Capture,14> chipRegisters{};
+        std::array<proof::Take,15> takes{};
+        std::array<p007::original_spectral_proof::Capture,15> spectra{};
+        std::array<p007::original_chip_register_proof::Capture,15> chipRegisters{};
         p007::original_audio_proof::Window before,originalFirst;
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
@@ -1464,7 +1477,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 depthSender.arm(requested);
             lastDepthPacket=Clock::time_point{};
         };
-        while(Clock::now()-start<310s&&index<scenarios.size()) {
+        while(Clock::now()-start<310s&&index<scenarioCount) {
             events.clear();
             const auto now=Clock::now();
             if(phase==Phase::Boot) {
@@ -1608,6 +1621,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                         scenarios[5u+2u*k].depth=correctedFilterProbe?selectedDepth:999;
                         scenarios[6u+2u*k].depth=selectedDepth;
                     }
+                    if(correctedFilterProbe) {
+                        scenarios[11].depth=selectedDepth;
+                        scenarios[12].depth=selectedDepth;
+                        scenarios[13].depth=selectedDepth;
+                    }
                     if(correctedFilterProbe)
                         std::puts("P007AL_FORCED_CHIP_FILTER_CLOSING_DIRECTION"
                                   " nrpn24=+96 expected_original_PEFE=00C0");
@@ -1620,7 +1638,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 takes[2].onset.rms(),takes[3].onset.rms());
                     std::fflush(stdout);
                 }
-                if(index<scenarios.size()) {
+                if(index<scenarioCount) {
                     if(registerProbe){
                         require(probeBegin(static_cast<unsigned>(index))!=0,
                                 "P007AJ original chip note capture not started");
@@ -1638,15 +1656,16 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                             "positive-control MIDI CC7 was not queued");
                     if(chosen.depth!=999)
                         queueDepth(chosen.depth);
-                    if(correctedFilterProbe && index>=4u && index<=12u) {
+                    if(correctedFilterProbe && index>=4u && index<=13u) {
                         // Volume envelope is independent of filter envelope.
                         // Re-apply original Creative NRPN15 after any CC121;
                         // keep it IDENTICAL across A/B/A notes.
                         ampReleaseSender.armUnsigned(15u,kSlowAmpReleaseUnits);
-                        // Release A/B/A takes 10..12 had DCYSUS=007F
+                        // Release A/B/A takes 11..13: do not modify
+                        // Sustain return at take10.
                         // on NoteOn: zero modulation envelope by NoteOff.
                         // Sustain the original ENV before comparing rates.
-                        if(index>=10u)
+                        if(index>=11u)
                             modSustainSender.armUnsigned(8u,kFilterSustainForRelease);
                     }
                     phase=Phase::Prepare;phaseAt=now;
@@ -1658,7 +1677,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 const auto l=left[i],r=right[i];
                 require(std::isfinite(l)&&std::isfinite(r),
                         "nonfinite original EMU8000 PCM");
-                if(index>=scenarios.size())continue;
+                if(index>=scenarioCount)continue;
                 if(spectralProbe && (phase==Phase::Note || phase==Phase::Tail))
                     spectra[index].append(l,r,phase==Phase::Tail);
                 if(phase==Phase::Boot&&readyAt!=Clock::time_point{})
@@ -1679,13 +1698,13 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             }
             if(now-lastReport>=15s) {
                 std::printf("P007AI_PRIVATE_PROGRESS original_ready=%d take=%zu/%zu\n",
-                            ready(),index,scenarios.size());
+                            ready(),index,scenarioCount);
                 std::fflush(stdout);lastReport=now;
             }
             next+=std::chrono::microseconds(23220);
             std::this_thread::sleep_until(next);
         }
-        require(index==scenarios.size(),
+        require(index==scenarioCount,
                 "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
         if(spectralProbe) {
             // All analysis bins are collected in preallocated memory while
@@ -1699,7 +1718,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             std::fprintf(csv.get(),
                 "scenario,scenario_name,phase,quarter_second_bin,"
                 "band,frames,total_energy,band_energy\n");
-            for(unsigned takeIndex=0;takeIndex<spectra.size();++takeIndex) {
+            for(unsigned takeIndex=0;takeIndex<scenarioCount;++takeIndex) {
                 const auto& cap=spectra[takeIndex];
                 for(unsigned i=0;i<p007::original_spectral_proof::bins;++i) {
                     for(unsigned k=0;k<p007::original_spectral_proof::bands;++k) {
@@ -1718,7 +1737,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             std::puts("P007AK_ORIGINAL_PCM_SPECTRAL_RAW_BINS_SAVED_OFFLINE");
         }
         if(correctedFilterProbe) {
-            for(unsigned t=4u;t<=12u;++t) {
+            for(unsigned t=4u;t<=13u;++t) {
                 const auto& cr=chipRegisters[t];
                 std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
                     " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
@@ -1732,7 +1751,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             require(chipRegisters[4].complete() &&
                     chipRegisters[4].volumeRelease!=0x8029u,
                 "P007AL original Creative NRPN15 did not extend amplitude release");
-            for(unsigned t=4u;t<=12u;++t) {
+            for(unsigned t=4u;t<=13u;++t) {
                 require(chipRegisters[t].complete(),
                     "P007AL original chip evidence incomplete or ambiguous for allocated voice");
                 require(chipRegisters[t].pefe==0x00c0u,
@@ -1744,15 +1763,15 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             // already decayed to zero during the 3.15-second held note.
             // Verify a genuinely high and IDENTICAL original chip sustain
             // for A/B/A and that Creative clears the sustain at NoteOff.
-            for(unsigned t=10u;t<=12u;++t) {
+            for(unsigned t=11u;t<=13u;++t) {
                 require(chipRegisters[t].hasFilterNoteSustain &&
                         chipRegisters[t].filterNoteSustain==0x7f7fu,
                     "P007AN original modulation sustain not held in release A/B/A");
                 require((chipRegisters[t].filterRelease&0x7f00u)==0u,
                     "P007AN Creative did not clear filter sustain on NoteOff");
             }
-            require(chipRegisters[11].filterRelease!=chipRegisters[10].filterRelease &&
-                    chipRegisters[12].filterRelease==chipRegisters[10].filterRelease,
+            require(chipRegisters[12].filterRelease!=chipRegisters[11].filterRelease &&
+                    chipRegisters[13].filterRelease==chipRegisters[11].filterRelease,
                 "P007AL original filter release generator did not change and restore");
             std::puts("P007AL_CORRECTED_ORIGINAL_CREATIVE_REGISTER_SETUP_PASS");
         }
@@ -1765,7 +1784,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         using namespace p007::ten_matrix;
         require(proof::stable(takes[0],takes[1]),
                 "P007AI original Pad8 A1/A2 baseline unstable");
-        const bool sourceReverted=proof::stable(takes[0],takes[13]);
+        const bool sourceReverted=proof::stable(
+            takes[0],takes[correctedFilterProbe?14u:13u]);
         const bool depthNoteAudible=proof::nonSilent(takes[4]);
         std::printf("P007AI_ORIGINAL_CREATIVE_FILTER_DEPTH"
                     " selected=%d original_rms=%.9f"
@@ -1775,15 +1795,19 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     " genuine_original_win95=1 synthetic=0\n",
                     selectedDepth,takes[1].onset.rms(),
                     takes[2].onset.rms(),takes[3].onset.rms(),
-                    takes[4].onset.rms(),takes[13].onset.rms(),
+                    takes[4].onset.rms(),
+                    takes[correctedFilterProbe?14u:13u].onset.rms(),
                     int(sourceReverted),int(depthNoteAudible));
         unsigned measured=0u,inconclusive=0u,unstable=0u;
         unsigned spectralMeasured=0u;
         for(unsigned k=0;k<selected.size();++k) {
             const auto& knob=knobs[selected[k]];
-            const unsigned a=4u+2u*k,b=a+1u,back=b+1u;
-            const auto e=evaluate(takes[4],takes[a],takes[b],
-                                  takes[back],knob.type);
+            const unsigned a=(correctedFilterProbe && k==3u)?11u:
+                                   4u+2u*k;
+            const unsigned b=a+1u,back=b+1u;
+            const auto e=evaluate(
+                takes[(correctedFilterProbe && k==3u)?a:4u],
+                takes[a],takes[b],takes[back],knob.type);
             if(e.verdict==Verdict::Proven)++measured;
             else if(e.verdict==Verdict::Inconclusive)++inconclusive;
             else ++unstable;
