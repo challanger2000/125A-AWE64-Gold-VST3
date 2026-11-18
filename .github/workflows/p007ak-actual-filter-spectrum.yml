@@ -59,6 +59,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007ALCorrectedSpectralProofTest.cpp -o build/P007ALCorrectedSpectralProofTest.exe
           build/P007ALCorrectedSpectralProofTest.exe
+      - name: P007AM original EMU8000 multi-voice register capture regression
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007ALOriginalChipRegisterProofTest.cpp -o build/P007ALOriginalChipRegisterProofTest.exe
+          build/P007ALOriginalChipRegisterProofTest.exe
       - name: Build real original 86Box-AWE32 native x64 DLL with passive probe
         run: |
           set -euo pipefail
