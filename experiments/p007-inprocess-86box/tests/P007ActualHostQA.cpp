@@ -1384,7 +1384,9 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     "P007AJ bounded original EMU8000 register observer unavailable; "
                     "reject normal uninstrumented production core");
             const auto tracePath=bundle.parent_path()/
-                L"P007AJ-EMU8000-REGISTER-EVENTS.csv";
+                (correctedFilterProbe?
+                    L"P007AL-ORIGINAL-EMU8000-REGISTER-EVENTS.csv":
+                    L"P007AJ-EMU8000-REGISTER-EVENTS.csv");
             traceFile.reset(_wfopen(tracePath.c_str(),L"wb"));
             require(bool(traceFile),"cannot create bounded ORIGINAL register CSV");
             std::fprintf(traceFile.get(),"scenario,scenario_name,serial,"
@@ -1694,9 +1696,9 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             // All analysis bins are collected in preallocated memory while
             // VST3 process() runs. Write AFTER playback, never in its callback.
             const auto csvPath=bundle.parent_path()/
-                correctedFilterProbe?
+                (correctedFilterProbe?
                     L"P007AL-ORIGINAL-PCM-SPECTRAL-BANDS.csv":
-                    L"P007AK-ORIGINAL-PCM-SPECTRAL-BANDS.csv";
+                    L"P007AK-ORIGINAL-PCM-SPECTRAL-BANDS.csv");
             std::unique_ptr<FILE,FileCloser> csv(_wfopen(csvPath.c_str(),L"wb"));
             require(bool(csv),"cannot create P007AK original spectral-bin report");
             std::fprintf(csv.get(),
