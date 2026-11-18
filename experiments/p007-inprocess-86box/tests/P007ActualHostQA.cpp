@@ -1448,6 +1448,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         // six-byte UART packet per >=40ms; failures retry same packet.
         p007::original_filter_env_depth::Transmitter depthSender{};
         p007::original_filter_env_depth::Transmitter ampReleaseSender{};
+        p007::original_filter_env_depth::Transmitter modSustainSender{};
+        // Original Creative NRPN8 (mod/filter ENV sustain), offset-encoded
+        // value +8192. Level 127 holds the filter ENV above zero until
+        // NoteOff; otherwise 007F decays to zero long before filter Release.
+        constexpr unsigned kFilterSustainForRelease=8192u+127u;
         constexpr unsigned kSlowAmpReleaseUnits=1800u; // Creative NRPN15: 7.2 seconds
         Clock::time_point lastDepthPacket{};
         bool cc121Pending=false;
@@ -1506,10 +1511,22 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 if(accepted)lastDepthPacket=now;
                                 return accepted;
                             });
+                    }else if(modSustainSender.active() &&
+                        (lastDepthPacket==Clock::time_point{} ||
+                         now-lastDepthPacket>=40ms)) {
+                        (void)modSustainSender.tick(
+                            [&](std::uint8_t controller,
+                               std::uint8_t value)noexcept{
+                                const bool accepted=
+                                     sendMidi(0xb0u,controller,value)==1;
+                                if(accepted)lastDepthPacket=now;
+                                return accepted;
+                            });
                     }
                 }
                 if(now-phaseAt>=1100ms && !cc121Pending &&
-                   !depthSender.active() && !ampReleaseSender.active()) {
+                   !depthSender.active() && !ampReleaseSender.active() &&
+                   !modSustainSender.active()) {
                     require(ready()!=0,"original Win95 Creative READY lost");
                     Event e{};e.type=Event::kNoteOnEvent;e.busIndex=0;
                     e.noteOn.channel=0;e.noteOn.pitch=60;
@@ -1626,6 +1643,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                         // Re-apply original Creative NRPN15 after any CC121;
                         // keep it IDENTICAL across A/B/A notes.
                         ampReleaseSender.armUnsigned(15u,kSlowAmpReleaseUnits);
+                        // Release A/B/A takes 10..12 had DCYSUS=007F
+                        // on NoteOn: zero modulation envelope by NoteOff.
+                        // Sustain the original ENV before comparing rates.
+                        if(index>=10u)
+                            modSustainSender.armUnsigned(8u,kFilterSustainForRelease);
                     }
                     phase=Phase::Prepare;phaseAt=now;
                 }
@@ -1700,9 +1722,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 const auto& cr=chipRegisters[t];
                 std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
                     " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
+                    " FILTER_NOTE_DCYSUS=%04X"
                     " FILTER_RELEASE_DCYSUS=%04X complete=%d\n",
                     t,cr.voice,unsigned(cr.pefe),unsigned(cr.volumeRelease),
-                    unsigned(cr.filterRelease),int(cr.complete()));
+                    unsigned(cr.filterNoteSustain),unsigned(cr.filterRelease),
+                    int(cr.complete()));
             }
             std::fflush(stdout);
             require(chipRegisters[4].complete() &&
@@ -1715,6 +1739,17 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     "P007AL unexpected original chip filter PEFE; requested closing polarity not applied");
                 require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
                     "P007AL amplifier release differs across A/B/A - invalid filter comparison");
+            }
+            // Release rate has no musical meaning if the mod envelope
+            // already decayed to zero during the 3.15-second held note.
+            // Verify a genuinely high and IDENTICAL original chip sustain
+            // for A/B/A and that Creative clears the sustain at NoteOff.
+            for(unsigned t=10u;t<=12u;++t) {
+                require(chipRegisters[t].hasFilterNoteSustain &&
+                        chipRegisters[t].filterNoteSustain==0x7f7fu,
+                    "P007AN original modulation sustain not held in release A/B/A");
+                require((chipRegisters[t].filterRelease&0x7f00u)==0u,
+                    "P007AN Creative did not clear filter sustain on NoteOff");
             }
             require(chipRegisters[11].filterRelease!=chipRegisters[10].filterRelease &&
                     chipRegisters[12].filterRelease==chipRegisters[10].filterRelease,
@@ -1778,7 +1813,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     std::printf("P007AL_CORRECTED_ORIGINAL_PCM_RESULT control=%s"
                         " verdict=%s effect_db=%.4f drift_db=%.4f"
                         " band=%u timebin=%u consistent_bins=%u release_usable=%u"
-                        " filter_NRPN24=96 amp_NRPN15=%u guest=ORIGINAL_WIN95_CREATIVE\n",
+                        " filter_NRPN24=96 amp_NRPN15=%u"
+                        " release_NRPN8=127 guest=ORIGINAL_WIN95_CREATIVE\n",
                         knob.title,p007::corrected_filter_proof::verdict(cm),
                         cm.peakDb,cm.maxReferenceDriftDb,
                         cm.peakBand,cm.peakBin,cm.longestRun,
