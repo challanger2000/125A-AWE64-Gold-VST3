@@ -24,6 +24,7 @@ std::atomic<unsigned> noteOn{0},noteOff{0},program{0},bank{0},panic{0};
 std::atomic<unsigned> bankRejects{0},programRejects{0},rejected{0};
 std::atomic<unsigned> nrpnParam{0},nrpnHigh{0},nrpnFilterCount{0},nrpnFilterRaw{0},
                       nrpnAttackCount{0},nrpnRejects{0};
+std::atomic<unsigned> nrpnReset121{0},dryReverb{0},dryChorus{0};
 unsigned steps=0;
 void produce(unsigned frames) {
     const auto wr=produced.load(std::memory_order_relaxed);
@@ -61,6 +62,9 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     // selector. The REAL production plugin must resend all 4 CC messages.
     if(status==0xb0u && d1==98u && d2==21u &&
        nrpnRejects.exchange(1u)==0u)return 0;
+    if(status==0xb0u && d1==121u){
+        nrpnReset121.fetch_add(1u);nrpnParam.store(0u);nrpnHigh.store(0u);
+    }
     if(status==0xb0u && d1==98u)nrpnParam.store(d2);
     if(status==0xb0u && d1==6u)nrpnHigh.store(d2);
     if(status==0xb0u && d1==38u) {
@@ -68,6 +72,8 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
         const unsigned value=(nrpnHigh.load()<<7u)+unsigned(d2)-8192u;
         if(parameter==21u){nrpnFilterCount.fetch_add(1u);nrpnFilterRaw.store(value);}
         if(parameter==11u)nrpnAttackCount.fetch_add(1u);
+        if(parameter==26u && value==0u)dryReverb.fetch_add(1u);
+        if(parameter==25u && value==0u)dryChorus.fetch_add(1u);
     }
     if(status==0x90u&&d2>0u)noteOn.fetch_add(1);
     if(status==0x80u||(status==0x90u&&d2==0u))noteOff.fetch_add(1);
@@ -113,6 +119,7 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     bankRejects.store(0);programRejects.store(0);rejected.store(0);
     nrpnParam.store(0);nrpnHigh.store(0);nrpnFilterCount.store(0);
     nrpnFilterRaw.store(0);nrpnAttackCount.store(0);nrpnRejects.store(0);
+    nrpnReset121.store(0);dryReverb.store(0);dryChorus.store(0);
     return 1;
 }
 P007_MOCK_EXPORT int __cdecl p007_core_guest_step() {
@@ -141,3 +148,7 @@ P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_filter_count(){return nrpnFilte
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_filter_raw(){return nrpnFilterRaw.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_attack_count(){return nrpnAttackCount.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_rejected_selectors(){return nrpnRejects.load();}
+
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_reset121(){return nrpnReset121.load();}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_dry_reverb(){return dryReverb.load();}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_nrpn_dry_chorus(){return dryChorus.load();}
