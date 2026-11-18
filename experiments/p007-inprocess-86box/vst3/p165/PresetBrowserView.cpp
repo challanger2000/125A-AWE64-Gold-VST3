@@ -571,16 +571,12 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     AddKnob(8,563,464,"CUTOFF");
     AddKnob(9,687,464,"RESONANCE");
     reset_=MakeButton({808,513,960,549},kReset,"MOD RESET");
-    // P007Z correctness gate: preserve the ORIGINAL complete physical P165
-    // front panel, but do NOT expose disconnected editing. The 12 legacy
-    // knobs used an earlier *direct* SF2 engine, not the live original
-    // Creative Win95 VxD. Their real original-chip bridge is a separate
-    // blocking task. A click cannot silently accept a fictional parameter.
-    for(auto* knob:controls_)if(knob)knob->setMouseEnabled(false);
+    // P007AA: twelve approved original P165 knobs now have real hosted
+    // Creative NRPN automation/Win95 UART commands and versioned recall.
+    // Original-audio response is a SEPARATE private-gast acceptance gate.
+    // Original Creative SysEx FX-variant messages remain unavailable.
     if(reverbMenu_)reverbMenu_->setMouseEnabled(false);
     if(chorusMenu_)chorusMenu_->setMouseEnabled(false);
-    if(reset_)reset_->setMouseEnabled(false);
-    for(auto* value:values_)if(value)value->setText("--");
 
 
     // BROWSER: no permanent 400px sidebar. It uses the available width,
@@ -866,7 +862,7 @@ void PresetBrowserView::Sync(bool force) {
         }
         char label[16]{};
         std::snprintf(label,sizeof(label),"%d%%",int(std::lround(value*100.)));
-        values_[size_t(i)]->setText("--"); // original Creative bridge unimplemented
+        values_[size_t(i)]->setText(label); // host-backed original Creative NRPN
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
