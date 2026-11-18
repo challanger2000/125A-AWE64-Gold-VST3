@@ -56,6 +56,10 @@ int main() {
  assert(!nonSilent(silence));
  assert(!stable(silence,silence));
  assert(!cutoffEffect(silence,filtered,a3));
+ assert(!cutoffEffect(a,silence,a3)); // dropped B NoteOn must not be accepted
+ assert(!attackEffect(a,silence,a3)); // missing B cannot imply attack change
+ assert(!sendTailEffect(a,silence,a3));
+ assert(!chorusEffect(a,silence,a3));
  assert(!attackEffect(silence,attacked,a3));
  std::puts("P007AC_ORIGINAL_WIN95_PCM_ABA_NEGATIVE_AND_POSITIVE_ORACLE_PASS cases=14");
  return 0;
