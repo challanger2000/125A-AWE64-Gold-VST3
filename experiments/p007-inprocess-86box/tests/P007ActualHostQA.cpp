@@ -400,7 +400,7 @@ public:
     OwnerGuestSandbox() {
         const DWORD n=GetEnvironmentVariableW(L"LOCALAPPDATA",nullptr,0);
         if(n>0) {
-            std::wstring buffer(n,L'\\0');
+            std::wstring buffer(n,L'\0');
             const DWORD got=GetEnvironmentVariableW(L"LOCALAPPDATA",buffer.data(),n);
             require(got>0&&got<n,"read old LOCALAPPDATA");
             buffer.resize(got);
