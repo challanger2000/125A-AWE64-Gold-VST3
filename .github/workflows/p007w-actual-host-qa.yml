@@ -152,3 +152,12 @@ jobs:
           path: build/p007-vst3/Release/P007ActualHostQA.exe
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish updated source-pinned ORIGINAL 86Box Windows VST3 bundle without licensed guest media
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007Y-Win64-P165-VST3-Original-Core-NO-PRIVATE-WIN95-ROM
+          path: build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
+          if-no-files-found: error
+          retention-days: 7
