@@ -404,7 +404,9 @@ def main():
         # This is an actual interactive Win32 gesture, not a source grep.
         drag(hwnd,437,365,437,318)
         attack=snap(hwnd,a.output/"05-LIVE-CREATIVE-AMP-NRPN.bmp")
-        check(diff_pixels(master,attack,(408,333,466,391))>30,
+        # Native screenshot oracle samples every 2px; genuine 0->28% knob
+        # change affected 106 full-res pixels (about 26 at sample stride).
+        check(diff_pixels(master,attack,(408,333,466,391))>15,
               "Original P165 AMP Attack hardware sprite reacts to real mouse NRPN edit",records)
         check(diff_pixels(master,attack,(393,409,485,438))>4,
               "Original P165 AMP Attack percentage updates with real VST3 parameter",records)
