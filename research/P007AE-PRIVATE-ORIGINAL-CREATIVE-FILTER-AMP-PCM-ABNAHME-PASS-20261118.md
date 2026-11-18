@@ -43,6 +43,6 @@ P007AE verteilt die NRPN-Befehle als **ein** 6-Byte-Paket pro mindestens 20 ms A
 2. Auswahl der Reverb-/Chorus-**Typen** per originalem Creative SysEx ist noch nicht implementiert.
 3. Native SF2/SBK-Ladefunktion in den originalen Win95-Creative-Treiber und korrekte SoundFont-Presetnamen fehlen.
 4. Finale Studio Pro/ASIO-Abnahme (Audio, GUI, Wiedereinschalten, Projekt-Recall, mehrere Instanzen) ist nicht erfolgt.
-5. Beim Win95-Start trat erneut die 86Box-Diagnose `Illegal instruction 00008B55 (FF)` auf, ohne diesen Klangtest abzubrechen. Stabilitätsursache gesondert prüfen.
+5. **P007AF nachträglich geklärt (kein Blocker):** `Illegal instruction 00008B55 (FF)` stammt aus dem absichtlichen Windows-95-`0F FF`/UD0-Selbsttest. Der gepinnte Original-86Box-Fork wirft korrekt `INT 6` und Windows 95 startet weiter. Keine Änderung am CPU-Kern zulässig oder notwendig. Beleg: `research/P007AF-WIN95-EXPECTED-UD0-EXCEPTION-ROOT-CAUSE-20261118.md`.
 
 **Fazit:** Der Anwender hat einen echten Originalklang-Regler-Durchbruch geliefert. **P007AE private originale A/B/A Filter + Attack = PASS; Produkt-Endfreigabe = NO-GO**. Keine ungetesteten anderen Regler oder SoundFont-Funktionen als fertig ausgeben.
