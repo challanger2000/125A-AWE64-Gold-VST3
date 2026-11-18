@@ -73,6 +73,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     std::atomic<float> masterVolume_{1.f};
     std::array<std::atomic<std::uint16_t>,creative_nrpn::count> creativeMod_{};
     std::atomic<std::uint32_t> creativeModPending_{0u};
+    std::atomic<bool> creativeResetRequested_{false}; // CC121 restores SoundFont defaults on original Win95 driver
     bool creativeGuestWasReady_=false; // audio thread only
     unsigned nextCreativeMod_=0u;      // audio thread only
     std::atomic<bool> programNeedsSending_{true};
