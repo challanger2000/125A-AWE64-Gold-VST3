@@ -117,6 +117,9 @@ jobs:
             throw 'CRITICAL: a forged original audio PASS marker was emitted'
           }
           Write-Host 'P007Y_PUBLIC_SYNTHETIC_AS_ORIGINAL_CREATIVE_REJECTED_PASS'
+          # The expected negative-control exit code must not turn this successful
+          # rejection test into a failed GitHub Actions PowerShell step.
+          exit 0
       - name: Preserve original PCM attribution and anti-fake QA logs
         if: always()
         uses: actions/upload-artifact@v4
