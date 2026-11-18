@@ -51,6 +51,10 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Creative original twelve-NRPN protocol or retry failure'}
           & 'build/p007-vst3/Release/P007StateCodecTest.exe'
           if($LASTEXITCODE -ne 0){throw 'VST3 state v2 or legacy v1 corruption/migration failure'}
+          cmake --build build/p007-vst3 --config Release --target P007OriginalControlDifferentialTest --parallel 2
+          if($LASTEXITCODE -ne 0){throw 'Original PCM A/B/A numerical oracle build failed'}
+          & 'build/p007-vst3/Release/P007OriginalControlDifferentialTest.exe'
+          if($LASTEXITCODE -ne 0){throw 'Original PCM A/B/A negative or positive control failed'}
       - name: Restore original internal 86Box DLLs into the single VST3 bundle
         shell: pwsh
         run: |
@@ -131,6 +135,16 @@ jobs:
             throw 'CRITICAL: a forged original audio PASS marker was emitted'
           }
           Write-Host 'P007Y_PUBLIC_SYNTHETIC_AS_ORIGINAL_CREATIVE_REJECTED_PASS'
+          # P007AD must also reject fake guest in strict original sound A/B/A
+          # mode; a mere outgoing NRPN MIDI stream does NOT prove audio.
+          & $qaExe $dest --private-nrpn *> 'build/p007ad-refuse-fake-original.log'
+          if($LASTEXITCODE -eq 0){
+            throw 'CRITICAL: fake Win95/Creative core accepted as original NRPN audio'
+          }
+          if(Select-String -Path 'build/p007ad-refuse-fake-original.log' -Pattern 'P007AD_PRIVATE_REAL_WIN95_CREATIVE_NRPN_ABA_PCM_PASS' -Quiet){
+            throw 'CRITICAL: forged original A/B/A PCM PASS marker'
+          }
+          Write-Host 'P007AD_PUBLIC_SYNTHETIC_NRPN_AS_ORIGINAL_PCM_REJECTED_PASS'
           # The expected negative-control exit code must not turn this successful
           # rejection test into a failed GitHub Actions PowerShell step.
           exit 0
@@ -170,6 +184,7 @@ jobs:
           path: |
             build/p007y-original-audio-proof-rules.log
             build/p007y-refuse-fake-original.log
+            build/p007ad-refuse-fake-original.log
           if-no-files-found: warn
           retention-days: 7
       - name: Preserve synthetic-only Windows audio/MIDI QA log
