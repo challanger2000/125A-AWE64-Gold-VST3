@@ -71,6 +71,26 @@ int main(){
  assert(sent.size()==8u); // 4 reverb CC + 4 chorus CC, no filter NRPN
  assert(sent[3].number==38u&&sent[3].value==0u);
  assert(sent[7].number==38u&&sent[7].value==0u);
+ // Actual host audio clock guard: no 6-byte packet bursts even at
+ // 64-sample/96 kHz Studio Pro ASIO buffers. Requires >=~20ms spacing.
+ for(const double rate:{44100.,48000.,96000.}) {
+    for(const unsigned blockFrames:{64u,128u,1024u}) {
+        FramePace throttle;
+        throttle.configure(rate);
+        std::uint32_t samples=0u;
+        unsigned accepts=0u;
+        for(unsigned n=0;n<500u;++n) {
+            if(throttle.due(blockFrames)) {
+                if(accepts>0u)
+                    assert(samples>=static_cast<unsigned>(rate*.020));
+                ++accepts;samples=0u;
+            }
+            samples+=blockFrames;
+        }
+        assert(accepts>=1u);
+        if(blockFrames==64u)assert(accepts<30u); // time, not callback
+    }
+ }
  std::puts("P007AE_REAL_16550_FIFO_ONE_MIDI_PACKET_PER_AUDIO_CALLBACK_PASS"
            " rejected_message_retry=YES mid_edit_requeued=YES"
            " CC121_abort_requeues=YES dry_zero_send=YES");
