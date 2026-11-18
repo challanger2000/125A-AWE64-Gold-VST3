@@ -284,6 +284,7 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             noteOffCounter=getCounter("p007_mock_noteoff_count");
             programCounter=getCounter("p007_mock_program_plus_one");
             bankCounter=getCounter("p007_mock_bank_plus_one");
+            Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
             std::array<float,block> left{},right{};
             float* channels[2]={left.data(),right.data()};
             AudioBusBuffers output{};
@@ -361,6 +362,8 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     "host MIDI did not reach synthetic in-process guest core");
             require(programCounter()==41u && bankCounter()==4u,
                     "actual P165 Bank/Program never arrived at synthetic guest");
+            require(rejectsCounter()==2u,
+                    "synthetic bank/program retry fault injection was not exercised");
             require(audibleHalf>=block*5u,
                     "actual VST3 did not produce synthetic 50-percent stereo PCM");
             require(muted==block*14u,
