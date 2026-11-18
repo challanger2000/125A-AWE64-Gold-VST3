@@ -76,7 +76,7 @@ Instance instantiate(const VST3::Hosting::PluginFactory& factory,
     return result;
 }
 void rewind(IBStream& s) {
-    require(s.seek(0,kIBSeekSet,nullptr)==kResultOk, "IBStream seek");
+    require(s.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk, "IBStream seek");
 }
 std::array<char,16> readState(IComponent& component) {
     MemoryStream stream;
