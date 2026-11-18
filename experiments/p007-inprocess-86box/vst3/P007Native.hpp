@@ -6,6 +6,7 @@
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P007OutputRate.hpp"
 #include "P007StateCodec.hpp"
+#include "P007CreativeNrpn.hpp"
 #include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
@@ -21,6 +22,7 @@ namespace p007 {
 inline constexpr Steinberg::Vst::ParamID kP165Program=1000u;
 inline constexpr Steinberg::Vst::ParamID kP165Master=1001u;
 inline constexpr Steinberg::Vst::ParamID kP165Bank=1002u;
+inline constexpr Steinberg::Vst::ParamID kP165ModFirst=1100u;
 class Core final {
     HMODULE module_=nullptr;
     bool ownsInstance_=false;
@@ -69,6 +71,10 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     bool active_=false;
     std::atomic<std::uint8_t> midiProgram_{0u},midiBank_{0u};
     std::atomic<float> masterVolume_{1.f};
+    std::array<std::atomic<std::uint16_t>,creative_nrpn::count> creativeMod_{};
+    std::atomic<std::uint32_t> creativeModPending_{0u};
+    bool creativeGuestWasReady_=false; // audio thread only
+    unsigned nextCreativeMod_=0u;      // audio thread only
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
     [[nodiscard]] int p165GuestStatus() const noexcept;
