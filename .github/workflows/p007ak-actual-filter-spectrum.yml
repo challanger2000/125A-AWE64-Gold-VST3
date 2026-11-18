@@ -1,4 +1,4 @@
-name: P007AK original PCM spectral A-B-A host QA (no private Win95)
+name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
     branches: [research/p007ak-original-filter-spectral-ab-a-20261118]
@@ -54,6 +54,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007AL corrected filter spectrum and Creative NRPN15 synthetic-only unit tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007ALCorrectedSpectralProofTest.cpp -o build/P007ALCorrectedSpectralProofTest.exe
+          build/P007ALCorrectedSpectralProofTest.exe
       - name: Build real original 86Box-AWE32 native x64 DLL with passive probe
         run: |
           set -euo pipefail
@@ -121,6 +126,12 @@ jobs:
             throw 'CRITICAL: original filter spectral proof falsely emitted without original Win95'
           }
           Write-Host 'P007AK_PUBLIC_NO_GUEST_SPECTRAL_PROOF_REJECTED_PASS'
+          & $tester $plugin --private-filter-corrected *> 'build/p007al-private-corrected-denial.log'
+          if($LASTEXITCODE -eq 0){throw 'CRITICAL: no original Win95 guest should produce a corrected filter proof in public CI'}
+          if(Select-String -Path 'build/p007al-private-corrected-denial.log' -Pattern 'P007AL_FOUR_ORIGINAL_FILTER_ENVELOPES_PCM_PROVEN' -Quiet){
+            throw 'CRITICAL: original filter proof claimed without original Win95'
+          }
+          Write-Host 'P007AL_NO_PRIVATE_GUEST_CORRECTED_FILTER_REFUSAL_PASS'
           # The rejected private-only test MUST fail (exit=1). PowerShell
           # otherwise propagates that EXPECTED nonzero native exit code
           # as the whole successful job's final exit status.
@@ -129,7 +140,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: P007AK-Win64-Original-86Box-Spectral-Proof-Host-PUBLIC-NO-PRIVATE
+          name: P007AL-Win64-Corrected-Creative-Filter-Proof-Host-PUBLIC-NO-PRIVATE
           path: |
             build/p007-aj-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
             build/p007-aj-vst3/Release/P007ActualHostQA.exe
@@ -139,10 +150,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: P007AK-Native-Spectral-Analyzer-And-Bounded-Register-Validation
+          name: P007AL-Corrected-Spectral-Analyzer-And-Register-Validation
           path: |
             build/p007aj-public-state.log
             build/p007aj-private-guest-denial.log
             build/p007ak-private-spectrum-denial.log
+            build/p007al-private-corrected-denial.log
           if-no-files-found: warn
           retention-days: 7
