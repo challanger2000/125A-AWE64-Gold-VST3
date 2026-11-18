@@ -59,6 +59,13 @@ int main(){
         }),"NRPN15 packet transmit failed");
     }
     check(!tx.active(),"NRPN15 unfinished");
+    check(packets[0].controller==99u && packets[0].value==127u,
+          "Creative NRPN MSB wrong");
+    check(packets[1].controller==98u && packets[1].value==15u,
+          "Creative Volume Envelope2 Release NRPN wrong");
+    check(packets[2].controller==6u && packets[2].value==14u &&
+          packets[3].controller==38u && packets[3].value==8u,
+          "Creative 1800*4ms 14-bit raw encoding wrong");
     // Creative NRPN8 (Mod/Filter Sustain): original documented offset
     // 8192 + 127 must give the same CC6/CC38 bytes as P007Native GUI.
     tx.armUnsigned(8u,8192u+127u);
@@ -71,13 +78,7 @@ int main(){
     check(packets[1].controller==98u && packets[1].value==8u &&
           packets[2].value==64u && packets[3].value==127u,
           "Creative filter ENV sustain NRPN8 offset encoding wrong");
-    check(packets[0].controller==99u && packets[0].value==127u,
-          "Creative NRPN MSB wrong");
-    check(packets[1].controller==98u && packets[1].value==15u,
-          "Creative Volume Envelope2 Release NRPN wrong");
-    check(packets[2].controller==6u && packets[2].value==14u &&
-          packets[3].controller==38u && packets[3].value==8u,
-          "Creative 1800*4ms 14-bit raw encoding wrong");
+
     using namespace original_spectral_proof;
     for(const auto target:{Target::Attack,Target::Decay,
                            Target::Sustain,Target::Release}) {
