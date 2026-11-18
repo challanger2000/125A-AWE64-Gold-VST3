@@ -400,9 +400,17 @@ def main():
         master=snap(hwnd,a.output/"04-MASTER-DRAG.bmp")
         check(diff_pixels(previous,master,(817,353,951,487))>70,
               "Actual original hardware Master mouse drag changes PNG frame",records)
+        # Original AMP Attack knob is now host-backed and enabled.
+        # This is an actual interactive Win32 gesture, not a source grep.
+        drag(hwnd,437,365,437,318)
+        attack=snap(hwnd,a.output/"05-LIVE-CREATIVE-AMP-NRPN.bmp")
+        check(diff_pixels(master,attack,(408,333,466,391))>30,
+              "Original P165 AMP Attack hardware sprite reacts to real mouse NRPN edit",records)
+        check(diff_pixels(master,attack,(393,409,485,438))>4,
+              "Original P165 AMP Attack percentage updates with real VST3 parameter",records)
         click(hwnd,761,253)
-        browser=snap(hwnd,a.output/"05-ORIGINAL-P165-BROWSER.bmp")
-        check(diff_pixels(master,browser,(45,342,764,626))>600,
+        browser=snap(hwnd,a.output/"06-ORIGINAL-P165-BROWSER.bmp")
+        check(diff_pixels(attack,browser,(45,342,764,626))>600,
               "Actual original searchable P165 BROWSER page appears",records)
         click(hwnd,190,394)
         selected=snap(hwnd,a.output/"06-BROWSER-SELECT-PROGRAM.bmp")
