@@ -62,8 +62,13 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
         }
         e.insufficientReleaseSignal=!hasThree;
     }
+    // Reference drift is evaluated WITHIN each independent band. A noisy
+    // unrelated band cannot invalidate a coherent A/B/A effect elsewhere.
+    // This fixes the P007AM false negative for Sustain: stable band #3
+    // across seven consecutive windows, but weaker upper bands drift.
+    bool hasStableEffectBand=false;
     for(unsigned band=0;band<bands;++band) {
-        unsigned run=0;
+        unsigned run=0,localLongest=0,localUnstable=0;
         int previousSign=0;
         unsigned previousBin=bins;
         for(unsigned i=first;i<last;++i) {
@@ -89,7 +94,7 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
             ++e.comparable;
             const double drift=std::abs(values[0]-values[2]);
             e.maxReferenceDriftDb=std::max(e.maxReferenceDriftDb,drift);
-            if(drift>.30) {++e.unstable;run=0;previousSign=0;continue;}
+            if(drift>.30) {++e.unstable;++localUnstable;run=0;previousSign=0;continue;}
             const double delta=values[1]-(values[0]+values[2])*.5;
             if(std::abs(delta)>e.peakDb) {
                 e.peakDb=std::abs(delta);
@@ -100,13 +105,16 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
             if(std::abs(delta)>std::max(.25,5.*drift+.05)) {
                 run=(previousBin+1==i && sign==previousSign)?run+1:1;
                 e.longestRun=std::max(e.longestRun,run);
+                localLongest=std::max(localLongest,run);
                 previousSign=sign;previousBin=i;
             } else {run=0;previousSign=0;}
         }
+        if(localLongest>=3u && localUnstable<=std::max(1u,(last-first)/4u))
+            hasStableEffectBand=true;
     }
-    e.referenceUnstable=e.unstable>=4u && 3u*e.unstable>e.comparable;
-    e.proven=e.longestRun>=3u && !e.referenceUnstable &&
-             !e.insufficientReleaseSignal;
+    e.proven=hasStableEffectBand && !e.insufficientReleaseSignal;
+    e.referenceUnstable=!hasStableEffectBand &&
+        e.unstable>=4u && 3u*e.unstable>e.comparable;
     return e;
 }
 inline const char* verdict(const Evidence& e) noexcept {
