@@ -222,6 +222,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         sentInitialProgram_=false;
         programNeedsSending_.store(true,std::memory_order_release);
         creativePacer_.reset();
+        creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
@@ -234,6 +235,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         outputRate_.reset();
         sentInitialProgram_=false;
         creativePacer_.reset();
+        creativeFramePace_.reset();
         creativeGuestWasReady_=false;
     }
     return SingleComponentEffect::setActive(on);
@@ -249,7 +251,10 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     // Preserve Steinberg's original lifecycle return semantics. Our
     // adapter already clamps unsupported/invalid values to native 44.1 kHz.
     const auto result=SingleComponentEffect::setupProcessing(setup);
-    if(result==kResultOk)outputRate_.configure(setup.sampleRate);
+    if(result==kResultOk){
+        outputRate_.configure(setup.sampleRate);
+        creativeFramePace_.configure(setup.sampleRate);
+    }
     return result;
 }
 // VST3 hosts (including Studio Pro) call setProcessing() on transport
@@ -436,6 +441,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
         creativePacer_.reset();
+        creativeFramePace_.reset();
         // Original guest restarted: reassert modified generators and
         // always enforce 0% truly DRY for original Creative FX sends.
         // For tone controls, 0% does NOT send NRPN=0: that would replace
@@ -500,10 +506,12 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             // 16550 UART is a 16-byte FIFO; 4x6-byte NRPN messages in
             // ONE callback form a 24-byte burst and can overrun it.
             // Send at most ONE 6-byte short MIDI packet per callback.
-            (void)creativePacer_.tick(creativeModPending_,creativeMod_,
-                [this](std::uint8_t controller,std::uint8_t amount) noexcept {
-                    return core_.midi(0xb0u,controller,amount)==1;
-                });
+            if(creativeFramePace_.due(static_cast<std::uint32_t>(
+                                        std::max<Steinberg::int32>(0,data.numSamples))))
+                (void)creativePacer_.tick(creativeModPending_,creativeMod_,
+                    [this](std::uint8_t controller,std::uint8_t amount) noexcept {
+                        return core_.midi(0xb0u,controller,amount)==1;
+                    });
         }
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
