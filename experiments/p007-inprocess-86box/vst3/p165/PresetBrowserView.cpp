@@ -465,7 +465,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
 
     // P152: the amber LCD owns the complete live status line, including
     // the current filename. Its labels remain real host-driven VSTGUI views.
-    auto* lcd=MakeLabel({350,96,570,112},"EMU8000  |  SOUNDFONT ENGINE",true);
+    auto* lcd=MakeLabel({350,96,570,112},"EMU8000 / CREATIVE WIN95",true);
     lcd->setFontColor(CColor(55,42,9,255));
     fileLabel_=MakeLabel({575,96,728,112},"",false);
     fileLabel_->setFont(kNormalFontSmall);
@@ -570,6 +570,17 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     AddKnob(8,563,464,"CUTOFF");
     AddKnob(9,687,464,"RESONANCE");
     reset_=MakeButton({808,513,960,549},kReset,"MOD RESET");
+    // P007Z correctness gate: preserve the ORIGINAL complete physical P165
+    // front panel, but do NOT expose disconnected editing. The 12 legacy
+    // knobs used an earlier *direct* SF2 engine, not the live original
+    // Creative Win95 VxD. Their real original-chip bridge is a separate
+    // blocking task. A click cannot silently accept a fictional parameter.
+    for(auto* knob:controls_)if(knob)knob->setMouseEnabled(false);
+    if(reverbMenu_)reverbMenu_->setMouseEnabled(false);
+    if(chorusMenu_)chorusMenu_->setMouseEnabled(false);
+    if(reset_)reset_->setMouseEnabled(false);
+    for(auto* value:values_)if(value)value->setText("--");
+
 
     // BROWSER: no permanent 400px sidebar. It uses the available width,
     // retains true SF2 bank filtering, search and exact program selection.
@@ -719,7 +730,7 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // unchanged, although an intervening MIDI CC0 switched the *audio* bank.
     // Reassert through the controller-to-processor message path in that case.
     const bool sameHostBank=controller_ &&
-        std::lround(controller_->getParamNormalized(kBankParam)*16383.)==bank;
+        std::lround(controller_->getParamNormalized(kBankParam)*127.)==bank;
     if(sameHostBank&&(!browserBankReselect_ ||
                       !browserBankReselect_(bank))) {
         // Without the explicit message the host may discard this unchanged
@@ -736,7 +747,7 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // status text instead of retaining a stale warning across successful UI.
     lastStatus_.clear();
     SyncSf2Status();
-    ChangeParameter(kBankParam,double(bank)/16383.);
+    ChangeParameter(kBankParam,double(bank)/127.);
     ChangeParameter(kProgram,double(program)/127.);
     // Reflect the clicked instrument immediately. The following idle
     // compares bank/program back with the controller: an unaccepted host
@@ -842,7 +853,7 @@ void PresetBrowserView::Sync(bool force) {
         }
     }
     const auto bank=static_cast<uint16_t>(std::clamp(int(std::lround(
-        controller_->getParamNormalized(kBankParam)*16383.)),0,16383));
+        controller_->getParamNormalized(kBankParam)*127.)),0,16383));
     const auto program=static_cast<uint8_t>(std::clamp(int(std::lround(
         controller_->getParamNormalized(kProgram)*127.)),0,127));
     for(int i=0;i<kGuiCount;++i) {
@@ -854,7 +865,7 @@ void PresetBrowserView::Sync(bool force) {
         }
         char label[16]{};
         std::snprintf(label,sizeof(label),"%d%%",int(std::lround(value*100.)));
-        values_[size_t(i)]->setText(label);
+        values_[size_t(i)]->setText("--"); // original Creative bridge unimplemented
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
@@ -926,14 +937,25 @@ void PresetBrowserView::SetPage(int page) {
     if(empty_)empty_->setVisible(currentPage_==1&&rows_.empty());
 }
 void PresetBrowserView::ChooseSf2() {
-    std::string path;
-    if(NativeChooseFile(path,false)&&sf2LoadRequest_)
-        sf2LoadRequest_(path);
+    // This P007 guest is genuine Win95 + Creative. The old native SF2
+    // loader talked to a DIFFERENT synth engine; never claim it works here.
+#if defined(_WIN32)
+    MessageBoxW(GetForegroundWindow(),
+       L"Das originale Creative-Windows-95-SoundFont-Laden ist in der "
+       L"P007-Gaststeuerung noch nicht angebunden. Die Auswahl wird "
+       L"NICHT vorgenommen.",
+       L"125A AWE64 Gold: SF2 noch nicht verfuegbar",
+       MB_OK|MB_ICONWARNING);
+#endif
 }
 void PresetBrowserView::ChooseRom() {
-    std::string path;
-    if(NativeChooseFile(path,true)&&romLoadRequest_)
-        romLoadRequest_(path);
+#if defined(_WIN32)
+    MessageBoxW(GetForegroundWindow(),
+       L"Das originale AWE-ROM liegt bereits im privaten VST3 und wird "
+       L"automatisch durch 86Box verwendet. Ein Austausch des ROMs "
+       L"im laufenden Windows-95-Gast ist noch nicht implementiert.",
+       L"125A AWE64 Gold: Original-ROM",MB_OK|MB_ICONINFORMATION);
+#endif
 }
 void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
