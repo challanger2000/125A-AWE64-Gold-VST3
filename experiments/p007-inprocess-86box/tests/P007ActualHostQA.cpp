@@ -13,6 +13,7 @@
 #include "P007OriginalControlDifferential.hpp"
 #include "P007TenControlMatrix.hpp"
 #include "P007OriginalEnvFilterDepth.hpp"
+#include "../include/P007RegisterProbe.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -26,6 +27,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -1288,7 +1290,8 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
 
 void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                               const VST3::UID& id,FUnknown* host,
-                              const fs::path& bundle) {
+                              const fs::path& bundle,
+                              bool registerProbe=false) {
     const auto root=bundle/"Contents"/"Resources"/"PrivateVM";
     const auto disk=root/"vm"/"win95.img";
     require(fs::is_regular_file(disk)&&fs::file_size(disk)>=32ull*1024ull*1024ull,
@@ -1341,6 +1344,52 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                          GetProcAddress(dll,"p007_midi_submit"));
         require(sendMidi!=nullptr,
                 "authentic 86Box UART MIDI producer export unavailable");
+        // P007AJ diagnostics never run in shipped plugin. The original
+        // Core DLL must include an opt-in PASSIVE register capture shim;
+        // it is built from pinned original 86Box with snd_emu8k.c SHA
+        // verified unchanged (only the old trace wrapper is instrumented).
+        using ProbeVersion=unsigned(__cdecl*)();
+        using ProbeBegin=int(__cdecl*)(unsigned);
+        using ProbeStop=unsigned(__cdecl*)();
+        using ProbeCount=unsigned(__cdecl*)();
+        using ProbeDropped=unsigned(__cdecl*)();
+        using ProbeCopy=unsigned(__cdecl*)(p007aj_register_event*,unsigned,unsigned);
+        ProbeVersion probeVersion=nullptr;
+        ProbeBegin probeBegin=nullptr;
+        ProbeStop probeStop=nullptr;
+        ProbeCount probeCount=nullptr;
+        ProbeDropped probeDropped=nullptr;
+        ProbeCopy probeCopy=nullptr;
+        struct FileCloser {void operator()(FILE* f)const noexcept{if(f)std::fclose(f);}};
+        std::unique_ptr<FILE,FileCloser> traceFile;
+        bool probeCapturing=false;
+        if(registerProbe) {
+            probeVersion=reinterpret_cast<ProbeVersion>(
+                GetProcAddress(dll,"p007aj_probe_version"));
+            probeBegin=reinterpret_cast<ProbeBegin>(
+                GetProcAddress(dll,"p007aj_probe_begin"));
+            probeStop=reinterpret_cast<ProbeStop>(
+                GetProcAddress(dll,"p007aj_probe_stop"));
+            probeCount=reinterpret_cast<ProbeCount>(
+                GetProcAddress(dll,"p007aj_probe_count"));
+            probeDropped=reinterpret_cast<ProbeDropped>(
+                GetProcAddress(dll,"p007aj_probe_dropped"));
+            probeCopy=reinterpret_cast<ProbeCopy>(
+                GetProcAddress(dll,"p007aj_probe_copy"));
+            require(probeVersion&&probeBegin&&probeStop&&probeCount&&
+                    probeDropped&&probeCopy&&probeVersion()==P007AJ_API_VERSION,
+                    "P007AJ bounded original EMU8000 register observer unavailable; "
+                    "reject normal uninstrumented production core");
+            const auto tracePath=bundle.parent_path()/
+                L"P007AJ-EMU8000-REGISTER-EVENTS.csv";
+            traceFile.reset(_wfopen(tracePath.c_str(),L"wb"));
+            require(bool(traceFile),"cannot create bounded ORIGINAL register CSV");
+            std::fprintf(traceFile.get(),"scenario,scenario_name,serial,"
+                 "chip_frame_44100,io_port_hex,register_word_hex\n");
+            std::puts("P007AJ_REAL_ORIGINAL_86BOX_REGISTER_SHIM_PRESENT"
+                 " cap_per_take=8192 no_unbounded_file=1"
+                 " original_emu8000_dsp_source_unmodified=1");
+        }
         struct Scenario {
             const char* name;
             ParamID param;
@@ -1406,6 +1455,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             if(phase==Phase::Boot) {
                 if(readyAt==Clock::time_point{}&&ready()) {
                     readyAt=now;std::puts("P007AI_ORIGINAL_WIN95_WINMM_READY");
+                    if(registerProbe) {
+                        require(probeBegin(0u)!=0,
+                                "P007AJ original chip note0 capture start");
+                        probeCapturing=true;
+                    }
                 }
                 if(readyAt!=Clock::time_point{}&&
                    now-readyAt>=1500ms&&before.frames>=44100u) {
@@ -1450,6 +1504,35 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                         "original NoteOff event not queued");
                 offAt=now;phase=Phase::Tail;
             }else if(phase==Phase::Tail&&now-offAt>=2750ms) {
+                if(registerProbe&&probeCapturing){
+                    const unsigned attempted=probeStop();
+                    const unsigned captured=probeCount();
+                    const unsigned missed=probeDropped();
+                    probeCapturing=false;
+                    require(captured<=P007AJ_CAP && missed+captured==attempted,
+                            "P007AJ original register observer count overflow");
+                    std::array<p007aj_register_event,256u> chunk{};
+                    for(unsigned offset=0u;offset<captured;){
+                        const auto n=probeCopy(chunk.data(),offset,
+                                               static_cast<unsigned>(chunk.size()));
+                        require(n!=0u,"P007AJ register copy missing event");
+                        for(unsigned j=0;j<n;++j){
+                            const auto& e=chunk[j];
+                            std::fprintf(traceFile.get(),
+                              "%zu,%s,%u,%llu,%04X,%04X\n",
+                              index,scenarios[index].name,e.serial,
+                              static_cast<unsigned long long>(e.frame),
+                              unsigned(e.port),unsigned(e.value));
+                        }
+                        offset+=n;
+                    }
+                    std::fflush(traceFile.get());
+                    std::printf("P007AJ_ACTUAL_ORIGINAL_EMU8000_PORT_PROBE"
+                       " scenario=%zu name=%s events=%u overflow=%u"
+                       " csv_limit=8192 original_guest=1 synthetic=0\n",
+                       index,scenarios[index].name,captured,missed);
+                    std::fflush(stdout);
+                }
                 const auto& note=takes[index];
                 std::printf("P007AI_PRIVATE_ORIGINAL_MATRIX_NOTE name=%s"
                             " onset_rms=%.9f roughness=%.9f"
@@ -1489,6 +1572,11 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     std::fflush(stdout);
                 }
                 if(index<scenarios.size()) {
+                    if(registerProbe){
+                        require(probeBegin(static_cast<unsigned>(index))!=0,
+                                "P007AJ original chip note capture not started");
+                        probeCapturing=true;
+                    }
                     const auto& chosen=scenarios[index];
                     if(chosen.param!=0u)
                         require(plugin.controller->setParamNormalized(
@@ -1607,7 +1695,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -1635,6 +1723,8 @@ int main(int argc,char** argv) {
             privateFiveControlPadSweep(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-env-depth")==0)
             privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle);
+        if(argc==3 && std::strcmp(argv[2],"--private-regtrace")==0)
+            privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,true);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
     }catch(const std::exception& ex){
