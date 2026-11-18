@@ -47,6 +47,11 @@ struct Instance {
     IPtr<IEditController> controller;
     IPtr<IAudioProcessor> processor;
     bool initialized = false;
+    Instance()=default;
+    Instance(const Instance&)=delete;
+    Instance& operator=(const Instance&)=delete;
+    Instance(Instance&&)=default;
+    Instance& operator=(Instance&&)=delete;
     ~Instance() {
         if (component && initialized) (void)component->terminate();
     }
