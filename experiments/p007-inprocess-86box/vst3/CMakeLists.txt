@@ -113,3 +113,12 @@ add_executable(P007CreativeNrpnTest
   "${CMAKE_CURRENT_SOURCE_DIR}/P007CreativeNrpn.hpp")
 target_include_directories(P007CreativeNrpnTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(P007CreativeNrpnTest PRIVATE cxx_std_20)
+
+# P007AD: original Win95 Creative PCM A/B/A analysis - strict, standalone
+# numerical negative controls (does NOT prove original driver audibility).
+add_executable(P007OriginalControlDifferentialTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalControlDifferentialTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalControlDifferential.hpp")
+target_include_directories(P007OriginalControlDifferentialTest PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+target_compile_features(P007OriginalControlDifferentialTest PRIVATE cxx_std_20)
