@@ -74,3 +74,12 @@ jobs:
           path: build/p007w-actual-host.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Publish standalone Windows QA executable (not part of the VST3)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007W-Windows-Private-Audio-Host-Tester-EXE
+          path: build/p007-vst3/Release/P007ActualHostQA.exe
+          if-no-files-found: error
+          retention-days: 7
