@@ -6,6 +6,7 @@
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "P007OutputRate.hpp"
 #include "P007StateCodec.hpp"
+#include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
 #ifndef NOMINMAX
@@ -62,6 +63,8 @@ public:
 class Plugin final : public Steinberg::Vst::SingleComponentEffect,
                      public VSTGUI::VST3EditorDelegate {
     Core core_{};
+    AWE125::PresetCatalog originalMidiCatalog_{};
+    AWE125::PresetCatalog legacyFmCatalog_{};
     OutputRate outputRate_{};
     bool active_=false;
     std::atomic<std::uint8_t> midiProgram_{0u},midiBank_{0u};
