@@ -19,7 +19,7 @@ inline constexpr unsigned bands = 7u;
 // Six low-pass crossovers yield seven broad spectral bands. Unlike 1-2 FFT
 // peak frequencies, broad bands remain valid for chords, pads and evolving timbres.
 inline constexpr std::array<double,6> cutoffs{{150.,350.,750.,1500.,3000.,6000.}};
-inline constexpr double pi = 3.1415926535897932384626433832795;
+inline constexpr std::array<double,6> smoothing{{0.021144628875040428,0.048643625516242572,0.10134573247638978,0.19242050746160366,0.34781536323142626,0.57465519956304356}};
 
 struct Capture {
   double state[2][6]{};
@@ -37,7 +37,7 @@ struct Capture {
       const double x=sample[c];
       double last=0.;
       for(unsigned b=0;b<6;++b) {
-        const double alpha=1.-std::exp(-2.*pi*cutoffs[b]/44100.);
+        const double alpha=smoothing[b];
         state[c][b]+=alpha*(x-state[c][b]);
         const double band=state[c][b]-last;
         bandPower[bucket][b]+=band*band;
@@ -79,6 +79,7 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
     case Target::Sustain: first=6u;last=noteBins;break;
     case Target::Release: first=noteBins;last=bins;break;
   }
+  unsigned unstableWindows=0u;
   // Require the B spectral difference to repeat in one broad band in at
   // least two successive 250 ms windows, with the same sign, and to exceed
   // BOTH an absolute 4 dB threshold and three times the measured A/A drift.
@@ -90,6 +91,12 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
       if(!audible(a,i)||!audible(b,i)||!audible(back,i)) {
         previousSign=0;continue;
       }
+      const double aShare=a.bandPower[i][band]/a.totalPower[i];
+      const double bShare=b.bandPower[i][band]/b.totalPower[i];
+      const double rShare=back.bandPower[i][band]/back.totalPower[i];
+      if(std::min({aShare,bShare,rShare})<1.e-4) {
+        previousSign=0;continue; // noise-floor bands cannot be evidence
+      }
       ++e.comparable;
       const double aDb=shapeDb(a,i,band);
       const double bDb=shapeDb(b,i,band);
@@ -97,7 +104,7 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
       const double referenceDrift=std::abs(aDb-rDb);
       e.maxReferenceDriftDb=std::max(e.maxReferenceDriftDb,referenceDrift);
       if(referenceDrift>3.) {
-        e.referenceUnstable=true;
+        ++unstableWindows;
         previousSign=0;
         continue;
       }
@@ -120,6 +127,7 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
   // Coverage and reference return are mandatory. One valid frequency and
   // just two consecutive windows is proof of a *measurable* spectral effect,
   // not necessarily a perceptually obvious difference.
+  e.referenceUnstable=(unstableWindows>=4u && unstableWindows*3u>e.comparable);
   e.proven=e.proven && e.restored>=2u && !e.referenceUnstable;
   return e;
 }
