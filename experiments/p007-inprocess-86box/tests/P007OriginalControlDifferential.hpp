@@ -50,7 +50,7 @@ inline bool stable(const Take& a,const Take& b) noexcept {
 }
 inline bool cutoffEffect(const Take& baseline,const Take& changed,
                          const Take& restored) noexcept {
- return stable(baseline,restored)&&
+ return stable(baseline,restored)&&nonSilent(changed)&&
         (relativeChange(baseline.onset.rms(),changed.onset.rms())>.22 ||
          relativeChange(baseline.onset.roughness(),
                         changed.onset.roughness())>.18);
@@ -58,17 +58,19 @@ inline bool cutoffEffect(const Take& baseline,const Take& changed,
 inline bool attackEffect(const Take& baseline,const Take& slow,
                          const Take& restored) noexcept {
  return stable(baseline,restored) &&
+        slow.onset.stereoFrames>=20000u &&
+        slow.onset.nonzero>=256u && slow.onset.rms()>=.000001 &&
         slow.onset.rms()<baseline.onset.rms()*.68;
 }
 inline bool sendTailEffect(const Take& dry,const Take& wet,
                            const Take& dryAgain) noexcept {
- return stable(dry,dryAgain) &&
+ return stable(dry,dryAgain) && nonSilent(wet) &&
         wet.tail.stereoFrames>=20000u &&
         wet.tail.rms()>std::max(dry.tail.rms()*1.45,.000005);
 }
 inline bool chorusEffect(const Take& dry,const Take& wet,
                          const Take& dryAgain) noexcept {
- return stable(dry,dryAgain) &&
+ return stable(dry,dryAgain) && nonSilent(wet) &&
        (relativeChange(dry.sustain.rms(),wet.sustain.rms())>.13 ||
         relativeChange(dry.sustain.roughness(),
                        wet.sustain.roughness())>.16);
