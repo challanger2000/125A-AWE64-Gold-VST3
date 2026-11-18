@@ -72,3 +72,15 @@ add_executable(P007StateCodecTest
   "${CMAKE_CURRENT_SOURCE_DIR}/P007StateCodec.hpp")
 target_include_directories(P007StateCodecTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(P007StateCodecTest PRIVATE cxx_std_20)
+
+
+# P007W: independent actual Windows VST3 host, not codec-only regression.
+# The optional --private-audio mode runs ONLY on the owner's private Windows
+# machine with their original Win95/Creative guest assets. Public CI must never
+# upload private images or misrepresent a synthetic run as original PCM.
+add_executable(P007ActualHostQA
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007ActualHostQA.cpp"
+  "${P007_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp")
+target_include_directories(P007ActualHostQA PRIVATE "${P007_SDK_ROOT}")
+target_link_libraries(P007ActualHostQA PRIVATE sdk_hosting)
+target_compile_features(P007ActualHostQA PRIVATE cxx_std_20)
