@@ -85,3 +85,13 @@ add_executable(P007ActualHostQA
 target_include_directories(P007ActualHostQA PRIVATE "${P007_SDK_ROOT}")
 target_link_libraries(P007ActualHostQA PRIVATE sdk_hosting)
 target_compile_features(P007ActualHostQA PRIVATE cxx_std_17)
+
+
+# CI-only fake core for an ephemeral copy of the actual Windows VST3.
+# This must NEVER be embedded in the private product or uploaded as a
+# Creative/EMU8000 test result. Distinct markers explicitly say SYNTHETIC.
+add_library(P007SyntheticCoreMock SHARED
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007SyntheticCoreMock.cpp")
+target_compile_features(P007SyntheticCoreMock PRIVATE cxx_std_20)
+set_target_properties(P007SyntheticCoreMock PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/synthetic-core")
