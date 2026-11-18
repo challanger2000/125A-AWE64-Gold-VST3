@@ -60,8 +60,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $plugin=(Resolve-Path 'build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3').Path
-          $host=(Resolve-Path 'build/p007-vst3/Release/P007ActualHostQA.exe').Path
-          & $host $plugin | Tee-Object -FilePath build/p007w-actual-host.log
+          $qaExe=(Resolve-Path 'build/p007-vst3/Release/P007ActualHostQA.exe').Path
+          & $qaExe $plugin | Tee-Object -FilePath build/p007w-actual-host.log
           if($LASTEXITCODE -ne 0){throw 'Actual VST3 host QA failed'}
           if(!(Select-String -Path build/p007w-actual-host.log -Pattern 'P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS' -Quiet)){
             throw 'No real VST3 state reopen acceptance marker'
