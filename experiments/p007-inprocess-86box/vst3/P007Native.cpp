@@ -1,6 +1,6 @@
 #include "P007Native.hpp"
 #include "P007PrivatePaths.hpp"
-#include "P007P165View.hpp"
+#include "p165/PresetBrowserView.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/base/ibstream.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
@@ -189,6 +189,10 @@ tresult PLUGIN_API Plugin::initialize(FUnknown* context) {
         kP165Bank,nullptr,0.0,127.0,0.0,127));
     parameters.addParameter(new RangeParameter(STR16("Master Volume"),
         kP165Master,STR16("%"),0.0,100.0,100.0));
+    // The original P165 editor requires a catalog to show actual program
+    // numbers. A text name is NOT an assertion that the Creative guest
+    // installed a SoundFont or a program with that name.
+    originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
     return kResultOk;
 }
 tresult PLUGIN_API Plugin::terminate() {
@@ -249,8 +253,27 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
     const VSTGUI::UIAttributes&,const VSTGUI::IUIDescription*,
     VSTGUI::VST3Editor*) {
     if(name&&std::strcmp(name,"P007P165Panel")==0)
-        return new P165View({0,0,1000,708},this,
-                            [this](){return p165GuestStatus();});
+        return new AWE125::PresetBrowserView({0,0,1000,708},this,
+            originalMidiCatalog_,legacyFmCatalog_,std::string{},
+            [this]() {
+                const int s=p165GuestStatus();
+                return s==2 ? std::string("ORIGINAL CREATIVE WINMM: BEREIT | SF2 LADEN NOCH NICHT ANGEBUNDEN") :
+                       s==1 ? std::string("WINDOWS 95: ORIGINAL-GAST STARTET") :
+                       s<0 ? std::string("WINDOWS 95 / CREATIVE: STARTFEHLER") :
+                             std::string("ORIGINAL CREATIVE: GAST NOCH NICHT BEREIT");
+            },
+            [this]() {
+                const int s=p165GuestStatus();
+                return s==2 ? std::string("ORIGINAL AWE64 | CREATIVE WINMM BEREIT") :
+                       s==1 ? std::string("WIN95: BOOTET") :
+                       s<0 ? std::string("WIN95: GASTFEHLER") :
+                             std::string("ROM IM BUNDLE | WIN95 NICHT BEREIT");
+            },
+            [](const std::string&){return false;}, // no fake ROM load
+            [](const std::string&){return false;}, // no fake SF2 load
+            [](){return std::string{};},
+            [](){return std::uint64_t{1};},
+            [](std::uint16_t bank){return bank==0;});
     return nullptr;
 }
 IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
