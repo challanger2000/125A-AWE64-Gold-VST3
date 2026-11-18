@@ -1629,6 +1629,34 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         }
         require(index==scenarios.size(),
                 "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
+        if(spectralProbe) {
+            // All analysis bins are collected in preallocated memory while
+            // VST3 process() runs. Write AFTER playback, never in its callback.
+            const auto csvPath=bundle.parent_path()/
+                L"P007AK-ORIGINAL-PCM-SPECTRAL-BANDS.csv";
+            std::unique_ptr<FILE,FileCloser> csv(_wfopen(csvPath.c_str(),L"wb"));
+            require(bool(csv),"cannot create P007AK original spectral-bin report");
+            std::fprintf(csv.get(),
+                "scenario,scenario_name,phase,quarter_second_bin,"
+                "band,frames,total_energy,band_energy\n");
+            for(unsigned takeIndex=0;takeIndex<spectra.size();++takeIndex) {
+                const auto& cap=spectra[takeIndex];
+                for(unsigned i=0;i<p007::original_spectral_proof::bins;++i) {
+                    for(unsigned k=0;k<p007::original_spectral_proof::bands;++k) {
+                        std::fprintf(csv.get(),"%u,%s,%s,%u,%u,%u,%.17g,%.17g\n",
+                          takeIndex,scenarios[takeIndex].name,
+                          i<p007::original_spectral_proof::noteBins?"NOTE":"RELEASE",
+                          i<p007::original_spectral_proof::noteBins?i:
+                             i-p007::original_spectral_proof::noteBins,
+                          k,cap.count[i],cap.totalPower[i],
+                          cap.bandPower[i][k]);
+                    }
+                }
+            }
+            require(std::fflush(csv.get())==0,
+                "P007AK original spectral-bin report flush failed");
+            std::puts("P007AK_ORIGINAL_PCM_SPECTRAL_RAW_BINS_SAVED_OFFLINE");
+        }
         require(p007::original_audio_proof::accept(before,originalFirst),
                 "original Creative PCM not proven above Win95 background");
         // AUDIO-ONLY authenticity check: original Win95/Creative PCM
