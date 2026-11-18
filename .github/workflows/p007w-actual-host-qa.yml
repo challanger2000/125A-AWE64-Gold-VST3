@@ -66,6 +66,14 @@ jobs:
           if(!(Select-String -Path build/p007w-actual-host.log -Pattern 'P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS' -Quiet)){
             throw 'No real VST3 state reopen acceptance marker'
           }
+      - name: Verify original Creative PCM proof rejects constant background and missing baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build build/p007-vst3 --config Release --target P007OriginalAudioProofTest --parallel 2
+          if($LASTEXITCODE -ne 0){throw 'Original MIDI onset proof unit build failed'}
+          & 'build/p007-vst3/Release/P007OriginalAudioProofTest.exe' | Tee-Object -FilePath 'build/p007y-original-audio-proof-rules.log'
+          if($LASTEXITCODE -ne 0){throw 'Original audio before/after note attribution test failed'}
       - name: Build disposable synthetic core DLL (never a Creative emulator)
         shell: pwsh
         run: |
@@ -99,6 +107,26 @@ jobs:
           if(!(Select-String -Path 'build/p007x-synthetic-host.log' -Pattern 'P007X_REAL_WINDOWS_VST3_SYNTHETIC_GUEST_44K_48K_96K_AUDIO_MIDI_PASS' -Quiet)){
             throw 'Missing synthetic original-provenance-labeled acceptance marker'
           }
+          # Negative control: the same synthetic CI bundle must NEVER be
+          # accepted as original Creative/Win95, even with valid VST3 audio.
+          & $qaExe $dest --private-audio *> 'build/p007y-refuse-fake-original.log'
+          if($LASTEXITCODE -eq 0){
+            throw 'CRITICAL: synthetic guest incorrectly accepted as original Creative'
+          }
+          if(Select-String -Path 'build/p007y-refuse-fake-original.log' -Pattern 'P007Y_PRIVATE_REAL_VST3_ORIGINAL_CREATIVE_NOTEON_PCM_PASS' -Quiet){
+            throw 'CRITICAL: a forged original audio PASS marker was emitted'
+          }
+          Write-Host 'P007Y_PUBLIC_SYNTHETIC_AS_ORIGINAL_CREATIVE_REJECTED_PASS'
+      - name: Preserve original PCM attribution and anti-fake QA logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007Y-Windows-Original-Audio-Proof-Attribution-Checks
+          path: |
+            build/p007y-original-audio-proof-rules.log
+            build/p007y-refuse-fake-original.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Preserve synthetic-only Windows audio/MIDI QA log
         if: always()
         uses: actions/upload-artifact@v4
