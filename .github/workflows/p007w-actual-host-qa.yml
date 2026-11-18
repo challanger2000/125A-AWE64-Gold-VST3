@@ -1,7 +1,7 @@
 name: P007W actual Windows VST3 host state and optional private audio QA
 on:
   push:
-    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118, fix/p007ae-paced-creative-uart-20261118, research/p007ag-ten-creative-controls-matrix-20261118]
+    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118, fix/p007ae-paced-creative-uart-20261118, research/p007ag-ten-creative-controls-matrix-20261118, research/p007ah-pad-sweep-inconclusive-five-20261118]
     paths:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
       - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnTest.cpp"
@@ -165,6 +165,14 @@ jobs:
             throw 'CRITICAL: fake original ten-control PCM PASS marker'
           }
           Write-Host 'P007AG_PUBLIC_SYNTHETIC_AS_ORIGINAL_TEN_CONTROL_PCM_REJECTED_PASS'
+          & $qaExe $dest --private-pad-sweep *> 'build/p007ah-refuse-synthetic-pad.log'
+          if($LASTEXITCODE -eq 0){
+            throw 'CRITICAL: fake guest accepted as original Pad8 five-knob PCM test'
+          }
+          if(Select-String -Path 'build/p007ah-refuse-synthetic-pad.log' -Pattern 'P007AH_PRIVATE_PAD8_SWEEP_DIAGNOSTIC_COMPLETED' -Quiet){
+            throw 'CRITICAL: forged original Pad8 five-knob PCM measurement marker'
+          }
+          Write-Host 'P007AH_PUBLIC_SYNTHETIC_AS_ORIGINAL_PAD8_REJECTED_PASS'
           Write-Host 'P007AD_PUBLIC_SYNTHETIC_NRPN_AS_ORIGINAL_PCM_REJECTED_PASS'
           # The expected negative-control exit code must not turn this successful
           # rejection test into a failed GitHub Actions PowerShell step.
@@ -207,6 +215,7 @@ jobs:
             build/p007y-refuse-fake-original.log
             build/p007ad-refuse-fake-original.log
             build/p007ag-refuse-synthetic-matrix.log
+            build/p007ah-refuse-synthetic-pad.log
           if-no-files-found: warn
           retention-days: 7
       - name: Preserve synthetic-only Windows audio/MIDI QA log
