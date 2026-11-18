@@ -226,6 +226,17 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     if(result==kResultOk)outputRate_.configure(setup.sampleRate);
     return result;
 }
+// VST3 hosts (including Studio Pro) call setProcessing() on transport
+// and processor lifecycle transitions. The Steinberg base-class default
+// does not acknowledge this in our combined-instrument implementation.
+// Keep the original guest alive across host transport stop/start: its
+// Win95 boot must NOT be restarted on each audio processing transition.
+tresult PLUGIN_API Plugin::setProcessing(TBool on) {
+    // Do not reuse stale resampler history when the DAW resumes. This is
+    // constant-time, heap-free and leaves the original EMU8000 untouched.
+    if(on) outputRate_.reset();
+    return kResultOk;
+}
 int Plugin::p165GuestStatus() const noexcept {
     const int stage=core_.bootStatus();
     if(stage<0)return stage;
