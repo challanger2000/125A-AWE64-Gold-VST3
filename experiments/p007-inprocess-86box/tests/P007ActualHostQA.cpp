@@ -1260,7 +1260,7 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
                 int(e.stableBefore),int(e.stableAfter));
             std::fflush(stdout);
         }
-        std::printf("P007AH_ORIGINAL_WIN95_CREATIVE_TEN_CONTROL_SUMMARY"
+        std::printf("P007AH_ORIGINAL_WIN95_CREATIVE_FIVE_CONTROL_SUMMARY"
             " measured=%u inconclusive=%u unstable=%u total=%zu"
             " original_guest=1 synthetic=0\n",
             measurable,inconclusive,unstable,selected.size());
@@ -1273,7 +1273,7 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
         // keep inconclusive cases open rather than calling them defective.
         std::printf("P007AH_PAD8_SWEEP_FIVE_CONTROL_DIAGNOSTIC"
             " measured=%u inconclusive=%u unstable=%u"
-            " original_rom_program_midi=95 genuine_creative=1 synthetic=0\\n",
+            " original_rom_program_midi=95 genuine_creative=1 synthetic=0\n",
             measurable,inconclusive,unstable);
         std::puts("P007AH_PRIVATE_PAD8_SWEEP_DIAGNOSTIC_COMPLETED");
     }catch(...) {
