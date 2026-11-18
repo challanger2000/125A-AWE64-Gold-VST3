@@ -20,6 +20,7 @@ static void sendNote(Capture& c,unsigned voice,unsigned filterRelease=0x807fu) {
     c.observe(0x0a20u,0x0003u); // not note-off; do not interpret as release
     c.observe(0x0a20u,0x8001u); // original Creative NRPN15 1800
     c.observe(0x0e22u,static_cast<unsigned short>(0xe0u|voice));
+    c.observe(0x0a20u,0x007fu); // original filter ENV sustain at NoteOn
     c.observe(0x0a20u,static_cast<unsigned short>(filterRelease));
 }
 int main() {
@@ -33,11 +34,26 @@ int main() {
                 "Creative volume release decoding failed");
         require(baseline.filterRelease==0x807fu,
                 "Creative filter release decoding failed");
+        require(baseline.hasFilterNoteSustain &&
+                baseline.filterNoteSustain==0x007fu,
+                "original filter note sustain register missing");
         Capture changed{};
         sendNote(changed,voice,0x8002u);
         require(changed.complete() && changed.filterRelease!=baseline.filterRelease,
                 "changed original modulation release not detected");
     }
+    Capture sustained{};
+    sustained.observe(0x0e22u,0x0046u);
+    sustained.observe(0x0e20u,0x00c0u);
+    sustained.observe(0x0e22u,0x00a6u);
+    sustained.observe(0x0a20u,0x8001u);
+    sustained.observe(0x0e22u,0x00e6u);
+    sustained.observe(0x0a20u,0x7f7fu);
+    sustained.observe(0x0a20u,0x8002u);
+    require(sustained.complete() && sustained.hasFilterNoteSustain &&
+            sustained.filterNoteSustain==0x7f7fu &&
+            sustained.filterRelease==0x8002u,
+            "hold filter modulation until NoteOff regression failed");
     Capture missing{};
     missing.observe(0x0e22u,0xe3u);
     missing.observe(0x0a20u,0x807fu);
