@@ -15,6 +15,7 @@
 #include "P007OriginalEnvFilterDepth.hpp"
 #include "P007OriginalSpectralProof.hpp"
 #include "P007ALCorrectedSpectralProof.hpp"
+#include "P007ALOriginalChipRegisterProof.hpp"
 #include "../include/P007RegisterProbe.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -1426,7 +1427,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         namespace proof=p007::original_control_proof;
         std::array<proof::Take,14> takes{};
         std::array<p007::original_spectral_proof::Capture,14> spectra{};
-        std::array<std::uint16_t,14> chipPefe{},chipVolRelease{},chipModRelease{};
+        std::array<p007::original_chip_register_proof::Capture,14> chipRegisters{};
         p007::original_audio_proof::Window before,originalFirst;
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
@@ -1532,22 +1533,15 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     require(captured<=P007AJ_CAP && missed+captured==attempted,
                             "P007AJ original register observer count overflow");
                     std::array<p007aj_register_event,256u> chunk{};
-                    std::uint16_t observedPointer=0xffffu;
+                    // The original Creative allocator does NOT stick to voice 0.
+                    // Decode pointer low five bits for every genuine voice.
                     for(unsigned offset=0u;offset<captured;){
                         const auto n=probeCopy(chunk.data(),offset,
                                                static_cast<unsigned>(chunk.size()));
                         require(n!=0u,"P007AJ register copy missing event");
                         for(unsigned j=0;j<n;++j){
                             const auto& e=chunk[j];
-                            if(e.port==0x0e22u)observedPointer=e.value;
-                            else if(e.port==0x0e20u && observedPointer==0x0040u)
-                                chipPefe[index]=e.value;
-                            else if(e.port==0x0a20u && observedPointer==0x00a0u &&
-                                    (e.value&0x8000u))
-                                chipVolRelease[index]=e.value;
-                            else if(e.port==0x0a20u && observedPointer==0x00e0u &&
-                                    (e.value&0x8000u))
-                                chipModRelease[index]=e.value;
+                            chipRegisters[index].observe(e.port,e.value);
                             std::fprintf(traceFile.get(),
                               "%zu,%s,%u,%llu,%04X,%04X\n",
                               index,scenarios[index].name,e.serial,
@@ -1673,22 +1667,27 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
         if(correctedFilterProbe) {
             for(unsigned t=4u;t<=12u;++t) {
-                std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u PEFE=%04X"
-                    " VOLUME_RELEASE_DCYSUSV=%04X FILTER_RELEASE_DCYSUS=%04X\n",
-                    t,unsigned(chipPefe[t]),unsigned(chipVolRelease[t]),
-                    unsigned(chipModRelease[t]));
+                const auto& cr=chipRegisters[t];
+                std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
+                    " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
+                    " FILTER_RELEASE_DCYSUS=%04X complete=%d\n",
+                    t,cr.voice,unsigned(cr.pefe),unsigned(cr.volumeRelease),
+                    unsigned(cr.filterRelease),int(cr.complete()));
             }
             std::fflush(stdout);
-            require(chipVolRelease[4]!=0u && chipVolRelease[4]!=0x8029u,
+            require(chipRegisters[4].complete() &&
+                    chipRegisters[4].volumeRelease!=0x8029u,
                 "P007AL original Creative NRPN15 did not extend amplitude release");
             for(unsigned t=4u;t<=12u;++t) {
-                require(chipPefe[t]==0x00c0u,
+                require(chipRegisters[t].complete(),
+                    "P007AL original chip evidence incomplete or ambiguous for allocated voice");
+                require(chipRegisters[t].pefe==0x00c0u,
                     "P007AL unexpected original chip filter PEFE; requested closing polarity not applied");
-                require(chipVolRelease[t]==chipVolRelease[4],
+                require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
                     "P007AL amplifier release differs across A/B/A - invalid filter comparison");
             }
-            require(chipModRelease[11]!=chipModRelease[10] &&
-                    chipModRelease[12]==chipModRelease[10],
+            require(chipRegisters[11].filterRelease!=chipRegisters[10].filterRelease &&
+                    chipRegisters[12].filterRelease==chipRegisters[10].filterRelease,
                 "P007AL original filter release generator did not change and restore");
             std::puts("P007AL_CORRECTED_ORIGINAL_CREATIVE_REGISTER_SETUP_PASS");
         }
