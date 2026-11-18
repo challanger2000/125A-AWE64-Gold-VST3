@@ -5,6 +5,8 @@ on:
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
+  pull_request:
+    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118]
   workflow_dispatch:
 permissions:
   contents: read
