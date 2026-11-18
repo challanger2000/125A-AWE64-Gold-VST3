@@ -7,6 +7,7 @@
 #include "P007OutputRate.hpp"
 #include "P007StateCodec.hpp"
 #include "P007CreativeNrpn.hpp"
+#include "P007CreativeNrpnPacer.hpp"
 #include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
@@ -75,7 +76,8 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     std::atomic<std::uint32_t> creativeModPending_{0u};
     std::atomic<bool> creativeResetRequested_{false}; // CC121 restores SoundFont defaults on original Win95 driver
     bool creativeGuestWasReady_=false; // audio thread only
-    unsigned nextCreativeMod_=0u;      // audio thread only
+    creative_nrpn::Pacer creativePacer_{}; // one CC packet per audio callback
+    creative_nrpn::FramePace creativeFramePace_{}; // at least 20ms between NRPN short MIDI packets
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
     [[nodiscard]] int p165GuestStatus() const noexcept;

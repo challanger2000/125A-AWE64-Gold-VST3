@@ -221,6 +221,8 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         outputRate_.reset();
         sentInitialProgram_=false;
         programNeedsSending_.store(true,std::memory_order_release);
+        creativePacer_.reset();
+        creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
@@ -232,6 +234,8 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         core_.closeNonRealtime();active_=false;
         outputRate_.reset();
         sentInitialProgram_=false;
+        creativePacer_.reset();
+        creativeFramePace_.reset();
         creativeGuestWasReady_=false;
     }
     return SingleComponentEffect::setActive(on);
@@ -247,7 +251,10 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     // Preserve Steinberg's original lifecycle return semantics. Our
     // adapter already clamps unsupported/invalid values to native 44.1 kHz.
     const auto result=SingleComponentEffect::setupProcessing(setup);
-    if(result==kResultOk)outputRate_.configure(setup.sampleRate);
+    if(result==kResultOk){
+        outputRate_.configure(setup.sampleRate);
+        creativeFramePace_.configure(setup.sampleRate);
+    }
     return result;
 }
 // VST3 hosts (including Studio Pro) call setProcessing() on transport
@@ -430,8 +437,11 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     const bool ready=active_&&core_.guestReady()&&core_.midi;
     if(!ready) {
         sentInitialProgram_=false;
+        creativePacer_.abort(creativeModPending_);
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
+        creativePacer_.reset();
+        creativeFramePace_.reset();
         // Original guest restarted: reassert modified generators and
         // always enforce 0% truly DRY for original Creative FX sends.
         // For tone controls, 0% does NOT send NRPN=0: that would replace
@@ -444,6 +454,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
     }
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
+    bool justSentSelection=false;
     if(ready){
         // The original 86Box UART is a bounded FIFO. A failed submit means
         // Creative did NOT receive the selected bank/program: do not falsely
@@ -451,6 +462,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         // next audio callback (still the ONLY MIDI producer thread).
         const bool sendBank=!sentInitialProgram_||bankChanged||resend;
         const bool sendProgram=sendBank||programChanged;
+        justSentSelection=sendProgram;
         bool accepted=true;
         if(sendBank) {
             // Original Win95 Creative driver receives real MIDI BankSelect.
@@ -473,7 +485,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                     creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
         }
     }
-    if(ready&&sentInitialProgram_) {
+    if(ready&&sentInitialProgram_&&!justSentSelection) {
         // CC121 is specified by Creative to restore the original SoundFont
         // settings. This is essential when an ADSR/filter knob moves BACK
         // to 0% (neutral). Unlike FX sends, a raw NRPN value of zero on
@@ -483,38 +495,23 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         const bool reset=creativeResetRequested_.exchange(
                                 false,std::memory_order_acq_rel);
         if(reset) {
+            creativePacer_.abort(creativeModPending_);
             if(core_.midi(0xb0u,121u,0u)!=1)
                 creativeResetRequested_.store(true,std::memory_order_release);
             else for(unsigned i=0;i<creative_nrpn::count;++i)
                 if(creative_nrpn::shouldTransmit(
-                      i,creativeMod_[i].load(std::memory_order_acquire)))
+                       i,creativeMod_[i].load(std::memory_order_acquire)))
                     creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
         }else{
-            // At most ONE four-CC Creative NRPN transaction per callback.
-            // On a rejected packet replay the entire transaction later.
-            std::uint32_t bits=creativeModPending_.exchange(
-                                    0u,std::memory_order_acq_rel);
-            if(bits) {
-                unsigned index=nextCreativeMod_;
-                for(unsigned k=0;k<creative_nrpn::count;++k) {
-                    const unsigned candidate=(index+k)%creative_nrpn::count;
-                    if(bits&(1u<<candidate)){index=candidate;break;}
-                }
-                const std::uint32_t mask=1u<<index;
-                bits&=~mask;
-                nextCreativeMod_=(index+1u)%creative_nrpn::count;
-                const auto value=creativeMod_[index].load(std::memory_order_acquire);
-                // AMP/filter neutral is represented by no NRPN override;
-                // CC121 above restores the actual patch defaults.
-                if(creative_nrpn::shouldTransmit(index,value) &&
-                   !creative_nrpn::submit(index,value,
-                       [this](std::uint8_t controller,
-                              std::uint8_t amount) noexcept {
-                          return core_.midi(0xb0u,controller,amount)==1;
-                       }))bits|=mask;
-                if(bits)creativeModPending_.fetch_or(bits,
-                                      std::memory_order_acq_rel);
-            }
+            // 16550 UART is a 16-byte FIFO; 4x6-byte NRPN messages in
+            // ONE callback form a 24-byte burst and can overrun it.
+            // Send at most ONE 6-byte short MIDI packet per callback.
+            if(creativeFramePace_.due(static_cast<std::uint32_t>(
+                                        std::max<Steinberg::int32>(0,data.numSamples))))
+                (void)creativePacer_.tick(creativeModPending_,creativeMod_,
+                    [this](std::uint8_t controller,std::uint8_t amount) noexcept {
+                        return core_.midi(0xb0u,controller,amount)==1;
+                    });
         }
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;

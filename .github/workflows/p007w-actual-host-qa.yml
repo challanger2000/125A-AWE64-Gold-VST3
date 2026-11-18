@@ -1,10 +1,11 @@
 name: P007W actual Windows VST3 host state and optional private audio QA
 on:
   push:
-    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118]
+    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118, fix/p007ae-paced-creative-uart-20261118]
     paths:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
       - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnTest.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnPacerTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential*.cpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential.hpp"
       - "experiments/p007-inprocess-86box/tests/P007StateCodecTest.cpp"
@@ -49,6 +50,10 @@ jobs:
           $ErrorActionPreference='Stop'
           cmake --build build/p007-vst3 --config Release --target P007CreativeNrpnTest P007StateCodecTest --parallel 2
           if($LASTEXITCODE -ne 0){throw 'Creative NRPN or project-state tests failed to build'}
+          cmake --build build/p007-vst3 --config Release --target P007CreativeNrpnPacerTest --parallel 2
+          if($LASTEXITCODE -ne 0){throw '16550 UART NRPN pacer test build failed'}
+          & 'build/p007-vst3/Release/P007CreativeNrpnPacerTest.exe'
+          if($LASTEXITCODE -ne 0){throw 'Original Win95 16550 FIFO pacing test failed'}
           & 'build/p007-vst3/Release/P007CreativeNrpnTest.exe'
           if($LASTEXITCODE -ne 0){throw 'Creative original twelve-NRPN protocol or retry failure'}
           & 'build/p007-vst3/Release/P007StateCodecTest.exe'
