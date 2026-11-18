@@ -1,9 +1,12 @@
 name: P007W actual Windows VST3 host state and optional private audio QA
 on:
   push:
-    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118]
+    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118]
     paths:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnTest.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007StateCodecTest.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007SyntheticCoreMock.cpp"
       - "experiments/p007-inprocess-86box/tests/P007ZOriginalP165EditorHost.py"
       - "experiments/p007-inprocess-86box/vst3/**"
       - ".github/workflows/p007w-actual-host-qa.yml"
@@ -38,6 +41,16 @@ jobs:
           $ErrorActionPreference='Stop'
           cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G 'Visual Studio 17 2022' -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
           if($LASTEXITCODE -ne 0){throw 'CMake failed'}
+      - name: Exact original Creative NRPN 12 controls and state v1/v2 proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build build/p007-vst3 --config Release --target P007CreativeNrpnTest P007StateCodecTest --parallel 2
+          if($LASTEXITCODE -ne 0){throw 'Creative NRPN or project-state tests failed to build'}
+          & 'build/p007-vst3/Release/P007CreativeNrpnTest.exe'
+          if($LASTEXITCODE -ne 0){throw 'Creative original twelve-NRPN protocol or retry failure'}
+          & 'build/p007-vst3/Release/P007StateCodecTest.exe'
+          if($LASTEXITCODE -ne 0){throw 'VST3 state v2 or legacy v1 corruption/migration failure'}
       - name: Restore original internal 86Box DLLs into the single VST3 bundle
         shell: pwsh
         run: |
