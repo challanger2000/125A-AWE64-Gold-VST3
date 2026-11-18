@@ -13,6 +13,7 @@
 #include "P007OriginalControlDifferential.hpp"
 #include "P007TenControlMatrix.hpp"
 #include "P007OriginalEnvFilterDepth.hpp"
+#include "P007OriginalSpectralProof.hpp"
 #include "../include/P007RegisterProbe.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -1291,7 +1292,7 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
 void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                               const VST3::UID& id,FUnknown* host,
                               const fs::path& bundle,
-                              bool registerProbe=false) {
+                              bool registerProbe=false,bool spectralProbe=false) {
     const auto root=bundle/"Contents"/"Resources"/"PrivateVM";
     const auto disk=root/"vm"/"win95.img";
     require(fs::is_regular_file(disk)&&fs::file_size(disk)>=32ull*1024ull*1024ull,
@@ -1420,6 +1421,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         scenarios[13]={"RESTORE_ORIGINAL_SOUNDFONT_CC121",0u,0.,-1,0,1000};
         namespace proof=p007::original_control_proof;
         std::array<proof::Take,14> takes{};
+        std::array<p007::original_spectral_proof::Capture,14> spectra{};
         p007::original_audio_proof::Window before,originalFirst;
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
@@ -1599,6 +1601,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 require(std::isfinite(l)&&std::isfinite(r),
                         "nonfinite original EMU8000 PCM");
                 if(index>=scenarios.size())continue;
+                if(spectralProbe && (phase==Phase::Note || phase==Phase::Tail))
+                    spectra[index].append(l,r,phase==Phase::Tail);
                 if(phase==Phase::Boot&&readyAt!=Clock::time_point{})
                     before.append(l,r);
                 if(phase==Phase::Note) {
@@ -1647,6 +1651,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     takes[4].onset.rms(),takes[13].onset.rms(),
                     int(sourceReverted),int(depthNoteAudible));
         unsigned measured=0u,inconclusive=0u,unstable=0u;
+        unsigned spectralMeasured=0u;
         for(unsigned k=0;k<selected.size();++k) {
             const auto& knob=knobs[selected[k]];
             const unsigned a=4u+2u*k,b=a+1u,back=b+1u;
@@ -1670,6 +1675,28 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 takes[a].sustain.rms(),takes[b].sustain.rms(),
                 e.aTail,e.bTail,int(e.stableBefore),int(e.stableAfter));
             std::fflush(stdout);
+            if(spectralProbe) {
+                namespace sp=p007::original_spectral_proof;
+                const auto target=static_cast<sp::Target>(k);
+                const auto measure=sp::evaluate(spectra[a],spectra[b],spectra[back],target);
+                if(measure.proven)++spectralMeasured;
+                std::printf("P007AK_ORIGINAL_PCM_SPECTRAL_RESULT control=%s"
+                  " verdict=%s effect_db=%.3f drift_db=%.3f"
+                  " band=%u timebin=%u comparable=%u restored=%u"
+                  " pairs=%u guest=ORIGINAL_WIN95_CREATIVE\n",
+                  knob.title,sp::verdict(measure),measure.strongestDb,
+                  measure.maxReferenceDriftDb,measure.strongestBand,
+                  measure.strongestBin,measure.comparable,
+                  measure.restored,measure.consecutive);
+                std::fflush(stdout);
+            }
+        }
+        if(spectralProbe){
+           std::printf("P007AK_FOUR_ORIGINAL_FILTER_ENVELOPES_PCM_SPECTRAL"
+             " measured=%u unresolved=%u total=4 original_guest=1\n",
+             spectralMeasured,4u-spectralMeasured);
+           if(spectralMeasured==4u)
+             std::puts("P007AK_FOUR_ORIGINAL_CREATIVE_FILTER_ENVELOPES_PCM_SPECTRAL_PROVEN");
         }
         std::printf("P007AI_ORIGINAL_CREATIVE_FOUR_FILTER_ENV_SUMMARY"
                     " measured=%u inconclusive=%u unstable=%u total=4"
@@ -1695,7 +1722,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--private-spectrum")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -1725,6 +1752,8 @@ int main(int argc,char** argv) {
             privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-regtrace")==0)
             privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,true);
+        if(argc==3 && std::strcmp(argv[2],"--private-spectrum")==0)
+            privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,false,true);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
     }catch(const std::exception& ex){
