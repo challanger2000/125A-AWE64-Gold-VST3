@@ -10,6 +10,7 @@
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "public.sdk/source/common/memorystream.h"
 #include "P007OriginalAudioProof.hpp"
+#include "P007OriginalControlDifferential.hpp"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -79,20 +80,20 @@ Instance instantiate(const VST3::Hosting::PluginFactory& factory,
 void rewind(IBStream& s) {
     require(s.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk, "IBStream seek");
 }
-std::array<char,16> readState(IComponent& component) {
+std::array<char,44> readState(IComponent& component) {
     MemoryStream stream;
     require(component.getState(&stream)==kResultOk, "IComponent getState");
-    require(stream.getSize()==16, "state is not canonical 16 bytes");
-    std::array<char,16> result{};
+    require(stream.getSize()==44, "state is not canonical v2 44 bytes");
+    std::array<char,44> result{};
     std::memcpy(result.data(), stream.getData(), result.size());
     return result;
 }
-void writeState(IComponent& component, const std::array<char,16>& bytes,
+void writeState(IComponent& component, const std::array<char,44>& bytes,
                 bool shouldSucceed) {
     MemoryStream s;
     int32 written=0;
-    require(s.write(const_cast<char*>(bytes.data()), 16, &written)==kResultOk
-        && written==16, "QA IBStream write");
+    require(s.write(const_cast<char*>(bytes.data()), 44, &written)==kResultOk
+        && written==44, "QA IBStream write");
     rewind(s);
     const auto result=component.setState(&s);
     require((result==kResultOk)==shouldSucceed,
@@ -108,6 +109,10 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
             "set program");
     require(first.controller->setParamNormalized(masterId,.75)==kResultOk,
             "set master");
+    for(const auto [param,amount] : std::array<std::pair<ParamID,double>,3>{{
+        {1100u,.25},{1108u,.60},{1110u,.80}}})
+      require(first.controller->setParamNormalized(param,amount)==kResultOk,
+              "P007AA set original Creative NRPN VST3 parameter");
     const auto saved=readState(*first.component);
     require(saved[0]=='P'&&saved[1]=='7'&&saved[2]=='S'&&saved[3]=='T',
             "VST3 stream signature");
@@ -121,13 +126,17 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
             "program missing after plugin reopen");
     require(closeTo(reopened.controller->getParamNormalized(masterId),.75),
             "master missing after plugin reopen");
+    for(const auto [param,amount] : std::array<std::pair<ParamID,double>,3>{{
+        {1100u,.25},{1108u,.60},{1110u,.80}}})
+      require(closeTo(reopened.controller->getParamNormalized(param),amount),
+              "P007AA Creative NRPN knob not restored from real VST3 state");
     require(readState(*reopened.component)==saved, "state bytes changed on reopen");
 
     // Verify the combined controller reload path, too (many hosts call both).
     MemoryStream controllerState;
     int32 written=0;
-    require(controllerState.write(const_cast<char*>(saved.data()),16,&written)==kResultOk
-            && written==16,"controller state fixture");
+    require(controllerState.write(const_cast<char*>(saved.data()),44,&written)==kResultOk
+            && written==44,"controller state fixture");
     rewind(controllerState);
     require(reopened.controller->setComponentState(&controllerState)==kResultOk,
             "IEditController setComponentState");
@@ -135,7 +144,7 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
 
     // Corruption must leave the live plugin state completely untouched.
     auto broken=saved;
-    broken[15]^=1;
+    broken[31]^=1; // corrupt NRPN value, original driver state remains unchanged
     writeState(*reopened.component,broken,false);
     require(readState(*reopened.component)==saved,"corrupt state modified plugin");
     std::puts("P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS");
@@ -252,6 +261,10 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
     unsigned passedRates=0;
     for (double hz : {44100.,48000.,96000.}) {
         auto plugin=instantiate(factory,id,host);
+        require(plugin.controller->setParamNormalized(1108u,.60)==kResultOk,
+                "original Creative Filter Cutoff NRPN parameter");
+        require(plugin.controller->setParamNormalized(1100u,.40)==kResultOk,
+                "original Creative AMP Attack NRPN parameter");
         require(plugin.controller->setParamNormalized(bankId,3./127.)==kResultOk,
                 "synthetic bank automation");
         require(plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
@@ -286,6 +299,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             programCounter=getCounter("p007_mock_program_plus_one");
             bankCounter=getCounter("p007_mock_bank_plus_one");
             Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
+            Counter filterCount=getCounter("p007_mock_nrpn_filter_count");
+            Counter filterRaw=getCounter("p007_mock_nrpn_filter_raw");
+            Counter attackCount=getCounter("p007_mock_nrpn_attack_count");
+            Counter nrpnRejects=getCounter("p007_mock_nrpn_rejected_selectors");
+            Counter nrpnReset=getCounter("p007_mock_nrpn_reset121");
+            Counter reverbDry=getCounter("p007_mock_nrpn_dry_reverb");
+            Counter chorusDry=getCounter("p007_mock_nrpn_dry_chorus");
             std::array<float,block> left{},right{};
             float* channels[2]={left.data(),right.data()};
             AudioBusBuffers output{};
@@ -329,6 +349,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     require(plugin.controller->setParamNormalized(masterId,1.)==kResultOk,
                             "restore true unity master");
                 }
+                if(iteration==72) {
+                    // Original Creative doc: filter 0% is SoundFont-neutral.
+                    // CC121 must restore the patch instead of setting the
+                    // ORIGINAL cutoff to ~100 Hz via NRPN=0.
+                    require(plugin.controller->setParamNormalized(1108u,0.)==kResultOk,
+                            "return original Creative cutoff to SoundFont-neutral 0%");
+                }
                 if(iteration==80) {
                     require(plugin.processor->setProcessing(false)==kResultOk,
                             "transport stop processing");
@@ -365,6 +392,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     "actual P165 Bank/Program never arrived at synthetic guest");
             require(rejectsCounter()==2u,
                     "synthetic bank/program retry fault injection was not exercised");
+            require(nrpnRejects()==1u && filterCount()>=1u &&
+                    filterRaw()==76u && attackCount()>=1u,
+                    "real VST3 failed 12-control Creative NRPN UART retry and delivery");
+            require(nrpnReset()>=1u && reverbDry()>=2u && chorusDry()>=2u,
+                    "P007AB 0%-neutral SoundFont reset / FX digital dry MIDI not delivered");
+            require(filterRaw()==76u,
+                    "P007AB 0% cutoff sent destructive raw NRPN 0 instead of CC121 reset");
             require(audibleHalf>=block*5u,
                     "actual VST3 did not produce synthetic 50-percent stereo PCM");
             require(muted==block*14u,
@@ -588,11 +622,186 @@ void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
     if(processing)(void)plugin.processor->setProcessing(false);
     if(active)(void)plugin.component->setActive(false);
 }
+
+// Private, authenticated Creative-original PCM A/B/A probe. Unlike synthetic
+// UART coverage, THIS only passes if real Win95-driven EMU8000 PCM changes
+// with cutoff and amp NRPN and returns to original SoundFont-neutral sound.
+// Six repeated notes, one ORIGINAL guest boot. Proprietary images stay local.
+void privateOriginalNrpnAudio(const VST3::Hosting::PluginFactory& factory,
+                              const VST3::UID& id,FUnknown* host,
+                              const fs::path& bundle) {
+    const auto root=bundle/"Contents"/"Resources"/"PrivateVM";
+    const auto disk=root/"vm"/"win95.img";
+    require(fs::is_regular_file(disk)&&fs::file_size(disk)>=32ull*1024ull*1024ull,
+            "P007AD requires authentic owner-private Win95 HDD");
+    require(!fs::exists(root/"P007_SYNTHETIC_TEST_ONLY.marker")&&
+            fs::is_directory(root/"roms")&&fs::is_directory(root/"assets")&&
+            fs::is_regular_file(root/"vm"/"P007_AWE64.cfg"),
+            "P007AD rejects synthetic or incomplete licensed original guest");
+    OwnerGuestSandbox profile;
+    auto plugin=instantiate(factory,id,host);
+    require(plugin.controller->setParamNormalized(bankId,0.)==kResultOk,
+            "private original ROM bank 0");
+    require(plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
+            "private original GM program 40");
+    require(plugin.controller->setParamNormalized(masterId,1.)==kResultOk,
+            "original output unity");
+    ProcessSetup setup{};
+    setup.processMode=kRealtime;setup.symbolicSampleSize=kSample32;
+    setup.maxSamplesPerBlock=block;setup.sampleRate=44100.;
+    require(plugin.processor->setupProcessing(setup)==kResultOk,
+            "private original native 44.1k");
+    require(plugin.component->setActive(true)==kResultOk,
+            "private original 86Box/Creative activate");
+    bool active=true,processing=false;
+    try {
+        require(plugin.processor->setProcessing(true)==kResultOk,
+                "private original guest process start");
+        processing=true;
+        const HMODULE dll=GetModuleHandleW(L"125A_AWE_Core.dll");
+        require(dll!=nullptr,"authentic original core missing");
+        using Symbol=std::uintptr_t (__cdecl*)();
+        using Ready=int (__cdecl*)();
+        const auto originalInit=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_init"));
+        const auto originalRun=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_run"));
+        const auto ready=reinterpret_cast<Ready>(
+            GetProcAddress(dll,"p007_midi_guest_ready"));
+        require(originalInit&&originalRun&&ready&&
+                originalInit()!=0u&&originalRun()!=0u,
+                "original 86Box CPU symbols required, synthetic core forbidden");
+        struct Scenario {const char* name;ParamID param;double value;};
+        constexpr std::array<Scenario,6> scenarios{{
+          {"A1_original_dry",0u,0.},
+          {"A2_original_repeat",0u,0.},
+          {"B_filter_cutoff_10percent",1108u,.10},
+          {"A3_filter_neutral_0percent",1108u,0.},
+          {"B_amp_attack_65percent",1100u,.65},
+          {"A4_amp_neutral_0percent",1100u,0.}
+        }};
+        namespace proof=p007::original_control_proof;
+        std::array<proof::Take,scenarios.size()> takes{};
+        p007::original_audio_proof::Window before,originalFirst;
+        std::array<float,block> left{},right{};
+        float* channels[2]={left.data(),right.data()};
+        AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=channels;
+        EventList events;
+        ProcessData data{};
+        data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+        data.numSamples=block;data.numOutputs=1;data.outputs=&out;
+        data.inputEvents=&events;
+        using Clock=std::chrono::steady_clock;
+        enum class Phase {Boot,Prepare,Note,Tail};
+        Phase phase=Phase::Boot;
+        std::size_t index=0;
+        Clock::time_point readyAt{},phaseAt{},noteAt{},offAt{};
+        const auto start=Clock::now();
+        auto next=start,lastReport=start;
+        while(Clock::now()-start<180s&&index<scenarios.size()) {
+            events.clear();
+            const auto now=Clock::now();
+            if(phase==Phase::Boot) {
+                if(readyAt==Clock::time_point{}&&ready()) {
+                    readyAt=now;std::puts("P007AD_ORIGINAL_WIN95_WINMM_READY");
+                }
+                if(readyAt!=Clock::time_point{}&&
+                   now-readyAt>=1500ms&&before.frames>=44100u) {
+                    phase=Phase::Prepare;phaseAt=now;
+                }
+            }else if(phase==Phase::Prepare && now-phaseAt>=750ms) {
+                require(ready()!=0,"original Win95 Creative READY lost during sweep");
+                Event e{};e.type=Event::kNoteOnEvent;e.busIndex=0;
+                e.noteOn.channel=0;e.noteOn.pitch=60;e.noteOn.velocity=.86f;
+                require(events.addEvent(e)==kResultOk,
+                        "original NoteOn event not queued");
+                noteAt=now;phase=Phase::Note;
+            }else if(phase==Phase::Note&&now-noteAt>=1850ms) {
+                Event e{};e.type=Event::kNoteOffEvent;e.busIndex=0;
+                e.noteOff.channel=0;e.noteOff.pitch=60;
+                require(events.addEvent(e)==kResultOk,
+                        "original NoteOff event not queued");
+                offAt=now;phase=Phase::Tail;
+            }else if(phase==Phase::Tail&&now-offAt>=2000ms) {
+                const auto& note=takes[index];
+                std::printf("P007AD_PRIVATE_ORIGINAL_NOTE name=%s"
+                            " onset_rms=%.9f roughness=%.9f"
+                            " onset_frames=%llu sustain_rms=%.9f"
+                            " tail_rms=%.9f\n",scenarios[index].name,
+                            note.onset.rms(),note.onset.roughness(),
+                            static_cast<unsigned long long>(note.onset.stereoFrames),
+                            note.sustain.rms(),note.tail.rms());
+                ++index;
+                if(index<scenarios.size()) {
+                    const auto& chosen=scenarios[index];
+                    if(chosen.param!=0u)
+                        require(plugin.controller->setParamNormalized(
+                            chosen.param,chosen.value)==kResultOk,
+                            "original Creative NRPN host automation failed");
+                    phase=Phase::Prepare;phaseAt=now;
+                }
+            }
+            require(plugin.processor->process(data)==kResultOk,
+                    "authentic original VST3 audio process failed");
+            for(unsigned i=0;i<block;++i) {
+                const auto l=left[i],r=right[i];
+                require(std::isfinite(l)&&std::isfinite(r),
+                        "nonfinite original EMU8000 PCM");
+                if(index>=scenarios.size())continue;
+                if(phase==Phase::Boot&&readyAt!=Clock::time_point{})
+                    before.append(l,r);
+                if(phase==Phase::Note) {
+                    const auto delta=now-noteAt;
+                    if(delta>=180ms && delta<1150ms) {
+                        takes[index].onset.append(l,r);
+                        if(index==0u)originalFirst.append(l,r);
+                    }
+                    if(delta>=1150ms && delta<1750ms)
+                        takes[index].sustain.append(l,r);
+                }else if(phase==Phase::Tail) {
+                    const auto delta=now-offAt;
+                    if(delta>=250ms&&delta<1750ms)
+                        takes[index].tail.append(l,r);
+                }
+            }
+            if(now-lastReport>=15s) {
+                std::printf("P007AD_PRIVATE_PROGRESS original_ready=%d take=%zu/%zu\n",
+                            ready(),index,scenarios.size());
+                std::fflush(stdout);lastReport=now;
+            }
+            next+=std::chrono::microseconds(23220);
+            std::this_thread::sleep_until(next);
+        }
+        require(index==scenarios.size(),
+                "original Windows-95 guest did not complete six A/B/A notes");
+        require(p007::original_audio_proof::accept(before,originalFirst),
+                "original Creative PCM not proven above Win95 background");
+        const bool stable=proof::stable(takes[0],takes[1]);
+        const bool cutoff=proof::cutoffEffect(takes[0],takes[2],takes[3]);
+        const bool attack=proof::attackEffect(takes[0],takes[4],takes[5]);
+        std::printf("P007AD_PRIVATE_ORIGINAL_PCM_DIFFERENTIAL"
+                    " stable_original=%d filter=%d amp_attack=%d"
+                    " original_win95_creative=1 synthetic=0\n",
+                    int(stable),int(cutoff),int(attack));
+        std::fflush(stdout);
+        require(stable&&cutoff&&attack,
+                "original Win95 Creative cutoff/AMP PCM change or return"
+                " to original patch NOT PROVEN; no fake functional PASS");
+        std::puts("P007AD_PRIVATE_REAL_WIN95_CREATIVE_NRPN_ABA_PCM_PASS");
+    }catch(...) {
+        if(processing)(void)plugin.processor->setProcessing(false);
+        if(active)(void)plugin.component->setActive(false);
+        throw;
+    }
+    if(processing)(void)plugin.processor->setProcessing(false);
+    if(active)(void)plugin.component->setActive(false);
+}
+
 } // namespace
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -612,6 +821,8 @@ int main(int argc,char** argv) {
             syntheticGuestAudio(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-audio")==0)
             privateMidiAudio(factory,choice->ID(),host.get(),bundle);
+        if(argc==3 && std::strcmp(argv[2],"--private-nrpn")==0)
+            privateOriginalNrpnAudio(factory,choice->ID(),host.get(),bundle);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
     }catch(const std::exception& ex){
