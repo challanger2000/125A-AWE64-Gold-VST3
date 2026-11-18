@@ -108,6 +108,10 @@ jobs:
             throw 'CRITICAL: original chip register capture falsely emitted without original Win95'
           }
           Write-Host 'P007AJ_PUBLIC_NO_GUEST_ORIGINAL_REGISTER_PROOF_REJECTED_PASS'
+          # The rejected private-only test MUST fail (exit=1). PowerShell
+          # otherwise propagates that EXPECTED nonzero native exit code
+          # as the whole successful job's final exit status.
+          exit 0
       - name: Preserve original 86Box/VST3 debug package with NO private Win95 or ROM
         if: success()
         uses: actions/upload-artifact@v4
