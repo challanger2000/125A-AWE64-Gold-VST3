@@ -71,7 +71,8 @@ private:
 // Only on the SYNTH page; the BROWSER receives one undivided canvas.
 // All group boundaries align to a deliberately fixed spacing grid.
 // These groups render ABOVE the photographic PCB and BELOW every real
-// control. The fill is 60 percent opaque (alpha 153/255), showing the PCB.
+// control. 73% matte-black (alpha 186/255) separates gold hardware controls
+// from the busy photographed PCB while keeping real PCB detail visible.
 class SynthPanelGroups final : public CView {
 public:
     explicit SynthPanelGroups(const CRect& r):CView(r) {setMouseEnabled(false);}
@@ -79,7 +80,7 @@ public:
         const auto island=[&](CRect r) {
             auto* border=c->createRoundRectGraphicsPath(r,8.);
             if(!border)return;
-            c->setFillColor(CColor(7,11,16,153)); // P160 60% approved preview.
+            c->setFillColor(CColor(7,11,16,186)); // P007Z: stronger control-area contrast.
             c->drawGraphicsPath(border,CDrawContext::kPathFilled);
             c->setLineWidth(1.);
             c->setFrameColor(CColor(190,131,55,226));
@@ -102,7 +103,7 @@ public:
                 else p->addLine(xy);
             }
             p->closeSubpath();
-            c->setFillColor(CColor(7,11,16,153));
+            c->setFillColor(CColor(7,11,16,186));
             c->drawGraphicsPath(p,CDrawContext::kPathFilled);
             c->setLineWidth(1.);
             c->setFrameColor(CColor(190,131,55,226));
