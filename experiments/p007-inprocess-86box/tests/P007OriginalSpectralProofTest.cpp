@@ -22,13 +22,17 @@ static Capture render(Target target,bool changed,double backDrift=1.) {
     if(changed) {
       switch(target){
         case Target::Attack:
-          if(!released && t<1.5)multiplier=9.;break;
+          if(!released && t<1.5) { multiplier=9.; }
+          break;
         case Target::Decay:
-          if(!released && t>=.25 && t<2.75)multiplier=9.;break;
+          if(!released && t>=.25 && t<2.75) { multiplier=9.; }
+          break;
         case Target::Sustain:
-          if(!released && t>=1.5)multiplier=9.;break;
+          if(!released && t>=1.5) { multiplier=9.; }
+          break;
         case Target::Release:
-          if(released)multiplier=9.;break;
+          if(released) { multiplier=9.; }
+          break;
       }
     }
     const double fade=released?std::exp(-phaseTime*1.6):1.;
