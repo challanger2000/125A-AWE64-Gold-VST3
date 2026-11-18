@@ -77,6 +77,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     std::atomic<bool> creativeResetRequested_{false}; // CC121 restores SoundFont defaults on original Win95 driver
     bool creativeGuestWasReady_=false; // audio thread only
     creative_nrpn::Pacer creativePacer_{}; // one CC packet per audio callback
+    creative_nrpn::FramePace creativeFramePace_{}; // at least 20ms between NRPN short MIDI packets
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
     [[nodiscard]] int p165GuestStatus() const noexcept;
