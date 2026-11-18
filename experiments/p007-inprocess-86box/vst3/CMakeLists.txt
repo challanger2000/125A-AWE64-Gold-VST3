@@ -139,3 +139,12 @@ add_executable(P007TenControlMatrixTest
 target_include_directories(P007TenControlMatrixTest PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
 target_compile_features(P007TenControlMatrixTest PRIVATE cxx_std_20)
+
+# P007AI: authentic Creative Windows 95 filter Env1 to cutoff signed
+# modulation depth NRPN24; pure negative and packet-level data tests.
+add_executable(P007OriginalEnvFilterDepthTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalEnvFilterDepthTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalEnvFilterDepth.hpp")
+target_include_directories(P007OriginalEnvFilterDepthTest PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+target_compile_features(P007OriginalEnvFilterDepthTest PRIVATE cxx_std_20)
