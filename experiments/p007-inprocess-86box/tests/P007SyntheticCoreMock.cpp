@@ -21,7 +21,7 @@ float samples[kRingFrames*2u]{};
 std::atomic<std::uint64_t> produced{0},consumed{0};
 std::atomic<int> ready{0},enabled{0};
 std::atomic<unsigned> noteOn{0},noteOff{0},program{0},bank{0},panic{0};
-std::atomic<unsigned> bankRejects{0},programRejects{0};
+std::atomic<unsigned> bankRejects{0},programRejects{0},rejected{0};
 unsigned steps=0;
 void produce(unsigned frames) {
     const auto wr=produced.load(std::memory_order_relaxed);
@@ -49,8 +49,12 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
        !ready.load(std::memory_order_acquire))return 0;
     // CI fault injection: reject the FIRST actual CC32 bank and program
     // packet so the production VST3 must retry instead of losing the patch.
-    if(status==0xb0u && d1==32u && bankRejects.fetch_add(1)==0u)return 0;
-    if(status==0xc0u && programRejects.fetch_add(1)==0u)return 0;
+    if(status==0xb0u && d1==32u && bankRejects.fetch_add(1)==0u){
+        rejected.fetch_add(1);return 0;
+    }
+    if(status==0xc0u && programRejects.fetch_add(1)==0u){
+        rejected.fetch_add(1);return 0;
+    }
     if(status==0x90u&&d2>0u)noteOn.fetch_add(1);
     if(status==0x80u||(status==0x90u&&d2==0u))noteOff.fetch_add(1);
     if(status==0xc0u)program.store(unsigned(d1)+1u);
@@ -92,7 +96,7 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     produced.store(0);consumed.store(0);steps=0;
     ready.store(0);enabled.store(0);
     noteOn.store(0);noteOff.store(0);program.store(0);bank.store(0);panic.store(0);
-    bankRejects.store(0);programRejects.store(0);
+    bankRejects.store(0);programRejects.store(0);rejected.store(0);
     return 1;
 }
 P007_MOCK_EXPORT int __cdecl p007_core_guest_step() {
@@ -114,5 +118,5 @@ P007_MOCK_EXPORT unsigned __cdecl p007_mock_program_plus_one(){return program.lo
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_bank_plus_one(){return bank.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_panic_count(){return panic.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_rejected_control_packets(){
-    return unsigned(bankRejects.load()+programRejects.load());
+    return rejected.load();
 }
