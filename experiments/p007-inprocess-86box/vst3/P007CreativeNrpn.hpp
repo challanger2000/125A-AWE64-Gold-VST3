@@ -18,6 +18,22 @@ inline constexpr std::array<std::uint16_t,count> maximum{
     5940,5940,127,5940, 5940,5940,127,5940, 127,127, 255,255
 };
 struct Control { std::uint8_t number=0u,value=0u; };
+inline constexpr unsigned kToneCount=10u;
+inline constexpr unsigned kEffectFirst=10u;
+// P165 product contract:
+// - AMP/Filter 0% is neutral: keep the underlying original SoundFont
+//   generator value. A sent NRPN value of zero is NOT neutral for these
+//   parameters (e.g. cutoff zero = ~100 Hz and attack zero = fast).
+// - Reverb/Chorus 0% is explicitly an original Creative send of zero (dry).
+inline constexpr bool shouldTransmit(unsigned index,std::uint16_t value) noexcept {
+    return index<count && (index>=kEffectFirst || value!=0u);
+}
+inline constexpr bool needsSoundFontReset(unsigned index,
+                                std::uint16_t previous,
+                                std::uint16_t next) noexcept {
+    return index<kToneCount && previous!=0u && next==0u;
+}
+
 inline std::uint16_t raw(unsigned index,std::uint16_t basisPoints) noexcept {
     if(index>=count)return 0u;
     return static_cast<std::uint16_t>(
