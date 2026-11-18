@@ -12,6 +12,7 @@
 #include "P007OriginalAudioProof.hpp"
 #include "P007OriginalControlDifferential.hpp"
 #include "P007TenControlMatrix.hpp"
+#include "P007OriginalEnvFilterDepth.hpp"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -1285,11 +1286,328 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
     if(active)(void)plugin.component->setActive(false);
 }
 
+void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
+                              const VST3::UID& id,FUnknown* host,
+                              const fs::path& bundle) {
+    const auto root=bundle/"Contents"/"Resources"/"PrivateVM";
+    const auto disk=root/"vm"/"win95.img";
+    require(fs::is_regular_file(disk)&&fs::file_size(disk)>=32ull*1024ull*1024ull,
+            "P007AG requires real owner-private Win95 HDD");
+    require(!fs::exists(root/"P007_SYNTHETIC_TEST_ONLY.marker")&&
+            fs::is_directory(root/"roms")&&fs::is_directory(root/"assets")&&
+            fs::is_regular_file(root/"vm"/"P007_AWE64.cfg"),
+            "P007AD rejects synthetic or incomplete licensed original guest");
+    OwnerGuestSandbox profile;
+    auto plugin=instantiate(factory,id,host);
+    require(plugin.controller->setParamNormalized(bankId,0.)==kResultOk,
+            "private original ROM bank 0");
+    require(plugin.controller->setParamNormalized(programId,95./127.)==kResultOk,
+            "private original GM Pad 8 Sweep program 95");
+    require(plugin.controller->setParamNormalized(masterId,1.)==kResultOk,
+            "original output unity");
+    ProcessSetup setup{};
+    setup.processMode=kRealtime;setup.symbolicSampleSize=kSample32;
+    setup.maxSamplesPerBlock=block;setup.sampleRate=44100.;
+    require(plugin.processor->setupProcessing(setup)==kResultOk,
+            "private original native 44.1k");
+    require(plugin.component->setActive(true)==kResultOk,
+            "private original 86Box/Creative activate");
+    bool active=true,processing=false;
+    try {
+        require(plugin.processor->setProcessing(true)==kResultOk,
+                "private original guest process start");
+        processing=true;
+        const HMODULE dll=GetModuleHandleW(L"125A_AWE_Core.dll");
+        require(dll!=nullptr,"authentic original core missing");
+        using Symbol=std::uintptr_t (__cdecl*)();
+        using Ready=int (__cdecl*)();
+        const auto originalInit=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_init"));
+        const auto originalRun=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_run"));
+        const auto ready=reinterpret_cast<Ready>(
+            GetProcAddress(dll,"p007_midi_guest_ready"));
+        require(originalInit&&originalRun&&ready&&
+                originalInit()!=0u&&originalRun()!=0u,
+                "original 86Box CPU symbols required, synthetic core forbidden");
+        // CC7 positive control separates generic Win95 WinMM controller
+        // delivery from NRPN-specific driver support. If CC7=0 cannot
+        // mute the ORIGINAL sound, do not blame the NRPN mapping yet.
+        // Unlike VST3 GUI parameter events, this direct test-only send
+        // still uses the exact same p007_midi_submit UART packet FIFO,
+        // and is invoked on the same host/audio driver thread.
+        using Midi= int (__cdecl*)(std::uint8_t,std::uint8_t,std::uint8_t);
+        const auto sendMidi=reinterpret_cast<Midi>(
+                         GetProcAddress(dll,"p007_midi_submit"));
+        require(sendMidi!=nullptr,
+                "authentic 86Box UART MIDI producer export unavailable");
+        struct Scenario {
+            const char* name;
+            ParamID param;
+            double value;
+            int ccNumber=-1;
+            int ccValue=0;
+            // QA-only NRPN24 signed depth: 999=unchanged, 1000=CC121.
+            int depth=999;
+        };
+        // P007AI: four remaining Filter ENV ADSR controls are inaudible
+        // on Program40/95 until the ORIGINAL Creative NRPN24 filter depth
+        // route is activated. Verify both depth signs before fixing one.
+        // IMPORTANT: each VST3 0%-return emits CC121 and resets NRPN24.
+        // Reapply depth before A-back notes for a truthful A/B/A contrast.
+        constexpr std::array<unsigned,4> selected{3u,4u,5u,6u};
+        std::array<Scenario,14> scenarios{};
+        scenarios[0]={"ORIGINAL_PAD8_A1",0u,0.};
+        scenarios[1]={"ORIGINAL_PAD8_A2",0u,0.};
+        scenarios[2]={"SIGNED_DEPTH_NEGATIVE96",0u,0.,-1,0,-96};
+        scenarios[3]={"SIGNED_DEPTH_POSITIVE96",0u,0.,-1,0,96};
+        scenarios[4]={"MOD_ENVELOPE_DEPTH_BASELINE",0u,0.};
+        for(unsigned k=0;k<selected.size();++k) {
+            const auto& knob=p007::ten_matrix::knobs[selected[k]];
+            scenarios[5u+2u*k]={knob.title,knob.vstId,knob.normalized};
+            scenarios[6u+2u*k]={"RESTORE_ENV_ADSR_AND_REAPPLY_DEPTH",
+                                knob.vstId,0.};
+        }
+        scenarios[13]={"RESTORE_ORIGINAL_SOUNDFONT_CC121",0u,0.,-1,0,1000};
+        namespace proof=p007::original_control_proof;
+        std::array<proof::Take,14> takes{};
+        p007::original_audio_proof::Window before,originalFirst;
+        std::array<float,block> left{},right{};
+        float* channels[2]={left.data(),right.data()};
+        AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=channels;
+        EventList events;
+        ProcessData data{};
+        data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+        data.numSamples=block;data.numOutputs=1;data.outputs=&out;
+        data.inputEvents=&events;
+        using Clock=std::chrono::steady_clock;
+        enum class Phase {Boot,Prepare,Note,Tail};
+        Phase phase=Phase::Boot;
+        std::size_t index=0;
+        Clock::time_point readyAt{},phaseAt{},noteAt{},offAt{};
+        const auto start=Clock::now();
+        auto next=start,lastReport=start;
+        // QA-only signed NRPN24 sender, exactly ONE original Creative
+        // six-byte UART packet per >=40ms; failures retry same packet.
+        p007::original_filter_env_depth::Transmitter depthSender{};
+        Clock::time_point lastDepthPacket{};
+        bool cc121Pending=false;
+        int selectedDepth=-96;
+        const auto queueDepth=[&](int requested) {
+            depthSender=p007::original_filter_env_depth::Transmitter{};
+            cc121Pending=(requested==1000);
+            if(requested>=-127&&requested<=127)
+                depthSender.arm(requested);
+            lastDepthPacket=Clock::time_point{};
+        };
+        while(Clock::now()-start<310s&&index<scenarios.size()) {
+            events.clear();
+            const auto now=Clock::now();
+            if(phase==Phase::Boot) {
+                if(readyAt==Clock::time_point{}&&ready()) {
+                    readyAt=now;std::puts("P007AI_ORIGINAL_WIN95_WINMM_READY");
+                }
+                if(readyAt!=Clock::time_point{}&&
+                   now-readyAt>=1500ms&&before.frames>=44100u) {
+                    phase=Phase::Prepare;phaseAt=now;
+                }
+            }else if(phase==Phase::Prepare) {
+                // Owner's VST3 resets tone parameters via Creative CC121,
+                // then replays other original controls. Do not interleave
+                // independent NRPN24 while this happens.
+                if(now-phaseAt>=350ms) {
+                    if(cc121Pending) {
+                        if(sendMidi(0xb0u,121u,0u)==1) {
+                            cc121Pending=false;lastDepthPacket=now;
+                        }
+                    }else if(depthSender.active() &&
+                        (lastDepthPacket==Clock::time_point{} ||
+                         now-lastDepthPacket>=40ms)) {
+                        (void)depthSender.tick(
+                            [&](std::uint8_t controller,
+                               std::uint8_t value)noexcept{
+                                const bool accepted=
+                                     sendMidi(0xb0u,controller,value)==1;
+                                if(accepted)lastDepthPacket=now;
+                                return accepted;
+                            });
+                    }
+                }
+                if(now-phaseAt>=1100ms && !cc121Pending &&
+                   !depthSender.active()) {
+                    require(ready()!=0,"original Win95 Creative READY lost");
+                    Event e{};e.type=Event::kNoteOnEvent;e.busIndex=0;
+                    e.noteOn.channel=0;e.noteOn.pitch=60;
+                    e.noteOn.velocity=.86f;
+                    require(events.addEvent(e)==kResultOk,
+                            "P007AI original NoteOn event not queued");
+                    noteAt=now;phase=Phase::Note;
+                }
+            }else if(phase==Phase::Note&&now-noteAt>=3150ms) {
+                Event e{};e.type=Event::kNoteOffEvent;e.busIndex=0;
+                e.noteOff.channel=0;e.noteOff.pitch=60;
+                require(events.addEvent(e)==kResultOk,
+                        "original NoteOff event not queued");
+                offAt=now;phase=Phase::Tail;
+            }else if(phase==Phase::Tail&&now-offAt>=2750ms) {
+                const auto& note=takes[index];
+                std::printf("P007AI_PRIVATE_ORIGINAL_MATRIX_NOTE name=%s"
+                            " onset_rms=%.9f roughness=%.9f"
+                            " onset_frames=%llu sustain_rms=%.9f"
+                            " tail_rms=%.9f\n",scenarios[index].name,
+                            note.onset.rms(),note.onset.roughness(),
+                            static_cast<unsigned long long>(note.onset.stereoFrames),
+                            note.sustain.rms(),note.tail.rms());
+                ++index;
+                if(index==4u) {
+                    // Determine which signed original envelope->filter
+                    // modulation depth gives a stronger audible signal
+                    // without mistaking a dropped NoteOn for a filter effect.
+                    const double orig=takes[1].onset.rms();
+                    const auto score=[&](unsigned n)noexcept{
+                        if(!proof::nonSilent(takes[n]))return 0.;
+                        const double signal=std::min(1.0,
+                            takes[n].onset.rms()/std::max(.000001,orig));
+                        return signal*std::max(
+                           proof::relativeChange(orig,takes[n].onset.rms()),
+                           proof::relativeChange(
+                                takes[1].onset.roughness(),
+                                takes[n].onset.roughness()));
+                    };
+                    const double negative=score(2u),positive=score(3u);
+                    selectedDepth=(negative>=positive)?-96:96;
+                    scenarios[4].depth=selectedDepth;
+                    for(unsigned k=0;k<selected.size();++k)
+                        scenarios[6u+2u*k].depth=selectedDepth;
+                    std::printf("P007AI_ORIGINAL_CREATIVE_SIGNED_DEPTH_SELECTED"
+                                " depth=%d negative_score=%.8f"
+                                " positive_score=%.8f"
+                                " reference_rms=%.9f negative_rms=%.9f"
+                                " positive_rms=%.9f\n",
+                                selectedDepth,negative,positive,orig,
+                                takes[2].onset.rms(),takes[3].onset.rms());
+                    std::fflush(stdout);
+                }
+                if(index<scenarios.size()) {
+                    const auto& chosen=scenarios[index];
+                    if(chosen.param!=0u)
+                        require(plugin.controller->setParamNormalized(
+                            chosen.param,chosen.value)==kResultOk,
+                            "original Creative NRPN host automation failed");
+                    if(chosen.ccNumber>=0)
+                        require(sendMidi(0xb0u,
+                             static_cast<std::uint8_t>(chosen.ccNumber),
+                             static_cast<std::uint8_t>(chosen.ccValue))==1,
+                            "positive-control MIDI CC7 was not queued");
+                    if(chosen.depth!=999)
+                        queueDepth(chosen.depth);
+                    phase=Phase::Prepare;phaseAt=now;
+                }
+            }
+            require(plugin.processor->process(data)==kResultOk,
+                    "authentic original VST3 audio process failed");
+            for(unsigned i=0;i<block;++i) {
+                const auto l=left[i],r=right[i];
+                require(std::isfinite(l)&&std::isfinite(r),
+                        "nonfinite original EMU8000 PCM");
+                if(index>=scenarios.size())continue;
+                if(phase==Phase::Boot&&readyAt!=Clock::time_point{})
+                    before.append(l,r);
+                if(phase==Phase::Note) {
+                    const auto delta=now-noteAt;
+                    if(delta>=500ms && delta<2250ms) {
+                        takes[index].onset.append(l,r);
+                        if(index==0u)originalFirst.append(l,r);
+                    }
+                    if(delta>=2250ms && delta<3000ms)
+                        takes[index].sustain.append(l,r);
+                }else if(phase==Phase::Tail) {
+                    const auto delta=now-offAt;
+                    if(delta>=250ms&&delta<2500ms)
+                        takes[index].tail.append(l,r);
+                }
+            }
+            if(now-lastReport>=15s) {
+                std::printf("P007AI_PRIVATE_PROGRESS original_ready=%d take=%zu/%zu\n",
+                            ready(),index,scenarios.size());
+                std::fflush(stdout);lastReport=now;
+            }
+            next+=std::chrono::microseconds(23220);
+            std::this_thread::sleep_until(next);
+        }
+        require(index==scenarios.size(),
+                "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
+        require(p007::original_audio_proof::accept(before,originalFirst),
+                "original Creative PCM not proven above Win95 background");
+        // AUDIO-ONLY authenticity check: original Win95/Creative PCM
+        // must be nonzero after NoteOn, source A1/A2 stable, and the four
+        // original filter-generator controls must each change the SAME
+        // original signed-depth Pad8 patch and return to that baseline.
+        using namespace p007::ten_matrix;
+        require(proof::stable(takes[0],takes[1]),
+                "P007AI original Pad8 A1/A2 baseline unstable");
+        const bool sourceReverted=proof::stable(takes[0],takes[13]);
+        const bool depthNoteAudible=proof::nonSilent(takes[4]);
+        std::printf("P007AI_ORIGINAL_CREATIVE_FILTER_DEPTH"
+                    " selected=%d original_rms=%.9f"
+                    " negative96_rms=%.9f positive96_rms=%.9f"
+                    " chosen_rms=%.9f source_return_rms=%.9f"
+                    " source_reverted=%d original_note_audible=%d"
+                    " genuine_original_win95=1 synthetic=0\n",
+                    selectedDepth,takes[1].onset.rms(),
+                    takes[2].onset.rms(),takes[3].onset.rms(),
+                    takes[4].onset.rms(),takes[13].onset.rms(),
+                    int(sourceReverted),int(depthNoteAudible));
+        unsigned measured=0u,inconclusive=0u,unstable=0u;
+        for(unsigned k=0;k<selected.size();++k) {
+            const auto& knob=knobs[selected[k]];
+            const unsigned a=4u+2u*k,b=a+1u,back=b+1u;
+            const auto e=evaluate(takes[4],takes[a],takes[b],
+                                  takes[back],knob.type);
+            if(e.verdict==Verdict::Proven)++measured;
+            else if(e.verdict==Verdict::Inconclusive)++inconclusive;
+            else ++unstable;
+            std::printf("P007AI_ORIGINAL_CREATIVE_FILTER_ENV_RESULT"
+                " control=%s vst3=%u nrpn24_depth=%d verdict=%s"
+                " A_onset_rms=%.9f B_onset_rms=%.9f"
+                " A_return_rms=%.9f A_roughness=%.7f"
+                " B_roughness=%.7f"
+                " A_sustain_rms=%.9f B_sustain_rms=%.9f"
+                " A_tail_rms=%.9f B_tail_rms=%.9f"
+                " baseline_stable=%d restored_stable=%d"
+                " genuine_original_win95=1 synthetic=0\n",
+                knob.title,knob.vstId,selectedDepth,verdictName(e.verdict),
+                e.aOnset,e.bOnset,e.restoredOnset,
+                e.aRoughness,e.bRoughness,
+                takes[a].sustain.rms(),takes[b].sustain.rms(),
+                e.aTail,e.bTail,int(e.stableBefore),int(e.stableAfter));
+            std::fflush(stdout);
+        }
+        std::printf("P007AI_ORIGINAL_CREATIVE_FOUR_FILTER_ENV_SUMMARY"
+                    " measured=%u inconclusive=%u unstable=%u total=4"
+                    " original_return_stable=%d chosen_depth=%d"
+                    " original_guest=1 synthetic=0\n",
+                    measured,inconclusive,unstable,
+                    int(sourceReverted),selectedDepth);
+        std::fflush(stdout);
+        if(measured==4u&&unstable==0u&&sourceReverted)
+            std::puts("P007AI_FOUR_ORIGINAL_CREATIVE_FILTER_ENVELOPES_PCM_PROVEN");
+        // Completion is a diagnostic verdict, NOT a claim all four work.
+        std::puts("P007AI_PRIVATE_ORIGINAL_ENV_DEPTH_DIAGNOSTIC_COMPLETED");
+    }catch(...) {
+        if(processing)(void)plugin.processor->setProcessing(false);
+        if(active)(void)plugin.component->setActive(false);
+        throw;
+    }
+    if(processing)(void)plugin.processor->setProcessing(false);
+    if(active)(void)plugin.component->setActive(false);
+}
+
 } // namespace
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -1315,6 +1633,8 @@ int main(int argc,char** argv) {
             privateTenControlMatrix(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-pad-sweep")==0)
             privateFiveControlPadSweep(factory,choice->ID(),host.get(),bundle);
+        if(argc==3 && std::strcmp(argv[2],"--private-env-depth")==0)
+            privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
     }catch(const std::exception& ex){
