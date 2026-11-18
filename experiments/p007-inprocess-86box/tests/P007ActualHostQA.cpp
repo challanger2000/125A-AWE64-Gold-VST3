@@ -671,10 +671,29 @@ void privateOriginalNrpnAudio(const VST3::Hosting::PluginFactory& factory,
         require(originalInit&&originalRun&&ready&&
                 originalInit()!=0u&&originalRun()!=0u,
                 "original 86Box CPU symbols required, synthetic core forbidden");
-        struct Scenario {const char* name;ParamID param;double value;};
-        constexpr std::array<Scenario,6> scenarios{{
+        // CC7 positive control separates generic Win95 WinMM controller
+        // delivery from NRPN-specific driver support. If CC7=0 cannot
+        // mute the ORIGINAL sound, do not blame the NRPN mapping yet.
+        // Unlike VST3 GUI parameter events, this direct test-only send
+        // still uses the exact same p007_midi_submit UART packet FIFO,
+        // and is invoked on the same host/audio driver thread.
+        using Midi= int (__cdecl*)(std::uint8_t,std::uint8_t,std::uint8_t);
+        const auto sendMidi=reinterpret_cast<Midi>(
+                         GetProcAddress(dll,"p007_midi_submit"));
+        require(sendMidi!=nullptr,
+                "authentic 86Box UART MIDI producer export unavailable");
+        struct Scenario {
+            const char* name;
+            ParamID param;
+            double value;
+            int ccNumber=-1;
+            int ccValue=0;
+        };
+        constexpr std::array<Scenario,8> scenarios{{
           {"A1_original_dry",0u,0.},
           {"A2_original_repeat",0u,0.},
+          {"POSITIVE_B_CC7_mute_original",0u,0.,7,0},
+          {"POSITIVE_A_CC7_restore100",0u,0.,7,100},
           {"B_filter_cutoff_10percent",1108u,.10},
           {"A3_filter_neutral_0percent",1108u,0.},
           {"B_amp_attack_65percent",1100u,.65},
@@ -738,6 +757,11 @@ void privateOriginalNrpnAudio(const VST3::Hosting::PluginFactory& factory,
                         require(plugin.controller->setParamNormalized(
                             chosen.param,chosen.value)==kResultOk,
                             "original Creative NRPN host automation failed");
+                    if(chosen.ccNumber>=0)
+                        require(sendMidi(0xb0u,
+                             static_cast<std::uint8_t>(chosen.ccNumber),
+                             static_cast<std::uint8_t>(chosen.ccValue))==1,
+                            "positive-control MIDI CC7 was not queued");
                     phase=Phase::Prepare;phaseAt=now;
                 }
             }
@@ -777,16 +801,22 @@ void privateOriginalNrpnAudio(const VST3::Hosting::PluginFactory& factory,
         require(p007::original_audio_proof::accept(before,originalFirst),
                 "original Creative PCM not proven above Win95 background");
         const bool stable=proof::stable(takes[0],takes[1]);
-        const bool cutoff=proof::cutoffEffect(takes[0],takes[2],takes[3]);
-        const bool attack=proof::attackEffect(takes[0],takes[4],takes[5]);
-        std::printf("P007AD_PRIVATE_ORIGINAL_PCM_DIFFERENTIAL"
-                    " stable_original=%d filter=%d amp_attack=%d"
+        const bool cc7Mute=takes[2].onset.rms()<takes[0].onset.rms()*.28;
+        const bool cc7Restore=proof::stable(takes[0],takes[3]);
+        const bool cutoff=proof::cutoffEffect(takes[3],takes[4],takes[5]);
+        const bool attack=proof::attackEffect(takes[3],takes[6],takes[7]);
+        std::printf("P007AE_PRIVATE_ORIGINAL_PCM_DIAGNOSTIC"
+                    " stable_original=%d cc7_mute=%d cc7_restored=%d"
+                    " filter_nrpn=%d amp_attack_nrpn=%d"
                     " original_win95_creative=1 synthetic=0\n",
-                    int(stable),int(cutoff),int(attack));
+                    int(stable),int(cc7Mute),int(cc7Restore),
+                    int(cutoff),int(attack));
         std::fflush(stdout);
-        require(stable&&cutoff&&attack,
-                "original Win95 Creative cutoff/AMP PCM change or return"
-                " to original patch NOT PROVEN; no fake functional PASS");
+        require(stable&&cc7Mute&&cc7Restore&&cutoff&&attack,
+                "P007AE original Win95 control differential NOT proven."
+                " Read cc7_mute and cc7_restored FIRST: if false, original"
+                " generic MIDI CC also fails. If true but NRPN=0, focus"
+                " on original Creative driver NRPN rather than host MIDI.");
         std::puts("P007AD_PRIVATE_REAL_WIN95_CREATIVE_NRPN_ABA_PCM_PASS");
     }catch(...) {
         if(processing)(void)plugin.processor->setProcessing(false);
