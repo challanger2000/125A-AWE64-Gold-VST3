@@ -189,6 +189,19 @@ tresult PLUGIN_API Plugin::initialize(FUnknown* context) {
         kP165Bank,nullptr,0.0,127.0,0.0,127));
     parameters.addParameter(new RangeParameter(STR16("Master Volume"),
         kP165Master,STR16("%"),0.0,100.0,100.0));
+    // ORIGINAL Creative Win95 NRPN controls, preserving the old P165 IDs.
+    parameters.addParameter(new RangeParameter(STR16("AMP Attack"),1100u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("AMP Decay"),1101u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("AMP Sustain"),1102u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("AMP Release"),1103u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Env Attack"),1104u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Env Decay"),1105u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Env Sustain"),1106u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Env Release"),1107u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Cutoff"),1108u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Filter Resonance"),1109u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Reverb Send"),1110u,STR16("%"),0.,100.,0.));
+    parameters.addParameter(new RangeParameter(STR16("Chorus Send"),1111u,STR16("%"),0.,100.,0.));
     // The original P165 editor requires a catalog to show actual program
     // numbers. A text name is NOT an assertion that the Creative guest
     // installed a SoundFont or a program with that name.
@@ -208,11 +221,16 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         outputRate_.reset();
         sentInitialProgram_=false;
         programNeedsSending_.store(true,std::memory_order_release);
+        creativeGuestWasReady_=false;
+        for(unsigned i=0;i<creative_nrpn::count;++i)
+            if(creativeMod_[i].load(std::memory_order_acquire)!=0u)
+                creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
         active_=true;
     } else if(active_) {
         core_.closeNonRealtime();active_=false;
         outputRate_.reset();
         sentInitialProgram_=false;
+        creativeGuestWasReady_=false;
     }
     return SingleComponentEffect::setActive(on);
 }
@@ -289,11 +307,13 @@ IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
 // post-EMU8000 master) only; never embed the private Win95 HDD or ROMs.
 tresult PLUGIN_API Plugin::getState(IBStream* stream) {
     if(!stream)return kInvalidArgument;
-    const state::Values values{
+    state::Values values{
         midiBank_.load(std::memory_order_acquire),
         midiProgram_.load(std::memory_order_acquire),
         state::masterToBasisPoints(masterVolume_.load(std::memory_order_acquire))
     };
+    for(unsigned i=0;i<creative_nrpn::count;++i)
+        values.modulation[i]=creativeMod_[i].load(std::memory_order_acquire);
     const auto bytes=state::encode(values);
     int32 written=0;
     const auto result=stream->write(const_cast<std::uint8_t*>(bytes.data()),
@@ -303,18 +323,31 @@ tresult PLUGIN_API Plugin::getState(IBStream* stream) {
 }
 tresult PLUGIN_API Plugin::setState(IBStream* stream) {
     if(!stream)return kInvalidArgument;
-    state::Image bytes{};
+    state::LegacyImage header{};
     int32 received=0;
-    if(stream->read(bytes.data(),static_cast<int32>(bytes.size()),
+    if(stream->read(header.data(),static_cast<int32>(header.size()),
                     &received)!=kResultOk ||
-       received!=static_cast<int32>(bytes.size()))return kResultFalse;
+       received!=static_cast<int32>(header.size()))return kResultFalse;
     state::Values values{};
-    if(!state::decode(bytes,values))return kResultFalse;
+    if(header[4]==1u) {
+        if(!state::decode(header,values))return kResultFalse;
+    }else if(header[4]==2u) {
+        state::Image image{};
+        std::copy(header.begin(),header.end(),image.begin());
+        received=0;
+        constexpr int32 tail=static_cast<int32>(
+                state::Image{}.size()-state::LegacyImage{}.size());
+        if(stream->read(image.data()+header.size(),tail,&received)!=kResultOk ||
+           received!=tail||!state::decode(image,values))return kResultFalse;
+    }else return kResultFalse;
     // In a combined IComponent+IEditController, restore BOTH the original
     // Creative MIDI engine parameters and the visible P165 host automation.
     (void)setParamNormalized(kP165Bank,double(values.bank)/127.);
     (void)setParamNormalized(kP165Program,double(values.program)/127.);
     (void)setParamNormalized(kP165Master,double(values.master)/10000.);
+    for(unsigned i=0;i<creative_nrpn::count;++i)
+        (void)setParamNormalized(kP165ModFirst+i,
+                     double(values.modulation[i])/10000.);
     programNeedsSending_.store(true,std::memory_order_release);
     return kResultOk;
 }
@@ -340,7 +373,14 @@ tresult PLUGIN_API Plugin::setParamNormalized(ParamID tag,ParamValue value) {
         case kP165Master:
             masterVolume_.store(static_cast<float>(v),std::memory_order_release);
             break;
-        default:break;
+        default:
+            if(tag>=kP165ModFirst && tag<kP165ModFirst+creative_nrpn::count) {
+                const unsigned index=tag-kP165ModFirst;
+                creativeMod_[index].store(state::normalizedToBasisPoints(v),
+                                          std::memory_order_release);
+                creativeModPending_.fetch_or(1u<<index,std::memory_order_acq_rel);
+            }
+            break;
     }
     return result;
 }
@@ -367,12 +407,30 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                     bankChanged=true;break;
                 case kP165Master:
                     masterVolume_=static_cast<float>(value);break;
-                default:break;
+                default:
+                    if(queue->getParameterId()>=kP165ModFirst &&
+                       queue->getParameterId()<kP165ModFirst+creative_nrpn::count) {
+                        const unsigned index=queue->getParameterId()-kP165ModFirst;
+                        creativeMod_[index].store(state::normalizedToBasisPoints(value),
+                                                  std::memory_order_release);
+                        creativeModPending_.fetch_or(1u<<index,std::memory_order_acq_rel);
+                    }
+                    break;
             }
         }
     }
     const bool ready=active_&&core_.guestReady()&&core_.midi;
-    if(!ready)sentInitialProgram_=false;
+    if(!ready) {
+        sentInitialProgram_=false;
+        creativeGuestWasReady_=false;
+    }else if(!creativeGuestWasReady_) {
+        // Original guest restarted: reassert only user-modified generator
+        // values, never override original SoundFont defaults at 0%.
+        creativeGuestWasReady_=true;
+        for(unsigned i=0;i<creative_nrpn::count;++i)
+            if(creativeMod_[i].load(std::memory_order_acquire)!=0u)
+                creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
+    }
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
     if(ready){
         // The original 86Box UART is a bounded FIFO. A failed submit means
@@ -394,6 +452,29 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                        midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
         }
         sentInitialProgram_=accepted;
+    }
+    if(ready&&sentInitialProgram_) {
+        // At most one complete Creative NRPN transaction = FOUR UART
+        // messages per callback. On any queue rejection retry the entire
+        // transaction in a later callback. No file I/O, locks, heap or guest
+        // CPU work is performed on the DAW audio thread.
+        std::uint32_t bits=creativeModPending_.exchange(0u,std::memory_order_acq_rel);
+        if(bits) {
+            unsigned index=nextCreativeMod_;
+            for(unsigned k=0;k<creative_nrpn::count;++k) {
+                const unsigned candidate=(index+k)%creative_nrpn::count;
+                if(bits&(1u<<candidate)){index=candidate;break;}
+            }
+            const std::uint32_t mask=1u<<index;
+            bits&=~mask;
+            nextCreativeMod_=(index+1u)%creative_nrpn::count;
+            const auto value=creativeMod_[index].load(std::memory_order_acquire);
+            if(!creative_nrpn::submit(index,value,
+                [this](std::uint8_t controller,std::uint8_t amount) noexcept {
+                    return core_.midi(0xb0u,controller,amount)==1;
+                }))bits|=mask;
+            if(bits)creativeModPending_.fetch_or(bits,std::memory_order_acq_rel);
+        }
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
     // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.
