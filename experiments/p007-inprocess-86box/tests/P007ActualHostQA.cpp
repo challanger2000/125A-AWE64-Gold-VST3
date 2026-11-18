@@ -79,20 +79,20 @@ Instance instantiate(const VST3::Hosting::PluginFactory& factory,
 void rewind(IBStream& s) {
     require(s.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk, "IBStream seek");
 }
-std::array<char,16> readState(IComponent& component) {
+std::array<char,44> readState(IComponent& component) {
     MemoryStream stream;
     require(component.getState(&stream)==kResultOk, "IComponent getState");
-    require(stream.getSize()==16, "state is not canonical 16 bytes");
-    std::array<char,16> result{};
+    require(stream.getSize()==44, "state is not canonical v2 44 bytes");
+    std::array<char,44> result{};
     std::memcpy(result.data(), stream.getData(), result.size());
     return result;
 }
-void writeState(IComponent& component, const std::array<char,16>& bytes,
+void writeState(IComponent& component, const std::array<char,44>& bytes,
                 bool shouldSucceed) {
     MemoryStream s;
     int32 written=0;
-    require(s.write(const_cast<char*>(bytes.data()), 16, &written)==kResultOk
-        && written==16, "QA IBStream write");
+    require(s.write(const_cast<char*>(bytes.data()), 44, &written)==kResultOk
+        && written==44, "QA IBStream write");
     rewind(s);
     const auto result=component.setState(&s);
     require((result==kResultOk)==shouldSucceed,
@@ -108,6 +108,10 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
             "set program");
     require(first.controller->setParamNormalized(masterId,.75)==kResultOk,
             "set master");
+    for(const auto [param,amount] : std::array<std::pair<ParamID,double>,3>{{
+        {1100u,.25},{1108u,.60},{1110u,.80}}})
+      require(first.controller->setParamNormalized(param,amount)==kResultOk,
+              "P007AA set original Creative NRPN VST3 parameter");
     const auto saved=readState(*first.component);
     require(saved[0]=='P'&&saved[1]=='7'&&saved[2]=='S'&&saved[3]=='T',
             "VST3 stream signature");
@@ -121,13 +125,17 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
             "program missing after plugin reopen");
     require(closeTo(reopened.controller->getParamNormalized(masterId),.75),
             "master missing after plugin reopen");
+    for(const auto [param,amount] : std::array<std::pair<ParamID,double>,3>{{
+        {1100u,.25},{1108u,.60},{1110u,.80}}})
+      require(closeTo(reopened.controller->getParamNormalized(param),amount),
+              "P007AA Creative NRPN knob not restored from real VST3 state");
     require(readState(*reopened.component)==saved, "state bytes changed on reopen");
 
     // Verify the combined controller reload path, too (many hosts call both).
     MemoryStream controllerState;
     int32 written=0;
-    require(controllerState.write(const_cast<char*>(saved.data()),16,&written)==kResultOk
-            && written==16,"controller state fixture");
+    require(controllerState.write(const_cast<char*>(saved.data()),44,&written)==kResultOk
+            && written==44,"controller state fixture");
     rewind(controllerState);
     require(reopened.controller->setComponentState(&controllerState)==kResultOk,
             "IEditController setComponentState");
@@ -135,7 +143,7 @@ void stateRoundtrip(const VST3::Hosting::PluginFactory& factory,
 
     // Corruption must leave the live plugin state completely untouched.
     auto broken=saved;
-    broken[15]^=1;
+    broken[31]^=1; // corrupt NRPN value, original driver state remains unchanged
     writeState(*reopened.component,broken,false);
     require(readState(*reopened.component)==saved,"corrupt state modified plugin");
     std::puts("P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS");
@@ -252,6 +260,10 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
     unsigned passedRates=0;
     for (double hz : {44100.,48000.,96000.}) {
         auto plugin=instantiate(factory,id,host);
+        require(plugin.controller->setParamNormalized(1108u,.60)==kResultOk,
+                "original Creative Filter Cutoff NRPN parameter");
+        require(plugin.controller->setParamNormalized(1100u,.40)==kResultOk,
+                "original Creative AMP Attack NRPN parameter");
         require(plugin.controller->setParamNormalized(bankId,3./127.)==kResultOk,
                 "synthetic bank automation");
         require(plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
@@ -286,6 +298,10 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             programCounter=getCounter("p007_mock_program_plus_one");
             bankCounter=getCounter("p007_mock_bank_plus_one");
             Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
+            Counter filterCount=getCounter("p007_mock_nrpn_filter_count");
+            Counter filterRaw=getCounter("p007_mock_nrpn_filter_raw");
+            Counter attackCount=getCounter("p007_mock_nrpn_attack_count");
+            Counter nrpnRejects=getCounter("p007_mock_nrpn_rejected_selectors");
             std::array<float,block> left{},right{};
             float* channels[2]={left.data(),right.data()};
             AudioBusBuffers output{};
@@ -365,6 +381,9 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     "actual P165 Bank/Program never arrived at synthetic guest");
             require(rejectsCounter()==2u,
                     "synthetic bank/program retry fault injection was not exercised");
+            require(nrpnRejects()==1u && filterCount()>=1u &&
+                    filterRaw()==76u && attackCount()>=1u,
+                    "real VST3 failed 12-control Creative NRPN UART retry and delivery");
             require(audibleHalf>=block*5u,
                     "actual VST3 did not produce synthetic 50-percent stereo PCM");
             require(muted==block*14u,
