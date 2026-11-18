@@ -95,3 +95,12 @@ add_library(P007SyntheticCoreMock SHARED
 target_compile_features(P007SyntheticCoreMock PRIVATE cxx_std_20)
 set_target_properties(P007SyntheticCoreMock PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/synthetic-core")
+
+
+# P007Y: strict evidence threshold for PRIVATE original Creative PCM.
+# Public synthetic audio must fail the original-guest proof gate.
+add_executable(P007OriginalAudioProofTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalAudioProofTest.cpp")
+target_include_directories(P007OriginalAudioProofTest PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+target_compile_features(P007OriginalAudioProofTest PRIVATE cxx_std_17)
