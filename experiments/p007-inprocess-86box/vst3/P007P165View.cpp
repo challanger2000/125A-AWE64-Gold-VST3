@@ -605,10 +605,21 @@ void P165View::onIdle(){
     }
     const int state=guestStatus_?guestStatus_():0;
     if(state!=lastStatus_){
+        // Only real original guest status codes from the P007 VM worker.
+        // Do not disguise missing private Win95/ROM assets as generic silence.
         const char* message=
             state==2 ? "ORIGINAL CREATIVE WINMM: BEREIT" :
             state==1 ? "ORIGINAL WINDOWS 95: STARTET" :
             state==3 ? "EMU8000: GAST WIRD BEENDET" :
+            state==-8 ? "PRIVATE WINDOWS-95-DATEIEN FEHLEN" :
+            state==-9 ? "86BOX: GAST-ASSETS FEHLEN" :
+            state==-5 ? "WINDOWS: LOKALE DATEN FEHLEN" :
+            state==-6 ? "WIN95: VM-SPERRE FEHLER" :
+            state==-7 ? "WIN95: VM BEREITS IN BENUTZUNG" :
+            state==-1 ? "WIN95: STARTPROFIL FEHLER" :
+            state==-2 ? "WIN95: ROM ODER HARDWARE FEHLER" :
+            state==-3 ? "WIN95: EMULATOR ANGEHALTEN" :
+            state==-4 ? "WIN95: SYSTEMFEHLER" :
             state<0 ? "WIN95 / CREATIVE: STARTFEHLER" :
                       "WIN95: NICHT AKTIV";
         if(status_)status_->setText(message);

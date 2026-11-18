@@ -226,6 +226,17 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     if(result==kResultOk)outputRate_.configure(setup.sampleRate);
     return result;
 }
+// VST3 hosts (including Studio Pro) call setProcessing() on transport
+// and processor lifecycle transitions. The Steinberg base-class default
+// does not acknowledge this in our combined-instrument implementation.
+// Keep the original guest alive across host transport stop/start: its
+// Win95 boot must NOT be restarted on each audio processing transition.
+tresult PLUGIN_API Plugin::setProcessing(TBool on) {
+    // Do not reuse stale resampler history when the DAW resumes. This is
+    // constant-time, heap-free and leaves the original EMU8000 untouched.
+    if(on) outputRate_.reset();
+    return kResultOk;
+}
 int Plugin::p165GuestStatus() const noexcept {
     const int stage=core_.bootStatus();
     if(stage<0)return stage;
@@ -341,15 +352,25 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     if(!ready)sentInitialProgram_=false;
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
     if(ready){
-        if(!sentInitialProgram_||bankChanged||resend) {
+        // The original 86Box UART is a bounded FIFO. A failed submit means
+        // Creative did NOT receive the selected bank/program: do not falsely
+        // consider it delivered. Retry the complete ordered selection on the
+        // next audio callback (still the ONLY MIDI producer thread).
+        const bool sendBank=!sentInitialProgram_||bankChanged||resend;
+        const bool sendProgram=sendBank||programChanged;
+        bool accepted=true;
+        if(sendBank) {
             // Original Win95 Creative driver receives real MIDI BankSelect.
-            (void)core_.midi(0xb0u,0u,0u);  // CC0 bank MSB
-            (void)core_.midi(0xb0u,32u,midiBank_.load(std::memory_order_acquire)); // CC32 bank LSB
+            // Evaluate both calls even when the first packet was rejected.
+            accepted=(core_.midi(0xb0u,0u,0u)==1)&&accepted; // CC0 bank MSB
+            accepted=(core_.midi(0xb0u,32u,
+                       midiBank_.load(std::memory_order_acquire))==1)&&accepted;
         }
-        if(!sentInitialProgram_||bankChanged||programChanged||resend){
-            (void)core_.midi(0xc0u,midiProgram_.load(std::memory_order_acquire),0u); // MIDI Program Change
+        if(sendProgram){
+            accepted=(core_.midi(0xc0u,
+                       midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
         }
-        sentInitialProgram_=true;
+        sentInitialProgram_=accepted;
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
     // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.

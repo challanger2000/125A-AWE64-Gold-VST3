@@ -72,3 +72,35 @@ add_executable(P007StateCodecTest
   "${CMAKE_CURRENT_SOURCE_DIR}/P007StateCodec.hpp")
 target_include_directories(P007StateCodecTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(P007StateCodecTest PRIVATE cxx_std_20)
+
+
+# P007W: independent actual Windows VST3 host, not codec-only regression.
+# The optional --private-audio mode runs ONLY on the owner's private Windows
+# machine with their original Win95/Creative guest assets. Public CI must never
+# upload private images or misrepresent a synthetic run as original PCM.
+add_executable(P007ActualHostQA
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007ActualHostQA.cpp"
+  "${P007_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+  "${P007_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
+target_include_directories(P007ActualHostQA PRIVATE "${P007_SDK_ROOT}")
+target_link_libraries(P007ActualHostQA PRIVATE sdk_hosting)
+target_compile_features(P007ActualHostQA PRIVATE cxx_std_17)
+
+
+# CI-only fake core for an ephemeral copy of the actual Windows VST3.
+# This must NEVER be embedded in the private product or uploaded as a
+# Creative/EMU8000 test result. Distinct markers explicitly say SYNTHETIC.
+add_library(P007SyntheticCoreMock SHARED
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007SyntheticCoreMock.cpp")
+target_compile_features(P007SyntheticCoreMock PRIVATE cxx_std_20)
+set_target_properties(P007SyntheticCoreMock PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/synthetic-core")
+
+
+# P007Y: strict evidence threshold for PRIVATE original Creative PCM.
+# Public synthetic audio must fail the original-guest proof gate.
+add_executable(P007OriginalAudioProofTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007OriginalAudioProofTest.cpp")
+target_include_directories(P007OriginalAudioProofTest PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+target_compile_features(P007OriginalAudioProofTest PRIVATE cxx_std_17)
