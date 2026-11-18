@@ -61,6 +61,6 @@ int main() {
  assert(!sendTailEffect(a,silence,a3));
  assert(!chorusEffect(a,silence,a3));
  assert(!attackEffect(silence,attacked,a3));
- std::puts("P007AC_ORIGINAL_WIN95_PCM_ABA_NEGATIVE_AND_POSITIVE_ORACLE_PASS cases=14");
+ std::puts("P007AD_ORIGINAL_WIN95_PCM_ABA_NEGATIVE_AND_POSITIVE_ORACLE_PASS");
  return 0;
 }
