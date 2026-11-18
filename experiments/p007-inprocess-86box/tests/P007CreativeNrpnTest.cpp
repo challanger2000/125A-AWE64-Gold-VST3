@@ -37,6 +37,24 @@ int main() {
   assert(messages==4u);
   ++good;
  }
+ // Exact original P165 knob semantics: 0% must not accidentally
+ // transform an existing SoundFont patch into a 100 Hz cutoff/0-ms ADSR.
+ for(unsigned i=0;i<10u;++i) {
+  assert(!shouldTransmit(i,0u));
+  assert(shouldTransmit(i,1u));
+  assert(needsSoundFontReset(i,5000u,0u));
+  assert(!needsSoundFontReset(i,0u,0u));
+  assert(!needsSoundFontReset(i,5000u,7500u));
+  ++good;
+ }
+ // Effect sends are special: 0% is sent to ORIGINAL Win95 as true zero.
+ for(unsigned i=10u;i<count;++i) {
+  assert(shouldTransmit(i,0u));
+  assert(raw(i,0u)==0u);
+  assert(!needsSoundFontReset(i,5000u,0u));
+  ++good;
+ }
+ assert(!shouldTransmit(12u,10000u));
  assert(!submit(12u,5000u,[](auto,auto) noexcept {return true;}));
  assert(raw(99u,5000u)==0u);
  assert(raw(8u,65535u)==127u);
