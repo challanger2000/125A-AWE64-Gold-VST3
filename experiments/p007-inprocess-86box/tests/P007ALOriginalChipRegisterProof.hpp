@@ -13,7 +13,9 @@ struct Capture {
     unsigned voice=kMissingVoice;
     std::uint16_t pointer=0xffffu;
     std::uint16_t pefe=0u,volumeRelease=0u,filterRelease=0u;
+    std::uint16_t filterNoteSustain=0u;
     bool hasPefe=false,hasVolumeRelease=false,hasFilterRelease=false;
+    bool hasFilterNoteSustain=false;
     bool conflict=false;
 
     void observe(std::uint16_t port,std::uint16_t value) noexcept {
@@ -26,7 +28,10 @@ struct Capture {
                                     (value&0x8000u)!=0u);
         const bool isFilterRelease=(port==0x0a20u && reg==0x00e0u &&
                                     (value&0x8000u)!=0u);
-        if(!isPefe&&!isVolumeRelease&&!isFilterRelease)return;
+        const bool isFilterNoteSustain=(port==0x0a20u && reg==0x00e0u &&
+                                        (value&0x8000u)==0u);
+        if(!isPefe&&!isVolumeRelease&&!isFilterRelease&&
+           !isFilterNoteSustain)return;
         if(voice==kMissingVoice) voice=addressedVoice;
         if(voice!=addressedVoice) { conflict=true;return; }
         if(isPefe) {
@@ -40,6 +45,10 @@ struct Capture {
         if(isFilterRelease) {
             if(hasFilterRelease && filterRelease!=value)conflict=true;
             filterRelease=value;hasFilterRelease=true;
+        }
+        if(isFilterNoteSustain) {
+            if(hasFilterNoteSustain && filterNoteSustain!=value)conflict=true;
+            filterNoteSustain=value;hasFilterNoteSustain=true;
         }
     }
     bool complete() const noexcept {
