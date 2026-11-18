@@ -59,6 +59,18 @@ int main(){
         }),"NRPN15 packet transmit failed");
     }
     check(!tx.active(),"NRPN15 unfinished");
+    // Creative NRPN8 (Mod/Filter Sustain): original documented offset
+    // 8192 + 127 must give the same CC6/CC38 bytes as P007Native GUI.
+    tx.armUnsigned(8u,8192u+127u);
+    for(auto& out:packets) {
+        check(tx.tick([&](std::uint8_t controller,std::uint8_t value)noexcept{
+            out={controller,value};return true;
+        }),"NRPN8 packet transmit failed");
+    }
+    check(!tx.active(),"NRPN8 unfinished");
+    check(packets[1].controller==98u && packets[1].value==8u &&
+          packets[2].value==64u && packets[3].value==127u,
+          "Creative filter ENV sustain NRPN8 offset encoding wrong");
     check(packets[0].controller==99u && packets[0].value==127u,
           "Creative NRPN MSB wrong");
     check(packets[1].controller==98u && packets[1].value==15u,
@@ -74,6 +86,17 @@ int main(){
         auto back=synth(target,false);
         const auto e=corrected_filter_proof::evaluate(original,changed,back,target);
         check(e.proven,"medium sized repeatable 0.25+dB effect missed");
+        if(target==Target::Sustain) {
+            // High-band A-return drift must not veto a stable lower band.
+            auto noisyHighBand=back;
+            for(unsigned i=6u;i<noteBins;++i)
+                for(unsigned band=4u;band<bands;++band)
+                    noisyHighBand.bandPower[i][band]*=10.;
+            const auto local=corrected_filter_proof::evaluate(
+                original,changed,noisyHighBand,target);
+            check(local.proven,
+                  "unrelated drifting high bands veto stable coherent sustain effect");
+        }
         check(e.longestRun>=3u,"not three consecutive windows");
         check(!corrected_filter_proof::evaluate(original,original,back,target).proven,
               "unchanged original incorrectly proven");
