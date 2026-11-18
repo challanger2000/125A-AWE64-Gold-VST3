@@ -1,0 +1,160 @@
+name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
+on:
+  push:
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118]
+    paths:
+      - "experiments/p007-inprocess-86box/**"
+      - ".github/workflows/p007ak-actual-filter-spectrum.yml"
+  pull_request:
+    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-bounded-register-probe:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Prepare pinned 86Box original Windows GCC build
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: UCRT64
+          install: git
+          pacboy: >-
+            ninja:p cmake:p gcc:p python:p pkgconf:p freetype:p SDL2:p
+            zlib:p libpng:p libsndfile:p libslirp:p libserialport:p
+      - uses: actions/checkout@v4
+      - name: Clone exact pinned 86Box and preserve its original EMU8000 core
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/turican0/86Box-AWE32.git build/p007-original
+          git -C build/p007-original checkout fee1e81977824fd2d5eed4d239589dc30d251dd7
+          test "$(git -C build/p007-original rev-parse HEAD)" = fee1e81977824fd2d5eed4d239589dc30d251dd7
+          python experiments/p007-inprocess-86box/tools/p007_patch_upstream.py --fork build/p007-original
+          python experiments/p007-inprocess-86box/tools/p007aj_patch_observer.py --fork build/p007-original
+          # Changed files: P007RegisterProbe.c and trace wrapper only. The
+          # actual original emulator PCM/CPU/chip routines must remain exact.
+          git -C build/p007-original diff --exit-code -- src/sound/snd_emu8k.c src/cpu/
+          echo P007AJ_ORIGINAL_EMU8000_AND_CPU_SOURCE_UNMODIFIED_PASS
+      - name: Test 8192-event bounded observer with overflow and dormant guards
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007RegisterProbe.c \
+            experiments/p007-inprocess-86box/tests/P007RegisterProbeTest.c \
+            -o build/P007RegisterProbeTest.exe
+          build/P007RegisterProbeTest.exe
+      - name: P007AK synthetic-only analyzer self-test (negative controls, never original-audio proof)
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
+          build/P007OriginalSpectralProofTest.exe
+      - name: P007AL corrected filter spectrum and Creative NRPN15 synthetic-only unit tests
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007ALCorrectedSpectralProofTest.cpp -o build/P007ALCorrectedSpectralProofTest.exe
+          build/P007ALCorrectedSpectralProofTest.exe
+      - name: Build real original 86Box-AWE32 native x64 DLL with passive probe
+        run: |
+          set -euo pipefail
+          cmake -S build/p007-original -B build/p007-aj-core -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT=OFF -DSTATIC_BUILD=OFF -DOPENAL=OFF \
+            -DRTMIDI=OFF -DFLUIDSYNTH=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF -DDYNAREC=ON -DVNC=OFF
+          cmake --build build/p007-aj-core --target 86Box --parallel 3
+          test -f build/p007-aj-core/src/lib86Box.dll
+          objdump -p build/p007-aj-core/src/lib86Box.dll | grep -q "p007aj_probe_begin"
+          objdump -p build/p007-aj-core/src/lib86Box.dll | grep -q "p007aj_probe_copy"
+          echo P007AJ_BOUNDED_ORIGINAL_86BOX_REGISTER_OBSERVER_NATIVE_DLL_BUILT_PASS
+      - name: Fetch tested MSVC SDK for the actual original AWE64 VST3/QA host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if($LASTEXITCODE -ne 0){throw 'P007AJ pinned SDK checkout failed'}
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-aj-vst3 -G 'Visual Studio 17 2022' -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+          if($LASTEXITCODE -ne 0){throw 'P007AJ original VST3 CMake configure failed'}
+      - name: Pack only a single true VST3 with original 86Box core plus bounded research observer
+        run: |
+          set -euo pipefail
+          dest=build/p007-aj-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win
+          mkdir -p "$dest"
+          cp build/p007-aj-core/src/lib86Box.dll "$dest/125A_AWE_Core.dll"
+          for pass in 1 2 3 4 5; do
+            for dll in "$dest"/*.dll; do
+              for need in $(objdump -p "$dll" | sed -n 's/^[[:space:]]*DLL Name: //p'); do
+                if test -f "/ucrt64/bin/$need" && ! test -f "$dest/$need"; then
+                  cp "/ucrt64/bin/$need" "$dest/$need"
+                fi
+              done
+            done
+          done
+          echo P007AJ_SINGLE_VST3_FOLDER_TEST_ONLY_CORE_WITH_ORIGINAL_EMU8000_PASS
+      - name: Build real Win64 P165 VST3, Steinberg validator and original host QA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build build/p007-aj-vst3 --config Release --target AWE64_Gold_P007 P007ActualHostQA --parallel 3
+          if($LASTEXITCODE -ne 0){throw 'P007AJ VST3 actual Windows module/QA build failed'}
+          Write-Host 'P007AJ_ACTUAL_ORIGINAL_EDITOR_AND_BOUNDED_PROBE_QA_BUILD_PASS'
+      - name: Real VST3 project state, uninstrumented recording refusal and no private guest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $plugin=(Resolve-Path 'build/p007-aj-vst3/VST3/Release/AWE64_Gold_P007.vst3').Path
+          $tester=(Resolve-Path 'build/p007-aj-vst3/Release/P007ActualHostQA.exe').Path
+          & $tester $plugin | Tee-Object -FilePath 'build/p007aj-public-state.log'
+          if($LASTEXITCODE -ne 0){throw 'P007AJ true VST3 host QA failed'}
+          if(!(Select-String -Path 'build/p007aj-public-state.log' -Pattern 'P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS' -Quiet)){
+            throw 'P007AJ project recall failed'
+          }
+          & $tester $plugin --private-regtrace *> 'build/p007aj-private-guest-denial.log'
+          if($LASTEXITCODE -eq 0){throw 'CRITICAL: no licensed original Win95 guest should pass original register proof in public CI'}
+          if(Select-String -Path 'build/p007aj-private-guest-denial.log' -Pattern 'P007AJ_ACTUAL_ORIGINAL_EMU8000_PORT_PROBE' -Quiet){
+            throw 'CRITICAL: original chip register capture falsely emitted without original Win95'
+          }
+          Write-Host 'P007AJ_PUBLIC_NO_GUEST_ORIGINAL_REGISTER_PROOF_REJECTED_PASS'
+          & $tester $plugin --private-spectrum *> 'build/p007ak-private-spectrum-denial.log'
+          if($LASTEXITCODE -eq 0){throw 'CRITICAL: no licensed original Win95 guest should pass original filter PCM proof in public CI'}
+          if(Select-String -Path 'build/p007ak-private-spectrum-denial.log' -Pattern 'P007AK_FOUR_ORIGINAL_CREATIVE_FILTER_ENVELOPES_PCM_SPECTRAL_PROVEN' -Quiet){
+            throw 'CRITICAL: original filter spectral proof falsely emitted without original Win95'
+          }
+          Write-Host 'P007AK_PUBLIC_NO_GUEST_SPECTRAL_PROOF_REJECTED_PASS'
+          & $tester $plugin --private-filter-corrected *> 'build/p007al-private-corrected-denial.log'
+          if($LASTEXITCODE -eq 0){throw 'CRITICAL: no original Win95 guest should produce a corrected filter proof in public CI'}
+          if(Select-String -Path 'build/p007al-private-corrected-denial.log' -Pattern 'P007AL_FOUR_ORIGINAL_FILTER_ENVELOPES_PCM_PROVEN' -Quiet){
+            throw 'CRITICAL: original filter proof claimed without original Win95'
+          }
+          Write-Host 'P007AL_NO_PRIVATE_GUEST_CORRECTED_FILTER_REFUSAL_PASS'
+          # The rejected private-only test MUST fail (exit=1). PowerShell
+          # otherwise propagates that EXPECTED nonzero native exit code
+          # as the whole successful job's final exit status.
+          exit 0
+      - name: Preserve original 86Box/VST3 debug package with NO private Win95 or ROM
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AL-Win64-Corrected-Creative-Filter-Proof-Host-PUBLIC-NO-PRIVATE
+          path: |
+            build/p007-aj-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
+            build/p007-aj-vst3/Release/P007ActualHostQA.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve Windows QA test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AL-Corrected-Spectral-Analyzer-And-Register-Validation
+          path: |
+            build/p007aj-public-state.log
+            build/p007aj-private-guest-denial.log
+            build/p007ak-private-spectrum-denial.log
+            build/p007al-private-corrected-denial.log
+          if-no-files-found: warn
+          retention-days: 7
