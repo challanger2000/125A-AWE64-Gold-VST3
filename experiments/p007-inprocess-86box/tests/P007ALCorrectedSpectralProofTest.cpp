@@ -88,15 +88,17 @@ int main(){
         const auto e=corrected_filter_proof::evaluate(original,changed,back,target);
         check(e.proven,"medium sized repeatable 0.25+dB effect missed");
         if(target==Target::Sustain) {
-            // High-band A-return drift must not veto a stable lower band.
-            auto noisyHighBand=back;
+            // A-return drift in unrelated low-frequency bands must not
+            // veto a coherent effect in the high-frequency tone's bands.
+            // Three drifting bands would have triggered the old global veto.
+            auto noisyOtherBands=back;
             for(unsigned i=6u;i<noteBins;++i)
-                for(unsigned band=4u;band<bands;++band)
-                    noisyHighBand.bandPower[i][band]*=10.;
+                for(unsigned band=0u;band<3u;++band)
+                    noisyOtherBands.bandPower[i][band]*=10.;
             const auto local=corrected_filter_proof::evaluate(
-                original,changed,noisyHighBand,target);
+                original,changed,noisyOtherBands,target);
             check(local.proven,
-                  "unrelated drifting high bands veto stable coherent sustain effect");
+                  "unrelated drifting low bands veto stable high-band sustain effect");
         }
         check(e.longestRun>=3u,"not three consecutive windows");
         check(!corrected_filter_proof::evaluate(original,original,back,target).proven,
