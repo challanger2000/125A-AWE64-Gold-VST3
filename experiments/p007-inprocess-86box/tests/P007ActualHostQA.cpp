@@ -1409,8 +1409,6 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 }
                 if(readyAt!=Clock::time_point{}&&
                    now-readyAt>=1500ms&&before.frames>=44100u) {
-                    if(chosen.depth!=999)
-                        queueDepth(chosen.depth);
                     phase=Phase::Prepare;phaseAt=now;
                 }
             }else if(phase==Phase::Prepare) {
@@ -1501,6 +1499,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                              static_cast<std::uint8_t>(chosen.ccNumber),
                              static_cast<std::uint8_t>(chosen.ccValue))==1,
                             "positive-control MIDI CC7 was not queued");
+                    if(chosen.depth!=999)
+                        queueDepth(chosen.depth);
                     phase=Phase::Prepare;phaseAt=now;
                 }
             }
