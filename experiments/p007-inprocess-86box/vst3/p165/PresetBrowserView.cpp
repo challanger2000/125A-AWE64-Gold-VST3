@@ -869,18 +869,12 @@ void PresetBrowserView::Sync(bool force) {
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
-    for(const auto& entry:std::array<std::pair<COptionMenu*,int>,2>{{
-        {reverbMenu_,kReverbType},{chorusMenu_,kChorusType}}}) {
-        if(!entry.first)continue;
-        const int preset=std::clamp(int(std::lround(
-            controller_->getParamNormalized(
-                static_cast<Steinberg::Vst::ParamID>(entry.second))*7.)),0,7);
-        if(!entry.first->isEditing() &&
-           int(std::lround(entry.first->getValue()))!=preset) {
-            entry.first->setValue(static_cast<float>(preset));
-            entry.first->invalid();
-        }
-    }
+    // The ORIGINAL P165 view defaults to Hall 2 / Chorus 3. The new
+    // Win95 VST3 does not yet register 1200/1201 because guest SysEx is
+    // missing. The old direct-synth idle sync would silently overwrite
+    // those visible defaults with Room 1 / Chorus 1 via unknown params.
+    // Retain the disabled historic presets without claiming DAW recall.
+
     const auto master=static_cast<float>(std::clamp(
         controller_->getParamNormalized(kMasterVolume),0.,1.));
     if(masterVolume_ && !masterVolume_->isEditing() &&
