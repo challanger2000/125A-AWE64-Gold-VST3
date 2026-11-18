@@ -5,6 +5,8 @@ on:
     paths:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
       - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnTest.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential*.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential.hpp"
       - "experiments/p007-inprocess-86box/tests/P007StateCodecTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007SyntheticCoreMock.cpp"
       - "experiments/p007-inprocess-86box/tests/P007ZOriginalP165EditorHost.py"
