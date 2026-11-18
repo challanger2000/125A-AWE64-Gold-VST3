@@ -18,23 +18,25 @@ namespace p007::creative_nrpn {
 // works with a 64/128-sample Studio Pro/ASIO buffer.
 class FramePace final {
     std::uint32_t minGapFrames_=882u;
-    std::uint32_t untilNext_=0u;
+    std::uint64_t elapsedFrames_=0u;
+    bool started_=false;
 public:
     void configure(double sampleRate) noexcept {
-        // Configure from non-RT setupProcessing(), never on the audio thread.
         if(!(sampleRate>=8000.0 && sampleRate<=192000.0))
             sampleRate=44100.0;
         minGapFrames_=static_cast<std::uint32_t>(sampleRate*.020 + .5);
-        untilNext_=0u;
+        reset();
     }
-    void reset() noexcept {untilNext_=0u;}
+    void reset() noexcept {elapsedFrames_=0u;started_=false;}
     [[nodiscard]] bool due(std::uint32_t blockFrames) noexcept {
         if(blockFrames==0u)return false;
-        if(untilNext_>blockFrames) {
-            untilNext_-=blockFrames;
-            return false;
-        }
-        untilNext_=minGapFrames_;
+        if(!started_){started_=true;return true;}
+        // One elapsed host block is accounted between successive calls.
+        // Thus 64 frames @96k can NEVER send four MIDI messages within
+        // 4*0.667ms merely because the DAW callback size is small.
+        elapsedFrames_+=blockFrames;
+        if(elapsedFrames_<minGapFrames_)return false;
+        elapsedFrames_=0u;
         return true;
     }
 };
