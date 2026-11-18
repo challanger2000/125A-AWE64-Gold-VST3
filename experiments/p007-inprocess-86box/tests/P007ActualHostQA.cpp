@@ -1665,32 +1665,6 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         }
         require(index==scenarios.size(),
                 "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
-        if(correctedFilterProbe) {
-            for(unsigned t=4u;t<=12u;++t) {
-                const auto& cr=chipRegisters[t];
-                std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
-                    " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
-                    " FILTER_RELEASE_DCYSUS=%04X complete=%d\n",
-                    t,cr.voice,unsigned(cr.pefe),unsigned(cr.volumeRelease),
-                    unsigned(cr.filterRelease),int(cr.complete()));
-            }
-            std::fflush(stdout);
-            require(chipRegisters[4].complete() &&
-                    chipRegisters[4].volumeRelease!=0x8029u,
-                "P007AL original Creative NRPN15 did not extend amplitude release");
-            for(unsigned t=4u;t<=12u;++t) {
-                require(chipRegisters[t].complete(),
-                    "P007AL original chip evidence incomplete or ambiguous for allocated voice");
-                require(chipRegisters[t].pefe==0x00c0u,
-                    "P007AL unexpected original chip filter PEFE; requested closing polarity not applied");
-                require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
-                    "P007AL amplifier release differs across A/B/A - invalid filter comparison");
-            }
-            require(chipRegisters[11].filterRelease!=chipRegisters[10].filterRelease &&
-                    chipRegisters[12].filterRelease==chipRegisters[10].filterRelease,
-                "P007AL original filter release generator did not change and restore");
-            std::puts("P007AL_CORRECTED_ORIGINAL_CREATIVE_REGISTER_SETUP_PASS");
-        }
         if(spectralProbe) {
             // All analysis bins are collected in preallocated memory while
             // VST3 process() runs. Write AFTER playback, never in its callback.
@@ -1720,6 +1694,32 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             require(std::fflush(csv.get())==0,
                 "P007AK original spectral-bin report flush failed");
             std::puts("P007AK_ORIGINAL_PCM_SPECTRAL_RAW_BINS_SAVED_OFFLINE");
+        }
+        if(correctedFilterProbe) {
+            for(unsigned t=4u;t<=12u;++t) {
+                const auto& cr=chipRegisters[t];
+                std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
+                    " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
+                    " FILTER_RELEASE_DCYSUS=%04X complete=%d\n",
+                    t,cr.voice,unsigned(cr.pefe),unsigned(cr.volumeRelease),
+                    unsigned(cr.filterRelease),int(cr.complete()));
+            }
+            std::fflush(stdout);
+            require(chipRegisters[4].complete() &&
+                    chipRegisters[4].volumeRelease!=0x8029u,
+                "P007AL original Creative NRPN15 did not extend amplitude release");
+            for(unsigned t=4u;t<=12u;++t) {
+                require(chipRegisters[t].complete(),
+                    "P007AL original chip evidence incomplete or ambiguous for allocated voice");
+                require(chipRegisters[t].pefe==0x00c0u,
+                    "P007AL unexpected original chip filter PEFE; requested closing polarity not applied");
+                require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
+                    "P007AL amplifier release differs across A/B/A - invalid filter comparison");
+            }
+            require(chipRegisters[11].filterRelease!=chipRegisters[10].filterRelease &&
+                    chipRegisters[12].filterRelease==chipRegisters[10].filterRelease,
+                "P007AL original filter release generator did not change and restore");
+            std::puts("P007AL_CORRECTED_ORIGINAL_CREATIVE_REGISTER_SETUP_PASS");
         }
         require(p007::original_audio_proof::accept(before,originalFirst),
                 "original Creative PCM not proven above Win95 background");
