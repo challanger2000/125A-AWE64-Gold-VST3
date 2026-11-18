@@ -1,13 +1,15 @@
 name: P007W actual Windows VST3 host state and optional private audio QA
 on:
   push:
-    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118, fix/p007ae-paced-creative-uart-20261118]
+    branches: [research/p007w-real-vst3-host-qa-20261118, fix/p007z-p165-original-complete-gui-20261118, research/p007aa-creative-nrpn-20261118, fix/p007ae-paced-creative-uart-20261118, research/p007ag-ten-creative-controls-matrix-20261118]
     paths:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
       - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007CreativeNrpnPacerTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential*.cpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalControlDifferential.hpp"
+      - "experiments/p007-inprocess-86box/tests/P007TenControlMatrix.hpp"
+      - "experiments/p007-inprocess-86box/tests/P007TenControlMatrixTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007StateCodecTest.cpp"
       - "experiments/p007-inprocess-86box/tests/P007SyntheticCoreMock.cpp"
       - "experiments/p007-inprocess-86box/tests/P007ZOriginalP165EditorHost.py"
@@ -62,6 +64,10 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Original PCM A/B/A numerical oracle build failed'}
           & 'build/p007-vst3/Release/P007OriginalControlDifferentialTest.exe'
           if($LASTEXITCODE -ne 0){throw 'Original PCM A/B/A negative or positive control failed'}
+          cmake --build build/p007-vst3 --config Release --target P007TenControlMatrixTest --parallel 2
+          if($LASTEXITCODE -ne 0){throw 'P007AG ten-control audio matrix classifier build failed'}
+          & 'build/p007-vst3/Release/P007TenControlMatrixTest.exe'
+          if($LASTEXITCODE -ne 0){throw 'P007AG audio matrix false-positive and missing-note guards failed'}
       - name: Restore original internal 86Box DLLs into the single VST3 bundle
         shell: pwsh
         run: |
@@ -151,6 +157,14 @@ jobs:
           if(Select-String -Path 'build/p007ad-refuse-fake-original.log' -Pattern 'P007AD_PRIVATE_REAL_WIN95_CREATIVE_NRPN_ABA_PCM_PASS' -Quiet){
             throw 'CRITICAL: forged original A/B/A PCM PASS marker'
           }
+          & $qaExe $dest --private-matrix *> 'build/p007ag-refuse-synthetic-matrix.log'
+          if($LASTEXITCODE -eq 0){
+            throw 'CRITICAL: fake guest accepted as original ten-control PCM matrix'
+          }
+          if(Select-String -Path 'build/p007ag-refuse-synthetic-matrix.log' -Pattern 'P007AG_PRIVATE_REAL_WIN95_ALL_TEN_CREATIVE_NRPN_PCM_PASS' -Quiet){
+            throw 'CRITICAL: fake original ten-control PCM PASS marker'
+          }
+          Write-Host 'P007AG_PUBLIC_SYNTHETIC_AS_ORIGINAL_TEN_CONTROL_PCM_REJECTED_PASS'
           Write-Host 'P007AD_PUBLIC_SYNTHETIC_NRPN_AS_ORIGINAL_PCM_REJECTED_PASS'
           # The expected negative-control exit code must not turn this successful
           # rejection test into a failed GitHub Actions PowerShell step.
@@ -192,6 +206,7 @@ jobs:
             build/p007y-original-audio-proof-rules.log
             build/p007y-refuse-fake-original.log
             build/p007ad-refuse-fake-original.log
+            build/p007ag-refuse-synthetic-matrix.log
           if-no-files-found: warn
           retention-days: 7
       - name: Preserve synthetic-only Windows audio/MIDI QA log
