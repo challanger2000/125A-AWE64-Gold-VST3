@@ -302,6 +302,9 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             Counter filterRaw=getCounter("p007_mock_nrpn_filter_raw");
             Counter attackCount=getCounter("p007_mock_nrpn_attack_count");
             Counter nrpnRejects=getCounter("p007_mock_nrpn_rejected_selectors");
+            Counter nrpnReset=getCounter("p007_mock_nrpn_reset121");
+            Counter reverbDry=getCounter("p007_mock_nrpn_dry_reverb");
+            Counter chorusDry=getCounter("p007_mock_nrpn_dry_chorus");
             std::array<float,block> left{},right{};
             float* channels[2]={left.data(),right.data()};
             AudioBusBuffers output{};
@@ -345,6 +348,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     require(plugin.controller->setParamNormalized(masterId,1.)==kResultOk,
                             "restore true unity master");
                 }
+                if(iteration==72) {
+                    // Original Creative doc: filter 0% is SoundFont-neutral.
+                    // CC121 must restore the patch instead of setting the
+                    // ORIGINAL cutoff to ~100 Hz via NRPN=0.
+                    require(plugin.controller->setParamNormalized(1108u,0.)==kResultOk,
+                            "return original Creative cutoff to SoundFont-neutral 0%");
+                }
                 if(iteration==80) {
                     require(plugin.processor->setProcessing(false)==kResultOk,
                             "transport stop processing");
@@ -384,6 +394,10 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             require(nrpnRejects()==1u && filterCount()>=1u &&
                     filterRaw()==76u && attackCount()>=1u,
                     "real VST3 failed 12-control Creative NRPN UART retry and delivery");
+            require(nrpnReset()>=1u && reverbDry()>=2u && chorusDry()>=2u,
+                    "P007AB 0%-neutral SoundFont reset / FX digital dry MIDI not delivered");
+            require(filterRaw()==76u,
+                    "P007AB 0% cutoff sent destructive raw NRPN 0 instead of CC121 reset");
             require(audibleHalf>=block*5u,
                     "actual VST3 did not produce synthetic 50-percent stereo PCM");
             require(muted==block*14u,
