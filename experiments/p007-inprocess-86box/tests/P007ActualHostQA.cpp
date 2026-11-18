@@ -9,6 +9,7 @@
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "public.sdk/source/common/memorystream.h"
+#include "P007OriginalAudioProof.hpp"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
@@ -387,12 +388,61 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
     std::puts("P007X_REAL_WINDOWS_VST3_SYNTHETIC_GUEST_44K_48K_96K_AUDIO_MIDI_PASS");
 }
 
+// The original 512-MiB Win95 template and the owner's persistent Studio Pro
+// guest must NEVER be altered by a research test run. Override LOCALAPPDATA
+// for THIS isolated QA process before the real plugin is activated. The VST3
+// then uses its unchanged private guest-copy implementation under TEMP.
+class OwnerGuestSandbox final {
+    std::wstring old_;
+    bool had_=false;
+    fs::path root_;
+public:
+    OwnerGuestSandbox() {
+        const DWORD n=GetEnvironmentVariableW(L"LOCALAPPDATA",nullptr,0);
+        if(n>0) {
+            std::wstring buffer(n,L'\\0');
+            const DWORD got=GetEnvironmentVariableW(L"LOCALAPPDATA",buffer.data(),n);
+            require(got>0&&got<n,"read old LOCALAPPDATA");
+            buffer.resize(got);
+            old_=std::move(buffer);
+            had_=true;
+        }
+        root_=fs::temp_directory_path()/
+              (L"P007-OwnerPrivateQA-"+std::to_wstring(GetCurrentProcessId()));
+        require(!fs::exists(root_),
+                "isolated private QA path already exists: no overwrite");
+        require(fs::create_directories(root_),
+                "create isolated private QA profile");
+        require(SetEnvironmentVariableW(L"LOCALAPPDATA",root_.c_str())!=0,
+                "set isolated private QA profile");
+    }
+    OwnerGuestSandbox(const OwnerGuestSandbox&)=delete;
+    OwnerGuestSandbox& operator=(const OwnerGuestSandbox&)=delete;
+    ~OwnerGuestSandbox() {
+        if(had_) (void)SetEnvironmentVariableW(L"LOCALAPPDATA",old_.c_str());
+        else (void)SetEnvironmentVariableW(L"LOCALAPPDATA",nullptr);
+        std::error_code ignored;
+        fs::remove_all(root_,ignored);
+    }
+};
+
 void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
                       const VST3::UID& id,FUnknown* host,
                       const fs::path& bundle) {
     const auto privateDisk=bundle/"Contents"/"Resources"/"PrivateVM"/"vm"/"win95.img";
     require(fs::is_regular_file(privateDisk),
             "private Win95 HDD absent; refusing synthetic Creative audio PASS");
+    require(!fs::exists(bundle/"Contents"/"Resources"/"PrivateVM"/
+                        "P007_SYNTHETIC_TEST_ONLY.marker"),
+            "synthetic guest rejected in ORIGINAL Creative acceptance");
+    require(fs::file_size(privateDisk) >= 32ull*1024ull*1024ull,
+            "private guest HDD unexpectedly small; reject synthetic fixture");
+    const auto privateResources=bundle/"Contents"/"Resources"/"PrivateVM";
+    require(fs::is_directory(privateResources/"roms") &&
+            fs::is_directory(privateResources/"assets") &&
+            fs::is_regular_file(privateResources/"vm"/"P007_AWE64.cfg"),
+            "private original Creative ROM/assets/guest profile incomplete");
+    OwnerGuestSandbox sandbox;
     auto plugin=instantiate(factory,id,host);
     require(plugin.controller->setParamNormalized(bankId,0.)==kResultOk,"bank 0");
     require(plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
@@ -429,22 +479,41 @@ void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
         data.inputEvents=&events;
 
         using ReadyFn=int (__cdecl*)();
+        using CoreSymbolFn=std::uintptr_t (__cdecl*)();
         ReadyFn ready=nullptr;
+        // A CI synthetic DLL is not the ORIGINAL 86Box core. Demand exact
+        // upstream CPU entrypoint exports before any originality claim.
+        const HMODULE guestDll=GetModuleHandleW(L"125A_AWE_Core.dll");
+        require(guestDll!=nullptr,"actual private 86Box core not loaded");
+        const auto corePCInit=reinterpret_cast<CoreSymbolFn>(
+            GetProcAddress(guestDll,"p007_core_symbol_pc_init"));
+        const auto corePCRun=reinterpret_cast<CoreSymbolFn>(
+            GetProcAddress(guestDll,"p007_core_symbol_pc_run"));
+        require(corePCInit && corePCRun &&
+                corePCInit()!=0u && corePCRun()!=0u,
+                "original 86Box CPU symbol exports absent: no authenticity proof");
+        ready=reinterpret_cast<ReadyFn>(
+            GetProcAddress(guestDll,"p007_midi_guest_ready"));
+        require(ready!=nullptr,"original guest WinMM READY export absent");
+
+        using Clock=std::chrono::steady_clock;
+        Clock::time_point readyAt{},noteAt{};
+        p007::original_audio_proof::Window before,after;
         bool sentOn=false,sentOff=false;
-        unsigned long long nonzero=0,frames=0;
-        double peak=0.;
-        const auto start=std::chrono::steady_clock::now();
+        const auto start=Clock::now();
         auto next=start;
-        auto noteAt=start;
         auto lastReport=start;
-        while(std::chrono::steady_clock::now()-start < 110s) {
+        while(Clock::now()-start < 110s) {
             events.clear();
-            if(!ready){
-                if(HMODULE core=GetModuleHandleW(L"125A_AWE_Core.dll"))
-                    ready=reinterpret_cast<ReadyFn>(
-                        GetProcAddress(core,"p007_midi_guest_ready"));
+            const auto now=Clock::now();
+            if(readyAt==Clock::time_point{} && ready()) {
+                readyAt=now;
+                std::puts("P007Y_ORIGINAL_CREATIVE_WINMM_READY_BASELINE_START");
             }
-            if(!sentOn && ready && ready()){
+            // Baseline is measured for 1.5 seconds AFTER genuine Creative
+            // WinMM READY, before any host NoteOn was submitted.
+            if(!sentOn && readyAt!=Clock::time_point{} &&
+               now-readyAt>=1500ms && before.frames>=44100u) {
                 Event e{};
                 e.type=Event::kNoteOnEvent;
                 e.busIndex=0;
@@ -454,10 +523,12 @@ void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
                 e.noteOn.velocity=.86f;
                 require(events.addEvent(e)==kResultOk,"host MIDI NoteOn");
                 sentOn=true;
-                noteAt=std::chrono::steady_clock::now();
-                std::puts("P007W_REAL_CREATIVE_WINMM_READY_AND_VST3_NOTEON");
-            }else if(sentOn && !sentOff &&
-                     std::chrono::steady_clock::now()-noteAt>=4s){
+                noteAt=now;
+                std::printf("P007Y_PRIVATE_ORIGINAL_NOTEON_SENT"
+                            " baseline_frames=%llu baseline_rms=%.8f\n",
+                            static_cast<unsigned long long>(before.frames),
+                            before.rms());
+            }else if(sentOn && !sentOff && now-noteAt>=4s){
                 Event e{};
                 e.type=Event::kNoteOffEvent;
                 e.busIndex=0;
@@ -469,32 +540,46 @@ void privateMidiAudio(const VST3::Hosting::PluginFactory& factory,
                 sentOff=true;
             }
             require(plugin.processor->process(data)==kResultOk,"real VST3 process");
-            if(sentOn){
-                frames+=block;
-                for(int i=0;i<block;++i){
-                    require(std::isfinite(left[i]) && std::isfinite(right[i]),
-                            "NaN/Inf in original EMU8000 PCM");
-                    const double a=std::max(std::fabs(double(left[i])),
-                                            std::fabs(double(right[i])));
-                    peak=std::max(peak,a);
-                    if(a>0.000001)++nonzero;
-                }
+            for(int i=0;i<block;++i) {
+                const auto l=left[static_cast<std::size_t>(i)];
+                const auto r=right[static_cast<std::size_t>(i)];
+                require(std::isfinite(l)&&std::isfinite(r),
+                        "NaN/Inf in original EMU8000 PCM");
+                if(readyAt!=Clock::time_point{} && !sentOn)
+                    before.append(l,r);
+                if(sentOn && now-noteAt>=250ms && now-noteAt<3s)
+                    after.append(l,r);
             }
-            if(sentOff && std::chrono::steady_clock::now()-noteAt>=5s &&
-               nonzero>=128 && peak>=0.00001) break;
-            if(std::chrono::steady_clock::now()-lastReport >= 10s){
-                std::printf("P007W_PRIVATE_HOST_PROGRESS ready=%d frames=%llu nonzero=%llu peak=%.7f\n",
-                    ready?ready():0,frames,nonzero,peak);
+            if(sentOff && now-noteAt>=5s)break;
+            if(now-lastReport >= 10s){
+                std::printf("P007Y_PRIVATE_HOST_PROGRESS"
+                            " ready=%d baseline_frames=%llu"
+                            " note=%d noteoff=%d post_frames=%llu"
+                            " post_peak=%.8f\n",
+                    ready(),
+                    static_cast<unsigned long long>(before.frames),
+                    sentOn?1:0,sentOff?1:0,
+                    static_cast<unsigned long long>(after.frames),after.peak);
                 std::fflush(stdout);
-                lastReport=std::chrono::steady_clock::now();
+                lastReport=now;
             }
             next+=std::chrono::microseconds(23220);
             std::this_thread::sleep_until(next);
         }
-        require(sentOn&&sentOff&&nonzero>=128&&peak>=0.00001,
-                "no real private Win95 Creative MIDI-to-PCM proof");
-        std::printf("P007W_PRIVATE_REAL_VST3_ORIGINAL_CREATIVE_MIDI_PCM_PASS"
-                    " frames=%llu nonzero=%llu peak=%.8f\n",frames,nonzero,peak);
+        require(sentOn&&sentOff,
+                "original Win95/Creative WinMM never completed NoteOn and NoteOff");
+        require(p007::original_audio_proof::accept(before,after),
+                "original MIDI-dependent PCM NOT proven; possible Win95 "
+                "background sound, synthetic constant or guest silence");
+        std::printf("P007Y_PRIVATE_REAL_VST3_ORIGINAL_CREATIVE_NOTEON_PCM_PASS"
+                    " before_rms=%.9f after_rms=%.9f"
+                    " before_frames=%llu after_frames=%llu"
+                    " post_peak=%.9f post_nonzero=%llu\n",
+                    before.rms(),after.rms(),
+                    static_cast<unsigned long long>(before.frames),
+                    static_cast<unsigned long long>(after.frames),
+                    after.peak,
+                    static_cast<unsigned long long>(after.nonzero));
     }catch(...){
         if(processing)(void)plugin.processor->setProcessing(false);
         if(active)(void)plugin.component->setActive(false);
