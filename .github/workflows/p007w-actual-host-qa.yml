@@ -66,6 +66,47 @@ jobs:
           if(!(Select-String -Path build/p007w-actual-host.log -Pattern 'P007W_REAL_WINDOWS_VST3_TWO_INSTANCE_PROJECT_STATE_REOPEN_PASS' -Quiet)){
             throw 'No real VST3 state reopen acceptance marker'
           }
+      - name: Build disposable synthetic core DLL (never a Creative emulator)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build build/p007-vst3 --config Release --target P007SyntheticCoreMock --parallel 2
+          if($LASTEXITCODE -ne 0){ throw 'Synthetic-only CI core build failed' }
+      - name: Real Windows VST3 MIDI -> synthetic in-process guest -> PCM + master and transport acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=(Resolve-Path 'build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3').Path
+          $dest=Join-Path $env:GITHUB_WORKSPACE 'build/p007-synthetic/AWE64_Gold_P007.vst3'
+          New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
+          Copy-Item -LiteralPath $source -Destination $dest -Recurse -Force
+          $native=Join-Path $dest 'Contents/x86_64-win'
+          $mock=(Resolve-Path 'build/p007-vst3/synthetic-core/Release/P007SyntheticCoreMock.dll').Path
+          Copy-Item -LiteralPath $mock -Destination (Join-Path $native '125A_AWE_Core.dll') -Force
+          $private=Join-Path $dest 'Contents/Resources/PrivateVM'
+          New-Item -ItemType Directory -Force (Join-Path $private 'vm') | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $private 'roms') | Out-Null
+          New-Item -ItemType Directory -Force (Join-Path $private 'assets') | Out-Null
+          Set-Content -LiteralPath (Join-Path $private 'P007_SYNTHETIC_TEST_ONLY.marker') -Value 'SYNTHETIC CI ONLY. NO ORIGINAL CREATIVE.' -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $private 'vm/win95.img') -Value 'SYNTHETIC CI ONLY' -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $private 'vm/P007_AWE64.cfg') -Value '[Synthetic]' -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $private '86box.cfg') -Value '[Synthetic]' -Encoding ascii
+          $env:LOCALAPPDATA=Join-Path $env:GITHUB_WORKSPACE 'build/p007-synthetic-profile'
+          New-Item -ItemType Directory -Force $env:LOCALAPPDATA | Out-Null
+          $qaExe=(Resolve-Path 'build/p007-vst3/Release/P007ActualHostQA.exe').Path
+          & $qaExe $dest --synthetic | Tee-Object -FilePath 'build/p007x-synthetic-host.log'
+          if($LASTEXITCODE -ne 0){ throw 'Real VST3 synthetic audio and MIDI host acceptance failed' }
+          if(!(Select-String -Path 'build/p007x-synthetic-host.log' -Pattern 'P007X_REAL_WINDOWS_VST3_SYNTHETIC_GUEST_44K_48K_96K_AUDIO_MIDI_PASS' -Quiet)){
+            throw 'Missing synthetic original-provenance-labeled acceptance marker'
+          }
+      - name: Preserve synthetic-only Windows audio/MIDI QA log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007X-Win64-SYNTHETIC-ONLY-VST3-Audio-MIDI-QA
+          path: build/p007x-synthetic-host.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Preserve sanitized host output (NO private licensed resources)
         if: always()
         uses: actions/upload-artifact@v4
