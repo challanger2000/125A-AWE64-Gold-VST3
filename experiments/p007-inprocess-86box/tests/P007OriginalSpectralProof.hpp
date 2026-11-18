@@ -62,7 +62,8 @@ struct Evidence {
 };
 inline bool audible(const Capture& c,unsigned i) noexcept {
   return c.count[i]>2000u &&
-         c.totalPower[i]/(2.*double(c.count[i]))>1.e-10;
+         c.totalPower[i]/(2.*double(c.count[i]))>
+            (i>=noteBins ? 1.e-14 : 1.e-10);
 }
 inline double shapeDb(const Capture& c,unsigned i,unsigned band) noexcept {
   // Relative spectral shape rejects simple volume/fader drift.
