@@ -352,15 +352,25 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     if(!ready)sentInitialProgram_=false;
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
     if(ready){
-        if(!sentInitialProgram_||bankChanged||resend) {
+        // The original 86Box UART is a bounded FIFO. A failed submit means
+        // Creative did NOT receive the selected bank/program: do not falsely
+        // consider it delivered. Retry the complete ordered selection on the
+        // next audio callback (still the ONLY MIDI producer thread).
+        const bool sendBank=!sentInitialProgram_||bankChanged||resend;
+        const bool sendProgram=sendBank||programChanged;
+        bool accepted=true;
+        if(sendBank) {
             // Original Win95 Creative driver receives real MIDI BankSelect.
-            (void)core_.midi(0xb0u,0u,0u);  // CC0 bank MSB
-            (void)core_.midi(0xb0u,32u,midiBank_.load(std::memory_order_acquire)); // CC32 bank LSB
+            // Evaluate both calls even when the first packet was rejected.
+            accepted=(core_.midi(0xb0u,0u,0u)==1)&&accepted; // CC0 bank MSB
+            accepted=(core_.midi(0xb0u,32u,
+                       midiBank_.load(std::memory_order_acquire))==1)&&accepted;
         }
-        if(!sentInitialProgram_||bankChanged||programChanged||resend){
-            (void)core_.midi(0xc0u,midiProgram_.load(std::memory_order_acquire),0u); // MIDI Program Change
+        if(sendProgram){
+            accepted=(core_.midi(0xc0u,
+                       midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
         }
-        sentInitialProgram_=true;
+        sentInitialProgram_=accepted;
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
     // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.
