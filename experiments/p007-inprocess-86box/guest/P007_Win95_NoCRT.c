@@ -178,8 +178,9 @@ typedef char p007_creative_abi_assert[
 static HMODULE s_creative_sf2_dll=0;
 static P007_CREATIVE_MANAGER s_creative_manager=0;
 static DWORD s_creative_handle=0u;
-static int p007_load_original_creative_sf2(void){
- static const char path[]="D:\\P007FONT.SF2";
+static int p007_load_original_creative_sf2_path(const char *path){
+ /* Source is always a REAL file in the live Win95 guest filesystem. */
+ if(!path || !*path)return -1;
  char filename[128];
  unsigned char riff[12];DWORD n=0,size=0;
  HANDLE file=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ,
@@ -198,21 +199,30 @@ static int p007_load_original_creative_sf2(void){
     log_line("P007_GUEST_SF2_INVALID_FILE\r\n");return -1;
  }
  CloseHandle(file);
- s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
- if(!s_creative_sf2_dll) {
-    log_line("P007_GUEST_SF2_ORIGINAL_AWEMAN32_MISSING\r\n");
-    return -1;
- }
- s_creative_manager=(P007_CREATIVE_MANAGER)
-     GetProcAddress(s_creative_sf2_dll,"AWEManager");
  if(!s_creative_manager) {
-    log_line("P007_GUEST_SF2_ORIGINAL_AWEMANAGER_MISSING\r\n");
-    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
- }
- rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
- if(rc!=0 || s_creative_handle==0u) {
-    log_line("P007_GUEST_SF2_ORIGINAL_AWE_OPEN_FAILED\r\n");
-    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+    s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
+    if(!s_creative_sf2_dll) {
+       log_line("P007_GUEST_SF2_ORIGINAL_AWEMAN32_MISSING\r\n");
+       return -1;
+    }
+    s_creative_manager=(P007_CREATIVE_MANAGER)
+        GetProcAddress(s_creative_sf2_dll,"AWEManager");
+    if(!s_creative_manager) {
+       log_line("P007_GUEST_SF2_ORIGINAL_AWEMANAGER_MISSING\r\n");
+       FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+    }
+    rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
+    if(rc!=0 || s_creative_handle==0u) {
+       log_line("P007_GUEST_SF2_ORIGINAL_AWE_OPEN_FAILED\r\n");
+       s_creative_manager=0;
+       FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+    }
+ } else {
+    /* OFFICIAL Creative Windows 1996 AWE_API.H: BASE_CONFIG=200,
+     * AWE_CLEAR_USER_BANK=205. Release only user bank1, never ROM.
+     * Single 32-bit AWEMAN32 handle stays open for all new bank loads. */
+    rc=s_creative_manager(s_creative_handle,205u,1u,0);
+    if(rc!=0)log_line("P007_LIVE_SF2_CREATIVE_CLEAR_BANK1_FAILED\r\n");
  }
  clear(filename,sizeof(filename));
  (void)lstrcpyA(filename,path);
@@ -225,9 +235,9 @@ static int p007_load_original_creative_sf2(void){
  rc=s_creative_manager(s_creative_handle,204u,1u,(LPARAM)&b);
  if(rc!=0) {
     log_line("P007_GUEST_SF2_ORIGINAL_AWE_LOAD_USER_BANK_FAILED\r\n");
-    (void)s_creative_manager(s_creative_handle,102u,0,0);
-    s_creative_handle=0u;
-    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+    /* Reuse this real Creative AWEManager handle on the NEXT attempt;
+       a rejected bank file must not strand subsequent hot reloads. */
+    return -1;
  }
  /* An AWE_LOAD_USER_BANK return code alone is insufficient evidence
   * that bank 1 was actually installed. The ORIGINAL Creative 1996
@@ -267,6 +277,70 @@ static int p007_load_original_creative_sf2(void){
  return 1;
 }
 
+/* P007BE private file transport, not a synth or synthetic playback.
+ * The original 86Box guest CPU performs all port reads as x86 hardware I/O.
+ * Win95 writes the file in its own filesystem, then AWEMAN32 loads it.
+ * Only a real AWEManager return and bank1 verification may emit SF2_OK.
+ */
+#define P007_LIVE_PORT 0xeb00u
+#define P007_LIVE_MAGIC 0xa7u
+static DWORD p007_live_in32(unsigned short port){
+ DWORD result;
+ __asm { mov dx,port
+         in eax,dx
+         mov result,eax }
+ return result;
+}
+static DWORD p007_live_length(void){
+ DWORD len=0u;
+ unsigned i;
+ for(i=0u;i<4u;++i)
+   len|=((DWORD)uart_in((unsigned short)(P007_LIVE_PORT+2u+i)))<<(8u*i);
+ return len;
+}
+static int p007_live_receive_file(void){
+ BYTE buffer[4096];
+ DWORD total=0u,pos=0u,written=0u;
+ DWORD length=p007_live_length();
+ HANDLE output;
+ if(length<96u || length>28u*1024u*1024u)return -1;
+ uart_out((unsigned short)(P007_LIVE_PORT+6u),1u);
+ output=CreateFileA("C:\\P007FONT.SF2",GENERIC_WRITE,0,NULL,
+                    CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+ if(output==INVALID_HANDLE_VALUE)return -1;
+ while(total<length) {
+   DWORD word=p007_live_in32((unsigned short)(P007_LIVE_PORT+8u));
+   unsigned i;
+   for(i=0u;i<4u && total<length;++i) {
+     buffer[pos++]=(BYTE)(word>>(8u*i));
+     ++total;
+     if(pos==sizeof(buffer)) {
+        written=0u;
+        if(!WriteFile(output,buffer,pos,&written,NULL)||written!=pos){
+            CloseHandle(output);return -1;
+        }
+        pos=0u;
+     }
+   }
+ }
+ if(pos) {
+    written=0u;
+    if(!WriteFile(output,buffer,pos,&written,NULL)||written!=pos) {
+        CloseHandle(output);return -1;
+    }
+ }
+ if(!FlushFileBuffers(output)){CloseHandle(output);return -1;}
+ CloseHandle(output);
+ return 1;
+}
+static void p007_live_ack(HANDLE com,int raw_mode,int ok){
+ uart_out((unsigned short)(P007_LIVE_PORT+6u),ok?2u:3u);
+ if(raw_mode)(void)uart_send_raw(ok?
+   P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN);
+ else if(com!=INVALID_HANDLE_VALUE)
+   (void)send_guest_marker(com,ok?
+     P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN);
+}
 __declspec(noreturn) void __cdecl P007GuestMain(void){
  HANDLE com=INVALID_HANDLE_VALUE;HMIDIOUT synth=NULL;
  int raw_mode=0,connected=0, sf2_result=0;
@@ -277,13 +351,28 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
   * the user bank BEFORE opening the WinMM synthesizer stream. Previously
   * midiOutOpen happened first and could retain an older bank map.
   * AWEManager's state is kept open for the entire guest relay lifetime. */
- sf2_result=p007_load_original_creative_sf2();
+ sf2_result=p007_load_original_creative_sf2_path("D:\\P007FONT.SF2");
  if(!select_original(&synth))ExitProcess(2);
  /* First request Win95 VCOMM port ownership. If that original driver
   * reports ERROR_FILE_NOT_FOUND, use the real 16550 x86 port I/O fallback,
   * as proven by the first full original Creative->EMU8000 PCM test.
   * Direct ring-3 I/O before a VCOMM request is unsafe on Win95. */
  for(;;){
+  if(connected && uart_in((unsigned short)P007_LIVE_PORT)==P007_LIVE_MAGIC){
+    /* Stop old notes and close WinMM before replacing the original bank
+       mapping. The physical driver/EMU8000 guest remain booted. */
+    int loaded=0;
+    if(p007_live_receive_file()>0) {
+       if(synth) {midiOutReset(synth);midiOutClose(synth);synth=NULL;}
+       loaded=p007_load_original_creative_sf2_path("C:\\P007FONT.SF2");
+       if(!select_original(&synth))loaded=-1;
+    }
+    sf2_result=loaded>0?1:-1;
+    p007_live_ack(com,raw_mode,loaded>0);
+    log_line(loaded>0?"P007_LIVE_SF2_ORIGINAL_CREATIVE_LOADED_NO_REBOOT\r\n":
+                      "P007_LIVE_SF2_ORIGINAL_CREATIVE_FAILED\r\n");
+    continue;
+  }
   if(!connected){
    if(!raw_mode){
     com=open_serial();
