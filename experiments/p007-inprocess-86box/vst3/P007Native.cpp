@@ -422,7 +422,6 @@ bool Plugin::chooseOriginalSf2(const std::string& path) {
         sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
         // This callback runs on the GUI thread. Bank 1 becomes audible after
         // the genuine Creative AWEMAN32 load acknowledgment at guest READY.
-        (void)setParamNormalized(kP165Bank,1.0/127.0);
         return true;
     }catch(...){return false;}
 }
@@ -504,10 +503,9 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                             candidate.AssignSingleBankToCreativeUserOne();
                         std::lock_guard<std::mutex> lock(sf2StateMutex_);
                         if(!confirmedSf2Catalog_ && selectedSf2Path_==selected){
+                            originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
                             if(singleBank)
-                                originalMidiCatalog_=std::move(candidate);
-                            else
-                                originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+                                (void)originalMidiCatalog_.AppendCreativeUserBank(candidate);
                             confirmedSf2Catalog_=true;
                             sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
                         }

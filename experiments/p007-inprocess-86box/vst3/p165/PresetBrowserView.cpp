@@ -962,8 +962,10 @@ void PresetBrowserView::ChooseSf2() {
             L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
         return;
     }
+    // The VST3 owner already queued the internal Win95 guest reload.
+    // Select real Creative user bank 1 through the DAW/controller host edit.
     // No blocking dialog and absolutely no manual DAW deactivation.
-    // Automatic guest loading progress is visible in the existing LCD.
+    ChangeParameter(kBankParam,1.0/127.0);
 #endif
 }
 void PresetBrowserView::ChooseRom() {

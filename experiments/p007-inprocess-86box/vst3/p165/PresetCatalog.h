@@ -176,6 +176,23 @@ public:
         for(auto& entry:entries_)entry.bank=1u;
         return true;
     }
+    // Preserve all original GM-ROM names in bank 0 while exposing ONLY
+    // the actual source SoundFont entries in Creative user bank 1.
+    // The previous browser replaced its entire catalog with the new SF2
+    // and silently lost the ROM names whenever SF2 loading succeeded.
+    bool AppendCreativeUserBank(const PresetCatalog& font) {
+        for(const auto& e:font.Entries())
+            if(e.bank!=1u)return false;
+        entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
+            [](const PresetEntry& e){return e.bank==1u;}),entries_.end());
+        entries_.insert(entries_.end(),
+            font.Entries().begin(),font.Entries().end());
+        std::sort(entries_.begin(),entries_.end(),
+            [](const PresetEntry& a,const PresetEntry& b) {
+                return a.bank!=b.bank?a.bank<b.bank:a.program<b.program;
+            });
+        return true;
+    }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;
         return nullptr;
