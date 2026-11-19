@@ -204,7 +204,7 @@ P007_EXPORT void p007_core_guest_close(void) {
        parser and queued MIDI bytes before a fresh Win95 boot. Otherwise
        stale READY+SF2-OK from the old guest wrongly marks the new guest
        ready before the Creative driver even starts. */
-    p007_midi_reset_quiescent();
+    p007_midi_guest_retire();
     SDL_Quit();
     /* Original 86Box was written for one process launch. The adapter must
        re-arm its lifecycle latches after a full device teardown; otherwise

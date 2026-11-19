@@ -116,3 +116,18 @@ P007_EXPORT void p007_midi_reset_quiescent(void) {
     atomic_store_explicit(&s_guest_sf2_status,0,memory_order_release);
     atomic_store_explicit(&s_guest_ready,0,memory_order_release);
 }
+
+/* P007BB: safe during a live host's internal Win95/SF2 guest swap.
+ * Unlike p007_midi_reset_quiescent(), this does NOT touch s_sequence or
+ * reset the concurrently published producer write counter. It ensures
+ * the old WinMM READY and original Creative SF2 ACK CANNOT leak across
+ * guest sessions; old already-queued MIDI is abandoned before new READY. */
+P007_EXPORT void p007_midi_guest_retire(void) {
+    atomic_store_explicit(&s_active,0,memory_order_release);
+    atomic_store_explicit(&s_guest_ready,0,memory_order_release);
+    atomic_store_explicit(&s_guest_sf2_status,0,memory_order_release);
+    s_ready_progress=s_stop_progress=0;
+    s_sf2_ok_progress=s_sf2_fail_progress=0u;
+    const uint64_t wr=atomic_load_explicit(&s_written,memory_order_acquire);
+    atomic_store_explicit(&s_read,wr,memory_order_release);
+}

@@ -33,6 +33,9 @@ uint32_t p007_midi_uart_queued_bytes(void);
 uint64_t p007_midi_dropped_packets(void);
 /* Reset ONLY when both producer and consumer threads are stopped. */
 void p007_midi_reset_quiescent(void);
+/* Live DAW remains active: retire the PREVIOUS guest atomically without
+   resetting non-atomic MIDI-producer sequence or writing its payload. */
+void p007_midi_guest_retire(void);
 #ifdef __cplusplus
 }
 #endif
