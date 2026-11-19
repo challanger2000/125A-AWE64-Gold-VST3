@@ -3,6 +3,7 @@
  // DO NOT claim original Win95/Creative PCM, no ROM or private image here.
 #include "../vst3/P007Sf2FatVolume.hpp"
 #include "../vst3/P007Sf2GuestProfile.hpp"
+#include "../vst3/P007Sf2BankRoute.hpp"
 #include "../vst3/P007StateCodec.hpp"
 #include <array>
 #include <cstdio>
@@ -119,6 +120,18 @@ int main(){
     state::Values old{};
     check(state::decode(legacy,old)&&old.bank==1u,
           "SF2 feature broke historical 44-byte VST3 state");
+
+    // Original Creative's documented AWE user-bank1 uses MIDI CC0=1,
+    // NOT CC32=1. No original guest acknowledgment -> untouched ROM.
+    const auto rom=sf2_bank::route(0u,false);
+    check(rom.cc0==0u&&rom.cc32==0u,
+          "ROM-only project accidentally routed to SF2 bank");
+    const auto sf2=sf2_bank::route(0u,true);
+    check(sf2.cc0==1u&&sf2.cc32==0u,
+          "Creative original user bank 1 requires CC0=1");
+    const auto explicitBank=sf2_bank::route(9u,true);
+    check(explicitBank.cc0==0u&&explicitBank.cc32==9u,
+          "explicit legacy MIDI bank route changed unexpectedly");
 
     fs::remove_all(base,ec);
     std::puts("P007AU_SYNTHETIC_FAT16_SECOND_IDE_SF2_AND_V3_STATE_QA_PASS");
