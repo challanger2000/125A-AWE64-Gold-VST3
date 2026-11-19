@@ -32,6 +32,12 @@ class Core final {
     bool ownsInstance_=false;
     std::thread emulatorThread_{};
     std::atomic<bool> stop_{false};
+    // GUI queues an SF2 switch; only the existing 86Box worker thread
+    // stops/starts the original Win95 guest. NEVER reboot in process().
+    std::mutex reloadMutex_{};
+    std::wstring requestedSf2_{};
+    std::atomic<bool> reloadPending_{false};
+    void runPrivateGuestSession(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
     std::atomic<int> sf2Result_{0};
@@ -65,6 +71,7 @@ public:
     ~Core(){closeNonRealtime();}
     bool openNonRealtime(const std::wstring& selectedSf2=L"") noexcept;
     void closeNonRealtime() noexcept;
+    bool requestSoundFontReload(const std::wstring& path) noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
     [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}

@@ -14,6 +14,9 @@
 #include "P007MidiUart.h"
 /* Configuration is owned by the original 86Box source. */
 extern int gfxcard[];
+/* 86Box original pc_close sets this exit latch. It must be reset before
+   starting another original guest in the SAME loaded VST3 module. */
+extern volatile int is_quit;
 #include "P007CoreABI.h"
 #ifdef _WIN32
 #define P007_EXPORT __declspec(dllexport)
@@ -86,6 +89,9 @@ P007_EXPORT int p007_core_init_profile(
     char *argv[]={
       program,vmpath,vm,rompath,rom,assetopt,asset,config,cfg,globalopt,global
     };
+    /* A DAW can reuse the same DLL after closing an internal guest.
+       Original pc_close sets is_quit; a new pc_init must clear this. */
+    is_quit=0;
     /* Match the ORIGINAL SDL frontend order: SDL_Init(0) precedes pc_init.
        86Box platform setup can touch SDL state while parsing the profile. */
     if (SDL_Init(0) != 0) return -3;
@@ -194,6 +200,11 @@ P007_EXPORT void p007_core_guest_close(void) {
     if (s_guest_stage != 1) return;
     pc_close(NULL);
     video_setblit(NULL);
-    s_guest_stage = 2;
     SDL_Quit();
+    /* Original 86Box was written for one process launch. The adapter must
+       re-arm its lifecycle latches after a full device teardown; otherwise
+       the next SF2 selection or DAW activation fails init with -2. */
+    s_profile_initialized=0;
+    s_guest_stage=0;
+    is_quit=0;
 }

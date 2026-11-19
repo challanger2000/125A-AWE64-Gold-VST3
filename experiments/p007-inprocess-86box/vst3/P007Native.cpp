@@ -101,6 +101,7 @@ void Core::closeNonRealtime() noexcept {
     if(ownsInstance_ && midiEnabled)midiEnabled(0);
     stop_.store(true,std::memory_order_release);
     if(emulatorThread_.joinable())emulatorThread_.join();
+    reloadPending_.store(false,std::memory_order_release);
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
     bootAssist=nullptr;guestReadyFn=nullptr;guestSf2StatusFn=nullptr;
@@ -112,7 +113,36 @@ void Core::closeNonRealtime() noexcept {
         s_originalCoreOwner.store(false,std::memory_order_release);
     }
 }
+bool Core::requestSoundFontReload(const std::wstring& path) noexcept {
+    if(!module_||!ownsInstance_||stop_.load(std::memory_order_acquire))
+        return false;
+    try {
+        {
+            std::lock_guard<std::mutex> lock(reloadMutex_);
+            requestedSf2_=path;
+        }
+        reloadPending_.store(true,std::memory_order_release);
+        return true;
+    } catch(...) { return false; }
+}
 void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcept {
+    // Only this worker can stop and recreate the guest. The VST3 editor is
+    // kept alive; the DAW needs no deactivate/reactivate interaction.
+    while(!stop_.load(std::memory_order_acquire)){
+        runPrivateGuestSession(folder,selectedSf2);
+        if(stop_.load(std::memory_order_acquire) ||
+           !reloadPending_.exchange(false,std::memory_order_acq_rel))
+            return;
+        try {
+            std::lock_guard<std::mutex> lock(reloadMutex_);
+            selectedSf2=requestedSf2_;
+        } catch(...) {bootStatus_.store(-12,std::memory_order_release);return;}
+        guestReady_.store(0,std::memory_order_release);
+        sf2Result_.store(0,std::memory_order_release);
+        bootStatus_.store(0,std::memory_order_release);
+    }
+}
+void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) noexcept {
     namespace fs=std::filesystem;
     bool guestBooted=false;
     try{
@@ -205,7 +235,8 @@ void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcep
         bootStatus_.store(1,std::memory_order_release);
         auto next=std::chrono::steady_clock::now();
         std::uint32_t guestMilliseconds=0u;
-        while(!stop_.load(std::memory_order_acquire)){
+        while(!stop_.load(std::memory_order_acquire) &&
+              !reloadPending_.load(std::memory_order_acquire)){
             if(step()!=1){
                 // A failed guest step must stay a FAILED state. The prior
                 // implementation overwrote -3 with 2 after guestClose(),
@@ -375,13 +406,23 @@ bool Plugin::chooseOriginalSf2(const std::string& path) {
         AWE125::PresetCatalog validated;
         std::string error;
         if(!validated.LoadSoundFont(path,error))return false;
-        std::lock_guard<std::mutex> lock(sf2StateMutex_);
-        selectedSf2Path_=path;
-        confirmedSf2Catalog_=false;
-        // Do not display the PREVIOUS bank's SF2 preset names while the
-        // new bank is only queued and has not been loaded by Creative.
+        // A selected SF2 takes effect without deactivating the VST3.
+        // The worker tears down and restarts ONLY the internal Win95 guest.
+        if(active_ && !core_.requestSoundFontReload(file.wstring()))
+            return false;
+        {
+            std::lock_guard<std::mutex> lock(sf2StateMutex_);
+            selectedSf2Path_=path;
+            activeSf2Path_=path;
+            confirmedSf2Catalog_=false;
+        }
+        // The browser belongs to the GUI thread, not the audio callback.
+        // Remove stale SF2 names, then select the actual Creative user bank.
         originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
         sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
+        // This callback runs on the GUI thread. Bank 1 becomes audible after
+        // the genuine Creative AWEMAN32 load acknowledgment at guest READY.
+        (void)setParamNormalized(kP165Bank,1.0/127.0);
         return true;
     }catch(...){return false;}
 }
@@ -408,7 +449,7 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                 }
                 if(!selected.empty()){
                     if(selected!=active)
-                        return std::string("SF2 AUSGEWAEHLT | BEIM NAECHSTEN PLUGIN-START LADEN");
+                        return std::string("SF2-AUSWAHL WIRD GELADEN");
                     const int sf2=core_.guestSf2Status();
                     if(sf2==1 && s==2)
                         return std::string("ORIGINAL CREATIVE: SF2-BANK 1 PER AWEMAN32 GELADEN");

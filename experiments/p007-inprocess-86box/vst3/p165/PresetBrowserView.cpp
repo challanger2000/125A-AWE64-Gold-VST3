@@ -466,16 +466,17 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
 
     // P152: the amber LCD owns the complete live status line, including
     // the current filename. Its labels remain real host-driven VSTGUI views.
-    auto* lcd=MakeLabel({350,96,570,112},"EMU8000 / CREATIVE WIN95",true);
+    // P168: 16px opaque metal bezel hides glyphs left of x=370.
+    auto* lcd=MakeLabel({370,96,570,112},"EMU8000 / CREATIVE WIN95",true);
     lcd->setFontColor(CColor(55,42,9,255));
     fileLabel_=MakeLabel({575,96,728,112},"",false);
     fileLabel_->setFont(kNormalFontSmall);
     fileLabel_->setFontColor(CColor(65,46,12,255));
     fileLabel_->setTextTruncateMode(CTextLabel::kTruncateTail);
-    programLabel_=MakeLabel({350,118,728,145},"NO PRESET",false);
+    programLabel_=MakeLabel({370,118,728,145},"NO PRESET",false);
     programLabel_->setFont(kNormalFontBig);
     programLabel_->setFontColor(CColor(41,31,6,255));
-    hardwareInfoLabel_=MakeLabel({350,145,728,163},"ROM: ERFORDERLICH",true);
+    hardwareInfoLabel_=MakeLabel({370,145,728,163},"ROM: AUTOMATISCH",true);
     hardwareInfoLabel_->setFontColor(CColor(53,40,9,255));
     hardwareInfoLabel_->setTextTruncateMode(CTextLabel::kTruncateTail);
 
@@ -622,7 +623,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     empty_->setFontColor(CColor(204,167,108,255));
 
     buildingPanel_=nullptr;
-    hint_=MakeLabel({350,166,728,184},
+    hint_=MakeLabel({370,166,728,184},
         "SF2-Audiostatus noch nicht vom Prozessor bestaetigt.",true);
     hint_->setTextTruncateMode(CTextLabel::kTruncateTail);
     SetPage(0);
@@ -961,24 +962,15 @@ void PresetBrowserView::ChooseSf2() {
             L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
         return;
     }
-    MessageBoxW(GetForegroundWindow(),
-        L"SoundFont ausgewaehlt. Beim naechsten Aktivieren des Plugins "
-        L"wird die SF2 in einer separaten virtuellen FAT16-Datenplatte "
-        L"ueber den originalen Creative-Win95-Treiber geladen. "
-        L"Bitte das Plugin deaktivieren und erneut aktivieren. "
-        L"Bis zur Creative-Bestaetigung bleibt der ROM-Klang aktiv.",
-        L"125A AWE64 Gold: SF2 fuer naechsten Start",
-        MB_OK|MB_ICONINFORMATION);
+    // No blocking dialog and absolutely no manual DAW deactivation.
+    // Automatic guest loading progress is visible in the existing LCD.
 #endif
 }
 void PresetBrowserView::ChooseRom() {
-#if defined(_WIN32)
-    MessageBoxW(GetForegroundWindow(),
-       L"Das originale AWE-ROM liegt bereits im privaten VST3 und wird "
-       L"automatisch durch 86Box verwendet. Ein Austausch des ROMs "
-       L"im laufenden Windows-95-Gast ist noch nicht implementiert.",
-       L"125A AWE64 Gold: Original-ROM",MB_OK|MB_ICONINFORMATION);
-#endif
+    // ROM is always mounted. Pressing ROM selects the original GM bank 0,
+    // no alert box or replacement disk operation.
+    Select(0u,program_);
+    RebuildRows();
 }
 void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
