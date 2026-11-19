@@ -1,6 +1,8 @@
 #include "P007Native.hpp"
 #include "P007HostMidiOffset.hpp"
 #include "P007PrivatePaths.hpp"
+#include "P007Sf2FatVolume.hpp"
+#include "P007Sf2GuestProfile.hpp"
 #include "p165/PresetBrowserView.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/base/ibstream.h"
@@ -33,7 +35,7 @@ std::uint8_t midiVelocity(float x) noexcept {
         std::clamp(x,0.f,1.f)*127.f+0.5f);
 }
 } // namespace
-bool Core::openNonRealtime() noexcept {
+bool Core::openNonRealtime(const std::wstring& selectedSf2) noexcept {
     if(module_)return true;
     HMODULE own=nullptr;
     if(!GetModuleHandleExW(
@@ -65,7 +67,8 @@ bool Core::openNonRealtime() noexcept {
     guestClose=reinterpret_cast<GuestClose>(GetProcAddress(module_,"p007_core_guest_close"));
     bootAssist=reinterpret_cast<BootAssist>(GetProcAddress(module_,"p007_core_guest_boot_assist"));
     guestReadyFn=reinterpret_cast<GuestReady>(GetProcAddress(module_,"p007_midi_guest_ready"));
-    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn){
+    guestSf2StatusFn=reinterpret_cast<GuestSf2Status>(GetProcAddress(module_,"p007_midi_guest_sf2_status"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn||!guestSf2StatusFn){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -75,13 +78,14 @@ bool Core::openNonRealtime() noexcept {
     ownsInstance_=true;
     bootStatus_.store(0,std::memory_order_release);
     guestReady_.store(0,std::memory_order_release);
+    sf2Result_.store(0,std::memory_order_release);
     // Neither a BIOS reset nor the start of Win95 proves Creative WinMM ready.
     // Leave MIDI disabled until a *real guest-ready acknowledgment* exists.
     midiEnabled(0);
     try{
         const std::wstring folder(path);
         stop_.store(false,std::memory_order_release);
-        emulatorThread_=std::thread([this,folder](){runPrivateGuest(folder);});
+        emulatorThread_=std::thread([this,folder,selectedSf2](){runPrivateGuest(folder,selectedSf2);});
     }catch(...){
         closeNonRealtime();return false;
     }
@@ -96,15 +100,16 @@ void Core::closeNonRealtime() noexcept {
     if(emulatorThread_.joinable())emulatorThread_.join();
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
-    bootAssist=nullptr;guestReadyFn=nullptr;
+    bootAssist=nullptr;guestReadyFn=nullptr;guestSf2StatusFn=nullptr;
     guestReady_.store(0,std::memory_order_release);
+    sf2Result_.store(0,std::memory_order_release);
     if(module_){FreeLibrary(module_);module_=nullptr;}
     if(ownsInstance_){
         ownsInstance_=false;
         s_originalCoreOwner.store(false,std::memory_order_release);
     }
 }
-void Core::runPrivateGuest(std::wstring folder) noexcept {
+void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcept {
     namespace fs=std::filesystem;
     bool guestBooted=false;
     try{
@@ -142,6 +147,19 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             bootStatus_.store(-8,std::memory_order_release);return;
         }
         const fs::path vm=work/L"vm";
+        std::string setupError;
+        // Both operations run BEFORE original pc_init opens either disk,
+        // strictly on the non-RT private guest thread under the VM mutex.
+        // Never patch the licensed Win95 system disk: the user's SoundFont
+        // is mounted via a separate generated FAT16 IDE data image.
+        if(!selectedSf2.empty()&&!sf2_volume::build(
+                vm/L"p007sf2.img",fs::path(selectedSf2),setupError)) {
+            bootStatus_.store(-10,std::memory_order_release);return;
+        }
+        if(!sf2_profile::configure(root/L"vm"/L"P007_AWE64.cfg",
+                vm/L"P007_AWE64.cfg",!selectedSf2.empty(),setupError)) {
+            bootStatus_.store(-11,std::memory_order_release);return;
+        }
         const fs::path roms=root/L"roms";
         const fs::path assets=root/L"assets";
         if(!fs::is_directory(assets,ec)){
@@ -177,6 +195,8 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             // Only original emulated keyboard controller receives Win95 boot
             // keys; no real host input events, no audio-thread work.
             (void)bootAssist(++guestMilliseconds);
+            if(guestSf2StatusFn)
+                sf2Result_.store(guestSf2StatusFn(),std::memory_order_release);
             if(guestReadyFn)
                 guestReady_.store(guestReadyFn()?1:0,std::memory_order_release);
             next+=std::chrono::milliseconds(1);
