@@ -2196,8 +2196,15 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         romValues.bank=0u;
         romValues.program=static_cast<std::uint8_t>(testProgram);
         romValues.master=10000u;
-        const auto romBytes=p007::state::encodeWithSf2(romValues,std::string{});
-        require(!romBytes.empty(),"P007BI cannot encode ROM-only initial project state");
+        // The production state codec deliberately rejects an empty
+        // SoundFont path in V3. ROM-only projects MUST use the 44-byte
+        // checksum-protected V2 state instead. The previous test wrongly
+        // called encodeWithSf2(empty), failing BEFORE starting Win95.
+        const auto romImage=p007::state::encode(romValues);
+        const std::vector<std::uint8_t> romBytes(
+            romImage.begin(),romImage.end());
+        require(romBytes.size()==p007::state::Image{}.size(),
+                "P007BJ ROM-only V2 state has wrong encoded length");
         feedState(romBytes,true);
         require(closeTo(plugin.controller->getParamNormalized(bankId),0.),
                 "P007BI ROM-only initial state bank must be 0");
