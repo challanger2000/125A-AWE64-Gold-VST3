@@ -928,15 +928,40 @@ void PresetBrowserView::SetPage(int page) {
     if(empty_)empty_->setVisible(currentPage_==1&&rows_.empty());
 }
 void PresetBrowserView::ChooseSf2() {
-    // This P007 guest is genuine Win95 + Creative. The old native SF2
-    // loader talked to a DIFFERENT synth engine; never claim it works here.
 #if defined(_WIN32)
+    // Windows file dialog only on the GUI thread; do NOT touch host
+    // audio callback, original 86Box chip registers or 512-MiB system disk.
+    wchar_t file[4096]{};
+    OPENFILENAMEW open{};
+    open.lStructSize=sizeof(open);
+    open.hwndOwner=GetForegroundWindow();
+    open.lpstrFilter=L"SoundFont 2 (*.sf2)\0*.sf2\0Alle Dateien (*.*)\0*.*\0\0";
+    open.lpstrFile=file;
+    open.nMaxFile=4096u;
+    open.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    open.lpstrDefExt=L"sf2";
+    if(!GetOpenFileNameW(&open))return;
+    const int needed=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+        file,-1,nullptr,0,nullptr,nullptr);
+    if(needed<=1)return;
+    std::string path(static_cast<size_t>(needed)-1u,'\0');
+    if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,file,-1,
+            path.data(),needed,nullptr,nullptr)!=needed)return;
+    if(!sf2LoadRequest_||!sf2LoadRequest_(path)) {
+        MessageBoxW(GetForegroundWindow(),
+            L"Die SF2 konnte nicht geprueft werden. Nur vollstaendige "
+            L"SoundFont-2-Dateien bis 28 MiB werden akzeptiert.",
+            L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
+        return;
+    }
     MessageBoxW(GetForegroundWindow(),
-       L"Das originale Creative-Windows-95-SoundFont-Laden ist in der "
-       L"P007-Gaststeuerung noch nicht angebunden. Die Auswahl wird "
-       L"NICHT vorgenommen.",
-       L"125A AWE64 Gold: SF2 noch nicht verfuegbar",
-       MB_OK|MB_ICONWARNING);
+        L"SoundFont ausgewaehlt. Beim naechsten Aktivieren des Plugins "
+        L"wird die SF2 in einer separaten virtuellen FAT16-Datenplatte "
+        L"ueber den originalen Creative-Win95-Treiber geladen. "
+        L"Bitte das Plugin deaktivieren und erneut aktivieren. "
+        L"Bis zur Creative-Bestaetigung bleibt der ROM-Klang aktiv.",
+        L"125A AWE64 Gold: SF2 fuer naechsten Start",
+        MB_OK|MB_ICONINFORMATION);
 #endif
 }
 void PresetBrowserView::ChooseRom() {
