@@ -365,7 +365,23 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
             originalMidiCatalog_,legacyFmCatalog_,std::string{},
             [this]() {
                 const int s=p165GuestStatus();
-                return s==2 ? std::string("ORIGINAL CREATIVE WINMM: BEREIT | SF2 LADEN NOCH NICHT ANGEBUNDEN") :
+                std::string selected,active;
+                {
+                    std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                    selected=selectedSf2Path_;active=activeSf2Path_;
+                }
+                if(!selected.empty()){
+                    if(selected!=active)
+                        return std::string("SF2 AUSGEWAEHLT | BEIM NAECHSTEN PLUGIN-START LADEN");
+                    const int sf2=core_.guestSf2Status();
+                    if(sf2==1 && s==2)
+                        return std::string("ORIGINAL CREATIVE: SF2-BANK 1 PER AWEMAN32 GELADEN");
+                    if(sf2<0)
+                        return std::string("FEHLER: ORIGINAL CREATIVE HAT SF2 ABGELEHNT");
+                    if(s==2)
+                        return std::string("SF2 NICHT BESTAETIGT | ORIGINAL ROM AKTIV");
+                }
+                return s==2 ? std::string("ORIGINAL CREATIVE WINMM: ROM BEREIT") :
                        s==1 ? std::string("WINDOWS 95: ORIGINAL-GAST STARTET") :
                        s<0 ? std::string("WINDOWS 95 / CREATIVE: STARTFEHLER") :
                              std::string("ORIGINAL CREATIVE: GAST NOCH NICHT BEREIT");
@@ -377,11 +393,32 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                        s<0 ? std::string("WIN95: GASTFEHLER") :
                              std::string("ROM IM BUNDLE | WIN95 NICHT BEREIT");
             },
-            [](const std::string&){return false;}, // no fake ROM load
-            [](const std::string&){return false;}, // no fake SF2 load
-            [](){return std::string{};},
-            [](){return std::uint64_t{1};},
-            [](std::uint16_t bank){return bank==0;});
+            [](const std::string&){return false;}, // original ROM immutable
+            [this](const std::string& path){return chooseOriginalSf2(path);},
+            [this](){return selectedSf2Path();},
+            [this]() {
+                if(core_.guestReady() && core_.guestSf2Status()==1) {
+                    std::string selected;
+                    {
+                        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                        if(confirmedSf2Catalog_ || selectedSf2Path_!=activeSf2Path_)
+                            return sf2CatalogRevision_.load(std::memory_order_acquire);
+                        selected=selectedSf2Path_;
+                    }
+                    AWE125::PresetCatalog candidate;
+                    std::string error;
+                    if(candidate.LoadSoundFont(selected,error)) {
+                        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                        if(!confirmedSf2Catalog_ && selectedSf2Path_==selected){
+                            originalMidiCatalog_=std::move(candidate);
+                            confirmedSf2Catalog_=true;
+                            sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
+                        }
+                    }
+                }
+                return sf2CatalogRevision_.load(std::memory_order_acquire);
+            },
+            [](std::uint16_t bank){return bank<=127u;});
     return nullptr;
 }
 IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
