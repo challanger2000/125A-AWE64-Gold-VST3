@@ -347,6 +347,10 @@ bool Plugin::chooseOriginalSf2(const std::string& path) {
         std::lock_guard<std::mutex> lock(sf2StateMutex_);
         selectedSf2Path_=path;
         confirmedSf2Catalog_=false;
+        // Do not display the PREVIOUS bank's SF2 preset names while the
+        // new bank is only queued and has not been loaded by Creative.
+        originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+        sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
         return true;
     }catch(...){return false;}
 }
