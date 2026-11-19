@@ -1,4 +1,5 @@
 #include "P007Native.hpp"
+#include "P007HostMidiOffset.hpp"
 #include "P007PrivatePaths.hpp"
 #include "p165/PresetBrowserView.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
@@ -465,6 +466,9 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     }
     const bool ready=active_&&core_.guestReady()&&core_.midi;
     if(!ready) {
+        // A stopped/restarting guest must not retain resampler priming
+        // frames from a previous original-Creative session.
+        outputRate_.reset();
         midiDelivery_.reset();
         sentInitialProgram_=false;
         creativePacer_.abort(creativeModPending_);
@@ -558,15 +562,50 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                     });
         }
     }
-    // Only constant-time calls to bounded, heapless native core FIFOs;
-    // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.
+    // All guest UART calls occur on this one DAW audio-consumer thread.
+    // Original 86Box CPU and Win95 timers remain on the worker thread.
+    // A VST3 event's sampleOffset means its position IN THIS HOST BLOCK.
+    // The old code sent every NoteOn/Off before rendering sample 0, so
+    // even an event at offset=900 was dispatched as if at offset=0.
+    // Render the already-due audio first and submit that event only when
+    // the host block reaches its requested offset. The original Win95
+    // guest runs asynchronously, so this is HOST dispatch scheduling,
+    // not claimed sample-accurate physical-EMU8000 sound generation.
+    const std::uint32_t frames=data.numSamples>0
+        ?static_cast<std::uint32_t>(data.numSamples):0u;
+    AudioBusBuffers* output=data.numOutputs>0&&data.outputs
+        ?&data.outputs[0]:nullptr;
+    float* l=nullptr;
+    float* r=nullptr;
+    if(output&&output->numChannels>=2&&output->channelBuffers32) {
+        l=output->channelBuffers32[0];
+        r=output->channelBuffers32[1];
+    }
+    // No allocation, no lock. Called once per audio callback, before
+    // segmented rendering, not between MIDI events.
+    if(active_&&core_.trimBacklog&&frames!=0u)
+        (void)core_.trimBacklog(8192u,2048u);
+    std::uint32_t rendered=0u;
+    const auto renderTo=[&](std::uint32_t end) noexcept {
+        if(end<=rendered)return;
+        if(l&&r) {
+            outputRate_.render(ready?core_.pull:nullptr,
+                l+rendered,r+rendered,end-rendered);
+        }
+        rendered=end;
+    };
     if(ready&&data.inputEvents) {
         const auto n=data.inputEvents->getEventCount();
-        for(int32 i=0;i<n;++i){
+        for(int32 i=0;i<n;++i) {
             Event event{};
             if(data.inputEvents->getEvent(i,event)!=kResultOk)continue;
-            if(event.type==Event::kNoteOnEvent){
-                auto const& e=event.noteOn;
+            if(event.type!=Event::kNoteOnEvent &&
+               event.type!=Event::kNoteOffEvent)continue;
+            const auto at=midi_offset::place(
+                event.sampleOffset,data.numSamples,rendered);
+            renderTo(at);
+            if(event.type==Event::kNoteOnEvent) {
+                const auto& e=event.noteOn;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
                     (void)midiDelivery_.submit(
                         static_cast<std::uint8_t>(0x90|e.channel),
@@ -575,8 +614,8 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                                std::uint8_t d2) noexcept {
                             return core_.midi(status,d1,d2);
                         });
-            }else if(event.type==Event::kNoteOffEvent){
-                auto const& e=event.noteOff;
+            } else {
+                const auto& e=event.noteOff;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
                     (void)midiDelivery_.submit(
                         static_cast<std::uint8_t>(0x80|e.channel),
@@ -588,28 +627,8 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             }
         }
     }
-    if(data.numOutputs<1||!data.outputs||data.numSamples<=0)return kResultOk;
-    auto& output=data.outputs[0];
-    if(output.numChannels<2||!output.channelBuffers32)return kResultOk;
-    float* l=output.channelBuffers32[0],*r=output.channelBuffers32[1];
-    if(!l||!r)return kResultOk;
-    // When the DAW transport is stopped, its process callback may not be
-    // invoked for the full 40-second original Win95 boot. Drop *stale*
-    // queued audio in O(1) when the host eventually resumes; otherwise the
-    // fixed FIFO can contain ~1.5 seconds of pre-boot silence and present
-    // stale notes rather than the newly played original Creative sound.
-    // 8192-frame (~186ms at 44.1k) trigger; retain 2048 (~46ms).
-    // No extra thread, DSP change, heap allocation or host API call.
-    if(active_&&core_.trimBacklog)
-        (void)core_.trimBacklog(8192u,2048u);
-    // 44.1-kHz path is byte-for-byte the original PCM transfer.
-    // 48/96-kHz sessions receive RT-safe post-EMU8000 rate conversion.
-    // All original Creative voice/filter/envelope arithmetic is untouched.
-    // Drop stale/pre-boot guest PCM after a failed worker step or while
-    // Win95/Creative is still booting. A dead guest must not continue
-    // sounding from the native FIFO after its UART has been shut down.
-    outputRate_.render(ready?core_.pull:nullptr,l,r,
-                       static_cast<std::uint32_t>(data.numSamples));
+    renderTo(frames);
+    if(!l||!r||!output||frames==0u)return kResultOk;
     // Host Master operates AFTER original Creative/EMU8000 mixer, not
     // inside the emulated chip. Exactly unity = unaltered original PCM.
     const float gain=masterVolume_.load(std::memory_order_acquire);
@@ -619,7 +638,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             r[i]*=gain;
         }
     }
-    output.silenceFlags=0;
+    output->silenceFlags=0;
     return kResultOk;
 }
 } // namespace p007

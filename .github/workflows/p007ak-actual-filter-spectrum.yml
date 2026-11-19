@@ -1,12 +1,12 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
   pull_request:
-    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118, research/p007al-corrected-original-creative-filter-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119]
+    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118, research/p007al-corrected-original-creative-filter-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119]
   workflow_dispatch:
 permissions:
   contents: read
@@ -69,6 +69,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007MidiDeliveryTest.cpp -o build/P007MidiDeliveryTest.exe
           build/P007MidiDeliveryTest.exe
+      - name: P007AR host block MIDI sampleOffset sorting and range regression
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007HostMidiOffsetTest.cpp -o build/P007HostMidiOffsetTest.exe
+          build/P007HostMidiOffsetTest.exe
       - name: Build real original 86Box-AWE32 native x64 DLL with passive probe
         run: |
           set -euo pipefail
@@ -176,6 +181,7 @@ jobs:
               'P007AP_SECOND_INSTANCE_CANNOT_DISABLE_ACTIVE_OWNER_PASS',
               'P007AP_FATAL_GUEST_STEP_MUTES_STALE_PCM_AND_MIDI_PASS',
               'P007AQ_REJECTED_NOTE_OFF_DELIVERED_BEFORE_LATER_NOTE_ON_PASS',
+              'P007AR_MIDI_HOST_BLOCK_OFFSET_PASS',
               'P007X_REAL_WINDOWS_VST3_SYNTHETIC_GUEST_44K_48K_96K_AUDIO_MIDI_PASS'
             )) {
               if(!(Select-String -Path 'build/p007ap-synthetic-guest-lifecycle.log' -Pattern $proof -SimpleMatch -Quiet)){
