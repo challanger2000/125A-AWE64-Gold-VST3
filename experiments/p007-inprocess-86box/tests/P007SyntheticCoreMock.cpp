@@ -53,6 +53,11 @@ P007_MOCK_EXPORT void __cdecl p007_midi_uart_enable(int active) {
 P007_MOCK_EXPORT int __cdecl p007_midi_guest_ready() {
     return ready.load(std::memory_order_acquire);
 }
+P007_MOCK_EXPORT int __cdecl p007_midi_guest_sf2_status() {
+    // Synthetic test deliberately has NO original Win95/Creative/SF2,
+    // so it MUST NEVER report an authentic SoundFont load.
+    return 0;
+}
 P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     std::uint8_t status,std::uint8_t d1,std::uint8_t d2) {
     if(!enabled.load(std::memory_order_acquire)||
