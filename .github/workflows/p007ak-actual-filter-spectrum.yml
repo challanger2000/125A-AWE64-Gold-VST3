@@ -1,12 +1,12 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
   pull_request:
-    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118]
+    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118, research/p007al-corrected-original-creative-filter-20261118]
   workflow_dispatch:
 permissions:
   contents: read
@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          cmake --build build/p007-aj-vst3 --config Release --target AWE64_Gold_P007 P007ActualHostQA --parallel 3
+          cmake --build build/p007-aj-vst3 --config Release --target AWE64_Gold_P007 P007ActualHostQA P007SyntheticCoreMock --parallel 3
           if($LASTEXITCODE -ne 0){throw 'P007AJ VST3 actual Windows module/QA build failed'}
           Write-Host 'P007AJ_ACTUAL_ORIGINAL_EDITOR_AND_BOUNDED_PROBE_QA_BUILD_PASS'
       - name: Real VST3 project state, uninstrumented recording refusal and no private guest
@@ -141,6 +141,48 @@ jobs:
           # otherwise propagates that EXPECTED nonzero native exit code
           # as the whole successful job's final exit status.
           exit 0
+      - name: P007AP adversarial REAL Windows VST3 with fake guest (must never claim Creative audio)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tester=(Resolve-Path 'build/p007-aj-vst3/Release/P007ActualHostQA.exe').Path
+          $source=(Resolve-Path 'build/p007-aj-vst3/VST3/Release/AWE64_Gold_P007.vst3').Path
+          $fake=Join-Path $env:RUNNER_TEMP 'p007ap-synthetic-host/AWE64_Gold_P007.vst3'
+          $mock=(Resolve-Path 'build/p007-aj-vst3/synthetic-core/Release/P007SyntheticCoreMock.dll').Path
+          New-Item -ItemType Directory -Force -Path (Split-Path $fake -Parent) | Out-Null
+          Copy-Item -LiteralPath $source -Destination $fake -Recurse -Force
+          $core=Join-Path $fake 'Contents/x86_64-win/125A_AWE_Core.dll'
+          Copy-Item -LiteralPath $mock -Destination $core -Force
+          $vmroot=Join-Path $fake 'Contents/Resources/PrivateVM'
+          foreach($d in @('vm','roms','assets')){
+            New-Item -ItemType Directory -Force -Path (Join-Path $vmroot $d) | Out-Null
+          }
+          Set-Content -Path (Join-Path $vmroot 'vm/P007_AWE64.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
+          Set-Content -Path (Join-Path $vmroot 'vm/win95.img') -Value 'NOT_A_REAL_WIN95_DISK'
+          Set-Content -Path (Join-Path $vmroot '86box.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
+          Set-Content -Path (Join-Path $vmroot 'P007_SYNTHETIC_TEST_ONLY.marker') -Value 'NEVER_ORIGINAL'
+          $oldLocal=$env:LOCALAPPDATA
+          try {
+            $env:LOCALAPPDATA=Join-Path $env:RUNNER_TEMP 'p007-synthetic-profile-ap'
+            New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+            & $tester $fake --synthetic | Tee-Object -FilePath 'build/p007ap-synthetic-guest-lifecycle.log'
+            if($LASTEXITCODE -ne 0){throw 'P007AP actual VST3 synthetic owner/fatal guest QA failed'}
+            foreach($proof in @(
+              'P007AP_SECOND_INSTANCE_CANNOT_DISABLE_ACTIVE_OWNER_PASS',
+              'P007AP_FATAL_GUEST_STEP_MUTES_STALE_PCM_AND_MIDI_PASS',
+              'P007X_REAL_WINDOWS_VST3_SYNTHETIC_GUEST_44K_48K_96K_AUDIO_MIDI_PASS'
+            )) {
+              if(!(Select-String -Path 'build/p007ap-synthetic-guest-lifecycle.log' -Pattern $proof -SimpleMatch -Quiet)){
+                throw "P007AP synthetic VST3 evidence missing: $proof"
+              }
+            }
+            Write-Host 'P007AP_REAL_WINDOWS_VST3_FAILURE_INJECTION_AND_MULTIPLE_ACTIVATION_GUARDS_PASS'
+          } finally {
+            $env:LOCALAPPDATA=$oldLocal
+            if(Test-Path (Split-Path $fake -Parent)){
+              Remove-Item (Split-Path $fake -Parent) -Recurse -Force
+            }
+          }
       - name: Preserve original 86Box/VST3 debug package with NO private Win95 or ROM
         if: success()
         uses: actions/upload-artifact@v4
@@ -161,5 +203,6 @@ jobs:
             build/p007aj-private-guest-denial.log
             build/p007ak-private-spectrum-denial.log
             build/p007al-private-corrected-denial.log
+            build/p007ap-synthetic-guest-lifecycle.log
           if-no-files-found: warn
           retention-days: 7

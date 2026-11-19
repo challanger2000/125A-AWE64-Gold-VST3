@@ -87,7 +87,10 @@ bool Core::openNonRealtime() noexcept {
     return true;
 }
 void Core::closeNonRealtime() noexcept {
-    if(midiEnabled)midiEnabled(0);
+    // The 86Box fork has process-global MIDI state. A SECOND VST3 instance
+    // that fails to acquire s_originalCoreOwner must NOT disable the
+    // existing owner's Creative UART while releasing its DLL handle.
+    if(ownsInstance_ && midiEnabled)midiEnabled(0);
     stop_.store(true,std::memory_order_release);
     if(emulatorThread_.joinable())emulatorThread_.join();
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
@@ -102,6 +105,7 @@ void Core::closeNonRealtime() noexcept {
 }
 void Core::runPrivateGuest(std::wstring folder) noexcept {
     namespace fs=std::filesystem;
+    bool guestBooted=false;
     try{
         // All resources are private and must be bundled in the one VST3.
         // No executable, external VM, OS device, BAT or named pipe.
@@ -154,11 +158,21 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
         if(boot()!=1){
             bootStatus_.store(-2,std::memory_order_release);return;
         }
+        guestBooted=true;
         bootStatus_.store(1,std::memory_order_release);
         auto next=std::chrono::steady_clock::now();
         std::uint32_t guestMilliseconds=0u;
         while(!stop_.load(std::memory_order_acquire)){
-            if(step()!=1){bootStatus_.store(-3,std::memory_order_release);break;}
+            if(step()!=1){
+                // A failed guest step must stay a FAILED state. The prior
+                // implementation overwrote -3 with 2 after guestClose(),
+                // leaving the status panel falsely saying the guest ended.
+                guestReady_.store(0,std::memory_order_release);
+                if(midiEnabled)midiEnabled(0);
+                bootStatus_.store(-3,std::memory_order_release);
+                guestClose();
+                return;
+            }
             // Only original emulated keyboard controller receives Win95 boot
             // keys; no real host input events, no audio-thread work.
             (void)bootAssist(++guestMilliseconds);
@@ -168,9 +182,18 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             // No guest CPU, disk, timers, or sleep on the DAW audio callback.
             std::this_thread::sleep_until(next);
         }
+        guestReady_.store(0,std::memory_order_release);
+        if(midiEnabled)midiEnabled(0);
         guestClose();
         bootStatus_.store(2,std::memory_order_release);
     }catch(...){
+        guestReady_.store(0,std::memory_order_release);
+        if(midiEnabled)midiEnabled(0);
+        // Avoid leaking a partially active original guest when a C++
+        // filesystem/worker exception is raised after successful boot.
+        if(guestBooted && guestClose) {
+            try { guestClose(); } catch(...) {}
+        }
         bootStatus_.store(-4,std::memory_order_release);
     }
 }
@@ -409,6 +432,10 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             int32 offset=0;ParamValue value=0.;
             if(queue->getPoint(queue->getPointCount()-1,offset,value)!=kResultOk)
                 continue;
+            // Host automation may provide NaN/INF despite valid VST3
+            // parameter ranges. std::clamp(NaN) is still NaN; converting
+            // it with std::lround is undefined. Ignore invalid points.
+            if(!std::isfinite(value))continue;
             value=std::clamp(value,0.,1.);
             switch(queue->getParameterId()){
                 case kP165Program:
@@ -516,7 +543,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     }
     // Only constant-time calls to bounded, heapless native core FIFOs;
     // the original PC CPU/timers/Win95 MUST NOT run on this DAW thread.
-    if(active_&&core_.midi&&data.inputEvents) {
+    if(ready&&data.inputEvents) {
         const auto n=data.inputEvents->getEventCount();
         for(int32 i=0;i<n;++i){
             Event event{};
@@ -551,7 +578,10 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // 44.1-kHz path is byte-for-byte the original PCM transfer.
     // 48/96-kHz sessions receive RT-safe post-EMU8000 rate conversion.
     // All original Creative voice/filter/envelope arithmetic is untouched.
-    outputRate_.render(active_?core_.pull:nullptr,l,r,
+    // Drop stale/pre-boot guest PCM after a failed worker step or while
+    // Win95/Creative is still booting. A dead guest must not continue
+    // sounding from the native FIFO after its UART has been shut down.
+    outputRate_.render(ready?core_.pull:nullptr,l,r,
                        static_cast<std::uint32_t>(data.numSamples));
     // Host Master operates AFTER original Creative/EMU8000 mixer, not
     // inside the emulated chip. Exactly unity = unaltered original PCM.
