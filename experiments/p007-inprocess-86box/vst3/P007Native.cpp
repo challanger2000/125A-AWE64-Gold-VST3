@@ -74,7 +74,12 @@ bool Core::openNonRealtime(const std::wstring& selectedSf2) noexcept {
     guestSf2StatusFn=reinterpret_cast<GuestSf2Status>(GetProcAddress(module_,"p007_midi_guest_sf2_status"));
     livePublish=reinterpret_cast<LivePublish>(GetProcAddress(module_,"p007_live_soundfont_publish"));
     liveState=reinterpret_cast<LiveState>(GetProcAddress(module_,"p007_live_soundfont_state"));
-    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn||!guestSf2StatusFn||!livePublish||!liveState){
+    livePublishCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_publish_count"));
+    liveCompleteCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_complete_count"));
+    liveFailCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_failure_count"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist||
+       !guestReadyFn||!guestSf2StatusFn||!livePublish||!liveState||
+       !livePublishCount||!liveCompleteCount||!liveFailCount){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -107,10 +112,12 @@ void Core::closeNonRealtime() noexcept {
     reloadPending_.store(false,std::memory_order_release);
     awaitingSf2Ack_.store(false,std::memory_order_release);
     liveTransferInFlight_.store(false,std::memory_order_release);
+    expectedLiveComplete_=0u;
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
     bootAssist=nullptr;guestReadyFn=nullptr;guestSf2StatusFn=nullptr;
     livePublish=nullptr;liveState=nullptr;
+    livePublishCount=nullptr;liveCompleteCount=nullptr;liveFailCount=nullptr;
     guestReady_.store(0,std::memory_order_release);
     sf2Result_.store(0,std::memory_order_release);
     if(module_){FreeLibrary(module_);module_=nullptr;}
@@ -251,17 +258,31 @@ void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) 
             (void)bootAssist(++guestMilliseconds);
             if(guestSf2StatusFn){
                 const int source=guestSf2StatusFn();
-                if(source!=0 || sf2Result_.load(std::memory_order_acquire)!=-2)
+                const bool inFlight=liveTransferInFlight_.load(
+                    std::memory_order_acquire);
+                if(inFlight) {
+                    // Neither a stale UART OK token nor the AWEManager
+                    // loading API alone proves THIS soundfont was installed.
+                    // The original x86 guest must have completed EXACTLY
+                    // this private transfer generation before any new
+                    // positive user-bank status may become visible.
+                    const bool completed=source==1 && liveState &&
+                        liveState()==3 && liveCompleteCount &&
+                        liveCompleteCount()>=expectedLiveComplete_;
+                    const bool rejected=source<0 && liveState &&
+                        liveState()==4 && liveFailCount &&
+                        liveFailCount()>0u;
+                    if(completed||rejected) {
+                        sf2Result_.store(source,std::memory_order_release);
+                        liveTransferInFlight_.store(false,std::memory_order_release);
+                        if(!reloadPending_.load(std::memory_order_acquire))
+                            awaitingSf2Ack_.store(false,std::memory_order_release);
+                    } else {
+                        sf2Result_.store(0,std::memory_order_release);
+                    }
+                } else if(source!=0 ||
+                        sf2Result_.load(std::memory_order_acquire)!=-2) {
                     sf2Result_.store(source,std::memory_order_release);
-                // Only a real NEW Creative AWEManager ACK can unlock
-                // the selected user bank. Do not reuse the prior guest's
-                // successfully loaded SF2 or show an unsupported READY.
-                if(source!=0 && liveTransferInFlight_.exchange(
-                       false,std::memory_order_acq_rel)) {
-                    // A queued SECOND SF2 must never inherit the first
-                    // transfer's Creative AWEManager ACK.
-                    if(!reloadPending_.load(std::memory_order_acquire))
-                        awaitingSf2Ack_.store(false,std::memory_order_release);
                 }
             }
             if(guestReadyFn)
@@ -302,6 +323,7 @@ void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) 
                          static_cast<std::uint32_t>(bytes.size()));
                     if(result==1){
                         sf2Result_.store(0,std::memory_order_release);
+                        expectedLiveComplete_=liveCompleteCount()+1u;
                         liveTransferInFlight_.store(true,std::memory_order_release);
                         reloadPending_.store(false,std::memory_order_release);
                     }else if(result<0){

@@ -66,6 +66,15 @@ P007_MOCK_EXPORT int __cdecl p007_live_soundfont_publish(
 P007_MOCK_EXPORT int __cdecl p007_live_soundfont_state() {
     return 0; // public test never stages any real SoundFont bytes
 }
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_publish_count() {
+    return 0u; // never invent genuine file publication
+}
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_complete_count() {
+    return 0u; // never invent genuine guest completion
+}
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_failure_count() {
+    return 0u;
+}
 P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     std::uint8_t status,std::uint8_t d1,std::uint8_t d2) {
     if(!enabled.load(std::memory_order_acquire)||
