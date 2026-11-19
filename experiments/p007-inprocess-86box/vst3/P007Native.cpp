@@ -3,6 +3,7 @@
 #include "P007PrivatePaths.hpp"
 #include "P007Sf2FatVolume.hpp"
 #include "P007Sf2GuestProfile.hpp"
+#include "P007Sf2BankRoute.hpp"
 #include "p165/PresetBrowserView.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/base/ibstream.h"
@@ -679,9 +680,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         if(sendBank) {
             // Original Win95 Creative driver receives real MIDI BankSelect.
             // Evaluate both calls even when the first packet was rejected.
-            accepted=(core_.midi(0xb0u,0u,0u)==1)&&accepted; // CC0 bank MSB
-            accepted=(core_.midi(0xb0u,32u,
-                       midiBank_.load(std::memory_order_acquire))==1)&&accepted;
+            // Original Creative user-bank API 204 maps slot #1 via
+            // MIDI CC0=1 (Creative WINAWE32.C). Legacy ROM bank 0
+            // retains the old CC0=0 / CC32=0 route, and no SF2 is
+            // asserted until the original Win95 AWEMAN32 ACK arrives.
+            const auto wire=sf2_bank::route(
+                midiBank_.load(std::memory_order_acquire),
+                core_.guestSf2Status()==1);
+            accepted=(core_.midi(0xb0u,0u,wire.cc0)==1)&&accepted;
+            accepted=(core_.midi(0xb0u,32u,wire.cc32)==1)&&accepted;
         }
         if(sendProgram){
             accepted=(core_.midi(0xc0u,
