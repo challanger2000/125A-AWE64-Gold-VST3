@@ -175,7 +175,11 @@ void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) 
         // overwrite its possibly user-modified Windows 95 data. Start
         // with a new, versioned 86Box profile once; subsequent SF2
         // selections replace ONLY a separate SF2 data disk, never Win95.
-        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM_P007AU";
+        // Versioned PRIVATE per-user guest profile: P007BH contains a new
+        // Win95 P007.EXE with live SF2 hardware transport. Never silently
+        // run a stale P007AU guest from an earlier installation, and never
+        // overwrite the user's original persistent private Win95 HDD.
+        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM_P007BH";
         std::error_code ec;
         if(!privatevm::prepare(root,work,ec)){
             bootStatus_.store(-8,std::memory_order_release);return;
