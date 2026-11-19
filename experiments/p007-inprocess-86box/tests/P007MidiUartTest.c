@@ -19,7 +19,17 @@ int main(void) {
     assert(!p007_midi_uart_take_byte(&byte));
     p007_midi_uart_enable(1);
     assert(!p007_midi_guest_ready());
+    assert(p007_midi_guest_sf2_status()==0);
     assert(!p007_midi_submit(0x90u,60u,101u));
+    feed("P007-AWE-SF2-OK-X\n");
+    assert(p007_midi_guest_sf2_status()==0);
+    feed(P007_GUEST_SF2_OK_TOKEN);
+    assert(p007_midi_guest_sf2_status()==1);
+    assert(!p007_midi_guest_ready()); /* SF2 API alone is NOT WinMM READY */
+    feed(P007_GUEST_SF2_FAIL_TOKEN);
+    assert(p007_midi_guest_sf2_status()==-1);
+    feed(P007_GUEST_SF2_OK_TOKEN);
+    assert(p007_midi_guest_sf2_status()==1);
     feed("P007-AWE-WINMM-READY-X\n");
     assert(!p007_midi_guest_ready());
     feed(P007_GUEST_READY_TOKEN);
@@ -37,6 +47,7 @@ int main(void) {
     assert(!p007_midi_submit(0xf0u,60u,30u));
     /* Zero partial packets when ring full. */
     p007_midi_reset_quiescent();
+    assert(p007_midi_guest_sf2_status()==0);
     p007_midi_uart_enable(1);
     assert(!p007_midi_submit(0x99u,50u,100u));
     feed(P007_GUEST_READY_TOKEN);
@@ -59,5 +70,6 @@ int main(void) {
     assert(!p007_midi_submit(0x90u,60u,80u));
     assert(!p007_midi_uart_take_byte(&byte));
     puts("P007_INTERNAL_MIDI_TO_ORIGINAL_GUEST_UART_PACKET_AND_TIMING_GATE_PASS");
+    puts("P007AU_ORIGINAL_CREATIVE_SF2_ACK_REJECT_RETRY_RESET_PASS");
     return 0;
 }
