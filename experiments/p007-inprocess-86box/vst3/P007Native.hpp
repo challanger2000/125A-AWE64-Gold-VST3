@@ -8,6 +8,7 @@
 #include "P007StateCodec.hpp"
 #include "P007CreativeNrpn.hpp"
 #include "P007CreativeNrpnPacer.hpp"
+#include "P007MidiDelivery.hpp"
 #include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
@@ -80,6 +81,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     creative_nrpn::FramePace creativeFramePace_{}; // at least 20ms between NRPN short MIDI packets
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
+    MidiDelivery midiDelivery_{}; // audio-thread only; retries rejected UART note packets
     [[nodiscard]] int p165GuestStatus() const noexcept;
 public:
     static Steinberg::FUnknown* createInstance(void*) {

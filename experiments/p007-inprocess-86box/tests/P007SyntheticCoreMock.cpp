@@ -23,6 +23,8 @@ std::atomic<int> ready{0},enabled{0};
 std::atomic<bool> failNextStep{false};
 std::atomic<unsigned> noteOn{0},noteOff{0},program{0},bank{0},panic{0};
 std::atomic<unsigned> bankRejects{0},programRejects{0},rejected{0};
+std::atomic<unsigned> noteOffRejections{0},noteOnOvertakes{0};
+std::atomic<bool> awaitingNoteOffRetry{false};
 std::atomic<unsigned> nrpnParam{0},nrpnHigh{0},nrpnFilterCount{0},nrpnFilterRaw{0},
                       nrpnAttackCount{0},nrpnRejects{0};
 std::atomic<unsigned> nrpnReset121{0},dryReverb{0},dryChorus{0};
@@ -59,6 +61,18 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     if(status==0xc0u && programRejects.fetch_add(1)==0u){
         rejected.fetch_add(1);return 0;
     }
+    // P007AQ: reject exactly the first NoteOff packet to reproduce
+    // the permanently stuck guest voice in the old VST3 process().
+    if((status&0xf0u)==0x80u &&
+       noteOffRejections.exchange(1u,std::memory_order_acq_rel)==0u) {
+        awaitingNoteOffRetry.store(true,std::memory_order_release);
+        return 0;
+    }
+    if((status&0xf0u)==0x90u && d2>0u &&
+       awaitingNoteOffRetry.load(std::memory_order_acquire))
+        noteOnOvertakes.fetch_add(1u,std::memory_order_acq_rel);
+    if((status&0xf0u)==0x80u)
+        awaitingNoteOffRetry.store(false,std::memory_order_release);
     // P007AA negative test: reject FIRST original Creative filter NRPN
     // selector. The REAL production plugin must resend all 4 CC messages.
     if(status==0xb0u && d1==98u && d2==21u &&
@@ -119,6 +133,8 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     failNextStep.store(false,std::memory_order_release);
     noteOn.store(0);noteOff.store(0);program.store(0);bank.store(0);panic.store(0);
     bankRejects.store(0);programRejects.store(0);rejected.store(0);
+    noteOffRejections.store(0);noteOnOvertakes.store(0);
+    awaitingNoteOffRetry.store(false);
     nrpnParam.store(0);nrpnHigh.store(0);nrpnFilterCount.store(0);
     nrpnFilterRaw.store(0);nrpnAttackCount.store(0);nrpnRejects.store(0);
     nrpnReset121.store(0);dryReverb.store(0);dryChorus.store(0);
@@ -151,6 +167,12 @@ P007_MOCK_EXPORT unsigned __cdecl p007_mock_guest_is_ready() {
 }
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteon_count() {return noteOn.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteoff_count(){return noteOff.load();}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteoff_rejection_count(){
+    return noteOffRejections.load(std::memory_order_acquire);
+}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteon_overtake_count(){
+    return noteOnOvertakes.load(std::memory_order_acquire);
+}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_program_plus_one(){return program.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_bank_plus_one(){return bank.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_panic_count(){return panic.load();}

@@ -306,6 +306,8 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             programCounter=getCounter("p007_mock_program_plus_one");
             bankCounter=getCounter("p007_mock_bank_plus_one");
             Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
+            Counter noteOffRejections=getCounter("p007_mock_noteoff_rejection_count");
+            Counter noteOnOvertakes=getCounter("p007_mock_noteon_overtake_count");
             Counter uartEnabled=getCounter("p007_mock_uart_enabled");
             Counter mockReady=getCounter("p007_mock_guest_is_ready");
             using FailGuest=void (__cdecl*)();
@@ -354,14 +356,16 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             auto next=std::chrono::steady_clock::now();
             for(unsigned iteration=0;iteration<100;++iteration) {
                 events.clear();
-                if(iteration==5 || iteration==40) {
+                if(iteration==5 || iteration==40 || iteration==41) {
                     Event e{};
-                    e.type=iteration==5?Event::kNoteOnEvent:Event::kNoteOffEvent;
+                    // At #40 the guest refuses the NoteOff; at #41 another
+                    // NoteOn must NOT overtake the undelivered NoteOff.
+                    e.type=iteration==40?Event::kNoteOffEvent:Event::kNoteOnEvent;
                     e.busIndex=0;
                     e.sampleOffset=0;
-                    if(iteration==5) {
+                    if(iteration!=40) {
                         e.noteOn.channel=0;
-                        e.noteOn.pitch=60;
+                        e.noteOn.pitch=iteration==5?60:62;
                         e.noteOn.velocity=.9f;
                     } else {
                         e.noteOff.channel=0;
@@ -416,8 +420,11 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     std::chrono::duration<double>(double(block)/hz));
                 std::this_thread::sleep_until(next);
             }
-            require(noteOnCounter()>=1u && noteOffCounter()>=1u,
+            require(noteOnCounter()>=2u && noteOffCounter()>=1u,
                     "host MIDI did not reach synthetic in-process guest core");
+            require(noteOffRejections()==1u && noteOnOvertakes()==0u,
+                    "P007AQ dropped rejected NoteOff or let later NoteOn overtake it");
+            std::puts("P007AQ_REJECTED_NOTE_OFF_DELIVERED_BEFORE_LATER_NOTE_ON_PASS");
             require(programCounter()==41u && bankCounter()==4u,
                     "actual P165 Bank/Program never arrived at synthetic guest");
             require(rejectsCounter()==2u,

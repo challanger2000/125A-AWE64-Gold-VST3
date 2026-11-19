@@ -247,6 +247,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         creativePacer_.reset();
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
+        midiDelivery_.reset();
         creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
             if(creative_nrpn::shouldTransmit(
@@ -260,6 +261,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         creativePacer_.reset();
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
+        midiDelivery_.reset();
     }
     return SingleComponentEffect::setActive(on);
 }
@@ -463,10 +465,12 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     }
     const bool ready=active_&&core_.guestReady()&&core_.midi;
     if(!ready) {
+        midiDelivery_.reset();
         sentInitialProgram_=false;
         creativePacer_.abort(creativeModPending_);
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
+        midiDelivery_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
         // Original guest restarted: reassert modified generators and
@@ -480,9 +484,22 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 i,creativeMod_[i].load(std::memory_order_acquire)))
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
     }
+    // First retry a previously rejected NoteOff BEFORE allowing further
+    // program/NRPN writes or newer host notes to overtake it. The original
+    // guest UART returns 1 only after its bounded FIFO accepted a packet.
+    if(ready) (void)midiDelivery_.drain(
+        [this](std::uint8_t status,std::uint8_t d1,std::uint8_t d2) noexcept {
+            return core_.midi(status,d1,d2);
+        });
+    const bool midiBlocked=ready&&
+        (midiDelivery_.pending()!=0u||midiDelivery_.panicPending());
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
+    // Preserve new host automation too: bank/program changes received
+    // DURING a MIDI retry must not disappear with this one callback.
+    if(midiBlocked && (resend||programChanged||bankChanged))
+        programNeedsSending_.store(true,std::memory_order_release);
     bool justSentSelection=false;
-    if(ready){
+    if(ready&&!midiBlocked){
         // The original 86Box UART is a bounded FIFO. A failed submit means
         // Creative did NOT receive the selected bank/program: do not falsely
         // consider it delivered. Retry the complete ordered selection on the
@@ -512,7 +529,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                     creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
         }
     }
-    if(ready&&sentInitialProgram_&&!justSentSelection) {
+    if(ready&&!midiBlocked&&sentInitialProgram_&&!justSentSelection) {
         // CC121 is specified by Creative to restore the original SoundFont
         // settings. This is essential when an ADSR/filter knob moves BACK
         // to 0% (neutral). Unlike FX sends, a raw NRPN value of zero on
@@ -551,13 +568,23 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             if(event.type==Event::kNoteOnEvent){
                 auto const& e=event.noteOn;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)core_.midi(static_cast<std::uint8_t>(0x90|e.channel),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity));
+                    (void)midiDelivery_.submit(
+                        static_cast<std::uint8_t>(0x90|e.channel),
+                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
+                        [this](std::uint8_t status,std::uint8_t d1,
+                               std::uint8_t d2) noexcept {
+                            return core_.midi(status,d1,d2);
+                        });
             }else if(event.type==Event::kNoteOffEvent){
                 auto const& e=event.noteOff;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)core_.midi(static_cast<std::uint8_t>(0x80|e.channel),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity));
+                    (void)midiDelivery_.submit(
+                        static_cast<std::uint8_t>(0x80|e.channel),
+                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
+                        [this](std::uint8_t status,std::uint8_t d1,
+                               std::uint8_t d2) noexcept {
+                            return core_.midi(status,d1,d2);
+                        });
             }
         }
     }
