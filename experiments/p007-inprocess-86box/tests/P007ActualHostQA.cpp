@@ -2260,7 +2260,7 @@ int main(int argc,char** argv) {
         if(argc==2) publicWindowsAudioLifecycle(factory,choice->ID(),host.get(),bundle);
         if(argc==4 && std::strcmp(argv[2],"--private-sf2")==0)
             privateSoundFontAudio(factory,choice->ID(),host.get(),bundle,
-                                  fs::absolute(fs::u8path(argv[3])));
+                                  fs::absolute(fs::path(argv[3])));
         if(argc==3 && std::strcmp(argv[2],"--synthetic")==0)
             syntheticGuestAudio(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-audio")==0)
