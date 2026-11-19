@@ -1,0 +1,47 @@
+name: P007AW fast real Windows VST3 host QA build (no private guest)
+on:
+  push:
+    branches: [test/p007av-original-win95-creative-sf2-audio-e2e-20261119]
+    paths:
+      - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
+      - "experiments/p007-inprocess-86box/tests/P007OriginalAudioProof.hpp"
+      - "experiments/p007-inprocess-86box/tests/P007OriginalAudioProofTest.cpp"
+      - ".github/workflows/p007aw-fast-host-proof.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p007aw-private-runner-binary:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned Steinberg VST3 SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if($LASTEXITCODE -ne 0){throw 'VST3 SDK download failed'}
+          $sha=(git -C external/vst3sdk rev-parse HEAD).Trim()
+          if($sha -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96'){throw 'VST3 SDK SHA mismatch'}
+      - name: Build only actual Windows test host and adversarial numerical proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007aw -G 'Visual Studio 17 2022' -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+          if($LASTEXITCODE -ne 0){throw 'P007AW configuration failed'}
+          cmake --build build/p007aw --config Release --target P007ActualHostQA P007OriginalAudioProofTest --parallel 3
+          if($LASTEXITCODE -ne 0){throw 'P007AW actual Windows QA compile failed'}
+      - name: Reject identical / minor gain drift while detecting spectral differences
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & build/p007aw/Release/P007OriginalAudioProofTest.exe
+          if($LASTEXITCODE -ne 0){throw 'P007AW spectral negative controls FAILED'}
+      - name: Publish private-owner test EXE only (no Win95, ROM, Creative or SF2 assets)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AW-Real-Windows-HostQA-Only
+          path: build/p007aw/Release/P007ActualHostQA.exe
+          if-no-files-found: error
+          retention-days: 7
