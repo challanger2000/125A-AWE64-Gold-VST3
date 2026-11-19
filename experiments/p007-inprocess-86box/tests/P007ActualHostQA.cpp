@@ -308,6 +308,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
             Counter noteOffRejections=getCounter("p007_mock_noteoff_rejection_count");
             Counter noteOnOvertakes=getCounter("p007_mock_noteon_overtake_count");
+            using Counter64=std::uint64_t (__cdecl*)();
+            auto nativeFrames=reinterpret_cast<Counter64>(
+                GetProcAddress(core,"p007_mock_requested_native_frames"));
+            auto offsetNoteAt=reinterpret_cast<Counter64>(
+                GetProcAddress(core,"p007_mock_offset_note_at"));
+            require(nativeFrames&&offsetNoteAt,
+                    "P007AR mock native sample-offset probes absent");
             Counter uartEnabled=getCounter("p007_mock_uart_enabled");
             Counter mockReady=getCounter("p007_mock_guest_is_ready");
             using FailGuest=void (__cdecl*)();
@@ -356,16 +363,18 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             auto next=std::chrono::steady_clock::now();
             for(unsigned iteration=0;iteration<100;++iteration) {
                 events.clear();
-                if(iteration==5 || iteration==40 || iteration==41) {
+                if(iteration==5 || iteration==30 ||
+                   iteration==40 || iteration==41) {
                     Event e{};
                     // At #40 the guest refuses the NoteOff; at #41 another
                     // NoteOn must NOT overtake the undelivered NoteOff.
                     e.type=iteration==40?Event::kNoteOffEvent:Event::kNoteOnEvent;
                     e.busIndex=0;
-                    e.sampleOffset=0;
+                    e.sampleOffset=iteration==30?512:0;
                     if(iteration!=40) {
                         e.noteOn.channel=0;
-                        e.noteOn.pitch=iteration==5?60:62;
+                        e.noteOn.pitch=iteration==5?60:
+                                       iteration==30?64:62;
                         e.noteOn.velocity=.9f;
                     } else {
                         e.noteOff.channel=0;
@@ -398,8 +407,21 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                 }
                 left.fill(-333.f);
                 right.fill(333.f);
+                const auto beforeOffset=iteration==30?nativeFrames():0u;
                 require(plugin.processor->process(data)==kResultOk,
                         "actual VST3 synthetic guest audio callback");
+                if(iteration==30) {
+                    const auto timestamp=offsetNoteAt();
+                    require(timestamp>=beforeOffset,
+                        "P007AR MIDI timestamp predates audio block");
+                    const double advanced=double(timestamp-beforeOffset);
+                    const double expected=512.*44100./hz;
+                    require(std::abs(advanced-expected)<=3.,
+                        "P007AR NoteOn sampleOffset ignored or MIDI sent before audio");
+                    std::printf("P007AR_MIDI_HOST_BLOCK_OFFSET_PASS"
+                        " host_rate=%.0f requested_offset=512"
+                        " native_frames_before_midi=%.0f\n",hz,advanced);
+                }
                 for(unsigned i=0;i<block;++i) {
                     const float l=left[i],r=right[i];
                     require(std::isfinite(l)&&std::isfinite(r),
