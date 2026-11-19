@@ -33,12 +33,20 @@ public:
     }
     template<class Sender> bool tick(Sender&& send) noexcept {
         if(!requested_||committed_)return false;
-        const auto wire=sf2_bank::route(bank_,sf2Loaded_);
+        // Host-bank tokens 126/127 identify original GM ROM or
+        // real SF2 drum kits. All actual kit MIDI uses channel 10.
+        const bool drums=(bank_==126u||bank_==127u);
+        const auto wire=drums
+            ?sf2_bank::route(bank_==127u?1u:0u,
+                             sf2Loaded_ && bank_==127u)
+            :sf2_bank::route(bank_,sf2Loaded_);
+        const std::uint8_t cc=drums?0xb9u:0xb0u;
+        const std::uint8_t pc=drums?0xc9u:0xc0u;
         std::uint8_t status=0u,d1=0u,d2=0u;
         switch(stage_) {
-            case 0u: status=0xb0u;d1=0u;d2=wire.cc0;break;
-            case 1u: status=0xb0u;d1=32u;d2=wire.cc32;break;
-            case 2u: status=0xc0u;d1=program_;d2=0u;break;
+            case 0u: status=cc;d1=0u;d2=wire.cc0;break;
+            case 1u: status=cc;d1=32u;d2=wire.cc32;break;
+            case 2u: status=pc;d1=program_;d2=0u;break;
             default:
                 // One more >=20 ms interval after accepted ProgramChange
                 // before MIDI NoteOn or a queued NRPN can follow it.
