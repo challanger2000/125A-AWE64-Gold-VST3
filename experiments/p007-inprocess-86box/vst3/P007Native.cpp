@@ -1,5 +1,6 @@
 #include "P007Native.hpp"
 #include "P007HostMidiOffset.hpp"
+#include "P007MidiParamDedup.hpp"
 #include "P007PrivatePaths.hpp"
 #include "P007Sf2FatVolume.hpp"
 #include "P007Sf2GuestProfile.hpp"
@@ -566,14 +567,14 @@ tresult PLUGIN_API Plugin::setParamNormalized(ParamID tag,ParamValue value) {
     const double v=std::clamp(value,0.,1.);
     switch(tag) {
         case kP165Bank:
-            midiBank_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
-                            std::memory_order_release);
-            programNeedsSending_.store(true,std::memory_order_release);
+            if(midi_param::updateIfChanged(
+                midiBank_,static_cast<std::uint8_t>(std::lround(v*127.))))
+                programNeedsSending_.store(true,std::memory_order_release);
             break;
         case kP165Program:
-            midiProgram_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
-                               std::memory_order_release);
-            programNeedsSending_.store(true,std::memory_order_release);
+            if(midi_param::updateIfChanged(
+                midiProgram_,static_cast<std::uint8_t>(std::lround(v*127.))))
+                programNeedsSending_.store(true,std::memory_order_release);
             break;
         case kP165Master:
             masterVolume_.store(static_cast<float>(v),std::memory_order_release);
@@ -612,11 +613,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             value=std::clamp(value,0.,1.);
             switch(queue->getParameterId()){
                 case kP165Program:
-                    midiProgram_=static_cast<std::uint8_t>(std::lround(value*127.));
-                    programChanged=true;break;
+                    programChanged|=midi_param::updateIfChanged(
+                        midiProgram_,static_cast<std::uint8_t>(
+                            std::lround(value*127.)));
+                    break;
                 case kP165Bank:
-                    midiBank_=static_cast<std::uint8_t>(std::lround(value*127.));
-                    bankChanged=true;break;
+                    bankChanged|=midi_param::updateIfChanged(
+                        midiBank_,static_cast<std::uint8_t>(
+                            std::lround(value*127.)));
+                    break;
                 case kP165Master:
                     masterVolume_=static_cast<float>(value);break;
                 default:
