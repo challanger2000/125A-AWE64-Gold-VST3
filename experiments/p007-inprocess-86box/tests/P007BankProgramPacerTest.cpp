@@ -63,6 +63,19 @@ int main(){
     sent.clear();
     for(int i=0;i<4;++i)(void)p.tick(submit);
     assert(p.committed() && sent.size()==3u && sent[2].d1==8u);
+    // Real Creative ROM standard kit on MIDI channel 10.
+    sent.clear();p.request(126u,0u,false);
+    for(int i=0;i<4;++i)(void)p.tick(submit);
+    assert(p.committed() && sent.size()==3u &&
+           sent[0].status==0xb9u && sent[0].d2==0u &&
+           sent[2].status==0xc9u && sent[2].d1==0u);
+    // Original Creative USER bank1 selected on channel10 for true SF2 kits.
+    sent.clear();p.request(127u,5u,true);
+    for(int i=0;i<4;++i)(void)p.tick(submit);
+    assert(p.committed() && sent.size()==3u &&
+           sent[0].status==0xb9u && sent[0].d2==1u &&
+           sent[1].status==0xb9u && sent[1].d2==0u &&
+           sent[2].status==0xc9u && sent[2].d1==5u);
     // Force resend after guest restart or project recall.
     p.request(1u,8u,true,true);
     assert(p.stage()==0u && !p.committed());

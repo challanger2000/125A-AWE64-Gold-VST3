@@ -21,7 +21,10 @@ static void word(std::vector<unsigned char>& b,const char* s) {
 int main() {
     AWE125::PresetCatalog names;
     names.SetOriginalCreativeMidiNumbers();
-    check(names.Entries().size()==128u,"ROM needs all 128 GM names");
+    check(names.Entries().size()==129u,
+        "ROM needs 128 melodic programs plus standard original channel10 kit");
+    check(names.Find(128u,0u) && names.Find(128u,0u)->drums,
+        "original GM ROM standard kit must be selectable");
     check(names.Find(0u,0u) &&
           names.Find(0u,0u)->name=="Acoustic Grand Piano","ROM GM 0");
     check(names.Find(0u,7u) &&
@@ -60,8 +63,8 @@ int main() {
     check(sf2.Entries().size()==1u && sf2.AssignSingleBankToCreativeUserOne(),
           "single-bank Creative AWEManager bank1 mapping");
     check(names.AppendCreativeUserBank(sf2),"combine ROM GM and user bank");
-    check(names.Entries().size()==129u,
-          "ROM entries plus ONLY 1 source SF2; no user bank padding");
+    check(names.Entries().size()==130u,
+          "129 ROM entries plus ONLY 1 source SF2; no padding");
     check(names.Find(0u,7u)&&names.Find(0u,7u)->name=="Clavinet",
           "SF2 must never overwrite ROM bank0 instrument label");
     check(names.Find(1u,7u)&&
@@ -107,8 +110,11 @@ int main() {
     merged.SetOriginalCreativeMidiNumbers();
     check(merged.AppendCreativeMelodicUserOneFromSource(multi)==1u,
           "map real source-bank0 melodic preset despite drum bank128");
-    check(merged.Entries().size()==129u,
-          "mixed SF2 must NOT fabricate source/drum user-bank slots");
+    check(merged.Entries().size()==131u,
+          "mixed SF2 has 129 ROM + one genuine melodic + one drum kit");
+    check(merged.Find(129u,0u) && merged.Find(129u,0u)->drums &&
+          merged.Find(129u,0u)->name=="Real Drum Kit",
+          "actual source SF2 bank128 kit must appear in separate CH10 lane");
     check(merged.Find(1u,7u) && merged.Find(1u,7u)->name=="Real Bass",
           "real user-bank1 SF2 patch absent despite original load ACK");
     check(!merged.Find(1u,0u),"mixed SF2 fabricated another program");
@@ -122,6 +128,7 @@ int main() {
     // real metadata fixture, but only the bank128 entry is copied.
     // No undocumented playable GM bank is invented.
     check(onlyDrums.Find(1u,0u)==nullptr,"drum kit fabricated melodic bank1");
+    std::puts("P007BF_ROM_AND_SF2_CH10_KIT_BANKS_WITH_REAL_NAMES_PASS");
     std::puts("P007BD_MULTIBANK_SF2_PRESERVES_MELODIC_PRESETS_AND_ROM_NAMES_UNIT_PASS");
     std::puts("P007BB_ORIGINAL_GM_ROM_128_NAMES_WITH_SF2_SPARSE_BANK1_UNIT_PASS");
 }
