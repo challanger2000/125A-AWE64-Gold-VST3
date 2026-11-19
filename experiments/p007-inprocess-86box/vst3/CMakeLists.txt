@@ -156,3 +156,11 @@ add_executable(P007BankProgramPacerTest
   "${CMAKE_CURRENT_SOURCE_DIR}/P007BankProgramPacer.hpp")
 target_include_directories(P007BankProgramPacerTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(P007BankProgramPacerTest PRIVATE cxx_std_20)
+
+# P007BA: actual MIDI parameter dedup + 16-byte original 16550 RX backpressure
+add_executable(P007MidiHostStressTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007MidiHostStressTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/P007MidiParamDedup.hpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../include/P007SerialRxGuard.h")
+target_include_directories(P007MidiHostStressTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(P007MidiHostStressTest PRIVATE cxx_std_20)
