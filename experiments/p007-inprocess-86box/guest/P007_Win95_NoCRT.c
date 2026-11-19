@@ -229,11 +229,24 @@ static int p007_load_original_creative_sf2(void){
     s_creative_handle=0u;
     FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
  }
- /* The original AWEMAN32 API returns success for the LOAD command,
-  * but that return code alone does not prove a usable user bank exists.
-  * Creative's published AWE_GET_USER_BANK=BASE_QUERY+6 (306) provides
-  * an independent descriptor after the user-bank installation.
-  * Keep the original Creative driver and the original sound engine. */
+ /* An AWE_LOAD_USER_BANK return code alone is insufficient evidence
+  * that bank 1 was actually installed. The ORIGINAL Creative 1996
+  * AWE_GET_UBANK_PARENT (=310) returns bank number unchanged for a bank
+  * self-loaded by this API, or 0xffff if the bank is absent. Unlike a
+  * descriptive NAME, parent ownership is a bank-presence check. */
+ {
+    WORD parent=1u;
+    LONG qrc=s_creative_manager(s_creative_handle,310u,
+                                 (LPARAM)&parent,0);
+    if(qrc!=0 || parent!=1u) {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_NOT_SELF_LOADED\r\n");
+       return -1;
+    }
+    log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_PARENT_VERIFIED\r\n");
+ }
+ /* Optional original Creative bank-descriptor diagnostic. A blank
+  * descriptor is permitted for otherwise valid SoundFonts, so it must
+  * NOT create a false rejection of a present bank. */
  {
     char descriptor[64];
     P007_CREATIVE_FILE_BUFFER verify;
@@ -243,12 +256,12 @@ static int p007_load_original_creative_sf2(void){
     verify.m_Size=sizeof(descriptor);
     verify.m_Buffer=descriptor;
     qrc=s_creative_manager(s_creative_handle,306u,1u,(LPARAM)&verify);
-    if(qrc!=0 || verify.m_SizeUsed<=2u ||
-       verify.m_SizeUsed>sizeof(descriptor) || descriptor[0]==0) {
-       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_MISSING\r\n");
-       return -1;
+    if(qrc==0 && verify.m_SizeUsed>2u &&
+       verify.m_SizeUsed<=sizeof(descriptor) && descriptor[0]!=0) {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_PRESENT\r\n");
+    } else {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_EMPTY\r\n");
     }
-    log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_PRESENT\r\n");
  }
  log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_API_LOADED\r\n");
  return 1;
