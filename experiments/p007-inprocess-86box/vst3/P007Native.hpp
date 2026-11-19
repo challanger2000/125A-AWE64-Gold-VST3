@@ -74,8 +74,17 @@ public:
     bool requestSoundFontReload(const std::wstring& path) noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
-    [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
-    [[nodiscard]] int guestSf2Status() const noexcept{return sf2Result_.load(std::memory_order_acquire);}
+    // On live SF2 replacement the previous Win95 guest can remain READY
+    // for a few worker ticks. Do not publish its *old* Creative ACK or
+    // accept MIDI as if it belonged to the newly selected SoundFont.
+    [[nodiscard]] bool guestReady() const noexcept {
+        return !reloadPending_.load(std::memory_order_acquire) &&
+               guestReady_.load(std::memory_order_acquire)!=0;
+    }
+    [[nodiscard]] int guestSf2Status() const noexcept {
+        return reloadPending_.load(std::memory_order_acquire)?0:
+               sf2Result_.load(std::memory_order_acquire);
+    }
 };
 class Plugin final : public Steinberg::Vst::SingleComponentEffect,
                      public VSTGUI::VST3EditorDelegate {
