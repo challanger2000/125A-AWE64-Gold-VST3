@@ -22,7 +22,8 @@
 #endif
 static unsigned char *s_bytes;
 static uint32_t s_len,s_position,s_capacity;
-static int s_state,s_attached;
+static _Atomic int s_state; /* x86 worker writes; owner QA observes */
+static int s_attached; /* worker-thread only */
 static _Atomic uint32_t s_published,s_completed,s_failed;
 static uint8_t p007_live_in8(uint16_t port,void *unused){
     (void)unused;
