@@ -9,9 +9,12 @@ struct Selection {
     std::uint8_t cc0{},cc32{};
 };
 inline Selection route(std::uint8_t requested,bool originalGuestSf2Loaded) noexcept {
-    // Logical SF2 bank 0's presets live in ORIGINAL Creative user bank 1;
-    // ROM and all nonzero previously selectable guest banks are unchanged.
-    return originalGuestSf2Loaded && requested==0u
+    // The GUI deliberately retains GM ROM on logical bank 0 and shows
+    // the single-bank loaded SF2's 1..128 user patches on logical BANK 1.
+    // Creative WIN95 USER bank slot #1 is selected with CC0=1, CC32=0.
+    // NEVER hijack ROM bank 0 after SF2 loading, and never claim the
+    // user bank before original AWEMAN32 has acknowledged its load.
+    return originalGuestSf2Loaded && requested==1u
         ?Selection{1u,0u}:Selection{0u,requested};
 }
 } // namespace p007::sf2_bank
