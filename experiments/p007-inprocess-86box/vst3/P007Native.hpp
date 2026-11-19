@@ -33,6 +33,7 @@ class Core final {
     std::atomic<bool> stop_{false};
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
+    std::atomic<int> sf2Result_{0};
     void runPrivateGuest(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
@@ -66,7 +67,7 @@ public:
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
     [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
-    [[nodiscard]] int guestSf2Status() const noexcept{return guestSf2StatusFn&&guestReady()?guestSf2StatusFn():0;}
+    [[nodiscard]] int guestSf2Status() const noexcept{return sf2Result_.load(std::memory_order_acquire);}
 };
 class Plugin final : public Steinberg::Vst::SingleComponentEffect,
                      public VSTGUI::VST3EditorDelegate {
