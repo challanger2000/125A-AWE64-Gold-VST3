@@ -1,7 +1,7 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119, feature/p007au-original-creative-sf2-guest-loading-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
@@ -64,6 +64,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007ASSustainClassifierTest.cpp -o build/P007ASSustainClassifierTest.exe
           build/P007ASSustainClassifierTest.exe
+      - name: P007AU host-independent FAT16 data disk + bounded SF2 project recall negative controls
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007AUSf2VolumeAndStateTest.cpp -o build/P007AUSf2VolumeAndStateTest.exe
+          build/P007AUSf2VolumeAndStateTest.exe
       - name: P007AM original EMU8000 multi-voice register capture regression
         run: |
           set -euo pipefail
