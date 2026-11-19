@@ -435,6 +435,15 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
             [this](const std::string& path){return chooseOriginalSf2(path);},
             [this](){return selectedSf2Path();},
             [this]() {
+                // The project state may be restored on a NON-UI thread.
+                // Reset the old bank's GUI names only here on the UI idle
+                // thread, never while a VSTGUI browser is enumerating them.
+                if(sf2CatalogResetPending_.exchange(
+                       false,std::memory_order_acq_rel)) {
+                    originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+                    sf2CatalogRevision_.fetch_add(
+                        1u,std::memory_order_release);
+                }
                 if(core_.guestReady() && core_.guestSf2Status()==1) {
                     std::string selected;
                     {
@@ -546,6 +555,7 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
         selectedSf2Path_=std::move(selectedPath);
         confirmedSf2Catalog_=false;
     }
+    sf2CatalogResetPending_.store(true,std::memory_order_release);
     // In a combined IComponent+IEditController, restore BOTH the original
     // Creative MIDI engine parameters and the visible P165 host automation.
     (void)setParamNormalized(kP165Bank,double(values.bank)/127.);

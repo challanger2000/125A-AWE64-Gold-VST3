@@ -94,6 +94,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     std::string selectedSf2Path_{}; // UTF-8; selected for the NEXT activation
     std::string activeSf2Path_{}; // user selection at the last successful activation
     bool confirmedSf2Catalog_=false; // UI thread only; never fake selected presets
+    std::atomic<bool> sf2CatalogResetPending_{false}; // host-state restore -> UI thread only
     std::atomic<std::uint64_t> sf2CatalogRevision_{1u};
     [[nodiscard]] int p165GuestStatus() const noexcept;
     [[nodiscard]] std::string selectedSf2Path() const;

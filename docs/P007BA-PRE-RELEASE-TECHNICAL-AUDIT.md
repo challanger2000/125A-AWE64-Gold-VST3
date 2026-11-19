@@ -15,3 +15,9 @@
 Diese adversarialen Einheiten- und Windows-MSVC-Builds ersetzen **keinen neuen privaten Windows-95-Lauftest mit einer Akkord-/Sustain-Sequenz**. Die praktische Mehrinstanzgrenze (globaler originaler 86Box-Kern), unterschiedliche SF2-/SBK-Bänke, tatsächliche DAW-/ASIO-Praxis und die komplette Firmware-/Nutzer-Bank-Lifecycle-Abnahme bleiben getrennt. Für die 125A-GUI gilt: keine einmalige Win95-`0F FF` Debug-Exception als Plugin-Fehler ausgeben.
 
 **Entscheidung:** Ein dokumentierter, testbarer Stabilitäts-Fix für den Release-Kandidaten; kein allgemeines FINAL und keine Studio-One-Abnahme ohne eigenständige Prüfung.
+
+## Zusätzliche Release-GUI-/State-Korrekturen
+
+3. **Stale SF2-Presetnamen nach Projektwechsel:** Ein korrekter VST3-State-Recall aktualisierte den SF2-Pfad, setzte den zuvor geladenen Presetkatalog aber nicht zurück. Das konnte bei noch offenem Editor die Namen einer früheren SoundFont unter der neu gewählten Bank anzeigen. Ein atomisches Invalidierungsflag markiert jetzt den Restore, und **nur der GUI-Thread** setzt den Browser auf neutrale Original-Creative-MIDI-Programmnummern zurück. Erst die bestätigte tatsächliche SF2-Bank wird wieder mit ihren eigenen Presetnamen angezeigt.
+
+4. **Historische FX-Typ-Dropdowns ohne Original-SysEx:** Reverb- und Chorus-Typ waren im alten P165-Look noch bedienbar, obwohl die neue Original-Creative-Engine weder die ursprünglichen Parameter-IDs registriert noch den betreffenden SysEx-Befehl sendet. Diese beiden Menüs sind jetzt ausdrücklich **nicht bedienbar**, anstatt eine nicht stattfindende Klangbearbeitung vorzutäuschen. Die echten Reverb-/Chorus-**Send**-Regler bleiben unverändert funktionsfähig. Eine spätere FX-Typ-Implementierung bedarf separater originaler Creative-SysEx-Nachweise.

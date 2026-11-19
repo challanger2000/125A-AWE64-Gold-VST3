@@ -545,6 +545,11 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
         chorusMenu_->addEntry(label);
     reverbMenu_->setValue(4.f);
     chorusMenu_->setValue(2.f);
+    // These historical FX TYPE selectors do NOT have a Creative Win95
+    // SysEx bridge / registered VST3 parameter yet. Do not present
+    // interactive controls that silently do nothing to the actual chip.
+    reverbMenu_->setMouseEnabled(false);
+    chorusMenu_->setMouseEnabled(false);
     AddToCurrentPage(reverbMenu_);
     AddToCurrentPage(chorusMenu_);
 
@@ -690,8 +695,8 @@ CTextButton* PresetBrowserView::MakeButton(const CRect& r,int tag,const char* s)
 int PresetBrowserView::GestureIndex(int tag) noexcept {
     if(tag>=kGuiFirst&&tag<kGuiFirst+kGuiCount)return tag-kGuiFirst;
     if(tag==kMasterVolume)return kGuiCount;
-    if(tag==kReverbType)return kGuiCount+1;
-    if(tag==kChorusType)return kGuiCount+2;
+    // Reverb/chorus TYPE selectors are read-only until authentic
+    // Creative SysEx is implemented; SEND knobs remain functional.
     return -1;
 }
 void PresetBrowserView::controlBeginEdit(CControl* control) {
@@ -979,8 +984,8 @@ void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
     const int tag=control->getTag();
     if(tag==kReverbType || tag==kChorusType) {
-        ChangeParameter(static_cast<Steinberg::Vst::ParamID>(tag),
-            double(std::clamp(int(std::lround(control->getValue())),0,7))/7.);
+        // No registered host parameter or original Creative FX-type SysEx:
+        // deliberately reject the change, not a silent fake edit.
         return;
     }
     if(tag==kMasterVolume) {
