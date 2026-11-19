@@ -306,6 +306,29 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             programCounter=getCounter("p007_mock_program_plus_one");
             bankCounter=getCounter("p007_mock_bank_plus_one");
             Counter rejectsCounter=getCounter("p007_mock_rejected_control_packets");
+            Counter uartEnabled=getCounter("p007_mock_uart_enabled");
+            Counter mockReady=getCounter("p007_mock_guest_is_ready");
+            using FailGuest=void (__cdecl*)();
+            FailGuest failGuest=reinterpret_cast<FailGuest>(
+                GetProcAddress(core,"p007_mock_fail_next_guest_step"));
+            require(failGuest!=nullptr,"synthetic guest fatal-step injection unavailable");
+            if(hz==44100.) {
+                // Two instances share a process-global 86Box image. The
+                // rejected second activation must NEVER disable UART of
+                // the still-active first instance.
+                for(unsigned spin=0;spin<150u&&!uartEnabled();++spin)
+                    std::this_thread::sleep_for(10ms);
+                require(uartEnabled()==1u && mockReady()==1u,
+                        "first synthetic guest not ready before contention test");
+                {
+                    auto second=instantiate(factory,id,host);
+                    require(second.component->setActive(true)!=kResultOk,
+                        "second simultaneous original 86Box owner unexpectedly activated");
+                }
+                require(uartEnabled()==1u && mockReady()==1u,
+                    "CRITICAL: rejected second VST3 disabled first guest Creative UART");
+                std::puts("P007AP_SECOND_INSTANCE_CANNOT_DISABLE_ACTIVE_OWNER_PASS");
+            }
             Counter filterCount=getCounter("p007_mock_nrpn_filter_count");
             Counter filterRaw=getCounter("p007_mock_nrpn_filter_raw");
             Counter attackCount=getCounter("p007_mock_nrpn_attack_count");
@@ -412,6 +435,36 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     "actual VST3 did not honor exact-zero Master");
             require(audibleFull>=block*3u,
                     "actual VST3 did not recover original-level synthetic PCM");
+            if(hz==44100.) {
+                // Inject a fatal step after the guest was READY. The old
+                // worker overwrote boot failure with status=2 and left
+                // ready asserted, allowing MIDI/old PCM after guestClose.
+                require(uartEnabled()==1u && mockReady()==1u,
+                        "synthetic owner unexpectedly stopped before fatal-step test");
+                failGuest();
+                for(unsigned spin=0;spin<150u&&mockReady();++spin)
+                    std::this_thread::sleep_for(10ms);
+                require(!mockReady()&&!uartEnabled(),
+                    "fatal guest step did not shut down original-style MIDI UART");
+                const unsigned priorNotes=noteOnCounter();
+                for(unsigned attempt=0;attempt<3u;++attempt) {
+                    events.clear();
+                    Event e{};
+                    e.type=Event::kNoteOnEvent;
+                    e.noteOn.channel=0;e.noteOn.pitch=67;e.noteOn.velocity=.9f;
+                    require(events.addEvent(e)==kResultOk,
+                        "fatal guest test NoteOn event");
+                    left.fill(42.f);right.fill(-42.f);
+                    require(plugin.processor->process(data)==kResultOk,
+                        "VST3 process failed after synthetic fatal guest step");
+                    for(unsigned n=0;n<block;++n)
+                        require(left[n]==0.f && right[n]==0.f,
+                            "CRITICAL: stale/native PCM audible after guest failure");
+                }
+                require(noteOnCounter()==priorNotes,
+                    "CRITICAL: MIDI note accepted after guest fatal failure");
+                std::puts("P007AP_FATAL_GUEST_STEP_MUTES_STALE_PCM_AND_MIDI_PASS");
+            }
             ++passedRates;
             std::printf("P007X_SYNTHETIC_VST3_HOST_AUDIO_MIDI_PASS"
                         " rate=%.0f half=%u muted=%u full=%u"
