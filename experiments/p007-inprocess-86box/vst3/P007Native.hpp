@@ -20,6 +20,7 @@
 #include <atomic>
 #include <string>
 #include <thread>
+#include <mutex>
 namespace p007 {
 inline constexpr Steinberg::Vst::ParamID kP165Program=1000u;
 inline constexpr Steinberg::Vst::ParamID kP165Master=1001u;
@@ -32,7 +33,7 @@ class Core final {
     std::atomic<bool> stop_{false};
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
-    void runPrivateGuest(std::wstring moduleFolder) noexcept;
+    void runPrivateGuest(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
     using Trim=std::uint32_t (__cdecl*)(std::uint32_t,std::uint32_t);
@@ -44,6 +45,7 @@ public:
     using GuestClose=void (__cdecl*)();
     using BootAssist=int (__cdecl*)(std::uint32_t);
     using GuestReady=int (__cdecl*)();
+    using GuestSf2Status=int (__cdecl*)();
     Pull pull=nullptr;
     Trim trimBacklog=nullptr;
     Midi midi=nullptr;
@@ -54,15 +56,17 @@ public:
     GuestClose guestClose=nullptr;
     BootAssist bootAssist=nullptr;
     GuestReady guestReadyFn=nullptr;
+    GuestSf2Status guestSf2StatusFn=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
     ~Core(){closeNonRealtime();}
-    bool openNonRealtime() noexcept;
+    bool openNonRealtime(const std::wstring& selectedSf2=L"") noexcept;
     void closeNonRealtime() noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
     [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
+    [[nodiscard]] int guestSf2Status() const noexcept{return guestSf2StatusFn&&guestReady()?guestSf2StatusFn():0;}
 };
 class Plugin final : public Steinberg::Vst::SingleComponentEffect,
                      public VSTGUI::VST3EditorDelegate {
@@ -82,7 +86,13 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
     MidiDelivery midiDelivery_{}; // audio-thread only; retries rejected UART note packets
+    mutable std::mutex sf2StateMutex_{}; // non-RT state/UI lifecycle only
+    std::string selectedSf2Path_{}; // UTF-8; selected for the NEXT activation
+    bool confirmedSf2Catalog_=false; // UI thread only; never fake selected presets
+    std::atomic<std::uint64_t> sf2CatalogRevision_{1u};
     [[nodiscard]] int p165GuestStatus() const noexcept;
+    [[nodiscard]] std::string selectedSf2Path() const;
+    bool chooseOriginalSf2(const std::string& path);
 public:
     static Steinberg::FUnknown* createInstance(void*) {
         return static_cast<Steinberg::Vst::IAudioProcessor*>(new Plugin());
