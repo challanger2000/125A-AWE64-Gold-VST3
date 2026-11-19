@@ -158,13 +158,29 @@ void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcep
         // strictly on the non-RT private guest thread under the VM mutex.
         // Never patch the licensed Win95 system disk: the user's SoundFont
         // is mounted via a separate generated FAT16 IDE data image.
-        if(!selectedSf2.empty()&&!sf2_volume::build(
+        bool sf2Mounted=!selectedSf2.empty();
+        if(sf2Mounted&&!sf2_volume::build(
                 vm/L"p007sf2.img",fs::path(selectedSf2),setupError)) {
-            bootStatus_.store(-10,std::memory_order_release);return;
+            // User may have moved or deleted the SF2 since saving their
+            // Studio One project. Never make the entire synth silent
+            // merely because an optional bank cannot be mounted.
+            // Report the failure and boot the unmodified ORIGINAL ROM.
+            sf2Result_.store(-2,std::memory_order_release);
+            sf2Mounted=false;
         }
         if(!sf2_profile::configure(root/L"vm"/L"P007_AWE64.cfg",
-                vm/L"P007_AWE64.cfg",!selectedSf2.empty(),setupError)) {
-            bootStatus_.store(-11,std::memory_order_release);return;
+                vm/L"P007_AWE64.cfg",sf2Mounted,setupError)) {
+            // A mismatched/invalid secondary-drive config must never
+            // strand the original licensed 512MiB Win95 system image.
+            if(sf2Mounted && sf2_profile::configure(
+                   root/L"vm"/L"P007_AWE64.cfg",
+                   vm/L"P007_AWE64.cfg",false,setupError)) {
+                sf2Result_.store(-2,std::memory_order_release);
+                sf2Mounted=false;
+            } else {
+                bootStatus_.store(-11,std::memory_order_release);
+                return;
+            }
         }
         const fs::path roms=root/L"roms";
         const fs::path assets=root/L"assets";
@@ -201,8 +217,11 @@ void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcep
             // Only original emulated keyboard controller receives Win95 boot
             // keys; no real host input events, no audio-thread work.
             (void)bootAssist(++guestMilliseconds);
-            if(guestSf2StatusFn)
-                sf2Result_.store(guestSf2StatusFn(),std::memory_order_release);
+            if(guestSf2StatusFn){
+                const int source=guestSf2StatusFn();
+                if(source!=0 || sf2Result_.load(std::memory_order_acquire)!=-2)
+                    sf2Result_.store(source,std::memory_order_release);
+            }
             if(guestReadyFn)
                 guestReady_.store(guestReadyFn()?1:0,std::memory_order_release);
             next+=std::chrono::milliseconds(1);
@@ -386,8 +405,10 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                     const int sf2=core_.guestSf2Status();
                     if(sf2==1 && s==2)
                         return std::string("ORIGINAL CREATIVE: SF2-BANK 1 PER AWEMAN32 GELADEN");
-                    if(sf2<0)
-                        return std::string("FEHLER: ORIGINAL CREATIVE HAT SF2 ABGELEHNT");
+                    if(sf2==-2)
+                        return std::string("SF2-DATEI/LAUFWERK NICHT VERFUEGBAR | ROM AKTIV");
+                    if(sf2==-1)
+                        return std::string("ORIGINAL CREATIVE HAT SF2 ABGELEHNT | ROM AKTIV");
                     if(s==2)
                         return std::string("SF2 NICHT BESTAETIGT | ORIGINAL ROM AKTIV");
                 }
