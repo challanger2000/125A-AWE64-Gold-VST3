@@ -469,7 +469,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     // P152: the amber LCD owns the complete live status line, including
     // the current filename. Its labels remain real host-driven VSTGUI views.
     // P168: 16px opaque metal bezel hides glyphs left of x=370.
-    auto* lcd=MakeLabel({370,96,570,112},"EMU8000 / CREATIVE WIN95",true);
+    auto* lcd=MakeLabel({370,96,570,112},"EMU8000 / AWE64 GOLD",true);
     lcd->setFontColor(CColor(55,42,9,255));
     fileLabel_=MakeLabel({575,96,728,112},"",false);
     fileLabel_->setFont(kNormalFontSmall);
