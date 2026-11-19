@@ -638,7 +638,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             r[i]*=gain;
         }
     }
-    output.silenceFlags=0;
+    output->silenceFlags=0;
     return kResultOk;
 }
 } // namespace p007
