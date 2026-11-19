@@ -261,7 +261,20 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         if(active_)return kResultOk;
         // SDK activation is non-RT. Host cannot activate if internal core
         // is missing from the SAME .vst3 folder.
-        if(!core_.openNonRealtime())return kResultFalse;
+        // VST3 activation is non-realtime. Selected SF2 files are not
+        // touched by process(): only the private guest worker prepares
+        // a separate 64-MiB IDE volume before original Win95 boots.
+        std::string fontPath=selectedSf2Path();
+        std::wstring winPath;
+        try {
+            if(!fontPath.empty())winPath=std::filesystem::u8path(fontPath).wstring();
+        } catch(...) {return kResultFalse;}
+        if(!core_.openNonRealtime(winPath))return kResultFalse;
+        {
+            std::lock_guard<std::mutex> lock(sf2StateMutex_);
+            activeSf2Path_=std::move(fontPath);
+            confirmedSf2Catalog_=false;
+        }
         outputRate_.reset();
         sentInitialProgram_=false;
         programNeedsSending_.store(true,std::memory_order_release);
@@ -313,6 +326,28 @@ tresult PLUGIN_API Plugin::setProcessing(TBool on) {
     // constant-time, heap-free and leaves the original EMU8000 untouched.
     if(on) outputRate_.reset();
     return kResultOk;
+}
+std::string Plugin::selectedSf2Path() const {
+    std::lock_guard<std::mutex> lock(sf2StateMutex_);
+    return selectedSf2Path_;
+}
+bool Plugin::chooseOriginalSf2(const std::string& path) {
+    // Runs on the VSTGUI thread, never on the audio callback.
+    try{
+        const auto file=std::filesystem::u8path(path);
+        std::error_code ec;
+        if(path.empty()||path.size()>state::maxSf2PathBytes ||
+           !std::filesystem::is_regular_file(file,ec) ||
+           std::filesystem::file_size(file,ec)>sf2_volume::maxSf2Bytes ||
+           ec) return false;
+        AWE125::PresetCatalog validated;
+        std::string error;
+        if(!validated.LoadSoundFont(path,error))return false;
+        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+        selectedSf2Path_=path;
+        confirmedSf2Catalog_=false;
+        return true;
+    }catch(...){return false;}
 }
 int Plugin::p165GuestStatus() const noexcept {
     const int stage=core_.bootStatus();
