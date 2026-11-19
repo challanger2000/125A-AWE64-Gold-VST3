@@ -34,6 +34,18 @@ public:
             entries_.push_back({0u,static_cast<uint8_t>(i),
                  "MIDI-PROGRAMM "+std::to_string(i),false});
     }
+    // Creative AWEManager AWE_LOAD_USER_BANK(1) installs an ordinary
+    // single-instrument-bank SoundFont into original Creative USER bank 1.
+    // Its source SF2 phdr normally uses bank 0; do NOT make its names
+    // appear under the GM ROM bank 0 or fabricate another 128 presets.
+    // Ambiguous multi-bank/GM+drums metadata is *not* silently remapped.
+    bool AssignSingleBankToCreativeUserOne() noexcept {
+        if(entries_.empty())return false;
+        for(const auto& entry:entries_)
+            if(entry.bank!=0u)return false;
+        for(auto& entry:entries_)entry.bank=1u;
+        return true;
+    }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;
         return nullptr;
