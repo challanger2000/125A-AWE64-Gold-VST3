@@ -38,8 +38,32 @@ int main() {
         Window missingBefore;
         require(!accept(missingBefore,note),"missing baseline falsely passed");
         require(!accept(quiet,note,0.),"invalid rate accepted");
+        // P007AW: identical normalized audio and small gain drift are NOT
+        // bank changes. Same-amplitude but different spectral contents can
+        // establish distinction even when RMS and peak coincide.
+        Window tone440,tone440Copy,tone440SlightGain,tone1760;
+        for(unsigned i=0u;i<88200u;++i) {
+            const double time=double(i)/44100.;
+            const float a=float(.02*std::sin(2.*3.141592653589793*440.*time));
+            const float b=float(.02*std::sin(2.*3.141592653589793*1760.*time));
+            tone440.append(a,a);
+            tone440Copy.append(a,a);
+            tone440SlightGain.append(a*1.02f,a*1.02f);
+            tone1760.append(b,b);
+        }
+        require(!p007::original_audio_proof::distinguishBanks(tone440,tone440Copy),
+                "identical SF2/ROM audio produced false bank-change PASS");
+        require(!p007::original_audio_proof::distinguishBanks(tone440,tone440SlightGain),
+                "2 percent level drift produced false bank-change PASS");
+        require(p007::original_audio_proof::distinguishBanks(tone440,tone1760),
+                "equal RMS and peak but different timbre wrongly rejected");
+        require(!p007::original_audio_proof::distinguishBanks(quiet,note),
+                "non-silent source cannot be omitted for SF2/ROM comparison");
+        std::puts("P007AW_SPECTRAL_BANK_DIFFERENCE_NEGATIVE_CONTROLS_PASS"
+                  " identical_rejected=1 gain_drift_rejected=1"
+                  " equal_rms_different_frequency_accepted=1");
         std::puts("P007Y_ORIGINAL_CREATIVE_PCM_BEFORE_AFTER_NOTE_PROOF_RULES_PASS "
-                  "cases=8 synthetic-constant-audio-rejected=YES");
+                  " cases=8 synthetic-constant-audio-rejected=YES");
         return 0;
     }catch(const std::exception& e) {
         std::fprintf(stderr,"P007Y_ORIGINAL_CREATIVE_PCM_PROOF_RULES_FAIL %s\n",

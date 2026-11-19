@@ -1,0 +1,64 @@
+name: P007AZ fast Windows VST3 paced Creative bank selection
+on:
+  push:
+    branches: [test/p007av-original-win95-creative-sf2-audio-e2e-20261119]
+    paths:
+      - "experiments/p007-inprocess-86box/vst3/P007Native.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.hpp"
+      - "experiments/p007-inprocess-86box/vst3/P007BankProgramPacer.hpp"
+      - "experiments/p007-inprocess-86box/vst3/CMakeLists.txt"
+      - "experiments/p007-inprocess-86box/tests/P007BankProgramPacerTest.cpp"
+      - ".github/workflows/p007az-bank-program-pacer-vst3.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-pacer-qa:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch SHA-pinned Steinberg VST3 SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          if($LASTEXITCODE -ne 0){throw 'SDK fetch failed'}
+          $sha=(git -C external/vst3sdk rev-parse HEAD).Trim()
+          if($sha -ne '3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96'){throw "wrong SDK SHA $sha"}
+      - name: Get exact previous real original 86Box core (PUBLIC binary, no Win95)
+        uses: actions/download-artifact@v4
+        with:
+          name: P007AL-Win64-Corrected-Creative-Filter-Proof-Host-PUBLIC-NO-PRIVATE
+          run-id: 44522959908
+          github-token: ${{ github.token }}
+          path: build/p007az-core-base
+      - name: Build actual native VST3, original guest host, bank pacer unit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007az -G 'Visual Studio 17 2022' -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+          if($LASTEXITCODE -ne 0){throw 'P007AZ configuration failed'}
+          # Steinberg invokes its validator in the VST3 build post-step.
+          # The ORIGINAL 86Box core must already be present; otherwise
+          # setActive(false) is rejected and validator fails spuriously.
+          $core=(Get-ChildItem build/p007az-core-base -Filter '125A_AWE_Core.dll' -Recurse -File | Select-Object -First 1)
+          if(-not $core){throw 'Pinned original 86Box core dependency missing'}
+          $dest='build/p007az/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win'
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Copy-Item (Join-Path $core.Directory.FullName '*.dll') $dest -Force
+          cmake --build build/p007az --config Release --target AWE64_Gold_P007 P007ActualHostQA P007BankProgramPacerTest --parallel 3
+          if($LASTEXITCODE -ne 0){throw 'P007AZ actual Windows VST3 compile failed'}
+          & build/p007az/Release/P007BankProgramPacerTest.exe
+          if($LASTEXITCODE -ne 0){throw 'P007AZ FIFO pacing negative controls FAILED'}
+          Write-Host 'P007AZ_ACTUAL_WINDOWS_VST3_COMPILED_AND_FIFO_PACING_PASS'
+      - name: Publish only new VST3 binary and real host (NO synthetic or proprietary guest)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AZ-Updated-VST3-And-Real-Host-BINARIES
+          path: |
+            build/p007az/VST3/Release/AWE64_Gold_P007.vst3/**
+            build/p007az/Release/P007ActualHostQA.exe
+          if-no-files-found: error
+          retention-days: 7

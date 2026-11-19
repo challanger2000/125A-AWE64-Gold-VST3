@@ -85,7 +85,10 @@ inline bool build(const fs::path& target,const fs::path& soundFont,
         out.seekp(static_cast<std::streamoff>(imageBytes-1u));
         out.put('\0');
         std::array<std::uint8_t,512> mbr{};
-        mbr[446+1]=0u; mbr[446+2]=1u; mbr[446+3]=0u;
+        // LBA 63 is CHS cylinder 0, HEAD 1, sector 1 at 16H/63S.
+        // An earlier MBR wrote head 0 (LBA 0) while the LBA start was
+        // 63, confusing Win95 geometry checks on its second IDE disk.
+        mbr[446+1]=1u; mbr[446+2]=1u; mbr[446+3]=0u;
         mbr[446+4]=0x06u; // FAT16 CHS
         mbr[446+5]=15u; mbr[446+6]=63u; mbr[446+7]=129u;
         le32(mbr.data()+446u+8u,partitionStart);

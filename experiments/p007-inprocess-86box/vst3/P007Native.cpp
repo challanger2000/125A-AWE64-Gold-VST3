@@ -303,6 +303,8 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         }
         outputRate_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         programNeedsSending_.store(true,std::memory_order_release);
         creativePacer_.reset();
         creativeFramePace_.reset();
@@ -318,6 +320,8 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         core_.closeNonRealtime();active_=false;
         outputRate_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
@@ -339,6 +343,7 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     if(result==kResultOk){
         outputRate_.configure(setup.sampleRate);
         creativeFramePace_.configure(setup.sampleRate);
+        bankFramePace_.configure(setup.sampleRate);
     }
     return result;
 }
@@ -636,12 +641,16 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         outputRate_.reset();
         midiDelivery_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         creativePacer_.abort(creativeModPending_);
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
         midiDelivery_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         // Original guest restarted: reassert modified generators and
         // always enforce 0% truly DRY for original Creative FX sends.
         // For tone controls, 0% does NOT send NRPN=0: that would replace
@@ -653,57 +662,49 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 i,creativeMod_[i].load(std::memory_order_acquire)))
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
     }
-    // First retry a previously rejected NoteOff BEFORE allowing further
-    // program/NRPN writes or newer host notes to overtake it. The original
-    // guest UART returns 1 only after its bounded FIFO accepted a packet.
-    if(ready) (void)midiDelivery_.drain(
-        [this](std::uint8_t status,std::uint8_t d1,std::uint8_t d2) noexcept {
-            return core_.midi(status,d1,d2);
-        });
-    const bool midiBlocked=ready&&
-        (midiDelivery_.pending()!=0u||midiDelivery_.panicPending());
-    const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
-    // Preserve new host automation too: bank/program changes received
-    // DURING a MIDI retry must not disappear with this one callback.
-    if(midiBlocked && (resend||programChanged||bankChanged))
-        programNeedsSending_.store(true,std::memory_order_release);
+    // P007AZ: the guest has a real 16550 16-byte receive FIFO. Three
+    // original Creative 6-byte BankSelect/Program packets (18 bytes),
+    // followed by a 6-byte NoteOn, previously arrived as one burst.
+    // Queue the *entire* bank/program sequence, transmit ONE six-byte
+    // packet per >=20ms and leave one >=20ms settling interval before
+    // letting queued host MIDI notes reach the original guest.
+    const bool resend=programNeedsSending_.exchange(
+        false,std::memory_order_acq_rel);
+    if(ready)bankProgramPacer_.request(
+        midiBank_.load(std::memory_order_acquire),
+        midiProgram_.load(std::memory_order_acquire),
+        core_.guestSf2Status()==1,
+        resend||programChanged||bankChanged);
     bool justSentSelection=false;
-    if(ready&&!midiBlocked){
-        // The original 86Box UART is a bounded FIFO. A failed submit means
-        // Creative did NOT receive the selected bank/program: do not falsely
-        // consider it delivered. Retry the complete ordered selection on the
-        // next audio callback (still the ONLY MIDI producer thread).
-        const bool sendBank=!sentInitialProgram_||bankChanged||resend;
-        const bool sendProgram=sendBank||programChanged;
-        justSentSelection=sendProgram;
-        bool accepted=true;
-        if(sendBank) {
-            // Original Win95 Creative driver receives real MIDI BankSelect.
-            // Evaluate both calls even when the first packet was rejected.
-            // Original Creative user-bank API 204 maps slot #1 via
-            // MIDI CC0=1 (Creative WINAWE32.C). Legacy ROM bank 0
-            // retains the old CC0=0 / CC32=0 route, and no SF2 is
-            // asserted until the original Win95 AWEMAN32 ACK arrives.
-            const auto wire=sf2_bank::route(
-                midiBank_.load(std::memory_order_acquire),
-                core_.guestSf2Status()==1);
-            accepted=(core_.midi(0xb0u,0u,wire.cc0)==1)&&accepted;
-            accepted=(core_.midi(0xb0u,32u,wire.cc32)==1)&&accepted;
-        }
-        if(sendProgram){
-            accepted=(core_.midi(0xc0u,
-                       midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
-        }
-        sentInitialProgram_=accepted;
-        // Program/bank changes can reset Creative generator offsets. Reapply
-        // all active user offsets AND zero FX sends after valid selection.
-        if(accepted&&sendProgram) {
-            for(unsigned i=0;i<creative_nrpn::count;++i)
-                if(creative_nrpn::shouldTransmit(
-                   i,creativeMod_[i].load(std::memory_order_acquire)))
-                    creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
-        }
+    if(ready&&!bankProgramPacer_.committed() &&
+       bankFramePace_.due(static_cast<std::uint32_t>(
+           std::max<Steinberg::int32>(0,data.numSamples)))) {
+        justSentSelection=bankProgramPacer_.tick(
+            [this](std::uint8_t status,std::uint8_t d1,
+                   std::uint8_t d2) noexcept {
+                return core_.midi(status,d1,d2);
+            });
     }
+    const bool committedNow=ready&&bankProgramPacer_.committed();
+    if(committedNow&&!sentInitialProgram_) {
+        // Selection has passed the original guest UART settling gap.
+        // Reapply actual user offsets and zero-sends ONLY after the
+        // ORIGINAL Creative program map is selected and settled.
+        for(unsigned i=0;i<creative_nrpn::count;++i)
+            if(creative_nrpn::shouldTransmit(
+               i,creativeMod_[i].load(std::memory_order_acquire)))
+                creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
+    }
+    sentInitialProgram_=committedNow;
+    // A pending NoteOn must NEVER pass the bank/program selection.
+    // Unlike the old guard, queued notes do NOT block the selection
+    // itself: that would deadlock bank commits and waiting NoteOns.
+    if(committedNow) (void)midiDelivery_.drain(
+        [this](std::uint8_t status,std::uint8_t d1,
+               std::uint8_t d2) noexcept {
+            return core_.midi(status,d1,d2);
+        },1u);
+    const bool midiBlocked=ready&&midiDelivery_.panicPending();
     if(ready&&!midiBlocked&&sentInitialProgram_&&!justSentSelection) {
         // CC121 is specified by Creative to restore the original SoundFont
         // settings. This is essential when an ADSR/filter knob moves BACK
@@ -783,7 +784,8 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                         static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
                         [this](std::uint8_t status,std::uint8_t d1,
                                std::uint8_t d2) noexcept {
-                            return core_.midi(status,d1,d2);
+                            return bankProgramPacer_.committed()
+                                ?core_.midi(status,d1,d2):0;
                         });
             } else {
                 const auto& e=event.noteOff;
@@ -793,7 +795,8 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                         static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
                         [this](std::uint8_t status,std::uint8_t d1,
                                std::uint8_t d2) noexcept {
-                            return core_.midi(status,d1,d2);
+                            return bankProgramPacer_.committed()
+                                ?core_.midi(status,d1,d2):0;
                         });
             }
         }

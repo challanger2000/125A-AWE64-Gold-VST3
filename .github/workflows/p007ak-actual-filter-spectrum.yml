@@ -1,7 +1,7 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119, feature/p007au-original-creative-sf2-guest-loading-20261119]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119, feature/p007au-original-creative-sf2-guest-loading-20261119, test/p007av-original-win95-creative-sf2-audio-e2e-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
@@ -54,6 +54,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007AW synthetic SF2-versus-ROM waveform fingerprint adversarial controls
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalAudioProofTest.cpp -o build/P007OriginalAudioProofTest.exe
+          build/P007OriginalAudioProofTest.exe
       - name: P007AL corrected filter spectrum and Creative NRPN15 synthetic-only unit tests
         run: |
           set -euo pipefail
@@ -157,6 +162,14 @@ jobs:
             throw 'CRITICAL: original filter proof claimed without original Win95'
           }
           Write-Host 'P007AL_NO_PRIVATE_GUEST_CORRECTED_FILTER_REFUSAL_PASS'
+          # P007AV must NEVER accept a public synthetic guest as genuine
+          # original Win95 SF2 sound. Check the REAL hosted VST3 binary.
+          & $tester $plugin --private-sf2 'Z:\\nonexistent-public-synthetic.sf2' *> 'build/p007av-private-sf2-denial.log'
+          if($LASTEXITCODE -eq 0) {throw 'CRITICAL: public CI invented genuine original Win95 SF2 playback'}
+          if(Select-String -Path 'build/p007av-private-sf2-denial.log' -Pattern 'P007AV_REAL_ORIGINAL_CREATIVE_SF2_BANK1_TO_EMU8000_PCM_PASS' -Quiet) {
+            throw 'CRITICAL: genuine original SF2 PCM claimed without private Win95'
+          }
+          Write-Host 'P007AV_PUBLIC_CANNOT_FAKE_ORIGINAL_WIN95_SF2_PCM_PASS'
           # The rejected private-only test MUST fail (exit=1). PowerShell
           # otherwise propagates that EXPECTED nonzero native exit code
           # as the whole successful job's final exit status.

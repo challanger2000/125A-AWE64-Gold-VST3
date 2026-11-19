@@ -14,7 +14,8 @@ set(SMTG_ENABLE_VSTGUI_SUPPORT ON CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P007_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 smtg_add_vst3plugin(AWE64_Gold_P007
-  P007Native.hpp P007Native.cpp P007CreativeNrpn.hpp P007CreativeNrpnPacer.hpp P007Factory.cpp
+  P007Native.hpp P007Native.cpp P007CreativeNrpn.hpp P007CreativeNrpnPacer.hpp
+  P007BankProgramPacer.hpp P007Sf2BankRoute.hpp P007Factory.cpp
   # P007Z: owner-approved COMPLETE P165 original, not P007 minimalist stub.
   p165/PresetBrowserView.h p165/PresetBrowserView.cpp
   p165/PresetCatalog.h p165/PresetBrowserModel.h p165/IbkBank.h
@@ -148,3 +149,10 @@ add_executable(P007OriginalEnvFilterDepthTest
 target_include_directories(P007OriginalEnvFilterDepthTest PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/../tests")
 target_compile_features(P007OriginalEnvFilterDepthTest PRIVATE cxx_std_20)
+
+# P007AZ: 16-byte original Win95 16550 FIFO bank/program/NoteOn pacing.
+add_executable(P007BankProgramPacerTest
+  "${CMAKE_CURRENT_SOURCE_DIR}/../tests/P007BankProgramPacerTest.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/P007BankProgramPacer.hpp")
+target_include_directories(P007BankProgramPacerTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(P007BankProgramPacerTest PRIVATE cxx_std_20)
