@@ -142,7 +142,12 @@ void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcep
             bootStatus_.store(-7,std::memory_order_release);return;
         }
         lease.acquired=true;
-        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM";
+        // P007AU ships an updated P007.EXE *inside the licensed Win95
+        // disk*. Do not reuse P007AR's old persisted guest image or
+        // overwrite its possibly user-modified Windows 95 data. Start
+        // with a new, versioned 86Box profile once; subsequent SF2
+        // selections replace ONLY a separate SF2 data disk, never Win95.
+        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM_P007AU";
         std::error_code ec;
         if(!privatevm::prepare(root,work,ec)){
             bootStatus_.store(-8,std::memory_order_release);return;
