@@ -883,7 +883,9 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 const auto& e=event.noteOn;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
                     (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x90|e.channel),
+                        static_cast<std::uint8_t>(0x90|(
+                            midiBank_.load(std::memory_order_acquire)>=126u
+                            ?9:e.channel)),
                         static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
                         [this](std::uint8_t status,std::uint8_t d1,
                                std::uint8_t d2) noexcept {
@@ -894,7 +896,9 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 const auto& e=event.noteOff;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
                     (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x80|e.channel),
+                        static_cast<std::uint8_t>(0x80|(
+                            midiBank_.load(std::memory_order_acquire)>=126u
+                            ?9:e.channel)),
                         static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
                         [this](std::uint8_t status,std::uint8_t d1,
                                std::uint8_t d2) noexcept {
