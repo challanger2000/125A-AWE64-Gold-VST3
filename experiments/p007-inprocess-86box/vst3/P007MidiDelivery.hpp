@@ -6,9 +6,10 @@
 //
 // The queue preserves NoteOn/NoteOff ordering AFTER the first rejection.
 // It does not pretend to give sample-accurate Win95/UART timestamps.
-// On overflow, stop accepting notes and deliver CC123 on all MIDI channels
-// before allowing new messages. CC123 support is MIDI-standard; this is a
-// fallback, not proof that original Creative always obeys it.
+// On overflow, stop accepting notes and deliver three STANDARD MIDI CCs per
+// channel before allowing new messages: CC64=0 (release sustain pedal),
+// CC120=0 (All Sound Off), then CC123=0 (All Notes Off). Original Creative
+// driver behavior remains empirical, not assumed from MIDI-spec compliance.
 #include <array>
 #include <cstdint>
 namespace p007 {
@@ -19,11 +20,11 @@ public:
     };
     static constexpr unsigned capacity=256u;
     void reset() noexcept {
-        head_=0u;size_=0u;panicChannel_=16u;
+        head_=0u;size_=0u;panicPacket_=48u;
     }
     [[nodiscard]] unsigned pending() const noexcept {return size_;}
     [[nodiscard]] bool panicPending() const noexcept {
-        return panicChannel_<16u;
+        return panicPacket_<48u;
     }
     // Called only by the DAW audio consumer thread.
     template<class Send>
@@ -33,8 +34,11 @@ public:
         if(size_==0u && send(status,d1,d2)==1)return true;
         if(size_==capacity) {
             // Never let newer MIDI overtake the missing NoteOff. Instead
-            // force every channel to All Notes Off using the SAME UART.
-            head_=size_=0u;panicChannel_=0u;
+            // After a lost NoteOff, stuck sustain is possible: CC123 alone
+            // does not always release a note held by pedal CC64=127.
+            // Reset sustain, silence the voices, then All Notes Off on
+            // every channel, over the SAME original Creative UART.
+            head_=size_=0u;panicPacket_=0u;
             return false;
         }
         queue_[(head_+size_)%capacity]={status,d1,d2};
@@ -45,11 +49,14 @@ public:
     unsigned drain(Send&& send,unsigned budget=32u) noexcept {
         if(panicPending()) {
             if(budget==0u)return 0u;
-            const auto status=static_cast<std::uint8_t>(
-                    0xb0u|panicChannel_);
-            if(send(status,123u,0u)!=1)return 0u;
-            ++panicChannel_;
-            return 1u; // one panic CC per callback; no 16*6-byte UART burst
+            const auto channel=panicPacket_/3u;
+            const auto stage=panicPacket_%3u;
+            const auto status=static_cast<std::uint8_t>(0xb0u|channel);
+            const auto controller=static_cast<std::uint8_t>(
+                stage==0u?64u:(stage==1u?120u:123u));
+            if(send(status,controller,0u)!=1)return 0u;
+            ++panicPacket_;
+            return 1u; // one panic CC per callback; no UART flood
         }
         unsigned delivered=0u;
         while(size_>0u && delivered<budget) {
@@ -63,6 +70,6 @@ public:
     }
 private:
     std::array<Message,capacity> queue_{};
-    unsigned head_=0u,size_=0u,panicChannel_=16u;
+    unsigned head_=0u,size_=0u,panicPacket_=48u;
 };
 } // namespace p007
