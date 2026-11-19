@@ -120,6 +120,40 @@ int main() {
     check(!merged.Find(1u,0u),"mixed SF2 fabricated another program");
     check(merged.Find(0u,7u) && merged.Find(0u,7u)->name=="Clavinet",
           "original ROM bank0 replaced by source SoundFont");
+    // P007BK: two real SoundFonts in the same active browser catalog.
+    // A has drums (source bank128), B is sparse melodic-only. Old kit
+    // names and unassigned programs MUST vanish after selecting B,
+    // and B's names must vanish when switching back to A.
+    {
+        std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(b.data()),
+                  static_cast<std::streamsize>(b.size()));
+        check(bool(out),"P007BK write second sparse source SF2 fixture");
+    }
+    AWE125::PresetCatalog sparseSource;
+    check(sparseSource.LoadSoundFont(tmp.string(),error),
+          "P007BK parse fresh source-bank0 SF2 rather than remapped bank1");
+    std::filesystem::remove(tmp,ignored);
+    check(merged.AppendCreativeMelodicUserOneFromSource(sparseSource)==1u,
+          "P007BK sparse user bank 1 not installed on second hot swap");
+    check(merged.Entries().size()==130u && !merged.Find(129u,0u),
+          "P007BK old SF2 bank128 drum-kit leaked after melodic-only swap");
+    check(merged.Find(1u,7u) &&
+          merged.Find(1u,7u)->name=="TX81Z Lately Bass" &&
+          !merged.Find(1u,8u),
+          "P007BK old SF2 preset names retained or sparse bank padded");
+    check(merged.Find(128u,0u) && merged.Find(0u,7u) &&
+          merged.Find(0u,7u)->name=="Clavinet",
+          "P007BK replacing SoundFont must not modify original ROM sounds");
+    check(merged.AppendCreativeMelodicUserOneFromSource(multi)==1u,
+          "P007BK source-bank128 kit failed to reappear on A/B/A reload");
+    check(merged.Entries().size()==131u &&
+          merged.Find(129u,0u) &&
+          merged.Find(129u,0u)->name=="Real Drum Kit" &&
+          merged.Find(1u,7u) &&
+          merged.Find(1u,7u)->name=="Real Bass",
+          "P007BK returning to original SF2 retained stale second-bank names");
+    std::puts("P007BK_SOURCE_SF2_A_B_A_CATALOG_AND_DRUM_CLEANUP_UNIT_PASS");
     // Drum-only file still cannot be claimed as melodic USER bank1.
     AWE125::PresetCatalog onlyDrums;
     onlyDrums.SetOriginalCreativeMidiNumbers();
