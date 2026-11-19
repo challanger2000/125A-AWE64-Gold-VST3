@@ -454,7 +454,7 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                     if(sf2==1 && s==2)
                         return sf2NoMelodicBank_.load(std::memory_order_acquire)
                             ?std::string("SOUNDFONT LOADED | NO MELODIC PRESETS")
-                            :std::string("SOUNDFONT READY | USER BANK 1");
+                            :std::string("SOUNDFONT INSTALLED | AUDIO NOT VERIFIED");
                     if(sf2==-2)
                         return std::string("SOUNDFONT UNAVAILABLE | ROM ACTIVE");
                     if(sf2==-1)
