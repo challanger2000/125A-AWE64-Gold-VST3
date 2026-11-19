@@ -19,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -71,7 +72,8 @@ bool Core::openNonRealtime(const std::wstring& selectedSf2) noexcept {
     bootAssist=reinterpret_cast<BootAssist>(GetProcAddress(module_,"p007_core_guest_boot_assist"));
     guestReadyFn=reinterpret_cast<GuestReady>(GetProcAddress(module_,"p007_midi_guest_ready"));
     guestSf2StatusFn=reinterpret_cast<GuestSf2Status>(GetProcAddress(module_,"p007_midi_guest_sf2_status"));
-    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn||!guestSf2StatusFn){
+    livePublish=reinterpret_cast<LivePublish>(GetProcAddress(module_,"p007_live_soundfont_publish"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn||!guestSf2StatusFn||!livePublish){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -102,9 +104,11 @@ void Core::closeNonRealtime() noexcept {
     stop_.store(true,std::memory_order_release);
     if(emulatorThread_.joinable())emulatorThread_.join();
     reloadPending_.store(false,std::memory_order_release);
+    awaitingSf2Ack_.store(false,std::memory_order_release);
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
     bootAssist=nullptr;guestReadyFn=nullptr;guestSf2StatusFn=nullptr;
+    livePublish=nullptr;
     guestReady_.store(0,std::memory_order_release);
     sf2Result_.store(0,std::memory_order_release);
     if(module_){FreeLibrary(module_);module_=nullptr;}
@@ -121,26 +125,16 @@ bool Core::requestSoundFontReload(const std::wstring& path) noexcept {
             std::lock_guard<std::mutex> lock(reloadMutex_);
             requestedSf2_=path;
         }
+        awaitingSf2Ack_.store(true,std::memory_order_release);
         reloadPending_.store(true,std::memory_order_release);
         return true;
     } catch(...) { return false; }
 }
 void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcept {
-    // Only this worker can stop and recreate the guest. The VST3 editor is
-    // kept alive; the DAW needs no deactivate/reactivate interaction.
-    while(!stop_.load(std::memory_order_acquire)){
-        runPrivateGuestSession(folder,selectedSf2);
-        if(stop_.load(std::memory_order_acquire) ||
-           !reloadPending_.exchange(false,std::memory_order_acq_rel))
-            return;
-        try {
-            std::lock_guard<std::mutex> lock(reloadMutex_);
-            selectedSf2=requestedSf2_;
-        } catch(...) {bootStatus_.store(-12,std::memory_order_release);return;}
-        guestReady_.store(0,std::memory_order_release);
-        sf2Result_.store(0,std::memory_order_release);
-        bootStatus_.store(0,std::memory_order_release);
-    }
+    // Cold-boot the original Win95 guest exactly ONCE per VST3 activation.
+    // Live SoundFont selection uses P007BE file transport in this same
+    // running x86 guest; it never calls pc_close/pc_init to select a bank.
+    runPrivateGuestSession(folder,selectedSf2);
 }
 void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) noexcept {
     namespace fs=std::filesystem;
@@ -235,8 +229,7 @@ void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) 
         bootStatus_.store(1,std::memory_order_release);
         auto next=std::chrono::steady_clock::now();
         std::uint32_t guestMilliseconds=0u;
-        while(!stop_.load(std::memory_order_acquire) &&
-              !reloadPending_.load(std::memory_order_acquire)){
+        while(!stop_.load(std::memory_order_acquire)){
             if(step()!=1){
                 // A failed guest step must stay a FAILED state. The prior
                 // implementation overwrote -3 with 2 after guestClose(),
@@ -254,9 +247,57 @@ void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) 
                 const int source=guestSf2StatusFn();
                 if(source!=0 || sf2Result_.load(std::memory_order_acquire)!=-2)
                     sf2Result_.store(source,std::memory_order_release);
+                // Only a real NEW Creative AWEManager ACK can unlock
+                // the selected user bank. Do not reuse the prior guest's
+                // successfully loaded SF2 or show an unsupported READY.
+                if(source!=0 && awaitingSf2Ack_.load(std::memory_order_acquire)
+                   && !reloadPending_.load(std::memory_order_acquire))
+                    awaitingSf2Ack_.store(false,std::memory_order_release);
             }
             if(guestReadyFn)
                 guestReady_.store(guestReadyFn()?1:0,std::memory_order_release);
+            // Called strictly on the worker between ORIGINAL x86 pc_run
+            // slices, not inside a VST3 process() audio callback.
+            if(reloadPending_.load(std::memory_order_acquire) &&
+               guestReadyFn && guestReadyFn() && livePublish){
+                std::wstring target;
+                {
+                    std::lock_guard<std::mutex> lock(reloadMutex_);
+                    target=requestedSf2_;
+                }
+                // Reading host SoundFont on the emulator worker briefly
+                // pauses 86Box CPU; it does NOT reboot it or edit 86Box
+                // hardware, native Creative driver, or original ROM.
+                std::ifstream input(fs::path(target),std::ios::binary|std::ios::ate);
+                std::vector<std::uint8_t> bytes;
+                if(input) {
+                    const auto size=input.tellg();
+                    if(size>=96 && size<=static_cast<std::streamoff>(
+                        sf2_volume::maxSf2Bytes)) {
+                        bytes.resize(static_cast<std::size_t>(size));
+                        input.seekg(0);
+                        if(!input.read(reinterpret_cast<char*>(bytes.data()),
+                           static_cast<std::streamsize>(bytes.size())))
+                           bytes.clear();
+                    }
+                }
+                if(bytes.empty()){
+                    sf2Result_.store(-2,std::memory_order_release);
+                    awaitingSf2Ack_.store(false,std::memory_order_release);
+                    reloadPending_.store(false,std::memory_order_release);
+                } else {
+                    const int result=livePublish(bytes.data(),
+                         static_cast<std::uint32_t>(bytes.size()));
+                    if(result==1){
+                        sf2Result_.store(0,std::memory_order_release);
+                        reloadPending_.store(false,std::memory_order_release);
+                    }else if(result<0){
+                        sf2Result_.store(-1,std::memory_order_release);
+                        awaitingSf2Ack_.store(false,std::memory_order_release);
+                        reloadPending_.store(false,std::memory_order_release);
+                    } // 0: guest already busy. Retry after its ACK.
+                }
+            }
             next+=std::chrono::milliseconds(1);
             // No guest CPU, disk, timers, or sleep on the DAW audio callback.
             std::this_thread::sleep_until(next);
@@ -448,6 +489,8 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                     selected=selectedSf2Path_;active=activeSf2Path_;
                 }
                 if(!selected.empty()){
+                    if(core_.soundFontReloadPending())
+                        return std::string("SOUNDFONT LOADING");
                     if(selected!=active)
                         return std::string("SOUNDFONT LOADING");
                     const int sf2=core_.guestSf2Status();

@@ -37,6 +37,7 @@ class Core final {
     std::mutex reloadMutex_{};
     std::wstring requestedSf2_{};
     std::atomic<bool> reloadPending_{false};
+    std::atomic<bool> awaitingSf2Ack_{false}; // no stale ROM/SF2 READY during hot swap
     void runPrivateGuestSession(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
@@ -54,6 +55,7 @@ public:
     using BootAssist=int (__cdecl*)(std::uint32_t);
     using GuestReady=int (__cdecl*)();
     using GuestSf2Status=int (__cdecl*)();
+    using LivePublish=int (__cdecl*)(const void*,std::uint32_t);
     Pull pull=nullptr;
     Trim trimBacklog=nullptr;
     Midi midi=nullptr;
@@ -65,6 +67,7 @@ public:
     BootAssist bootAssist=nullptr;
     GuestReady guestReadyFn=nullptr;
     GuestSf2Status guestSf2StatusFn=nullptr;
+    LivePublish livePublish=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
@@ -79,10 +82,15 @@ public:
     // accept MIDI as if it belonged to the newly selected SoundFont.
     [[nodiscard]] bool guestReady() const noexcept {
         return !reloadPending_.load(std::memory_order_acquire) &&
+               !awaitingSf2Ack_.load(std::memory_order_acquire) &&
                guestReady_.load(std::memory_order_acquire)!=0;
     }
+    [[nodiscard]] bool soundFontReloadPending() const noexcept {
+        return reloadPending_.load(std::memory_order_acquire) ||
+               awaitingSf2Ack_.load(std::memory_order_acquire);
+    }
     [[nodiscard]] int guestSf2Status() const noexcept {
-        return reloadPending_.load(std::memory_order_acquire)?0:
+        return soundFontReloadPending()?0:
                sf2Result_.load(std::memory_order_acquire);
     }
 };
