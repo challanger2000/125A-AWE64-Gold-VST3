@@ -63,6 +63,18 @@ inline bool distinguishBanks(const Window& sf2,const Window& rom) noexcept {
     return levelDifferent||peakDifferent||spectrumDifferent;
 }
 
+// P007BM: A/B/A must prove that reloading A restores A's measured sound,
+// not merely that the second and third banks differ. This intentionally
+// uses the existing conservative RMS/peak/temporal-content gates and is
+// a coarse PCM-fingerprint check, NOT a bit-identical waveform assertion.
+inline bool restoredAfterAlternate(const Window& first,
+                                   const Window& alternate,
+                                   const Window& restored) noexcept {
+    return distinguishBanks(first,alternate) &&
+           distinguishBanks(restored,alternate) &&
+           !distinguishBanks(first,restored);
+}
+
 inline bool accept(const Window& before,const Window& after,
                    double sampleRate=44100.) noexcept {
     if(!std::isfinite(sampleRate)||sampleRate<22050.||sampleRate>384000.)

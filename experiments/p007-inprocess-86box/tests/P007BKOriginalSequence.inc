@@ -246,8 +246,22 @@ void privateOriginalMultiSf2DrumSequence(
         installUserBank(vintage,progA,
             "P007BK_VINTAGE_DREAMS_THIRD_HOT_LOAD_ACK_PASS");
         const auto again=playVoice("VINTAGE_RETURN",1u,progA,60);
-        require(p007::original_audio_proof::distinguishBanks(again,audioB),
-            "P007BK_RELOADED_VINTAGE_SOUNDS_LIKE_PRIOR_SF2");
+        // A/B/A must return to A, not simply sound unlike B.
+        // Compare original EMU8000 PCM summaries; allow small natural
+        // guest timing/level variation without treating a wrong bank as A.
+        std::printf("P007BM_ABA_ORIGINAL_PCM_FINGERPRINTS"
+                    " vintage_first_rms=%.9f peak=%.9f rough=%.9f"
+                    " second_rms=%.9f peak=%.9f rough=%.9f"
+                    " vintage_return_rms=%.9f peak=%.9f rough=%.9f\n",
+                    audioA.rms(),audioA.peak,audioA.roughness(),
+                    audioB.rms(),audioB.peak,audioB.roughness(),
+                    again.rms(),again.peak,again.roughness());
+        std::fflush(stdout);
+        require(p007::original_audio_proof::restoredAfterAlternate(
+                    audioA,audioB,again),
+                "P007BM_VINTAGE_RETURN_PCM_NOT_CONSISTENT_WITH_FIRST_VINTAGE");
+        std::puts("P007BM_VINTAGE_RETURN_MATCHES_FIRST_VINTAGE_PCM_PASS");
+        std::fflush(stdout);
         require(publishCount()==3u && completeCount()==3u &&
                 failCount()==0u && bootCount()==1u,
             "P007BK_THREE_LIVE_SF2_LOADS_WERE_NOT_ONE_WIN95_BOOT");

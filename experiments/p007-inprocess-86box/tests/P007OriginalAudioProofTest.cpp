@@ -59,6 +59,21 @@ int main() {
                 "equal RMS and peak but different timbre wrongly rejected");
         require(!p007::original_audio_proof::distinguishBanks(quiet,note),
                 "non-silent source cannot be omitted for SF2/ROM comparison");
+        // P007BM: genuine A->B->A must recover the first bank fingerprint.
+        // Deliberately replaying B, omitting audio, or never switching to B
+        // must fail rather than collecting another misleading green result.
+        using p007::original_audio_proof::restoredAfterAlternate;
+        require(restoredAfterAlternate(tone440,tone1760,tone440Copy),
+                "A/B/A exact tone replay rejected");
+        require(restoredAfterAlternate(tone440,tone1760,tone440SlightGain),
+                "A/B/A safe two-percent replay gain drift rejected");
+        require(!restoredAfterAlternate(tone440,tone1760,tone1760),
+                "A/B/B mistaken for A/B/A original bank recovery");
+        require(!restoredAfterAlternate(tone440,tone1760,quiet),
+                "A/B/silent falsely accepted as bank recovery");
+        require(!restoredAfterAlternate(tone440,tone440Copy,tone440Copy),
+                "A/A/A without different second bank accepted");
+        std::puts("P007BM_ABA_RECOVERY_POSITIVE_AND_NEGATIVE_CONTROLS_PASS");
         std::puts("P007AW_SPECTRAL_BANK_DIFFERENCE_NEGATIVE_CONTROLS_PASS"
                   " identical_rejected=1 gain_drift_rejected=1"
                   " equal_rms_different_frequency_accepted=1");
