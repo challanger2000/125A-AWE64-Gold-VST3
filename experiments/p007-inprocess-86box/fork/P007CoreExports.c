@@ -200,6 +200,11 @@ P007_EXPORT void p007_core_guest_close(void) {
     if (s_guest_stage != 1) return;
     pc_close(NULL);
     video_setblit(NULL);
+    /* The guest has been torn down; clear all Creative WinMM ACK/serial
+       parser and queued MIDI bytes before a fresh Win95 boot. Otherwise
+       stale READY+SF2-OK from the old guest wrongly marks the new guest
+       ready before the Creative driver even starts. */
+    p007_midi_reset_quiescent();
     SDL_Quit();
     /* Original 86Box was written for one process launch. The adapter must
        re-arm its lifecycle latches after a full device teardown; otherwise
