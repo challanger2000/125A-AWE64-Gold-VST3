@@ -367,6 +367,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             auto next=std::chrono::steady_clock::now();
             for(unsigned iteration=0;iteration<100;++iteration) {
                 events.clear();
+                // P007BA actual VST3 integration negative control: hosts
+                // may resend unchanged automation at every buffer. The
+                // BankProgramPacer MUST still reach COMMIT; otherwise all
+                // NoteOn/Off and the original selected timbre starve.
+                require(plugin.controller->setParamNormalized(bankId,3./127.)==kResultOk &&
+                        plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
+                        "P007BA repeated identical host bank/program automation rejected");
                 if(iteration==5 || iteration==30 ||
                    iteration==40 || iteration==41) {
                     Event e{};
@@ -448,6 +455,7 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             }
             require(noteOnCounter()>=2u && noteOffCounter()>=1u,
                     "host MIDI did not reach synthetic in-process guest core");
+            std::puts("P007BA_ACTUAL_WINDOWS_VST3_REPEATED_BANK_PROGRAM_AUTOMATION_SETTLES_PASS");
             require(noteOffRejections()==1u && noteOnOvertakes()==0u,
                     "P007AQ dropped rejected NoteOff or let later NoteOn overtake it");
             std::puts("P007AQ_REJECTED_NOTE_OFF_DELIVERED_BEFORE_LATER_NOTE_ON_PASS");
