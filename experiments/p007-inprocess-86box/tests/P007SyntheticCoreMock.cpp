@@ -20,6 +20,7 @@ constexpr std::uint32_t kRingFrames=1u<<16;
 float samples[kRingFrames*2u]{};
 std::atomic<std::uint64_t> produced{0},consumed{0};
 std::atomic<int> ready{0},enabled{0};
+std::atomic<bool> failNextStep{false};
 std::atomic<unsigned> noteOn{0},noteOff{0},program{0},bank{0},panic{0};
 std::atomic<unsigned> bankRejects{0},programRejects{0},rejected{0};
 std::atomic<unsigned> nrpnParam{0},nrpnHigh{0},nrpnFilterCount{0},nrpnFilterRaw{0},
@@ -115,6 +116,7 @@ P007_MOCK_EXPORT int __cdecl p007_core_init_profile(
 P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     produced.store(0);consumed.store(0);steps=0;
     ready.store(0);enabled.store(0);
+    failNextStep.store(false,std::memory_order_release);
     noteOn.store(0);noteOff.store(0);program.store(0);bank.store(0);panic.store(0);
     bankRejects.store(0);programRejects.store(0);rejected.store(0);
     nrpnParam.store(0);nrpnHigh.store(0);nrpnFilterCount.store(0);
@@ -123,6 +125,9 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     return 1;
 }
 P007_MOCK_EXPORT int __cdecl p007_core_guest_step() {
+    // Inject a fatal guest failure AFTER original-style READY. The plugin
+    // must expose the failure, close the guest and reject old FIFO PCM.
+    if(failNextStep.exchange(false,std::memory_order_acq_rel))return 0;
     ++steps;
     if(steps>=20u){ready.store(1,std::memory_order_release);enabled.store(1);}
     // 44.1 kHz synthetic constant stereo signal, not Creative content.
@@ -134,6 +139,15 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot_assist(std::uint32_t) {
 }
 P007_MOCK_EXPORT void __cdecl p007_core_guest_close() {
     enabled.store(0);ready.store(0);
+}
+P007_MOCK_EXPORT void __cdecl p007_mock_fail_next_guest_step() {
+    failNextStep.store(true,std::memory_order_release);
+}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_uart_enabled() {
+    return static_cast<unsigned>(enabled.load(std::memory_order_acquire));
+}
+P007_MOCK_EXPORT unsigned __cdecl p007_mock_guest_is_ready() {
+    return static_cast<unsigned>(ready.load(std::memory_order_acquire));
 }
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteon_count() {return noteOn.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteoff_count(){return noteOff.load();}
