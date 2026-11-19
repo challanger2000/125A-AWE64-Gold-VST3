@@ -216,7 +216,9 @@ static int p007_load_original_creative_sf2(void){
  }
  clear(filename,sizeof(filename));
  (void)lstrcpyA(filename,path);
- b.m_Size=sizeof(filename);
+ /* Creative's 1996 SetUserBank reference passes nStrlen, not the
+  * 128-byte capacity of the local filename array. */
+ b.m_Size=(DWORD)lstrlenA(filename)+1u;
  b.m_Buffer=filename;
  b.m_SizeUsed=0u;
  b.m_Flag=0u; /* OPER_FILE */
@@ -226,6 +228,27 @@ static int p007_load_original_creative_sf2(void){
     (void)s_creative_manager(s_creative_handle,102u,0,0);
     s_creative_handle=0u;
     FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+ }
+ /* The original AWEMAN32 API returns success for the LOAD command,
+  * but that return code alone does not prove a usable user bank exists.
+  * Creative's published AWE_GET_USER_BANK=BASE_QUERY+6 (306) provides
+  * an independent descriptor after the user-bank installation.
+  * Keep the original Creative driver and the original sound engine. */
+ {
+    char descriptor[64];
+    P007_CREATIVE_FILE_BUFFER verify;
+    LONG qrc;
+    clear(descriptor,sizeof(descriptor));
+    clear(&verify,sizeof(verify));
+    verify.m_Size=sizeof(descriptor);
+    verify.m_Buffer=descriptor;
+    qrc=s_creative_manager(s_creative_handle,306u,1u,(LPARAM)&verify);
+    if(qrc!=0 || verify.m_SizeUsed<=2u ||
+       verify.m_SizeUsed>sizeof(descriptor) || descriptor[0]==0) {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_MISSING\r\n");
+       return -1;
+    }
+    log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_PRESENT\r\n");
  }
  log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_API_LOADED\r\n");
  return 1;
@@ -237,8 +260,12 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
  unsigned char bytes[P007_PACKET_SIZE],byte=0;
  unsigned count=0;DWORD got=0;
  log_line("P007 Windows95 original Creative AWE WinMM relay\r\n");
- if(!select_original(&synth))ExitProcess(2);
+ /* Follow the original Creative control-panel workflow: install
+  * the user bank BEFORE opening the WinMM synthesizer stream. Previously
+  * midiOutOpen happened first and could retain an older bank map.
+  * AWEManager's state is kept open for the entire guest relay lifetime. */
  sf2_result=p007_load_original_creative_sf2();
+ if(!select_original(&synth))ExitProcess(2);
  /* First request Win95 VCOMM port ownership. If that original driver
   * reports ERROR_FILE_NOT_FOUND, use the real 16550 x86 port I/O fallback,
   * as proven by the first full original Creative->EMU8000 PCM test.
