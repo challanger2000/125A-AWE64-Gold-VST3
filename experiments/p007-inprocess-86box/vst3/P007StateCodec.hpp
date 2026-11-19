@@ -9,6 +9,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <utility>
 namespace p007::state {
 using LegacyImage=std::array<std::uint8_t,16>;
 using Image=std::array<std::uint8_t,44>;
@@ -104,7 +105,7 @@ inline std::vector<std::uint8_t> encodeWithSf2(
     return bytes;
 }
 inline bool decodeWithSf2(const std::vector<std::uint8_t>& bytes,
-                          Values& output,std::string& utf8Path) noexcept {
+                          Values& output,std::string& utf8Path) {
     if(bytes.size()<50u || bytes.size()>50u+maxSf2PathBytes ||
        bytes[0]!='P'||bytes[1]!='7'||bytes[2]!='S'||bytes[3]!='T'||
        bytes[4]!=3u||bytes[5]>127u||bytes[6]>127u||
