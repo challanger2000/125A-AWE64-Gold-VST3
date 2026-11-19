@@ -89,6 +89,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     MidiDelivery midiDelivery_{}; // audio-thread only; retries rejected UART note packets
     mutable std::mutex sf2StateMutex_{}; // non-RT state/UI lifecycle only
     std::string selectedSf2Path_{}; // UTF-8; selected for the NEXT activation
+    std::string activeSf2Path_{}; // user selection at the last successful activation
     bool confirmedSf2Catalog_=false; // UI thread only; never fake selected presets
     std::atomic<std::uint64_t> sf2CatalogRevision_{1u};
     [[nodiscard]] int p165GuestStatus() const noexcept;
