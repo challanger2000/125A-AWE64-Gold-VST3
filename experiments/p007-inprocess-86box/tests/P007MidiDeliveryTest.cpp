@@ -33,7 +33,8 @@ int main(){
           "MIDI delivery order changed");
     check(!fifo.pending()&&!fifo.panicPending(),"queue not empty");
     // Robust overflow policy: stale NoteOns must not be transmitted after
-    // a missing NoteOff was stranded. Escalate to MIDI CC123 on ALL channels.
+    // a missing NoteOff was stranded. Do NOT leave the sustain pedal latched.
+    // Escalate to ordered CC64=0, CC120=0, CC123=0 on ALL 16 channels.
     fifo.reset();
     const auto blocked=[](auto,auto,auto){return 0;};
     for(unsigned i=0u;i<MidiDelivery::capacity;++i)
@@ -43,25 +44,40 @@ int main(){
     check(fifo.pending()==0u&&fifo.panicPending(),"panic not requested at overflow");
     check(!fifo.submit(0x90u,66u,90u,flaky),"NoteOn accepted during panic");
     auto failedCC=true;
-    std::array<bool,16> covered{};
+    unsigned deliveredPanic=0u;
+    std::array<unsigned,16> covered{};
     const auto panic=[&](unsigned char status,unsigned char ctl,unsigned char value){
         if(failedCC){failedCC=false;return 0;}
-        check((status&0xf0u)==0xb0u&&ctl==123u&&value==0u,
-              "panic used nonstandard MIDI packet");
+        check((status&0xf0u)==0xb0u&&value==0u,
+              "panic used nonstandard MIDI CC packet");
         const unsigned channel=status&15u;
-        check(!covered[channel],"panic channel repeated");
-        covered[channel]=true;
+        check(channel==deliveredPanic/3u,
+              "panic changed channel ordering");
+        const unsigned expected=deliveredPanic%3u==0u?64u:
+                               (deliveredPanic%3u==1u?120u:123u);
+        check(ctl==expected,
+              "panic did not release sustain before all sounds/notes off");
+        ++deliveredPanic;
+        ++covered[channel];
         return 1;
     };
     check(fifo.drain(panic)==0u&&fifo.panicPending(),
           "rejected panic packet lost");
-    for(unsigned ch=0;ch<16u;++ch)
-        check(fifo.drain(panic)==1u,"not every channel got CC123");
+    // Every packet gets the chance to fail independently; it must stay
+    // pending, never skip to the next channel or CC when rejected.
+    for(unsigned n=0;n<48u;++n) {
+        check(fifo.drain(panic)==1u,
+              "not every channel got CC64, CC120 and CC123");
+        if(n<47u)
+            check(fifo.panicPending(),
+                  "panic ended before all 16 channels were silenced");
+    }
     check(!fifo.panicPending(),"panic never completed");
-    for(bool done:covered)check(done,"MIDI channel missed by panic");
+    check(deliveredPanic==48u,"panic emitted wrong CC count");
+    for(unsigned done:covered)check(done==3u,"MIDI channel missed a safety CC");
     check(fifo.submit(0x90u,64u,90u,flaky),"healthy UART not restored");
     fifo.reset();
     check(!fifo.pending()&&!fifo.panicPending(),"reset failed");
-    std::puts("P007AQ_BOUNDED_ORDERED_UART_RETRY_AND_OVERFLOW_PANIC_PASS");
+    std::puts("P007AT_BOUNDED_ORDERED_UART_RETRY_AND_SUSTAIN_SAFE_OVERFLOW_PANIC_PASS");
     std::puts("P007AQ_SYNTHETIC_UNIT_TEST_NO_WIN95_ORIGINAL_AUDIO_CLAIM");
 }
