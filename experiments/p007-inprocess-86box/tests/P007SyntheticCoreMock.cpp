@@ -180,6 +180,9 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot_assist(std::uint32_t) {
 P007_MOCK_EXPORT void __cdecl p007_core_guest_close() {
     enabled.store(0);ready.store(0);
 }
+P007_MOCK_EXPORT unsigned __cdecl p007_core_guest_cold_boot_count() {
+    return 0u; /* synthetic fixture has never booted original guest CPU */
+}
 P007_MOCK_EXPORT void __cdecl p007_mock_fail_next_guest_step() {
     failNextStep.store(true,std::memory_order_release);
 }

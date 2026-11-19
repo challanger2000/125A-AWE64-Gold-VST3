@@ -114,7 +114,11 @@ static void p007_headless_blit(int x,int y,int w,int h,int monitor_index) {
     video_blit_complete_monitor(monitor_index);
 }
 static int s_guest_stage;
+static unsigned s_real_guest_cold_boots;
 P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
+P007_EXPORT unsigned p007_core_guest_cold_boot_count(void) {
+    return s_real_guest_cold_boots;
+}
 
 /* Private Win95 cold-boot aids, exclusively on the emulator worker thread.
    All keystrokes use ORIGINAL 86Box keyboard hardware inside the guest;
@@ -188,6 +192,7 @@ P007_EXPORT int p007_core_guest_boot(void) {
     pc_reset_hard_init();
     /* Private file-transfer hardware; no original CPU/EMU8000 changes. */
     p007_live_soundfont_attach();
+    ++s_real_guest_cold_boots; /* actual original x86 cold reset count */
     s_f1_release_at=s_enter_release_at=0u;
     s_win95_start_at=s_last_enter_at=0u;
     s_f1_sent=s_win95_seen=s_enter_count=0u;
