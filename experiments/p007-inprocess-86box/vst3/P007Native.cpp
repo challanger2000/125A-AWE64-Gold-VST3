@@ -21,6 +21,7 @@
 #include <system_error>
 #include <thread>
 #include <cwchar>
+#include <vector>
 namespace p007 {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -441,7 +442,12 @@ tresult PLUGIN_API Plugin::getState(IBStream* stream) {
     };
     for(unsigned i=0;i<creative_nrpn::count;++i)
         values.modulation[i]=creativeMod_[i].load(std::memory_order_acquire);
-    const auto bytes=state::encode(values);
+    const auto path=selectedSf2Path();
+    const auto v2=state::encode(values);
+    std::vector<std::uint8_t> bytes;
+    if(path.empty()) bytes.assign(v2.begin(),v2.end());
+    else bytes=state::encodeWithSf2(values,path);
+    if(bytes.empty())return kResultFalse;
     int32 written=0;
     const auto result=stream->write(const_cast<std::uint8_t*>(bytes.data()),
             static_cast<int32>(bytes.size()),&written);
@@ -456,6 +462,7 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
                     &received)!=kResultOk ||
        received!=static_cast<int32>(header.size()))return kResultFalse;
     state::Values values{};
+    std::string selectedPath; // empty for legacy or original ROM-only states
     if(header[4]==1u) {
         if(!state::decode(header,values))return kResultFalse;
     }else if(header[4]==2u) {
@@ -466,7 +473,33 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
                 state::Image{}.size()-state::LegacyImage{}.size());
         if(stream->read(image.data()+header.size(),tail,&received)!=kResultOk ||
            received!=tail||!state::decode(image,values))return kResultFalse;
+    }else if(header[4]==3u) {
+        // Read the bounded variable-length UTF-8 path with exact counts
+        // and checksum BEFORE updating any live plugin parameter.
+        std::array<std::uint8_t,46u> prefix{};
+        std::copy(header.begin(),header.end(),prefix.begin());
+        received=0;
+        constexpr int32 more=46-16;
+        if(stream->read(prefix.data()+16u,more,&received)!=kResultOk ||
+           received!=more)return kResultFalse;
+        const unsigned n=unsigned(prefix[44])+(unsigned(prefix[45])<<8u);
+        if(n==0u||n>state::maxSf2PathBytes)return kResultFalse;
+        try{
+            std::vector<std::uint8_t> image(prefix.begin(),prefix.end());
+            image.resize(50u+n);
+            received=0;
+            const int32 remain=static_cast<int32>(n+4u);
+            if(stream->read(image.data()+46u,remain,&received)!=kResultOk ||
+               received!=remain ||
+               !state::decodeWithSf2(image,values,selectedPath))
+                return kResultFalse;
+        }catch(...){return kResultFalse;}
     }else return kResultFalse;
+    {
+        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+        selectedSf2Path_=std::move(selectedPath);
+        confirmedSf2Catalog_=false;
+    }
     // In a combined IComponent+IEditController, restore BOTH the original
     // Creative MIDI engine parameters and the visible P165 host automation.
     (void)setParamNormalized(kP165Bank,double(values.bank)/127.);
