@@ -2515,11 +2515,15 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
     if(active)(void)plugin.component->setActive(false);
 }
 
+// Dedicated genuine 86Box/Win95/Creative A/B/A and channel-10 bank test.
+// Included here to reuse the established real Steinberg Windows VST3 host.
+#include "P007BKOriginalSequence.inc"
 } // namespace
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==4 && (std::strcmp(argv[2],"--private-sf2")==0 ||
+        require(argc==2 || (argc==5 && std::strcmp(argv[2],"--private-sequence")==0) ||
+                (argc==4 && (std::strcmp(argv[2],"--private-sf2")==0 ||
                                   std::strcmp(argv[2],"--private-hot-sf2")==0)) || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--private-spectrum")==0 || std::strcmp(argv[2],"--private-filter-corrected")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
@@ -2541,6 +2545,11 @@ int main(int argc,char** argv) {
             privateSoundFontAudio(factory,choice->ID(),host.get(),bundle,
                                   fs::absolute(fs::path(argv[3])),
                                   std::strcmp(argv[2],"--private-hot-sf2")==0);
+        if(argc==5 && std::strcmp(argv[2],"--private-sequence")==0)
+            privateOriginalMultiSf2DrumSequence(
+                factory,choice->ID(),host.get(),bundle,
+                fs::absolute(fs::path(argv[3])),
+                fs::absolute(fs::path(argv[4])));
         if(argc==3 && std::strcmp(argv[2],"--synthetic")==0)
             syntheticGuestAudio(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-audio")==0)
