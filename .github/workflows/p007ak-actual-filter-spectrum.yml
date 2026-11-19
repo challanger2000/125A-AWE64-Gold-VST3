@@ -1,7 +1,7 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
