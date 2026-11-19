@@ -177,7 +177,7 @@ jobs:
           foreach($d in @('vm','roms','assets')){
             New-Item -ItemType Directory -Force -Path (Join-Path $vmroot $d) | Out-Null
           }
-          Set-Content -Path (Join-Path $vmroot 'vm/P007_AWE64.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
+          Set-Content -Path (Join-Path $vmroot 'vm/P007_AWE64.cfg') -Value @('[Hard disks]', 'hdd_01_fn = win95.img', '[Ports (COM & LPT)]', 'serial2_enabled = 1')
           Set-Content -Path (Join-Path $vmroot 'vm/win95.img') -Value 'NOT_A_REAL_WIN95_DISK'
           Set-Content -Path (Join-Path $vmroot '86box.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
           Set-Content -Path (Join-Path $vmroot 'P007_SYNTHETIC_TEST_ONLY.marker') -Value 'NEVER_ORIGINAL'
