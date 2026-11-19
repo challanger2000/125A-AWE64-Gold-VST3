@@ -889,8 +889,12 @@ void PresetBrowserView::Sync(bool force) {
             knob->setValue(value);knob->invalid();
         }
         char label[16]{};
-        std::snprintf(label,sizeof(label),"%d%%",int(std::lround(value*100.)));
-        values_[size_t(i)]->setText(label); // host-backed original Creative NRPN
+        if(i<10 && value<.00005f)
+            std::snprintf(label,sizeof(label),"DEFAULT");
+        else
+            std::snprintf(label,sizeof(label),"%d%%",
+                          int(std::lround(value*100.)));
+        values_[size_t(i)]->setText(label); // 0 tone = original SF2 value
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
@@ -928,11 +932,14 @@ void PresetBrowserView::Sync(bool force) {
 void PresetBrowserView::SyncSf2Status() {
     if(!hint_||!sf2StatusProvider_)return;
     std::string text=sf2StatusProvider_();
-    if(text.empty())text="SF2-Status noch nicht verfuegbar.";
+    if(text.empty())text="SOUNDFONT STATUS UNAVAILABLE";
     if(text==lastStatus_)return;
     lastStatus_=text;
     hint_->setText(text.c_str());
-    const bool err=text.find("Fehler")!=std::string::npos;
+    const bool err=text.find("ERROR")!=std::string::npos ||
+        text.find("FAILED")!=std::string::npos ||
+        text.find("REJECTED")!=std::string::npos ||
+        text.find("UNAVAILABLE")!=std::string::npos;
     hint_->setFontColor(err?CColor(112,30,18,255):CColor(63,47,13,255));
 }
 void PresetBrowserView::SyncHardwareInfo() {

@@ -638,10 +638,27 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
                 return kResultFalse;
         }catch(...){return kResultFalse;}
     }else return kResultFalse;
+    bool changedLivePath=false;
     {
         std::lock_guard<std::mutex> lock(sf2StateMutex_);
-        selectedSf2Path_=std::move(selectedPath);
+        changedLivePath=(selectedSf2Path_!=selectedPath);
+        selectedSf2Path_=selectedPath;
         confirmedSf2Catalog_=false;
+    }
+    // Host projects may restore SF2 state on an ALREADY ACTIVE plugin.
+    // Queue the same no-reboot original-Creative load as the GUI file
+    // picker, otherwise "project recall" merely changes a text label.
+    if(active_ && changedLivePath && !selectedPath.empty()) {
+        try {
+            const auto file=std::filesystem::u8path(selectedPath);
+            if(core_.requestSoundFontReload(file.wstring())) {
+                std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                activeSf2Path_=selectedPath;
+            }
+        } catch(...) {
+            // Preserve the validated DAW project parameter state; the
+            // guest stays on original ROM and the new SF2 is NOT READY.
+        }
     }
     sf2CatalogResetPending_.store(true,std::memory_order_release);
     // In a combined IComponent+IEditController, restore BOTH the original
