@@ -54,6 +54,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007AW synthetic SF2-versus-ROM waveform fingerprint adversarial controls
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalAudioProofTest.cpp -o build/P007OriginalAudioProofTest.exe
+          build/P007OriginalAudioProofTest.exe
       - name: P007AL corrected filter spectrum and Creative NRPN15 synthetic-only unit tests
         run: |
           set -euo pipefail
