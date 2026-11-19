@@ -19,6 +19,10 @@ namespace {
 constexpr std::uint32_t kRingFrames=1u<<16;
 float samples[kRingFrames*2u]{};
 std::atomic<std::uint64_t> produced{0},consumed{0};
+// Synthetic-only metric of how many native PCM samples the actual VST3
+// output adapter requested BEFORE the mock UART accepted MIDI. Distinct
+// from the asynchronous original EMU8000 guest's hardware timing.
+std::atomic<std::uint64_t> requestedNativeFrames{0},offsetNoteAt{0};
 std::atomic<int> ready{0},enabled{0};
 std::atomic<bool> failNextStep{false};
 std::atomic<unsigned> noteOn{0},noteOff{0},program{0},bank{0},panic{0};
@@ -90,7 +94,12 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
         if(parameter==26u && value==0u)dryReverb.fetch_add(1u);
         if(parameter==25u && value==0u)dryChorus.fetch_add(1u);
     }
-    if(status==0x90u&&d2>0u)noteOn.fetch_add(1);
+    if(status==0x90u&&d2>0u) {
+        noteOn.fetch_add(1);
+        if(d1==64u)
+            offsetNoteAt.store(requestedNativeFrames.load(
+                std::memory_order_acquire),std::memory_order_release);
+    }
     if(status==0x80u||(status==0x90u&&d2==0u))noteOff.fetch_add(1);
     if(status==0xc0u)program.store(unsigned(d1)+1u);
     if(status==0xb0u&&d1==32u)bank.store(unsigned(d2)+1u);
@@ -99,6 +108,7 @@ P007_MOCK_EXPORT int __cdecl p007_midi_submit(
 }
 P007_MOCK_EXPORT std::uint32_t __cdecl p007_audio_pull(float* out,std::uint32_t frames) {
     if(!out)return 0;
+    requestedNativeFrames.fetch_add(frames,std::memory_order_acq_rel);
     const auto rd=consumed.load(std::memory_order_relaxed);
     const auto wr=produced.load(std::memory_order_acquire);
     const auto available=wr-rd;
@@ -132,6 +142,7 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot() {
     ready.store(0);enabled.store(0);
     failNextStep.store(false,std::memory_order_release);
     noteOn.store(0);noteOff.store(0);program.store(0);bank.store(0);panic.store(0);
+    requestedNativeFrames.store(0);offsetNoteAt.store(0);
     bankRejects.store(0);programRejects.store(0);rejected.store(0);
     noteOffRejections.store(0);noteOnOvertakes.store(0);
     awaitingNoteOffRetry.store(false);
@@ -164,6 +175,12 @@ P007_MOCK_EXPORT unsigned __cdecl p007_mock_uart_enabled() {
 }
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_guest_is_ready() {
     return static_cast<unsigned>(ready.load(std::memory_order_acquire));
+}
+P007_MOCK_EXPORT std::uint64_t __cdecl p007_mock_requested_native_frames() {
+    return requestedNativeFrames.load(std::memory_order_acquire);
+}
+P007_MOCK_EXPORT std::uint64_t __cdecl p007_mock_offset_note_at() {
+    return offsetNoteAt.load(std::memory_order_acquire);
 }
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteon_count() {return noteOn.load();}
 P007_MOCK_EXPORT unsigned __cdecl p007_mock_noteoff_count(){return noteOff.load();}
