@@ -61,8 +61,10 @@ P007_MOCK_EXPORT int __cdecl p007_midi_guest_sf2_status() {
 P007_MOCK_EXPORT int __cdecl p007_live_soundfont_publish(
     const void*,std::uint32_t) {
     // Public test core never has real Windows95 nor original Creative.
-    // ABI is present, but any attempted "load" must fail CLOSED.
     return -1;
+}
+P007_MOCK_EXPORT int __cdecl p007_live_soundfont_state() {
+    return 0; // public test never stages any real SoundFont bytes
 }
 P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     std::uint8_t status,std::uint8_t d1,std::uint8_t d2) {

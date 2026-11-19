@@ -38,6 +38,7 @@ class Core final {
     std::wstring requestedSf2_{};
     std::atomic<bool> reloadPending_{false};
     std::atomic<bool> awaitingSf2Ack_{false}; // no stale ROM/SF2 READY during hot swap
+    std::atomic<bool> liveTransferInFlight_{false}; // old ACK cannot approve newly queued SF2
     void runPrivateGuestSession(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
@@ -56,6 +57,7 @@ public:
     using GuestReady=int (__cdecl*)();
     using GuestSf2Status=int (__cdecl*)();
     using LivePublish=int (__cdecl*)(const void*,std::uint32_t);
+    using LiveState=int (__cdecl*)();
     Pull pull=nullptr;
     Trim trimBacklog=nullptr;
     Midi midi=nullptr;
@@ -68,6 +70,7 @@ public:
     GuestReady guestReadyFn=nullptr;
     GuestSf2Status guestSf2StatusFn=nullptr;
     LivePublish livePublish=nullptr;
+    LiveState liveState=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
