@@ -34,6 +34,7 @@
 #include <memory>
 #include <stdexcept>
 #include <fstream>
+#include <iterator>
 #include <vector>
 #include <string>
 #include <thread>
@@ -2335,7 +2336,7 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         std::printf("P007AX_ORIGINAL_EMU8000_BANK_REGISTER_DIAG"
             " sf2_events=%llu sf2_hash=%016llx"
             " rom_events=%llu rom_hash=%016llx"
-            " real_guest=1 synthetic=0\\n",
+            " real_guest=1 synthetic=0\n",
             static_cast<unsigned long long>(chipWrites[0].size()),
             static_cast<unsigned long long>(hashRegisters(chipWrites[0])),
             static_cast<unsigned long long>(chipWrites[1].size()),
@@ -2346,11 +2347,11 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         {
             std::ofstream f(csvPath,std::ios::binary);
             require(bool(f),"P007AX cannot write genuine register evidence CSV");
-            f<<"bank,program,serial,chip_frame_44100,io_port_hex,register_word_hex\\n";
+            f<<"bank,program,serial,chip_frame_44100,io_port_hex,register_word_hex\n";
             for(unsigned bank=0;bank<2;++bank){
                 for(const auto& e:chipWrites[bank]){
                     char entry[128]{};
-                    std::snprintf(entry,sizeof(entry),"%u,%u,%u,%llu,%04X,%04X\\n",
+                    std::snprintf(entry,sizeof(entry),"%u,%u,%u,%llu,%04X,%04X\n",
                         bank==0?1u:0u,testProgram,e.serial,
                         static_cast<unsigned long long>(e.frame),
                         unsigned(e.port),unsigned(e.value));
