@@ -32,4 +32,14 @@ Diese adversarialen Einheiten- und Windows-MSVC-Builds ersetzen **keinen neuen p
 - `P007AP_REAL_WINDOWS_VST3_FAILURE_INJECTION_AND_MULTIPLE_ACTIVATION_GUARDS_PASS` — zweiter simultaner Gaststart abgelehnt, ohne erstes Original-86Box-Gast-MIDI zu deaktivieren. Kein Nachweis paralleler voller Gastinstanzen.
 - `P007AV_PUBLIC_CANNOT_FAKE_ORIGINAL_WIN95_SF2_PCM_PASS` — ohne private lizenzierte Original-VM keine echte Originalklangbehauptung.
 
-**Offen vor finaler Nutzer-Freigabe:** einmaliger privater Win95-Regressionslauf für den geänderten echten MIDI-Serial-Bridge-Datentransport; erst danach ein abschließender Studio-One-/Fender-Studio-Pro-Praxistest.
+**P007BA private Original-Win95-Regressionsprüfung am 19.11.2026: PASS.** Eigentümerdatei `P007AV-ORIGINAL-SF2-ERGEBNIS(5).txt` (bleibt privat, nicht auf GitHub):
+- `P007AV_REAL_WIN95_CREATIVE_SF2_LOAD_ACK_PASS sf2_bytes=555754 original_cpu=1 winmm_ready=1`.
+- `P007AX_ORIGINAL_EMU8000_BANK_REGISTER_DIAG sf2_events=304 sf2_hash=6bdf0d0c0ae82066 rom_events=76 rom_hash=38e73cd316bcfdee real_guest=1 synthetic=0`.
+- SF2-Bank 1 / Programm 7: `sf2_frames=108544`, `sf2_rms=0.006576886`, `sf2_peak=0.098480225`, `sf2_rough=0.047656031`.
+- ROM-Bank 0 / Programm 7: `rom_frames=108544`, `rom_rms=0.003351212`, `rom_peak=0.026092529`, `rom_rough=0.276553139`, `baseline_rms=0.000000000`.
+- `P007AV_REAL_ORIGINAL_CREATIVE_SF2_BANK1_TO_EMU8000_PCM_PASS`, `P007AV_REAL_WIN95_ORIGINAL_ROM_BANK0_RETURN_PCM_PASS`, `P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS`.
+- Abschluss `P007AV_OWNER_PRIVATE_ORIGINAL_CREATIVE_SF2_AND_ROM_E2E_PASS`; die einmalige `Illegal instruction` aus dem internen 86Box-Debuglog hat die Gastinitialisierung nicht beeinträchtigt.
+
+**Grenze:** Der private Test beweist den originalen SoundFont-Bankwechsel und ROM-Rücksprung mit der aktualisierten Bridge, aber keine Mehrnoten-/Akkord-Überlastsituation. Die verlustfreie 128-Paket-Gegenprobe ist ein deterministischer synthetischer Unit-Test. Vor einem pauschalen Polyphonie-Versprechen bleibt diese Unterscheidung bestehen. 
+
+**Offen vor finaler Nutzer-Freigabe:** ausschließlich die abschließende Studio-One-/Fender-Studio-Pro-Praxisabnahme und die dokumentierten Produktgrenzen (nur ein aktiver originaler Gast pro Prozess, keine Creative-FX-Typ-SysEx).
