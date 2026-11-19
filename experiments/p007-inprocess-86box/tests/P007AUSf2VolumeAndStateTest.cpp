@@ -45,6 +45,10 @@ int main(){
     const auto mbr=read(image,0,512u);
     check(mbr[510]==0x55u&&mbr[511]==0xaau&&mbr[450]==0x06u,
           "FAT16 MBR invalid");
+    check(mbr[447]==1u&&mbr[448]==1u&&mbr[449]==0u,
+          "P007AV FAT16 MBR CHS start disagrees with IDE LBA63");
+    check(mbr[451]==15u&&mbr[452]==63u&&mbr[453]==129u,
+          "P007AV FAT16 MBR CHS end disagrees with IDE geometry");
     check(sf2_volume::read32(mbr.data()+454u)==63u &&
           sf2_volume::read32(mbr.data()+458u)==
               sf2_volume::partitionSectors,"secondary IDE partition wrong");
