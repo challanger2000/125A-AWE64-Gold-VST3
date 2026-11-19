@@ -1759,6 +1759,16 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
                     "P007AL amplifier release differs across A/B/A - invalid filter comparison");
             }
+            // P007AO: do not allow another false Sustain A/B/A caused
+            // by reusing an already prepared Release reference. The
+            // independent sustain A must return to original after B.
+            require(chipRegisters[8].hasFilterNoteSustain &&
+                    chipRegisters[9].hasFilterNoteSustain &&
+                    chipRegisters[10].hasFilterNoteSustain &&
+                    chipRegisters[8].filterNoteSustain==0x007fu &&
+                    chipRegisters[9].filterNoteSustain==0x7f7fu &&
+                    chipRegisters[10].filterNoteSustain==0x007fu,
+                "P007AO original Sustain A/B/A not restored at chip; invalid QA baseline");
             // Release rate has no musical meaning if the mod envelope
             // already decayed to zero during the 3.15-second held note.
             // Verify a genuinely high and IDENTICAL original chip sustain
