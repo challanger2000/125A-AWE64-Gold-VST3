@@ -944,9 +944,11 @@ void PresetBrowserView::ChooseSf2() {
     const int needed=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
         file,-1,nullptr,0,nullptr,nullptr);
     if(needed<=1)return;
-    std::string path(static_cast<size_t>(needed)-1u,'\0');
+    std::string path(static_cast<size_t>(needed),'\0');
     if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,file,-1,
             path.data(),needed,nullptr,nullptr)!=needed)return;
+    if(path.back()!=0)return;
+    path.pop_back();
     if(!sf2LoadRequest_||!sf2LoadRequest_(path)) {
         MessageBoxW(GetForegroundWindow(),
             L"Die SF2 konnte nicht geprueft werden. Nur vollstaendige "
