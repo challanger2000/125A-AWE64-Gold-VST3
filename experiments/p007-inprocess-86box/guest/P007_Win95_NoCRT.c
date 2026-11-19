@@ -180,7 +180,7 @@ static P007_CREATIVE_MANAGER s_creative_manager=0;
 static DWORD s_creative_handle=0u;
 static int p007_load_original_creative_sf2(void){
  static const char path[]="D:\\P007FONT.SF2";
- char filename[128]="D:\\P007FONT.SF2";
+ char filename[128];
  unsigned char riff[12];DWORD n=0,size=0;
  HANDLE file=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ,
                          NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
@@ -214,6 +214,8 @@ static int p007_load_original_creative_sf2(void){
     log_line("P007_GUEST_SF2_ORIGINAL_AWE_OPEN_FAILED\r\n");
     FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
  }
+ clear(filename,sizeof(filename));
+ (void)lstrcpyA(filename,path);
  b.m_Size=sizeof(filename);
  b.m_Buffer=filename;
  b.m_SizeUsed=0u;
