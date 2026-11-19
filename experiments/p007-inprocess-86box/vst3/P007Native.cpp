@@ -439,9 +439,18 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                     AWE125::PresetCatalog candidate;
                     std::string error;
                     if(candidate.LoadSoundFont(selected,error)) {
+                        // Never show a source-bank-0 SoundFont patch name
+                        // on the original Creative GM ROM bank 0. Only
+                        // unambiguous one-bank SoundFonts can be labeled
+                        // as Creative USER bank 1 without guessing.
+                        const bool singleBank=
+                            candidate.AssignSingleBankToCreativeUserOne();
                         std::lock_guard<std::mutex> lock(sf2StateMutex_);
                         if(!confirmedSf2Catalog_ && selectedSf2Path_==selected){
-                            originalMidiCatalog_=std::move(candidate);
+                            if(singleBank)
+                                originalMidiCatalog_=std::move(candidate);
+                            else
+                                originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
                             confirmedSf2Catalog_=true;
                             sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
                         }
