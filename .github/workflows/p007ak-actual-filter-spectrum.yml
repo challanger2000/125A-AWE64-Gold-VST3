@@ -54,6 +54,15 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007BE exact-byte native in-guest SF2 transport and busy/fail-closed controls
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/tests \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/tests/P007LiveSf2TransportTest.c \
+            -o build/P007LiveSf2TransportTest.exe
+          build/P007LiveSf2TransportTest.exe
       - name: P007BB original ROM GM labels and sparse Creative user-bank metadata
         run: |
           set -euo pipefail
