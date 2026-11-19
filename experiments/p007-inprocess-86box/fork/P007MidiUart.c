@@ -18,7 +18,9 @@ static _Atomic uint64_t s_read=0u;
 static _Atomic uint64_t s_dropped=0u;
 static _Atomic int s_active=0;
 static _Atomic int s_guest_ready=0;
-static uint32_t s_ready_progress=0u, s_stop_progress=0u; /* emulation thread only */
+static _Atomic int s_guest_sf2_status=0; /* 0=none, 1=Creative API loaded, -1=rejected */
+static uint32_t s_ready_progress=0u, s_stop_progress=0u;
+static uint32_t s_sf2_ok_progress=0u,s_sf2_fail_progress=0u; /* emulation thread only */
 static uint32_t advance_token(uint32_t state, uint8_t val, const char *token) {
     if (val == (uint8_t)token[state]) return state+1u;
     return val == (uint8_t)token[0] ? 1u : 0u;
@@ -26,9 +28,24 @@ static uint32_t advance_token(uint32_t state, uint8_t val, const char *token) {
 P007_EXPORT int p007_midi_guest_ready(void) {
     return atomic_load_explicit(&s_guest_ready,memory_order_acquire);
 }
+P007_EXPORT int p007_midi_guest_sf2_status(void) {
+    return atomic_load_explicit(&s_guest_sf2_status,memory_order_acquire);
+}
 P007_EXPORT void p007_midi_guest_tx_byte(uint8_t byte) {
     const char ready[]=P007_GUEST_READY_TOKEN;
     const char stop[]=P007_GUEST_STOP_TOKEN;
+    const char sf2ok[]=P007_GUEST_SF2_OK_TOKEN;
+    const char sf2fail[]=P007_GUEST_SF2_FAIL_TOKEN;
+    s_sf2_ok_progress=advance_token(s_sf2_ok_progress,byte,sf2ok);
+    s_sf2_fail_progress=advance_token(s_sf2_fail_progress,byte,sf2fail);
+    if(s_sf2_ok_progress==sizeof(sf2ok)-1u){
+        s_sf2_ok_progress=0;
+        atomic_store_explicit(&s_guest_sf2_status,1,memory_order_release);
+    }
+    if(s_sf2_fail_progress==sizeof(sf2fail)-1u){
+        s_sf2_fail_progress=0;
+        atomic_store_explicit(&s_guest_sf2_status,-1,memory_order_release);
+    }
     s_ready_progress=advance_token(s_ready_progress,byte,ready);
     s_stop_progress=advance_token(s_stop_progress,byte,stop);
     if(s_stop_progress==sizeof(stop)-1u) {
@@ -95,5 +112,7 @@ P007_EXPORT void p007_midi_reset_quiescent(void) {
     atomic_store_explicit(&s_dropped,0u,memory_order_relaxed);
     s_sequence=0;
     s_ready_progress=s_stop_progress=0;
+    s_sf2_ok_progress=s_sf2_fail_progress=0u;
+    atomic_store_explicit(&s_guest_sf2_status,0,memory_order_release);
     atomic_store_explicit(&s_guest_ready,0,memory_order_release);
 }
