@@ -6,7 +6,7 @@ on:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
   pull_request:
-    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118, research/p007al-corrected-original-creative-filter-20261118]
+    branches: [research/p007aj-original-emu8k-register-trace-diagnosis-20261118, research/p007al-corrected-original-creative-filter-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119]
   workflow_dispatch:
 permissions:
   contents: read
