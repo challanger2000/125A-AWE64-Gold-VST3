@@ -35,6 +35,17 @@ public:
     void arm(int depth) noexcept {
         data_=originalCreativeNrpn24(depth);stage_=0u;active_=true;
     }
+    // Creative ADIP v3.00 NRPN LSB 15: Volume Envelope 2 release.
+    // Units are 4 milliseconds; 1800 = 7.2 s, raw 14-bit unsigned.
+    // This is QA-only, delivered through original Win95 Creative UART.
+    void armUnsigned(unsigned parameter,unsigned value) noexcept {
+        value=std::min(value,16383u);
+        data_={{{99u,127u},
+                {98u,static_cast<std::uint8_t>(parameter&127u)},
+                {6u,static_cast<std::uint8_t>((value>>7u)&127u)},
+                {38u,static_cast<std::uint8_t>(value&127u)}}};
+        stage_=0u;active_=true;
+    }
     bool active() const noexcept {return active_;}
     unsigned stage() const noexcept {return stage_;}
     template<class Sender>

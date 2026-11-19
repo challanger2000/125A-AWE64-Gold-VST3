@@ -13,6 +13,9 @@
 #include "P007OriginalControlDifferential.hpp"
 #include "P007TenControlMatrix.hpp"
 #include "P007OriginalEnvFilterDepth.hpp"
+#include "P007OriginalSpectralProof.hpp"
+#include "P007ALCorrectedSpectralProof.hpp"
+#include "P007ALOriginalChipRegisterProof.hpp"
 #include "../include/P007RegisterProbe.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -1291,7 +1294,8 @@ void privateFiveControlPadSweep(const VST3::Hosting::PluginFactory& factory,
 void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                               const VST3::UID& id,FUnknown* host,
                               const fs::path& bundle,
-                              bool registerProbe=false) {
+                              bool registerProbe=false,bool spectralProbe=false,
+                              bool correctedFilterProbe=false) {
     const auto root=bundle/"Contents"/"Resources"/"PrivateVM";
     const auto disk=root/"vm"/"win95.img";
     require(fs::is_regular_file(disk)&&fs::file_size(disk)>=32ull*1024ull*1024ull,
@@ -1381,7 +1385,9 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     "P007AJ bounded original EMU8000 register observer unavailable; "
                     "reject normal uninstrumented production core");
             const auto tracePath=bundle.parent_path()/
-                L"P007AJ-EMU8000-REGISTER-EVENTS.csv";
+                (correctedFilterProbe?
+                    L"P007AL-ORIGINAL-EMU8000-REGISTER-EVENTS.csv":
+                    L"P007AJ-EMU8000-REGISTER-EVENTS.csv");
             traceFile.reset(_wfopen(tracePath.c_str(),L"wb"));
             require(bool(traceFile),"cannot create bounded ORIGINAL register CSV");
             std::fprintf(traceFile.get(),"scenario,scenario_name,serial,"
@@ -1405,7 +1411,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         // IMPORTANT: each VST3 0%-return emits CC121 and resets NRPN24.
         // Reapply depth before A-back notes for a truthful A/B/A contrast.
         constexpr std::array<unsigned,4> selected{3u,4u,5u,6u};
-        std::array<Scenario,14> scenarios{};
+        // P007AO separates real Sustain A/B/A and Release A/B/A.
+        std::array<Scenario,15> scenarios{};
         scenarios[0]={"ORIGINAL_PAD8_A1",0u,0.};
         scenarios[1]={"ORIGINAL_PAD8_A2",0u,0.};
         scenarios[2]={"SIGNED_DEPTH_NEGATIVE96",0u,0.,-1,0,-96};
@@ -1418,8 +1425,22 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 knob.vstId,0.};
         }
         scenarios[13]={"RESTORE_ORIGINAL_SOUNDFONT_CC121",0u,0.,-1,0,1000};
+        const unsigned scenarioCount=correctedFilterProbe?15u:14u;
+        if(correctedFilterProbe) {
+            // Sustain A/B/A: 8 normal, 9 changed, 10 restored (not held).
+            // Release A/B/A: 11 held, 12 changed, 13 restored (held).
+            scenarios[14]=scenarios[13];
+            scenarios[11]={"RELEASE_A_BASELINE_HELD_MOD_SUSTAIN",0u,0.};
+            const auto& releaseKnob=p007::ten_matrix::knobs[selected[3]];
+            scenarios[12]={releaseKnob.title,releaseKnob.vstId,
+                           releaseKnob.normalized};
+            scenarios[13]={"RELEASE_A_RETURN_HELD_MOD_SUSTAIN",
+                           releaseKnob.vstId,0.};
+        }
         namespace proof=p007::original_control_proof;
-        std::array<proof::Take,14> takes{};
+        std::array<proof::Take,15> takes{};
+        std::array<p007::original_spectral_proof::Capture,15> spectra{};
+        std::array<p007::original_chip_register_proof::Capture,15> chipRegisters{};
         p007::original_audio_proof::Window before,originalFirst;
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
@@ -1439,9 +1460,16 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         // QA-only signed NRPN24 sender, exactly ONE original Creative
         // six-byte UART packet per >=40ms; failures retry same packet.
         p007::original_filter_env_depth::Transmitter depthSender{};
+        p007::original_filter_env_depth::Transmitter ampReleaseSender{};
+        p007::original_filter_env_depth::Transmitter modSustainSender{};
+        // Original Creative NRPN8 (mod/filter ENV sustain), offset-encoded
+        // value +8192. Level 127 holds the filter ENV above zero until
+        // NoteOff; otherwise 007F decays to zero long before filter Release.
+        constexpr unsigned kFilterSustainForRelease=8192u+127u;
+        constexpr unsigned kSlowAmpReleaseUnits=1800u; // Creative NRPN15: 7.2 seconds
         Clock::time_point lastDepthPacket{};
         bool cc121Pending=false;
-        int selectedDepth=-96;
+        int selectedDepth=correctedFilterProbe?96:-96;
         const auto queueDepth=[&](int requested) {
             depthSender=p007::original_filter_env_depth::Transmitter{};
             cc121Pending=(requested==1000);
@@ -1449,7 +1477,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 depthSender.arm(requested);
             lastDepthPacket=Clock::time_point{};
         };
-        while(Clock::now()-start<310s&&index<scenarios.size()) {
+        while(Clock::now()-start<310s&&index<scenarioCount) {
             events.clear();
             const auto now=Clock::now();
             if(phase==Phase::Boot) {
@@ -1485,10 +1513,33 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 if(accepted)lastDepthPacket=now;
                                 return accepted;
                             });
+                    }else if(ampReleaseSender.active() &&
+                        (lastDepthPacket==Clock::time_point{} ||
+                         now-lastDepthPacket>=40ms)) {
+                        (void)ampReleaseSender.tick(
+                            [&](std::uint8_t controller,
+                               std::uint8_t value)noexcept{
+                                const bool accepted=
+                                     sendMidi(0xb0u,controller,value)==1;
+                                if(accepted)lastDepthPacket=now;
+                                return accepted;
+                            });
+                    }else if(modSustainSender.active() &&
+                        (lastDepthPacket==Clock::time_point{} ||
+                         now-lastDepthPacket>=40ms)) {
+                        (void)modSustainSender.tick(
+                            [&](std::uint8_t controller,
+                               std::uint8_t value)noexcept{
+                                const bool accepted=
+                                     sendMidi(0xb0u,controller,value)==1;
+                                if(accepted)lastDepthPacket=now;
+                                return accepted;
+                            });
                     }
                 }
                 if(now-phaseAt>=1100ms && !cc121Pending &&
-                   !depthSender.active()) {
+                   !depthSender.active() && !ampReleaseSender.active() &&
+                   !modSustainSender.active()) {
                     require(ready()!=0,"original Win95 Creative READY lost");
                     Event e{};e.type=Event::kNoteOnEvent;e.busIndex=0;
                     e.noteOn.channel=0;e.noteOn.pitch=60;
@@ -1512,12 +1563,15 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     require(captured<=P007AJ_CAP && missed+captured==attempted,
                             "P007AJ original register observer count overflow");
                     std::array<p007aj_register_event,256u> chunk{};
+                    // The original Creative allocator does NOT stick to voice 0.
+                    // Decode pointer low five bits for every genuine voice.
                     for(unsigned offset=0u;offset<captured;){
                         const auto n=probeCopy(chunk.data(),offset,
                                                static_cast<unsigned>(chunk.size()));
                         require(n!=0u,"P007AJ register copy missing event");
                         for(unsigned j=0;j<n;++j){
                             const auto& e=chunk[j];
+                            chipRegisters[index].observe(e.port,e.value);
                             std::fprintf(traceFile.get(),
                               "%zu,%s,%u,%llu,%04X,%04X\n",
                               index,scenarios[index].name,e.serial,
@@ -1558,10 +1612,23 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 takes[n].onset.roughness()));
                     };
                     const double negative=score(2u),positive=score(3u);
-                    selectedDepth=(negative>=positive)?-96:96;
+                    selectedDepth=correctedFilterProbe?96:
+                        ((negative>=positive)?-96:96);
                     scenarios[4].depth=selectedDepth;
-                    for(unsigned k=0;k<selected.size();++k)
+                    for(unsigned k=0;k<selected.size();++k) {
+                        // Corrected protocol re-applies filter depth AFTER
+                        // every changed GUI parameter, even for B scenarios.
+                        scenarios[5u+2u*k].depth=correctedFilterProbe?selectedDepth:999;
                         scenarios[6u+2u*k].depth=selectedDepth;
+                    }
+                    if(correctedFilterProbe) {
+                        scenarios[11].depth=selectedDepth;
+                        scenarios[12].depth=selectedDepth;
+                        scenarios[13].depth=selectedDepth;
+                    }
+                    if(correctedFilterProbe)
+                        std::puts("P007AL_FORCED_CHIP_FILTER_CLOSING_DIRECTION"
+                                  " nrpn24=+96 expected_original_PEFE=00C0");
                     std::printf("P007AI_ORIGINAL_CREATIVE_SIGNED_DEPTH_SELECTED"
                                 " depth=%d negative_score=%.8f"
                                 " positive_score=%.8f"
@@ -1571,7 +1638,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                                 takes[2].onset.rms(),takes[3].onset.rms());
                     std::fflush(stdout);
                 }
-                if(index<scenarios.size()) {
+                if(index<scenarioCount) {
                     if(registerProbe){
                         require(probeBegin(static_cast<unsigned>(index))!=0,
                                 "P007AJ original chip note capture not started");
@@ -1589,6 +1656,18 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                             "positive-control MIDI CC7 was not queued");
                     if(chosen.depth!=999)
                         queueDepth(chosen.depth);
+                    if(correctedFilterProbe && index>=4u && index<=13u) {
+                        // Volume envelope is independent of filter envelope.
+                        // Re-apply original Creative NRPN15 after any CC121;
+                        // keep it IDENTICAL across A/B/A notes.
+                        ampReleaseSender.armUnsigned(15u,kSlowAmpReleaseUnits);
+                        // Release A/B/A takes 11..13: do not modify
+                        // Sustain return at take10.
+                        // on NoteOn: zero modulation envelope by NoteOff.
+                        // Sustain the original ENV before comparing rates.
+                        if(index>=11u)
+                            modSustainSender.armUnsigned(8u,kFilterSustainForRelease);
+                    }
                     phase=Phase::Prepare;phaseAt=now;
                 }
             }
@@ -1598,7 +1677,9 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 const auto l=left[i],r=right[i];
                 require(std::isfinite(l)&&std::isfinite(r),
                         "nonfinite original EMU8000 PCM");
-                if(index>=scenarios.size())continue;
+                if(index>=scenarioCount)continue;
+                if(spectralProbe && (phase==Phase::Note || phase==Phase::Tail))
+                    spectra[index].append(l,r,phase==Phase::Tail);
                 if(phase==Phase::Boot&&readyAt!=Clock::time_point{})
                     before.append(l,r);
                 if(phase==Phase::Note) {
@@ -1617,14 +1698,93 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
             }
             if(now-lastReport>=15s) {
                 std::printf("P007AI_PRIVATE_PROGRESS original_ready=%d take=%zu/%zu\n",
-                            ready(),index,scenarios.size());
+                            ready(),index,scenarioCount);
                 std::fflush(stdout);lastReport=now;
             }
             next+=std::chrono::microseconds(23220);
             std::this_thread::sleep_until(next);
         }
-        require(index==scenarios.size(),
+        require(index==scenarioCount,
                 "original Windows-95 guest did not finish fourteen original NRPN24 depth scenarios");
+        if(spectralProbe) {
+            // All analysis bins are collected in preallocated memory while
+            // VST3 process() runs. Write AFTER playback, never in its callback.
+            const auto csvPath=bundle.parent_path()/
+                (correctedFilterProbe?
+                    L"P007AL-ORIGINAL-PCM-SPECTRAL-BANDS.csv":
+                    L"P007AK-ORIGINAL-PCM-SPECTRAL-BANDS.csv");
+            std::unique_ptr<FILE,FileCloser> csv(_wfopen(csvPath.c_str(),L"wb"));
+            require(bool(csv),"cannot create P007AK original spectral-bin report");
+            std::fprintf(csv.get(),
+                "scenario,scenario_name,phase,quarter_second_bin,"
+                "band,frames,total_energy,band_energy\n");
+            for(unsigned takeIndex=0;takeIndex<scenarioCount;++takeIndex) {
+                const auto& cap=spectra[takeIndex];
+                for(unsigned i=0;i<p007::original_spectral_proof::bins;++i) {
+                    for(unsigned k=0;k<p007::original_spectral_proof::bands;++k) {
+                        std::fprintf(csv.get(),"%u,%s,%s,%u,%u,%u,%.17g,%.17g\n",
+                          takeIndex,scenarios[takeIndex].name,
+                          i<p007::original_spectral_proof::noteBins?"NOTE":"RELEASE",
+                          i<p007::original_spectral_proof::noteBins?i:
+                             i-p007::original_spectral_proof::noteBins,
+                          k,cap.count[i],cap.totalPower[i],
+                          cap.bandPower[i][k]);
+                    }
+                }
+            }
+            require(std::fflush(csv.get())==0,
+                "P007AK original spectral-bin report flush failed");
+            std::puts("P007AK_ORIGINAL_PCM_SPECTRAL_RAW_BINS_SAVED_OFFLINE");
+        }
+        if(correctedFilterProbe) {
+            for(unsigned t=4u;t<=13u;++t) {
+                const auto& cr=chipRegisters[t];
+                std::printf("P007AL_ORIGINAL_CHIP_CONTROL take=%u voice=%u"
+                    " PEFE=%04X VOLUME_RELEASE_DCYSUSV=%04X"
+                    " FILTER_NOTE_DCYSUS=%04X"
+                    " FILTER_RELEASE_DCYSUS=%04X complete=%d\n",
+                    t,cr.voice,unsigned(cr.pefe),unsigned(cr.volumeRelease),
+                    unsigned(cr.filterNoteSustain),unsigned(cr.filterRelease),
+                    int(cr.complete()));
+            }
+            std::fflush(stdout);
+            require(chipRegisters[4].complete() &&
+                    chipRegisters[4].volumeRelease!=0x8029u,
+                "P007AL original Creative NRPN15 did not extend amplitude release");
+            for(unsigned t=4u;t<=13u;++t) {
+                require(chipRegisters[t].complete(),
+                    "P007AL original chip evidence incomplete or ambiguous for allocated voice");
+                require(chipRegisters[t].pefe==0x00c0u,
+                    "P007AL unexpected original chip filter PEFE; requested closing polarity not applied");
+                require(chipRegisters[t].volumeRelease==chipRegisters[4].volumeRelease,
+                    "P007AL amplifier release differs across A/B/A - invalid filter comparison");
+            }
+            // P007AO: do not allow another false Sustain A/B/A caused
+            // by reusing an already prepared Release reference. The
+            // independent sustain A must return to original after B.
+            require(chipRegisters[8].hasFilterNoteSustain &&
+                    chipRegisters[9].hasFilterNoteSustain &&
+                    chipRegisters[10].hasFilterNoteSustain &&
+                    chipRegisters[8].filterNoteSustain==0x007fu &&
+                    chipRegisters[9].filterNoteSustain==0x7f7fu &&
+                    chipRegisters[10].filterNoteSustain==0x007fu,
+                "P007AO original Sustain A/B/A not restored at chip; invalid QA baseline");
+            // Release rate has no musical meaning if the mod envelope
+            // already decayed to zero during the 3.15-second held note.
+            // Verify a genuinely high and IDENTICAL original chip sustain
+            // for A/B/A and that Creative clears the sustain at NoteOff.
+            for(unsigned t=11u;t<=13u;++t) {
+                require(chipRegisters[t].hasFilterNoteSustain &&
+                        chipRegisters[t].filterNoteSustain==0x7f7fu,
+                    "P007AN original modulation sustain not held in release A/B/A");
+                require((chipRegisters[t].filterRelease&0x7f00u)==0u,
+                    "P007AN Creative did not clear filter sustain on NoteOff");
+            }
+            require(chipRegisters[12].filterRelease!=chipRegisters[11].filterRelease &&
+                    chipRegisters[13].filterRelease==chipRegisters[11].filterRelease,
+                "P007AL original filter release generator did not change and restore");
+            std::puts("P007AL_CORRECTED_ORIGINAL_CREATIVE_REGISTER_SETUP_PASS");
+        }
         require(p007::original_audio_proof::accept(before,originalFirst),
                 "original Creative PCM not proven above Win95 background");
         // AUDIO-ONLY authenticity check: original Win95/Creative PCM
@@ -1634,7 +1794,8 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
         using namespace p007::ten_matrix;
         require(proof::stable(takes[0],takes[1]),
                 "P007AI original Pad8 A1/A2 baseline unstable");
-        const bool sourceReverted=proof::stable(takes[0],takes[13]);
+        const bool sourceReverted=proof::stable(
+            takes[0],takes[correctedFilterProbe?14u:13u]);
         const bool depthNoteAudible=proof::nonSilent(takes[4]);
         std::printf("P007AI_ORIGINAL_CREATIVE_FILTER_DEPTH"
                     " selected=%d original_rms=%.9f"
@@ -1644,14 +1805,19 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                     " genuine_original_win95=1 synthetic=0\n",
                     selectedDepth,takes[1].onset.rms(),
                     takes[2].onset.rms(),takes[3].onset.rms(),
-                    takes[4].onset.rms(),takes[13].onset.rms(),
+                    takes[4].onset.rms(),
+                    takes[correctedFilterProbe?14u:13u].onset.rms(),
                     int(sourceReverted),int(depthNoteAudible));
         unsigned measured=0u,inconclusive=0u,unstable=0u;
+        unsigned spectralMeasured=0u;
         for(unsigned k=0;k<selected.size();++k) {
             const auto& knob=knobs[selected[k]];
-            const unsigned a=4u+2u*k,b=a+1u,back=b+1u;
-            const auto e=evaluate(takes[4],takes[a],takes[b],
-                                  takes[back],knob.type);
+            const unsigned a=(correctedFilterProbe && k==3u)?11u:
+                                   4u+2u*k;
+            const unsigned b=a+1u,back=b+1u;
+            const auto e=evaluate(
+                takes[(correctedFilterProbe && k==3u)?a:4u],
+                takes[a],takes[b],takes[back],knob.type);
             if(e.verdict==Verdict::Proven)++measured;
             else if(e.verdict==Verdict::Inconclusive)++inconclusive;
             else ++unstable;
@@ -1670,6 +1836,50 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
                 takes[a].sustain.rms(),takes[b].sustain.rms(),
                 e.aTail,e.bTail,int(e.stableBefore),int(e.stableAfter));
             std::fflush(stdout);
+            if(spectralProbe) {
+                namespace sp=p007::original_spectral_proof;
+                const auto target=static_cast<sp::Target>(k);
+                const auto measure=sp::evaluate(spectra[a],spectra[b],spectra[back],target);
+                if(correctedFilterProbe) {
+                    const auto cm=p007::corrected_filter_proof::evaluate(
+                        spectra[a],spectra[b],spectra[back],target);
+                    if(cm.proven)++spectralMeasured;
+                    std::printf("P007AL_CORRECTED_ORIGINAL_PCM_RESULT control=%s"
+                        " verdict=%s effect_db=%.4f drift_db=%.4f"
+                        " band=%u timebin=%u consistent_bins=%u release_usable=%u"
+                        " filter_NRPN24=96 amp_NRPN15=%u"
+                        " release_NRPN8=127 guest=ORIGINAL_WIN95_CREATIVE\n",
+                        knob.title,p007::corrected_filter_proof::verdict(cm),
+                        cm.peakDb,cm.maxReferenceDriftDb,
+                        cm.peakBand,cm.peakBin,cm.longestRun,
+                        cm.usableReleaseBins,kSlowAmpReleaseUnits);
+                    std::fflush(stdout);
+                    continue;
+                }
+                if(measure.proven)++spectralMeasured;
+                std::printf("P007AK_ORIGINAL_PCM_SPECTRAL_RESULT control=%s"
+                  " verdict=%s effect_db=%.3f drift_db=%.3f"
+                  " band=%u timebin=%u comparable=%u restored=%u"
+                  " pairs=%u guest=ORIGINAL_WIN95_CREATIVE\n",
+                  knob.title,sp::verdict(measure),measure.strongestDb,
+                  measure.maxReferenceDriftDb,measure.strongestBand,
+                  measure.strongestBin,measure.comparable,
+                  measure.restored,measure.consecutive);
+                std::fflush(stdout);
+            }
+        }
+        if(correctedFilterProbe) {
+           std::printf("P007AL_FOUR_CORRECTED_FILTER_ENVELOPES_PCM_SPECTRAL"
+             " measured=%u unresolved=%u total=4 original_guest=1\n",
+             spectralMeasured,4u-spectralMeasured);
+           if(spectralMeasured==4u)
+             std::puts("P007AL_FOUR_ORIGINAL_FILTER_ENVELOPES_PCM_PROVEN");
+        } else if(spectralProbe){
+           std::printf("P007AK_FOUR_ORIGINAL_FILTER_ENVELOPES_PCM_SPECTRAL"
+             " measured=%u unresolved=%u total=4 original_guest=1\n",
+             spectralMeasured,4u-spectralMeasured);
+           if(spectralMeasured==4u)
+             std::puts("P007AK_FOUR_ORIGINAL_CREATIVE_FILTER_ENVELOPES_PCM_SPECTRAL_PROVEN");
         }
         std::printf("P007AI_ORIGINAL_CREATIVE_FOUR_FILTER_ENV_SUMMARY"
                     " measured=%u inconclusive=%u unstable=%u total=4"
@@ -1695,7 +1905,7 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--private-spectrum")==0 || std::strcmp(argv[2],"--private-filter-corrected")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -1725,6 +1935,10 @@ int main(int argc,char** argv) {
             privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-regtrace")==0)
             privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,true);
+        if(argc==3 && std::strcmp(argv[2],"--private-spectrum")==0)
+            privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,false,true);
+        if(argc==3 && std::strcmp(argv[2],"--private-filter-corrected")==0)
+            privateEnvFilterDepthProof(factory,choice->ID(),host.get(),bundle,true,true,true);
         std::puts("P007W_ACTUAL_WINDOWS_VST3_HOST_QA_PASS");
         return 0;
     }catch(const std::exception& ex){
