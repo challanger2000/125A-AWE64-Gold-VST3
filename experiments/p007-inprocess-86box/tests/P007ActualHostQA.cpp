@@ -2016,11 +2016,13 @@ static unsigned sf2ProbeProgram(const fs::path& sf2) {
             "P007AX invalid RIFF SoundFont");
     int first=-1, prefer0=-1, prefer7=-1;
     for(std::size_t pos=12;pos+8u<=b.size();) {
-        const auto len=u32(pos+4u), end=pos+8ull+len;
+        const auto len=u32(pos+4u);
+        const auto end=pos+8ull+len;
         require(end<=b.size() && end>=pos+8u,"P007AX invalid RIFF chunk");
         if(eq(pos,"LIST")&&len>=4u&&eq(pos+8,"pdta")){
             for(std::size_t sub=pos+12u;sub+8u<=end;) {
-                const auto subLen=u32(sub+4u), subEnd=sub+8ull+subLen;
+                const auto subLen=u32(sub+4u);
+                const auto subEnd=sub+8ull+subLen;
                 require(subEnd<=end && subEnd>=sub+8u,"P007AX invalid pdta chunk");
                 if(eq(sub,"phdr")) {
                     require(subLen>=76u&&subLen%38u==0,
