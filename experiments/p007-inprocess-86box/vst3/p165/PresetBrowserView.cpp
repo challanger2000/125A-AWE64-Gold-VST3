@@ -397,9 +397,11 @@ private:
 };
 // Preserve the exact owner's P165 faceplate and all original live knobs.
 std::string BankLabel(uint16_t id) {
-    if(id==16383)return "GM ROM - Original";
-    if(id==16382)return "GM ROM - Drumkit";
-    return id==128 ? "Bank 128 - Drumkits" : "Bank "+std::to_string(id);
+    if(id==128)return "ROM Drums (CH 10)";
+    if(id==129)return "SF2 Drum Kits (CH 10)";
+    if(id==1)return "SF2 User Bank 1";
+    if(id==0)return "Original ROM Bank 0";
+    return "Bank "+std::to_string(id);
 }
 std::string DisplayName(const std::string& path) {
     if(path.empty())return "Noch keine SoundFont ausgewaehlt";
@@ -733,7 +735,8 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // unchanged, although an intervening MIDI CC0 switched the *audio* bank.
     // Reassert through the controller-to-processor message path in that case.
     const bool sameHostBank=controller_ &&
-        std::lround(controller_->getParamNormalized(kBankParam)*127.)==bank;
+        std::lround(controller_->getParamNormalized(kBankParam)*127.)==
+        (bank==128u?126u:(bank==129u?127u:bank));
     if(sameHostBank&&(!browserBankReselect_ ||
                       !browserBankReselect_(bank))) {
         // Without the explicit message the host may discard this unchanged
@@ -750,7 +753,10 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // status text instead of retaining a stale warning across successful UI.
     lastStatus_.clear();
     SyncSf2Status();
-    ChangeParameter(kBankParam,double(bank)/127.);
+    // Virtual drum browser lanes: 128=original ROM,129=source SF2.
+    // State is persisted via the reserved real VST3 MIDI bank 126/127.
+    const auto hostBank=bank==128u?126u:(bank==129u?127u:bank);
+    ChangeParameter(kBankParam,double(hostBank)/127.);
     ChangeParameter(kProgram,double(program)/127.);
     // Reflect the clicked instrument immediately. The following idle
     // compares bank/program back with the controller: an unaccepted host
@@ -869,8 +875,10 @@ void PresetBrowserView::Sync(bool force) {
             fileLabel_->setText(DisplayName(path).c_str());
         }
     }
-    const auto bank=static_cast<uint16_t>(std::clamp(int(std::lround(
-        controller_->getParamNormalized(kBankParam)*127.)),0,16383));
+    const auto hostBank=static_cast<uint16_t>(std::clamp(int(std::lround(
+        controller_->getParamNormalized(kBankParam)*127.)),0,127));
+    const auto bank=static_cast<uint16_t>(
+        hostBank==126u?128u:(hostBank==127u?129u:hostBank));
     const auto program=static_cast<uint8_t>(std::clamp(int(std::lround(
         controller_->getParamNormalized(kProgram)*127.)),0,127));
     for(int i=0;i<kGuiCount;++i) {
