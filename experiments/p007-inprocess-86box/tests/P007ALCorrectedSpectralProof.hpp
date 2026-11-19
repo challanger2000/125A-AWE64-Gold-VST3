@@ -66,6 +66,18 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
     // unrelated band cannot invalidate a coherent A/B/A effect elsewhere.
     // This fixes the P007AM false negative for Sustain: stable band #3
     // across seven consecutive windows, but weaker upper bands drift.
+    // P007AS: independent original-Win95 owner captures show a coherent
+    // ~0.8..1.0 dB Sustain band-3 effect across seven 250-ms windows.
+    // With a mildly drifting A/return, 5x drift wrongly rejected the
+    // second run. Use 3x the observed local drift while demanding a
+    // STRICTER full second (4 adjacent windows), not just 3, with the
+    // same sign and at most 2 noisy tail bins out of seven.
+    // The Attack/Decay/Release thresholds remain entirely unchanged.
+    const bool sustain=target==Target::Sustain;
+    const double driftMultiplier=sustain?3.:5.;
+    const unsigned minConsecutive=sustain?4u:3u;
+    const unsigned maxLocalUnstable=sustain?2u:
+        std::max(1u,(last-first)/4u);
     bool hasStableEffectBand=false;
     for(unsigned band=0;band<bands;++band) {
         unsigned run=0,localLongest=0,localUnstable=0;
@@ -102,14 +114,14 @@ inline Evidence evaluate(const Capture& a,const Capture& b,
                 e.peakBin=i;
             }
             const int sign=delta>=0.?1:-1;
-            if(std::abs(delta)>std::max(.25,5.*drift+.05)) {
+            if(std::abs(delta)>std::max(.25,driftMultiplier*drift+.05)) {
                 run=(previousBin+1==i && sign==previousSign)?run+1:1;
                 e.longestRun=std::max(e.longestRun,run);
                 localLongest=std::max(localLongest,run);
                 previousSign=sign;previousBin=i;
             } else {run=0;previousSign=0;}
         }
-        if(localLongest>=3u && localUnstable<=std::max(1u,(last-first)/4u))
+        if(localLongest>=minConsecutive && localUnstable<=maxLocalUnstable)
             hasStableEffectBand=true;
     }
     e.proven=hasStableEffectBand && !e.insufficientReleaseSignal;
