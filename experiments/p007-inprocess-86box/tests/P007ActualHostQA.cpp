@@ -506,6 +506,48 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                     "CRITICAL: MIDI note accepted after guest fatal failure");
                 std::puts("P007AP_FATAL_GUEST_STEP_MUTES_STALE_PCM_AND_MIDI_PASS");
             }
+            // P007BB: the user's Studio One workflow exposed a guest
+            // lifecycle bug on deactivate/reactivate. Confirm a real VST3
+            // component reactivation in the SAME Windows host process, and
+            // deliver a new MIDI NoteOn after the second guest READY.
+            // This mode uses a SYNTHETIC test core only; the original
+            // Creative Win95 guest requires a separate private test.
+            if(hz==48000.) {
+                require(plugin.processor->setProcessing(false)==kResultOk,
+                        "P007BB synthetic first processing stop");
+                processing=false;
+                require(plugin.component->setActive(false)==kResultOk,
+                        "P007BB synthetic first guest deactivate");
+                active=false;
+                require(plugin.component->setActive(true)==kResultOk,
+                        "P007BB same-instance second guest activate");
+                active=true;
+                require(plugin.processor->setProcessing(true)==kResultOk,
+                        "P007BB same-instance processing resume");
+                processing=true;
+                for(unsigned spin=0;spin<300u&&!mockReady();++spin)
+                    std::this_thread::sleep_for(10ms);
+                require(mockReady()!=0u,
+                        "P007BB second guest never reported READY");
+                events.clear();
+                Event e{};
+                e.type=Event::kNoteOnEvent;
+                e.busIndex=0;e.sampleOffset=0;
+                e.noteOn.channel=0;e.noteOn.pitch=60;e.noteOn.velocity=.8f;
+                require(events.addEvent(e)==kResultOk,
+                        "P007BB MIDI event after guest reactivation");
+                for(unsigned tick=0;tick<20u;++tick) {
+                    left.fill(0.f);right.fill(0.f);
+                    require(plugin.processor->process(data)==kResultOk,
+                            "P007BB real VST3 processing after guest reactivation");
+                    if(noteOnCounter()>0u)break;
+                    events.clear();
+                    std::this_thread::sleep_for(22ms);
+                }
+                require(noteOnCounter()>0u,
+                        "P007BB NoteOn starved after second guest activation");
+                std::puts("P007BB_REAL_WINDOWS_VST3_SECOND_GUEST_ACTIVATION_SYNTHETIC_MIDI_PASS");
+            }
             ++passedRates;
             std::printf("P007X_SYNTHETIC_VST3_HOST_AUDIO_MIDI_PASS"
                         " rate=%.0f half=%u muted=%u full=%u"

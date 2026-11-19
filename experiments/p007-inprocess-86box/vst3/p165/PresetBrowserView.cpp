@@ -969,10 +969,10 @@ void PresetBrowserView::ChooseSf2() {
 #endif
 }
 void PresetBrowserView::ChooseRom() {
-    // ROM is always mounted. Pressing ROM selects the original GM bank 0,
-    // no alert box or replacement disk operation.
-    Select(0u,program_);
-    RebuildRows();
+    // ROM is always mounted. Selecting it changes only original GM bank0.
+    // Pressing ROM when already on bank0 must be a harmless no-op and
+    // must not show an unrelated "bank reselection failed" warning.
+    if(bank_!=0u)ChangeParameter(kBankParam,0.);
 }
 void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
