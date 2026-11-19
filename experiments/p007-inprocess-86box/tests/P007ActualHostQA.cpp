@@ -2090,7 +2090,7 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
     // label alone CANNOT be evidence that Creative actually loaded it.
     const unsigned testProgram=sf2ProbeProgram(chosenSf2);
     std::printf("P007AX_REAL_SF2_PRESET_SELECTED bank=1 program=%u"
-        " note=60 compare_same_program_in_ROM_bank0=1\\n",testProgram);
+        " note=60 compare_same_program_in_ROM_bank0=1\n",testProgram);
     std::fflush(stdout);
     auto plugin=instantiate(factory,id,host);
     p007::state::Values v{};
@@ -2162,6 +2162,50 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         require(cpuInit&&cpuRun&&ready&&sf2Status&&
                 cpuInit()!=0u&&cpuRun()!=0u,
                 "P007AV synthetic/foreign guest rejected: original CPU symbols missing");
+        // Actual original EMU8000-register writes, never synthetic MIDI acceptance.
+        // The probe is passive and already present in the private pinned core;
+        // it does not alter the original DSP or the Creative driver.
+        using ProbeVersion=unsigned(__cdecl*)();
+        using ProbeBegin=int(__cdecl*)(unsigned);
+        using ProbeStop=unsigned(__cdecl*)();
+        using ProbeCount=unsigned(__cdecl*)();
+        using ProbeDropped=unsigned(__cdecl*)();
+        using ProbeCopy=unsigned(__cdecl*)(p007aj_register_event*,unsigned,unsigned);
+        const auto version=reinterpret_cast<ProbeVersion>(
+            GetProcAddress(dll,"p007aj_probe_version"));
+        const auto beginProbeFn=reinterpret_cast<ProbeBegin>(
+            GetProcAddress(dll,"p007aj_probe_begin"));
+        const auto stopProbeFn=reinterpret_cast<ProbeStop>(
+            GetProcAddress(dll,"p007aj_probe_stop"));
+        const auto countProbeFn=reinterpret_cast<ProbeCount>(
+            GetProcAddress(dll,"p007aj_probe_count"));
+        const auto droppedProbeFn=reinterpret_cast<ProbeDropped>(
+            GetProcAddress(dll,"p007aj_probe_dropped"));
+        const auto copyProbeFn=reinterpret_cast<ProbeCopy>(
+            GetProcAddress(dll,"p007aj_probe_copy"));
+        require(version&&beginProbeFn&&stopProbeFn&&countProbeFn&&
+                droppedProbeFn&&copyProbeFn&&
+                version()==P007AJ_API_VERSION,
+                "P007AX requires real original register observation, not a synthetic core");
+        std::array<std::vector<p007aj_register_event>,2> chipWrites;
+        int observing=-1;
+        const auto beginProbe=[&](int bank) {
+            require(observing==-1 && beginProbeFn(unsigned(bank))==1,
+                    "P007AX could not begin bounded original chip register trace");
+            observing=bank;
+        };
+        const auto endProbe=[&]() {
+            require(observing>=0, "P007AX register trace missing start");
+            const unsigned n=stopProbeFn();
+            require(droppedProbeFn()==0 && n==countProbeFn() &&
+                    n>0 && n<=P007AJ_CAP,
+                    "P007AX no original chip note register writes or probe overflow");
+            auto& v=chipWrites[static_cast<unsigned>(observing)];
+            v.resize(n);
+            require(copyProbeFn(v.data(),0,n)==n,
+                    "P007AX original EMU8000 register trace copy incomplete");
+            observing=-1;
+        };
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
         AudioBusBuffers output{};
@@ -2217,11 +2261,13 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
             }
             if(phase==0 && originalAck &&
                now-guestReadyAt>=1500ms && baseline.frames>=44100u) {
+                beginProbe(0);
                 addNote(true);
                 sf2NoteAt=now;
                 phase=1;
                 std::puts("P007AV_ORIGINAL_CREATIVE_USER_BANK1_NOTEON_SENT");
             } else if(phase==1 && now-sf2NoteAt>=3s) {
+                endProbe();
                 addNote(false);
                 phase=2;
             } else if(phase==2 && now-sf2NoteAt>=4s) {
@@ -2231,10 +2277,12 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
                 phase=3;
                 std::puts("P007AV_ORIGINAL_ROM_BANK0_RESELECTED");
             } else if(phase==3 && now-romBankAt>=1700ms) {
+                beginProbe(1);
                 addNote(true);
                 romNoteAt=now;
                 phase=4;
             } else if(phase==4 && now-romNoteAt>=3s) {
+                endProbe();
                 addNote(false);
                 phase=5;
             }
@@ -2273,6 +2321,44 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         }
         require(originalAck && phase==5 && romSound.frames>=44100u,
                 "P007AV original guest did not complete SF2+ROM MIDI roundtrip");
+        // Keep original register traces even on an acoustic NO-GO.
+        // Different raw hashes are informative only; the original Creative
+        // allocator rotates chip voice addresses between NoteOns.
+        const auto hashRegisters=[](const auto& events)->std::uint64_t {
+            std::uint64_t h=14695981039346656037ull;
+            for(const auto& e:events){
+                const std::uint32_t pair=(std::uint32_t(e.port)<<16u)|e.value;
+                h=(h^pair)*1099511628211ull;
+            }
+            return h;
+        };
+        std::printf("P007AX_ORIGINAL_EMU8000_BANK_REGISTER_DIAG"
+            " sf2_events=%llu sf2_hash=%016llx"
+            " rom_events=%llu rom_hash=%016llx"
+            " real_guest=1 synthetic=0\\n",
+            static_cast<unsigned long long>(chipWrites[0].size()),
+            static_cast<unsigned long long>(hashRegisters(chipWrites[0])),
+            static_cast<unsigned long long>(chipWrites[1].size()),
+            static_cast<unsigned long long>(hashRegisters(chipWrites[1])));
+        std::fflush(stdout);
+        const auto csvPath=bundle.parent_path()/
+            "P007AX-ORIGINAL-EMU8000-SF2-ROM-REGISTER-EVENTS.csv";
+        {
+            std::ofstream f(csvPath,std::ios::binary);
+            require(bool(f),"P007AX cannot write genuine register evidence CSV");
+            f<<"bank,program,serial,chip_frame_44100,io_port_hex,register_word_hex\\n";
+            for(unsigned bank=0;bank<2;++bank){
+                for(const auto& e:chipWrites[bank]){
+                    char entry[128]{};
+                    std::snprintf(entry,sizeof(entry),"%u,%u,%u,%llu,%04X,%04X\\n",
+                        bank==0?1u:0u,testProgram,e.serial,
+                        static_cast<unsigned long long>(e.frame),
+                        unsigned(e.port),unsigned(e.value));
+                    f<<entry;
+                }
+            }
+            require(bool(f),"P007AX original register evidence CSV incomplete");
+        }
         require(p007::original_audio_proof::accept(baseline,sf2Sound),
                 "P007AV SF2 bank 1 original MIDI-dependent PCM not proven");
         require(p007::original_audio_proof::accept(baseline,romSound),
