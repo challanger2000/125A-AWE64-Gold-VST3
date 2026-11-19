@@ -54,6 +54,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007BB original ROM GM labels and sparse Creative user-bank metadata
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007BBRomCatalogTest.cpp -o build/P007BBRomCatalogTest.exe
+          build/P007BBRomCatalogTest.exe
       - name: P007BA genuine MIDI dedup helper + original 16550 backpressure adversarial test
         run: |
           set -euo pipefail
