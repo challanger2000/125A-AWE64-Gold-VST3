@@ -1987,6 +1987,65 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
 }
 
 
+// P007AX: Read only the SoundFont2 preset headers, not its DSP/samples.
+// Prefer the distinctive bundled TX81Z Lately Bass (program 7) over
+// Program 0 (which formerly made the fallback-GM test inconclusive).
+// Every selected program comes from the ACTUAL user-supplied SF2, not a
+// fabricated 128-preset browser list.
+static unsigned sf2ProbeProgram(const fs::path& sf2) {
+    std::ifstream in(sf2,std::ios::binary);
+    require(bool(in),"P007AX SF2 file cannot be opened");
+    const std::vector<unsigned char> b(
+        (std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
+    require(b.size()>=12 && b.size()<=28u*1024u*1024u,
+            "P007AX SF2 file size");
+    auto eq=[&](std::size_t off,const char* four) {
+        return off+4u<=b.size() &&
+            b[off]==static_cast<unsigned char>(four[0]) &&
+            b[off+1]==static_cast<unsigned char>(four[1]) &&
+            b[off+2]==static_cast<unsigned char>(four[2]) &&
+            b[off+3]==static_cast<unsigned char>(four[3]);
+    };
+    auto u32=[&](std::size_t off)->std::uint32_t {
+        return std::uint32_t(b[off])|(std::uint32_t(b[off+1])<<8u)|
+            (std::uint32_t(b[off+2])<<16u)|
+            (std::uint32_t(b[off+3])<<24u);
+    };
+    require(eq(0,"RIFF")&&eq(8,"sfbk")&&u32(4)==b.size()-8,
+            "P007AX invalid RIFF SoundFont");
+    int first=-1, prefer0=-1, prefer7=-1;
+    for(std::size_t pos=12;pos+8u<=b.size();) {
+        const auto len=u32(pos+4u), end=pos+8ull+len;
+        require(end<=b.size() && end>=pos+8u,"P007AX invalid RIFF chunk");
+        if(eq(pos,"LIST")&&len>=4u&&eq(pos+8,"pdta")){
+            for(std::size_t sub=pos+12u;sub+8u<=end;) {
+                const auto subLen=u32(sub+4u), subEnd=sub+8ull+subLen;
+                require(subEnd<=end && subEnd>=sub+8u,"P007AX invalid pdta chunk");
+                if(eq(sub,"phdr")) {
+                    require(subLen>=76u&&subLen%38u==0,
+                            "P007AX invalid SF2 preset headers");
+                    for(std::size_t i=0;i<(subLen/38u)-1u;++i){
+                        const auto p=sub+8u+i*38u;
+                        const unsigned program=unsigned(b[p+20u])|
+                            (unsigned(b[p+21u])<<8u);
+                        const unsigned bank=unsigned(b[p+22u])|
+                            (unsigned(b[p+23u])<<8u);
+                        if(bank==0u&&program<=127u){
+                            if(first<0) first=int(program);
+                            if(program==0u) prefer0=0;
+                            if(program==7u) prefer7=7;
+                        }
+                    }
+                }
+                sub=subEnd+(subLen&1u);
+            }
+        }
+        pos=end+(len&1u);
+    }
+    require(first>=0,"P007AX SF2 has no bank-0 melodic program");
+    return unsigned(prefer7>=0?prefer7:prefer0>=0?prefer0:first);
+}
+
 // P007AV: actual private Windows-95/Creative SF2 USER BANK sound acceptance.
 // Never use synthetic Audio/WinMM/Core-DLL to assert original Creative PCM.
 // The owner-side file is the same PRIVATE SF2 that the plugin mounts as
@@ -2029,9 +2088,13 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
     // In particular, the real Win95 data disk will load the UTF-8
     // SF2 filename from a version-3 VST3 project state. A UI preset
     // label alone CANNOT be evidence that Creative actually loaded it.
+    const unsigned testProgram=sf2ProbeProgram(chosenSf2);
+    std::printf("P007AX_REAL_SF2_PRESET_SELECTED bank=1 program=%u"
+        " note=60 compare_same_program_in_ROM_bank0=1\\n",testProgram);
+    std::fflush(stdout);
     auto plugin=instantiate(factory,id,host);
     p007::state::Values v{};
-    v.bank=1u; v.program=0u; v.master=10000u;
+    v.bank=1u; v.program=static_cast<std::uint8_t>(testProgram); v.master=10000u;
     const auto sf2Utf8=fs::absolute(chosenSf2).u8string();
     const auto stateBytes=p007::state::encodeWithSf2(v,sf2Utf8);
     require(!stateBytes.empty(),"P007AV cannot encode private SF2 v3 state");
@@ -2049,7 +2112,8 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
     };
     feedState(stateBytes,true);
     require(closeTo(plugin.controller->getParamNormalized(bankId),1./127.) &&
-            closeTo(plugin.controller->getParamNormalized(programId),0.) &&
+            closeTo(plugin.controller->getParamNormalized(programId),
+                    double(testProgram)/127.) &&
             closeTo(plugin.controller->getParamNormalized(masterId),1.),
             "P007AV v3 SoundFont project MIDI or master recall failed");
     MemoryStream save;
