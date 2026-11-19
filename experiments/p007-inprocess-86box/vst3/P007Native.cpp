@@ -448,28 +448,28 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                 }
                 if(!selected.empty()){
                     if(selected!=active)
-                        return std::string("SF2-AUSWAHL WIRD GELADEN");
+                        return std::string("SOUNDFONT LOADING");
                     const int sf2=core_.guestSf2Status();
                     if(sf2==1 && s==2)
-                        return std::string("ORIGINAL CREATIVE: SF2-BANK 1 PER AWEMAN32 GELADEN");
+                        return std::string("SOUNDFONT READY | USER BANK 1");
                     if(sf2==-2)
-                        return std::string("SF2-DATEI/LAUFWERK NICHT VERFUEGBAR | ROM AKTIV");
+                        return std::string("SOUNDFONT UNAVAILABLE | ROM ACTIVE");
                     if(sf2==-1)
-                        return std::string("ORIGINAL CREATIVE HAT SF2 ABGELEHNT | ROM AKTIV");
+                        return std::string("SOUNDFONT REJECTED | ROM ACTIVE");
                     if(s==2)
-                        return std::string("SF2 NICHT BESTAETIGT | ORIGINAL ROM AKTIV");
+                        return std::string("SOUNDFONT NOT READY | ROM ACTIVE");
                 }
-                return s==2 ? std::string("ORIGINAL CREATIVE WINMM: ROM BEREIT") :
-                       s==1 ? std::string("WINDOWS 95: ORIGINAL-GAST STARTET") :
-                       s<0 ? std::string("WINDOWS 95 / CREATIVE: STARTFEHLER") :
-                             std::string("ORIGINAL CREATIVE: GAST NOCH NICHT BEREIT");
+                return s==2 ? std::string("ORIGINAL ROM READY") :
+                       s==1 ? std::string("SYSTEM BOOTING") :
+                       s<0 ? std::string("SYSTEM START FAILED") :
+                             std::string("SYSTEM INITIALIZING");
             },
             [this]() {
                 const int s=p165GuestStatus();
-                return s==2 ? std::string("ORIGINAL AWE64 | CREATIVE WINMM BEREIT") :
-                       s==1 ? std::string("WIN95: BOOTET") :
-                       s<0 ? std::string("WIN95: GASTFEHLER") :
-                             std::string("ROM IM BUNDLE | WIN95 NICHT BEREIT");
+                return s==2 ? std::string("AWE64 | AUDIO READY") :
+                       s==1 ? std::string("SYSTEM BOOTING") :
+                       s<0 ? std::string("SYSTEM ERROR") :
+                             std::string("ROM INSTALLED | SYSTEM NOT READY");
             },
             [](const std::string&){return false;}, // original ROM immutable
             [this](const std::string& path){return chooseOriginalSf2(path);},
