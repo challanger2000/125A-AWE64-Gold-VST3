@@ -2216,11 +2216,22 @@ void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
         // We do NOT call mere AWEMAN32 API acknowledgement sound proof.
         // A user-SF2 with a completely identical PCM to original GM ROM
         // would be INCONCLUSIVE rather than a falsely distinct source.
-        const double rmsRatio=sf2Sound.rms()/std::max(romSound.rms(),1e-12);
-        require(rmsRatio>=1.15 || rmsRatio<=1./1.15 ||
-                std::abs(sf2Sound.peak-romSound.peak)>
-                    std::max(0.001,romSound.peak*.12),
-                "P007AV SF2 and ROM acoustic fingerprints too similar; cannot prove bank switch");
+        // Print all numerical evidence even on NO-GO, so the owner does
+        // not have to repeat the entire original Win95 boot to diagnose an
+        // unproven switch. RMS and peak alone are not a timbre fingerprint.
+        std::printf("P007AW_SF2_ROM_ACOUSTIC_DIAGNOSTIC"
+            " sf2_frames=%llu sf2_rms=%.9f sf2_peak=%.9f sf2_rough=%.9f"
+            " rom_frames=%llu rom_rms=%.9f rom_peak=%.9f rom_rough=%.9f"
+            " baseline_rms=%.9f original_guest=1 synthetic=0\n",
+            static_cast<unsigned long long>(sf2Sound.frames),
+            sf2Sound.rms(),sf2Sound.peak,sf2Sound.roughness(),
+            static_cast<unsigned long long>(romSound.frames),
+            romSound.rms(),romSound.peak,romSound.roughness(),
+            baseline.rms());
+        std::fflush(stdout);
+        require(p007::original_audio_proof::distinguishBanks(sf2Sound,romSound),
+                "P007AW original SF2/ROM bank switch INCONCLUSIVE: "
+                "RMS/peak/roughness alike, inspect Creative MIDI bank routing");
         std::printf("P007AV_REAL_ORIGINAL_CREATIVE_SF2_BANK1_TO_EMU8000_PCM_PASS"
              " sf2_rms=%.9f sf2_peak=%.9f"
              " rom_rms=%.9f rom_peak=%.9f"
