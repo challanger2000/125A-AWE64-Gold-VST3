@@ -71,6 +71,7 @@ private:
     uint8_t program_=0;
     int bankFilter_=-1;
     bool syncing_=false,selectingRowFromMouse_=false;
+    bool sf2AutoSelectPending_=false; // select bank 1 ONLY after real guest ACK + catalog
     int currentPage_=0;  // SYNTH=0, BROWSER=1 (UI only, no VST state)
     std::array<VSTGUI::CViewContainer*,2> pages_{};
     VSTGUI::CViewContainer* buildingPanel_=nullptr;

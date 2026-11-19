@@ -193,6 +193,25 @@ public:
             });
         return true;
     }
+    // Creative AWEManager loads the SoundFont as USER bank 1.
+    // A standard SF2 may contain bank 0 melodic programs *and* bank 128
+    // percussion programs. P007BB incorrectly rejected ALL melodic
+    // names whenever any nonzero source bank existed. Keep the original
+    // ROM bank 0, expose only actual SF2 melodic bank-0 phdr entries as
+    // Creative USER bank 1, and do not invent slots for absent programs.
+    // Other source banks are deliberately not assigned an unproven
+    // audible Creative MIDI routing; drum-channel support is separate.
+    std::size_t AppendCreativeMelodicUserOneFromSource(
+        const PresetCatalog& source) {
+        PresetCatalog mapped;
+        for(const auto& e:source.Entries())
+            if(e.bank==0u && !e.drums)
+                mapped.entries_.push_back({1u,e.program,e.name,false});
+        if(mapped.entries_.empty())return 0u;
+        const auto count=mapped.entries_.size();
+        if(!AppendCreativeUserBank(mapped))return 0u;
+        return count;
+    }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;
         return nullptr;

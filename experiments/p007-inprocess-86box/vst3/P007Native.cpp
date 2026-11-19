@@ -416,6 +416,7 @@ bool Plugin::chooseOriginalSf2(const std::string& path) {
             activeSf2Path_=path;
             confirmedSf2Catalog_=false;
         }
+        sf2NoMelodicBank_.store(false,std::memory_order_release);
         // The browser belongs to the GUI thread, not the audio callback.
         // Remove stale SF2 names, then select the actual Creative user bank.
         originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
@@ -451,7 +452,9 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                         return std::string("SOUNDFONT LOADING");
                     const int sf2=core_.guestSf2Status();
                     if(sf2==1 && s==2)
-                        return std::string("SOUNDFONT READY | USER BANK 1");
+                        return sf2NoMelodicBank_.load(std::memory_order_acquire)
+                            ?std::string("SOUNDFONT LOADED | NO MELODIC PRESETS")
+                            :std::string("SOUNDFONT READY | USER BANK 1");
                     if(sf2==-2)
                         return std::string("SOUNDFONT UNAVAILABLE | ROM ACTIVE");
                     if(sf2==-1)
@@ -495,17 +498,20 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                     AWE125::PresetCatalog candidate;
                     std::string error;
                     if(candidate.LoadSoundFont(selected,error)) {
-                        // Never show a source-bank-0 SoundFont patch name
-                        // on the original Creative GM ROM bank 0. Only
-                        // unambiguous one-bank SoundFonts can be labeled
-                        // as Creative USER bank 1 without guessing.
-                        const bool singleBank=
-                            candidate.AssignSingleBankToCreativeUserOne();
+                        // A real SF2 may have *both* bank-0 melodic patches
+                        // and bank-128 drum kits (or other sound banks).
+                        // Only map its actual melodic bank-0 programs into
+                        // verified Creative USER bank 1. The old all-or-
+                        // nothing check silently discarded EVERY name for
+                        // perfectly valid multi-bank SoundFonts.
                         std::lock_guard<std::mutex> lock(sf2StateMutex_);
                         if(!confirmedSf2Catalog_ && selectedSf2Path_==selected){
                             originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
-                            if(singleBank)
-                                (void)originalMidiCatalog_.AppendCreativeUserBank(candidate);
+                            const auto numMelodic=
+                                originalMidiCatalog_.AppendCreativeMelodicUserOneFromSource(
+                                    candidate);
+                            sf2NoMelodicBank_.store(numMelodic==0u,
+                                std::memory_order_release);
                             confirmedSf2Catalog_=true;
                             sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
                         }

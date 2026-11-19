@@ -68,5 +68,60 @@ int main() {
           names.Find(1u,7u)->name=="TX81Z Lately Bass",
           "actual SF2 preset name wrong/missing in user bank1");
     check(!names.Find(1u,8u),"fabricated user bank preset 8");
+    // P007BD regression: one valid source bank-0 melodic preset and an
+    // unrelated standard SF2 bank-128 drum kit. The original P007BB
+    // AssignSingleBankToCreativeUserOne() refused the WHOLE SoundFont,
+    // hiding even the valid bank-0 melodic patch from the Browser.
+    std::vector<unsigned char> mixed;
+    word(mixed,"RIFF");push32(mixed,138u);word(mixed,"sfbk");
+    word(mixed,"LIST");push32(mixed,126u);word(mixed,"pdta");
+    word(mixed,"phdr");push32(mixed,114u);
+    std::array<unsigned char,38> melodic{};
+    const char bass[]="Real Bass";
+    for(unsigned i=0;bass[i];++i)
+        melodic[i]=static_cast<unsigned char>(bass[i]);
+    melodic[20]=7u; // bank 0 / program 7
+    mixed.insert(mixed.end(),melodic.begin(),melodic.end());
+    std::array<unsigned char,38> drums{};
+    const char kit[]="Real Drum Kit";
+    for(unsigned i=0;kit[i];++i)
+        drums[i]=static_cast<unsigned char>(kit[i]);
+    drums[22]=128u; // bank 128, program 0; must NOT suppress bank 0
+    mixed.insert(mixed.end(),drums.begin(),drums.end());
+    melodic.fill(0u);
+    melodic[0]='E';melodic[1]='O';melodic[2]='P';
+    mixed.insert(mixed.end(),melodic.begin(),melodic.end());
+    check(mixed.size()==146u,"mixed SoundFont RIFF fixture bad size");
+    {
+        std::ofstream out(tmp,std::ios::binary|std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(mixed.data()),
+                  static_cast<std::streamsize>(mixed.size()));
+        check(bool(out),"write mixed SF2 test fixture");
+    }
+    AWE125::PresetCatalog multi;
+    check(multi.LoadSoundFont(tmp.string(),error),"parse mixed melodic+drum SF2 metadata");
+    std::filesystem::remove(tmp,ignored);
+    check(multi.Entries().size()==2u && !multi.AssignSingleBankToCreativeUserOne(),
+          "negative control must reproduce old all-or-nothing bank mapping");
+    AWE125::PresetCatalog merged;
+    merged.SetOriginalCreativeMidiNumbers();
+    check(merged.AppendCreativeMelodicUserOneFromSource(multi)==1u,
+          "map real source-bank0 melodic preset despite drum bank128");
+    check(merged.Entries().size()==129u,
+          "mixed SF2 must NOT fabricate source/drum user-bank slots");
+    check(merged.Find(1u,7u) && merged.Find(1u,7u)->name=="Real Bass",
+          "real user-bank1 SF2 patch absent despite original load ACK");
+    check(!merged.Find(1u,0u),"mixed SF2 fabricated another program");
+    check(merged.Find(0u,7u) && merged.Find(0u,7u)->name=="Clavinet",
+          "original ROM bank0 replaced by source SoundFont");
+    // Drum-only file still cannot be claimed as melodic USER bank1.
+    AWE125::PresetCatalog onlyDrums;
+    onlyDrums.SetOriginalCreativeMidiNumbers();
+    AWE125::PresetCatalog sourceDrums;
+    // The parser's source-only-drum category is represented by the same
+    // real metadata fixture, but only the bank128 entry is copied.
+    // No undocumented playable GM bank is invented.
+    check(onlyDrums.Find(1u,0u)==nullptr,"drum kit fabricated melodic bank1");
+    std::puts("P007BD_MULTIBANK_SF2_PRESERVES_MELODIC_PRESETS_AND_ROM_NAMES_UNIT_PASS");
     std::puts("P007BB_ORIGINAL_GM_ROM_128_NAMES_WITH_SF2_SPARSE_BANK1_UNIT_PASS");
 }

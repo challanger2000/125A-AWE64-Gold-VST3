@@ -846,6 +846,20 @@ void PresetBrowserView::Sync(bool force) {
             bankFilter_=-1;
             searchText_.clear();
             search_->setText("");
+            // The Creative guest *and* its Source SoundFont phdr index
+            // must agree that user Bank 1 exists BEFORE editing the DAW
+            // bank parameter. Otherwise bank_=1 with a ROM-only bank
+            // menu causes the observed "Bank 0 / No presets" contradiction.
+            if(sf2AutoSelectPending_) {
+                const auto presets=PresetBrowserModel::Programs(
+                    sf_.Entries(),1u);
+                if(!presets.empty()) {
+                    sf2AutoSelectPending_=false;
+                    const auto preferred=PresetBrowserModel::ChooseExistingProgram(
+                        sf_.Entries(),1u,program_);
+                    Select(1u,preferred);
+                }
+            }
         }
     }
     if(sf2CurrentPath_) {
@@ -962,13 +976,15 @@ void PresetBrowserView::ChooseSf2() {
             L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
         return;
     }
-    // The VST3 owner already queued the internal Win95 guest reload.
-    // Select real Creative user bank 1 through the DAW/controller host edit.
-    // No blocking dialog and absolutely no manual DAW deactivation.
-    ChangeParameter(kBankParam,1.0/127.0);
+    // The VST3 owner queued a genuine Win95/Creative SoundFont load.
+    // Keep the currently valid ROM bank until the guest ACK and actual
+    // phdr programs reach the browser. Sync() then selects Bank 1.
+    // Never show a non-existent user bank or require DAW deactivation.
+    sf2AutoSelectPending_=true;
 #endif
 }
 void PresetBrowserView::ChooseRom() {
+    sf2AutoSelectPending_=false; // explicit ROM request overrides auto-SF2
     // ROM is always mounted. Selecting it changes only original GM bank0.
     // Pressing ROM when already on bank0 must be a harmless no-op and
     // must not show an unrelated "bank reselection failed" warning.
@@ -994,6 +1010,7 @@ void PresetBrowserView::valueChanged(CControl* control) {
         return;
     }
     if(tag==kActiveBank) {
+        sf2AutoSelectPending_=false; // user explicitly chose a bank
         const auto idx=static_cast<int>(std::lround(activeBankMenu_->getValue()));
         if(idx>=0&&size_t(idx)<activeBanks_.size()) {
             const uint16_t candidate=activeBanks_[size_t(idx)];
