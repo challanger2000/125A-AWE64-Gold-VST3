@@ -6,6 +6,10 @@ on:
       - "experiments/p007-inprocess-86box/tests/P007ActualHostQA.cpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalAudioProof.hpp"
       - "experiments/p007-inprocess-86box/tests/P007OriginalAudioProofTest.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.cpp"
+      - "experiments/p007-inprocess-86box/vst3/P007Native.hpp"
+      - "experiments/p007-inprocess-86box/vst3/P007BankProgramPacer.hpp"
+      - "experiments/p007-inprocess-86box/tests/P007BankProgramPacerTest.cpp"
       - ".github/workflows/p007aw-fast-host-proof.yml"
   workflow_dispatch:
 permissions:
@@ -30,7 +34,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007aw -G 'Visual Studio 17 2022' -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
           if($LASTEXITCODE -ne 0){throw 'P007AW configuration failed'}
-          cmake --build build/p007aw --config Release --target P007ActualHostQA P007OriginalAudioProofTest --parallel 3
+          cmake --build build/p007aw --config Release --target P007ActualHostQA P007OriginalAudioProofTest P007BankProgramPacerTest --parallel 3
           if($LASTEXITCODE -ne 0){throw 'P007AW actual Windows QA compile failed'}
       - name: Reject identical / minor gain drift while detecting spectral differences
         shell: pwsh
@@ -38,6 +42,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & build/p007aw/Release/P007OriginalAudioProofTest.exe
           if($LASTEXITCODE -ne 0){throw 'P007AW spectral negative controls FAILED'}
+          & build/p007aw/Release/P007BankProgramPacerTest.exe
+          if($LASTEXITCODE -ne 0){throw 'P007AZ Creative bank/program FIFO pacing negative controls FAILED'}
       - name: Publish private-owner test EXE only (no Win95, ROM, Creative or SF2 assets)
         uses: actions/upload-artifact@v4
         with:
