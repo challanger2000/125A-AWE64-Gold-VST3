@@ -154,13 +154,89 @@ static void panic(HMIDIOUT h){
  for(ch=0;ch<16u;++ch)
   (void)midiOutShortMsg(h,(DWORD)(0xb0u|ch|(123u<<8)));
 }
+/* P007AU: ORIGINAL installed Creative Windows-95 AWEMAN32 API.
+ * A separate private FAT16 IDE slave exposes D:\P007FONT.SF2. This is
+ * NOT a SoundFont parser / replacement synth in the host VST3.
+ * Exact published Creative ABI: AWE_OPEN=101, AWE_LOAD_USER_BANK=204,
+ * 14-byte CBufferObject (#pragma pack 2), OPER_FILE=0, user bank 1.
+ * Do not emit a successful SF2 acknowledgment until AWEManager returns 0.
+ * The guest never modifies the original Win95 HDD or external host files.
+ */
+#define P007_SF2_OK_TOKEN "P007-AWE-SF2-OK-1\n"
+#define P007_SF2_FAIL_TOKEN "P007-AWE-SF2-FAIL-1\n"
+typedef LONG (WINAPI *P007_CREATIVE_MANAGER)(DWORD,UINT,LPARAM,LPARAM);
+#pragma pack(push,2)
+typedef struct {
+ DWORD m_Size;
+ LPSTR m_Buffer;
+ DWORD m_SizeUsed;
+ WORD m_Flag;
+} P007_CREATIVE_FILE_BUFFER;
+#pragma pack(pop)
+typedef char p007_creative_abi_assert[
+    (sizeof(P007_CREATIVE_FILE_BUFFER)==14u)?1:-1];
+static HMODULE s_creative_sf2_dll=0;
+static P007_CREATIVE_MANAGER s_creative_manager=0;
+static DWORD s_creative_handle=0u;
+static int p007_load_original_creative_sf2(void){
+ static const char path[]="D:\\P007FONT.SF2";
+ char filename[128]="D:\\P007FONT.SF2";
+ unsigned char riff[12];DWORD n=0,size=0;
+ HANDLE file=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ,
+                         NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+ P007_CREATIVE_FILE_BUFFER b;
+ LONG rc;
+ if(file==INVALID_HANDLE_VALUE)return 0; /* guest ROM-only */
+ size=GetFileSize(file,NULL);
+ if(size<96u||size>28u*1024u*1024u||
+    !ReadFile(file,riff,12u,&n,NULL)||n!=12u||
+    riff[0]!='R'||riff[1]!='I'||riff[2]!='F'||riff[3]!='F'||
+    riff[8]!='s'||riff[9]!='f'||riff[10]!='b'||riff[11]!='k'||
+    ((DWORD)riff[4]|((DWORD)riff[5]<<8u)|
+     ((DWORD)riff[6]<<16u)|((DWORD)riff[7]<<24u))!=size-8u) {
+    CloseHandle(file);
+    log_line("P007_GUEST_SF2_INVALID_FILE\r\n");return -1;
+ }
+ CloseHandle(file);
+ s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
+ if(!s_creative_sf2_dll) {
+    log_line("P007_GUEST_SF2_ORIGINAL_AWEMAN32_MISSING\r\n");
+    return -1;
+ }
+ s_creative_manager=(P007_CREATIVE_MANAGER)
+     GetProcAddress(s_creative_sf2_dll,"AWEManager");
+ if(!s_creative_manager) {
+    log_line("P007_GUEST_SF2_ORIGINAL_AWEMANAGER_MISSING\r\n");
+    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+ }
+ rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
+ if(rc!=0 || s_creative_handle==0u) {
+    log_line("P007_GUEST_SF2_ORIGINAL_AWE_OPEN_FAILED\r\n");
+    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+ }
+ b.m_Size=sizeof(filename);
+ b.m_Buffer=filename;
+ b.m_SizeUsed=0u;
+ b.m_Flag=0u; /* OPER_FILE */
+ rc=s_creative_manager(s_creative_handle,204u,1u,(LPARAM)&b);
+ if(rc!=0) {
+    log_line("P007_GUEST_SF2_ORIGINAL_AWE_LOAD_USER_BANK_FAILED\r\n");
+    (void)s_creative_manager(s_creative_handle,102u,0,0);
+    s_creative_handle=0u;
+    FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
+ }
+ log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_API_LOADED\r\n");
+ return 1;
+}
+
 __declspec(noreturn) void __cdecl P007GuestMain(void){
  HANDLE com=INVALID_HANDLE_VALUE;HMIDIOUT synth=NULL;
- int raw_mode=0,connected=0;
+ int raw_mode=0,connected=0, sf2_result=0;
  unsigned char bytes[P007_PACKET_SIZE],byte=0;
  unsigned count=0;DWORD got=0;
  log_line("P007 Windows95 original Creative AWE WinMM relay\r\n");
  if(!select_original(&synth))ExitProcess(2);
+ sf2_result=p007_load_original_creative_sf2();
  /* First request Win95 VCOMM port ownership. If that original driver
   * reports ERROR_FILE_NOT_FOUND, use the real 16550 x86 port I/O fallback,
   * as proven by the first full original Creative->EMU8000 PCM test.
@@ -180,6 +256,11 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
    }
    count=0;
    if(raw_mode){
+    if(sf2_result!=0 && !uart_send_raw(sf2_result>0?
+        P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN)) {
+     log_line("P007_GUEST_SF2_STATUS_SEND_FAILED\r\n");
+     Sleep(200u);continue;
+    }
     if(!uart_send_raw(P007_GUEST_READY_TOKEN)){
      log_line("P007_RAW_UART_READY_SEND_FAILED\r\n");
      Sleep(200u);continue;
@@ -187,6 +268,10 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
     log_line("P007_GUEST_RAW_UART_READY_SENT\r\n");
    }else{
     log_line("P007_GUEST_COM2_CONNECTED\r\n");
+    if(sf2_result!=0 && !send_guest_marker(com,sf2_result>0?
+        P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN)){
+     CloseHandle(com);com=INVALID_HANDLE_VALUE;Sleep(200u);continue;
+    }
     if(!send_guest_marker(com,P007_GUEST_READY_TOKEN)){
      CloseHandle(com);com=INVALID_HANDLE_VALUE;Sleep(200u);continue;
     }
@@ -231,5 +316,9 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
   }
  }
  if(com!=INVALID_HANDLE_VALUE)CloseHandle(com);
- midiOutReset(synth);midiOutClose(synth);ExitProcess(3);
+ midiOutReset(synth);midiOutClose(synth);
+ if(s_creative_handle && s_creative_manager)
+   (void)s_creative_manager(s_creative_handle,102u,0,0);
+ if(s_creative_sf2_dll)FreeLibrary(s_creative_sf2_dll);
+ ExitProcess(3);
 }
