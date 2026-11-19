@@ -38,8 +38,12 @@ int main(void){
        "cannot publish to unattached guest");
  p007_live_soundfont_attach();
  check(installs==1u,"I/O registration");
+ check(p007_live_soundfont_publish_count()==0u &&
+       p007_live_soundfont_complete_count()==0u,"initial counter reset");
  check(p007_live_soundfont_publish(original,N)==1,"publish real bytes");
  check(resets==1u,"must clear stale original Creative ack");
+ check(p007_live_soundfont_publish_count()==1u &&
+       p007_live_soundfont_complete_count()==0u,"first generation not published");
  check(p007_live_in8(0xeb00u,NULL)==0xa7u,"guest pending magic");
  uint32_t n=0u;
  for(unsigned i=0u;i<4u;++i)
@@ -58,13 +62,19 @@ int main(void){
  check(p007_live_soundfont_state()==2,"not done until guest AWE ack");
  p007_live_out8(0xeb06u,2u,NULL);
  check(p007_live_soundfont_state()==3,"guest success ack accepted");
+ check(p007_live_soundfont_complete_count()==1u &&
+       p007_live_soundfont_failure_count()==0u,"guest completion generation lost");
  original[500]^=0x5au;
  check(p007_live_soundfont_publish(original,N)==1,
        "same-size second SF2 must be accepted without guest reboot");
  check(resets==2u,"second Creative ACK must be retired");
+ check(p007_live_soundfont_publish_count()==2u &&
+       p007_live_soundfont_complete_count()==1u,"second publish not independent");
  p007_live_out8(0xeb06u,1u,NULL);
  p007_live_out8(0xeb06u,3u,NULL);
  check(p007_live_soundfont_state()==4,"guest fail must not pretend ready");
+ check(p007_live_soundfont_failure_count()==1u &&
+       p007_live_soundfont_complete_count()==1u,"failed guest counted as successful");
  original[0]='X';
  check(p007_live_soundfont_publish(original,N)==-2,
        "invalid RIFF must never reach original Win95");

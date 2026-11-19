@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdatomic.h>
 #include <86box/io.h>
 #include "P007LiveSf2.h"
 #include "P007MidiUart.h"
@@ -22,6 +23,7 @@
 static unsigned char *s_bytes;
 static uint32_t s_len,s_position,s_capacity;
 static int s_state,s_attached;
+static _Atomic uint32_t s_published,s_completed,s_failed;
 static uint8_t p007_live_in8(uint16_t port,void *unused){
     (void)unused;
     switch((unsigned)(port-P007_LIVE_SF2_BASE)) {
@@ -43,8 +45,14 @@ static void p007_live_out8(uint16_t port,uint8_t cmd,void *unused){
     (void)unused;
     if(port!=P007_LIVE_SF2_BASE+6u)return;
     if(cmd==1u && s_state==1){s_position=0u;s_state=2;}
-    else if(cmd==2u && s_state==2 && s_position==s_len)s_state=3;
-    else if(cmd==3u && s_state==2)s_state=4;
+    else if(cmd==2u && s_state==2 && s_position==s_len) {
+        s_state=3;
+        atomic_fetch_add_explicit(&s_completed,1u,memory_order_release);
+    }
+    else if(cmd==3u && s_state==2) {
+        s_state=4;
+        atomic_fetch_add_explicit(&s_failed,1u,memory_order_release);
+    }
 }
 P007_EXPORT int p007_live_soundfont_publish(const void *data,uint32_t size){
     if(!s_attached || !data || size<96u ||
@@ -63,13 +71,26 @@ P007_EXPORT int p007_live_soundfont_publish(const void *data,uint32_t size){
     memcpy(s_bytes,data,size);
     s_len=size;s_position=0u;
     p007_midi_guest_reset_sf2_ack();
+    atomic_fetch_add_explicit(&s_published,1u,memory_order_release);
     s_state=1;
     return 1;
 }
 P007_EXPORT int p007_live_soundfont_state(void){return s_state;}
+P007_EXPORT uint32_t p007_live_soundfont_publish_count(void){
+    return atomic_load_explicit(&s_published,memory_order_acquire);
+}
+P007_EXPORT uint32_t p007_live_soundfont_complete_count(void){
+    return atomic_load_explicit(&s_completed,memory_order_acquire);
+}
+P007_EXPORT uint32_t p007_live_soundfont_failure_count(void){
+    return atomic_load_explicit(&s_failed,memory_order_acquire);
+}
 void p007_live_soundfont_attach(void){
     if(s_attached)return;
     s_len=s_position=0u;s_state=0;
+    atomic_store_explicit(&s_published,0u,memory_order_release);
+    atomic_store_explicit(&s_completed,0u,memory_order_release);
+    atomic_store_explicit(&s_failed,0u,memory_order_release);
     io_sethandler(P007_LIVE_SF2_BASE,16u,
                   p007_live_in8,0,p007_live_in32,p007_live_out8,0,0,0);
     s_attached=1;
