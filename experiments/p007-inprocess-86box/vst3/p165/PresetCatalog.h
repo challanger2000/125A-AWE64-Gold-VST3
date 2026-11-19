@@ -163,6 +163,9 @@ public:
         for(unsigned i=0;i<gm.size();++i)
             entries_.push_back({0u,static_cast<uint8_t>(i),
                  std::string(gm[i]),false});
+        // Standard GM percussion on the original ROM, MIDI CH10.
+        // This is a browser lane, not an extra sample bank.
+        entries_.push_back({128u,0u,"Standard Kit (ROM)",true});
     }
     // Creative AWEManager AWE_LOAD_USER_BANK(1) installs an ordinary
     // single-instrument-bank SoundFont into original Creative USER bank 1.
@@ -201,16 +204,33 @@ public:
     // Creative USER bank 1, and do not invent slots for absent programs.
     // Other source banks are deliberately not assigned an unproven
     // audible Creative MIDI routing; drum-channel support is separate.
+    // Host user-bank1 melodic programs and separate channel10 drum-kit lane.
+    // Never replace original ROM bank0 or fabricate absent SF2 slots.
     std::size_t AppendCreativeMelodicUserOneFromSource(
         const PresetCatalog& source) {
         PresetCatalog mapped;
-        for(const auto& e:source.Entries())
-            if(e.bank==0u && !e.drums)
+        std::size_t melodic=0u;
+        for(const auto& e:source.Entries()) {
+            if(e.bank==0u && !e.drums) {
                 mapped.entries_.push_back({1u,e.program,e.name,false});
-        if(mapped.entries_.empty())return 0u;
-        const auto count=mapped.entries_.size();
-        if(!AppendCreativeUserBank(mapped))return 0u;
-        return count;
+                ++melodic;
+            } else if(e.bank==128u && e.drums) {
+                // Display actual source bank128 drumkits in a separate
+                // browser lane (logical 129 => actual MIDI channel10).
+                mapped.entries_.push_back({129u,e.program,e.name,true});
+            }
+        }
+        entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
+            [](const PresetEntry& e){
+                return e.bank==1u||e.bank==129u;
+            }),entries_.end());
+        entries_.insert(entries_.end(),
+            mapped.Entries().begin(),mapped.Entries().end());
+        std::sort(entries_.begin(),entries_.end(),
+            [](const PresetEntry& a,const PresetEntry& b){
+                return a.bank!=b.bank?a.bank<b.bank:a.program<b.program;
+            });
+        return melodic;
     }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;
