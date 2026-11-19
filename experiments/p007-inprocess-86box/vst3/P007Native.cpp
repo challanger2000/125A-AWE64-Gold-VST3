@@ -494,7 +494,9 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     const bool midiBlocked=ready&&
         (midiDelivery_.pending()!=0u||midiDelivery_.panicPending());
     const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
-    if(midiBlocked && resend)
+    // Preserve new host automation too: bank/program changes received
+    // DURING a MIDI retry must not disappear with this one callback.
+    if(midiBlocked && (resend||programChanged||bankChanged))
         programNeedsSending_.store(true,std::memory_order_release);
     bool justSentSelection=false;
     if(ready&&!midiBlocked){
