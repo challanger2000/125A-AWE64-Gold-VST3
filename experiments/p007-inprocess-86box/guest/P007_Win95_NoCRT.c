@@ -299,7 +299,8 @@ static DWORD p007_live_length(void){
  return len;
 }
 static int p007_live_receive_file(void){
- BYTE buffer[4096];
+ /* /NODEFAULTLIB Win95 PE32: avoid __chkstk for >4 KiB stack frames. */
+ static BYTE buffer[4096];
  DWORD total=0u,pos=0u,written=0u;
  DWORD length=p007_live_length();
  HANDLE output;
