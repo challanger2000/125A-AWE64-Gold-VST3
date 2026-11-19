@@ -12,6 +12,7 @@
 #include <86box/mem.h>
 #include "P007BootTrace.h"
 #include "P007MidiUart.h"
+#include "P007LiveSf2.h"
 /* Configuration is owned by the original 86Box source. */
 extern int gfxcard[];
 /* 86Box original pc_close sets this exit latch. It must be reset before
@@ -185,6 +186,8 @@ P007_EXPORT int p007_core_guest_boot(void) {
     /* Must register before the original BIOS/VGA first blit occurs. */
     video_setblit(p007_headless_blit);
     pc_reset_hard_init();
+    /* Private file-transfer hardware; no original CPU/EMU8000 changes. */
+    p007_live_soundfont_attach();
     s_f1_release_at=s_enter_release_at=0u;
     s_win95_start_at=s_last_enter_at=0u;
     s_f1_sent=s_win95_seen=s_enter_count=0u;
@@ -198,6 +201,7 @@ P007_EXPORT int p007_core_guest_step(void) {
 }
 P007_EXPORT void p007_core_guest_close(void) {
     if (s_guest_stage != 1) return;
+    p007_live_soundfont_detach();
     pc_close(NULL);
     video_setblit(NULL);
     /* The guest has been torn down; clear all Creative WinMM ACK/serial

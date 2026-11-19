@@ -24,7 +24,7 @@ def main():
     cm=fork/"src/CMakeLists.txt"
     original=cm.read_text(encoding="utf-8")
     before="add_executable(86Box\n    86box.c\n"
-    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n    P007BootTrace.c\n"
+    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n    P007LiveSf2.c\n    P007BootTrace.c\n"
     if original.count(before)!=1:
         raise SystemExit("P007_REJECT_UPSTREAM_BUILD_LAYOUT")
     dst=fork/"src/P007CoreExports.c"
@@ -38,11 +38,13 @@ def main():
     dst.write_bytes((source/"fork/P007CoreExports.c").read_bytes())
     shutil.copyfile(source/"fork/P007AudioRing.c",fork/"src/P007AudioRing.c")
     shutil.copyfile(source/"fork/P007MidiUart.c",fork/"src/P007MidiUart.c")
+    shutil.copyfile(source/"fork/P007LiveSf2.c",fork/"src/P007LiveSf2.c")
     shutil.copyfile(source/"fork/P007BootTrace.c",fork/"src/P007BootTrace.c")
     include=fork/"src/include/P007CoreABI.h"
     shutil.copyfile(source/"include/P007CoreABI.h",include)
     shutil.copyfile(source/"include/P007AudioRing.h",fork/"src/include/P007AudioRing.h")
     shutil.copyfile(source/"include/P007MidiUart.h",fork/"src/include/P007MidiUart.h")
+    shutil.copyfile(source/"include/P007LiveSf2.h",fork/"src/include/P007LiveSf2.h")
     shutil.copyfile(source/"include/P007SerialRxGuard.h",fork/"src/include/P007SerialRxGuard.h")
     shutil.copyfile(source/"include/P007BootTrace.h",fork/"src/include/P007BootTrace.h")
     # Connect directly to the ORIGINAL 86Box post-mixer wavetable

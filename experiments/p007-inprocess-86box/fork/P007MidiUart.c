@@ -31,6 +31,10 @@ P007_EXPORT int p007_midi_guest_ready(void) {
 P007_EXPORT int p007_midi_guest_sf2_status(void) {
     return atomic_load_explicit(&s_guest_sf2_status,memory_order_acquire);
 }
+P007_EXPORT void p007_midi_guest_reset_sf2_ack(void) {
+    atomic_store_explicit(&s_guest_sf2_status,0,memory_order_release);
+    s_sf2_ok_progress=s_sf2_fail_progress=0u;
+}
 P007_EXPORT void p007_midi_guest_tx_byte(uint8_t byte) {
     const char ready[]=P007_GUEST_READY_TOKEN;
     const char stop[]=P007_GUEST_STOP_TOKEN;

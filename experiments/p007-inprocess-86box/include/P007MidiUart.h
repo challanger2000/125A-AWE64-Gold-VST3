@@ -29,6 +29,8 @@ void p007_midi_guest_tx_byte(uint8_t byte);
 int p007_midi_guest_ready(void);
 /* 0=ROM only or no acknowledgement; 1=real Win95 Creative AWEManager loaded; -1=guest original API rejected */
 int p007_midi_guest_sf2_status(void);
+/* Called on emulated guest worker between CPU slices before new SF2. */
+void p007_midi_guest_reset_sf2_ack(void);
 uint32_t p007_midi_uart_queued_bytes(void);
 uint64_t p007_midi_dropped_packets(void);
 /* Reset ONLY when both producer and consumer threads are stopped. */
