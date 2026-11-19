@@ -14,6 +14,8 @@ extern "C" {
    midiOutOpen succeeds on the ORIGINAL Creative AWE/EMU8000 device. */
 #define P007_GUEST_READY_TOKEN "P007-AWE-WINMM-READY-1\n"
 #define P007_GUEST_STOP_TOKEN  "P007-AWE-WINMM-STOP-1\n"
+#define P007_GUEST_SF2_OK_TOKEN "P007-AWE-SF2-OK-1\n"
+#define P007_GUEST_SF2_FAIL_TOKEN "P007-AWE-SF2-FAIL-1\n"
 /* Only run when guest COM2 is assigned to this internal port. */
 void p007_midi_uart_enable(int active);
 int p007_midi_uart_active(void);
@@ -25,6 +27,8 @@ int p007_midi_uart_take_byte(uint8_t *out);
    This is NOT a host-process helper or Named Pipe. */
 void p007_midi_guest_tx_byte(uint8_t byte);
 int p007_midi_guest_ready(void);
+/* 0=ROM only or no acknowledgement; 1=real Win95 Creative AWEManager loaded; -1=guest original API rejected */
+int p007_midi_guest_sf2_status(void);
 uint32_t p007_midi_uart_queued_bytes(void);
 uint64_t p007_midi_dropped_packets(void);
 /* Reset ONLY when both producer and consumer threads are stopped. */
