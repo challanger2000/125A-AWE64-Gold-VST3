@@ -5,6 +5,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <vector>
+// Do NOT let MSVC /DNDEBUG remove assertions or their MIDI tick calls.
+// These are executable adversarial checks in Release CI, not debug hints.
+#undef assert
+#define assert(expr) do { if(!(expr)) { \
+    std::fprintf(stderr,"P007AZ_FAIL %s:%d: %s\\n",__FILE__,__LINE__,#expr); \
+    return 1; \
+} } while(false)
 
 using p007::BankProgramPacer;
 struct Msg{std::uint8_t status,d1,d2;};
