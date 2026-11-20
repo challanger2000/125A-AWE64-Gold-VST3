@@ -843,7 +843,8 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     {
         std::lock_guard<std::mutex> guard(guiAssetMutex_);
         replaceAsset=(nextExplicit!=userChoseSf2_) ||
-            (nextExplicit&&requestedPath!=selectedUserSf2_);
+            (nextExplicit&&(requestedPath!=selectedUserSf2_ ||
+                             ext.assetSha256!=selectedUserSha256_));
     }
     if(replaceAsset){
         const auto folder=bundleResourcePath();
