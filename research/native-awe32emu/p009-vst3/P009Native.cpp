@@ -1,6 +1,7 @@
 #include "P009Native.hpp"
 #include "Emu8000Box.h"
 #include "P009CreativeDefaults.hpp"
+#include "P009AssetFingerprint.hpp"
 #include "Synth.h"
 #include "Awe32Driver.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -62,7 +63,17 @@ struct Saved {
     std::array<std::uint8_t,16> parameterModes{};
 };
 static_assert(sizeof(Saved)==580u,"P013 exact 580-byte VST3 state");
-constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u,kStateV4=4u;
+// State V5 appends a checked owner SoundFont path and full SHA256 digest.
+// The preceding 580 bytes are byte-identical to V4 except the version tag.
+// Legacy v1/v2/v3/v4 project formats MUST continue to roundtrip byte-exact.
+struct OwnerStateV5 {
+    std::uint32_t marker=0x35534150u; // "PAS5" little endian
+    std::uint32_t pathBytes=0u;
+    std::array<std::uint16_t,12> guiControls{};
+    std::array<std::uint8_t,32> assetSha256{};
+};
+static_assert(sizeof(OwnerStateV5)==64u,"exact V5 owner bank path header");
+constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u,kStateV4=4u,kStateV5=5u;
 constexpr int32 kV1Bytes=20,kV2Bytes=52,kV3Bytes=308;
 struct MidiPoint {
     int32 sampleOffset=0;
@@ -327,21 +338,29 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     for(unsigned i=0;i<guiControls_.size();++i)
         synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
     // Catalog is GUI-only; its data MUST follow the exact loaded owner file.
-    guiCatalog_.SetOriginalCreativeMidiNumbers();
+    auto* nextCatalog=new AWE125::PresetCatalog;
+    nextCatalog->SetOriginalCreativeMidiNumbers();
     if(!sf2.empty()){
         const auto text=sf2.u8string();
+        const std::string name(text.begin(),text.end());
         AWE125::PresetCatalog user;
-        if(user.LoadSoundFont(std::string(text.begin(),text.end()),error))
-            guiCatalog_.AppendCreativeMelodicUserOneFromSource(user);
+        if(user.LoadSoundFont(name,error))
+            nextCatalog->AppendCreativeMelodicUserOneFromSource(user);
+        std::array<std::uint8_t,32> digest{};
+        // Accurate content SHA is prepared while the host is NOT running
+        // an audio callback; missing/changed external file will fail recall.
+        (void)sha256FileNonRealtime(sf2,digest);
         std::lock_guard<std::mutex> lock(guiAssetMutex_);
-        selectedUserSf2_=std::string(text.begin(),text.end());
+        selectedUserSf2_=name;
+        selectedUserSha256_=digest;
     }
-    guiCatalogRevision_.fetch_add(1,std::memory_order_release);
+    delete pendingGuiCatalog_.exchange(nextCatalog,std::memory_order_acq_rel);
     return true;
 }
 void NativeVst3::cleanStagedAndRetiredNonRealtime() noexcept {
     delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
     delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    delete pendingGuiCatalog_.exchange(nullptr,std::memory_order_acq_rel);
 }
 void NativeVst3::applyStagedInstrumentRealtime() noexcept {
     // Only the audio thread uses synth_. Old engine must be reclaimed on the
@@ -687,6 +706,9 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 const auto index=static_cast<unsigned>(
                     mp.slot-kGuiControlSlotBase);
                 guiControls_[index]=static_cast<float>(mp.value)/100.f;
+                guiControlMirrors_[index].store(
+                    static_cast<std::uint16_t>(mp.value*100u),
+                    std::memory_order_release);
                 if(synth_)synth_->SetGuiControl(
                     static_cast<int>(index),guiControls_[index]);
             }
@@ -709,9 +731,38 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     s.midiStates=midiState_;
     s.advancedStates=advancedMidiState_;
     s.parameterModes=selectedParameterMode_;
+    OwnerStateV5 extended{};
+    std::string ownerPath;
+    bool explicitOwner=false;
+    {
+        std::lock_guard<std::mutex> guard(guiAssetMutex_);
+        explicitOwner=userChoseSf2_;
+        if(explicitOwner){
+            ownerPath=selectedUserSf2_;
+            extended.assetSha256=selectedUserSha256_;
+        }
+    }
+    bool changed=explicitOwner;
+    for(unsigned i=0;i<guiControls_.size();++i){
+        extended.guiControls[i]=guiControlMirrors_[i].load(
+            std::memory_order_acquire);
+        if(extended.guiControls[i]>0)changed=true;
+    }
+    if(changed){
+        if(ownerPath.size()>4096u)return kResultFalse;
+        s.version=kStateV5;
+        extended.pathBytes=static_cast<std::uint32_t>(ownerPath.size());
+    }
     int32 n=0;
-    return stream->write(&s,static_cast<int32>(sizeof(s)),&n)==kResultOk &&
-           n==static_cast<int32>(sizeof(s))?kResultOk:kResultFalse;
+    if(stream->write(&s,static_cast<int32>(sizeof(s)),&n)!=kResultOk ||
+       n!=static_cast<int32>(sizeof(s)))return kResultFalse;
+    if(!changed)return kResultOk;
+    if(stream->write(&extended,static_cast<int32>(sizeof(extended)),&n)!=kResultOk ||
+       n!=static_cast<int32>(sizeof(extended)))return kResultFalse;
+    if(!ownerPath.empty() &&
+       (stream->write(ownerPath.data(),static_cast<int32>(ownerPath.size()),&n)!=kResultOk ||
+        n!=static_cast<int32>(ownerPath.size())))return kResultFalse;
+    return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
@@ -721,7 +772,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(stream->read(&s,kV1Bytes,&n)!=kResultOk||n!=kV1Bytes||
        s.magic!=0x39303050u||
        (s.version!=kStateV1&&s.version!=kStateV2&&
-        s.version!=kStateV3&&s.version!=kStateV4)||
+        s.version!=kStateV3&&s.version!=kStateV4&&s.version!=kStateV5)||
        s.program>127u||s.bank>2u||!finite01(s.master))
         return kResultFalse;
     if(s.version>=kStateV2){
@@ -745,7 +796,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
                     return kResultFalse;
             }
     }
-    if(s.version==kStateV4){
+    if(s.version>=kStateV4){
         int32 tail=0;
         if(stream->read(reinterpret_cast<unsigned char*>(&s)+kV3Bytes,
                         static_cast<int32>(sizeof(s))-kV3Bytes,&tail)!=kResultOk ||
@@ -758,6 +809,61 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             }
         }
     }
+    OwnerStateV5 ext{};
+    std::string requestedPath;
+    std::unique_ptr<Synth> preparedAsset;
+    AWE125::PresetCatalog freshCatalog;
+    bool replaceAsset=false;
+    bool nextExplicit=false;
+    if(s.version==kStateV5){
+        int32 tail=0;
+        if(stream->read(&ext,static_cast<int32>(sizeof(ext)),&tail)!=kResultOk ||
+           tail!=static_cast<int32>(sizeof(ext))||
+           ext.marker!=0x35534150u||ext.pathBytes>4096u)
+            return kResultFalse;
+        for(const auto control:ext.guiControls)
+            if(control>10000u)return kResultFalse;
+        if(ext.pathBytes){
+            requestedPath.resize(ext.pathBytes);
+            if(stream->read(requestedPath.data(),
+                static_cast<int32>(ext.pathBytes),&tail)!=kResultOk ||
+                tail!=static_cast<int32>(ext.pathBytes) ||
+                requestedPath.find('\0')!=std::string::npos)
+                return kResultFalse;
+            const auto path=std::filesystem::u8path(requestedPath);
+            std::array<std::uint8_t,32> actualSha{};
+            if(!sha256FileNonRealtime(path,actualSha) ||
+                actualSha!=ext.assetSha256)
+                return kResultFalse; // no silent fallback to another SF2
+            nextExplicit=true;
+        }
+    }
+    // Existing legacy projects have no user-bank identity. Restore their
+    // original bundle bank instead of inheriting a previous project's file.
+    {
+        std::lock_guard<std::mutex> guard(guiAssetMutex_);
+        replaceAsset=(nextExplicit!=userChoseSf2_) ||
+            (nextExplicit&&requestedPath!=selectedUserSf2_);
+    }
+    if(replaceAsset){
+        const auto folder=bundleResourcePath();
+        if(folder.empty())return kResultFalse;
+        const auto replacement=nextExplicit?
+            std::filesystem::u8path(requestedPath):
+            (std::filesystem::is_regular_file(folder/"user.sf2")?
+                folder/"user.sf2":std::filesystem::path{});
+        std::string error;
+        if(!buildInstrumentNonRealtime(replacement,preparedAsset,error))
+            return kResultFalse;
+        freshCatalog.SetOriginalCreativeMidiNumbers();
+        if(!replacement.empty()){
+            const auto utf8=replacement.u8string();
+            AWE125::PresetCatalog user;
+            if(user.LoadSoundFont(std::string(utf8.begin(),utf8.end()),error))
+                freshCatalog.AppendCreativeMelodicUserOneFromSource(user);
+        }
+    }
+
     // Only now mutate processor. Corrupt v4 cannot change any channel.
     program_=static_cast<int>(s.program);bank_=static_cast<int>(s.bank);
     master_=s.master;
@@ -774,6 +880,42 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         advancedMidiState_=s.advancedStates;
         selectedParameterMode_=s.parameterModes;
     }
+    // The original bank identity is now fully checked. After this point
+    // state restore cannot fail; queue prebuilt chip swap without touching
+    // the real-time heap, and apply catalog on the GUI idle thread.
+    if(replaceAsset){
+        delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+        if(preparedAsset){
+            delete stagedSynth_.exchange(preparedAsset.release(),
+                std::memory_order_acq_rel);
+        }
+        delete pendingGuiCatalog_.exchange(
+            new AWE125::PresetCatalog(std::move(freshCatalog)),
+            std::memory_order_acq_rel);
+        if(!synth_){
+            // Inactive instance: next setActive builds the chosen bank.
+            delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
+        }
+        std::lock_guard<std::mutex> guard(guiAssetMutex_);
+        selectedUserSf2_=nextExplicit?requestedPath:std::string{};
+        selectedUserSha256_=nextExplicit?ext.assetSha256:
+            std::array<std::uint8_t,32>{};
+        userChoseSf2_=nextExplicit;
+    }
+    for(unsigned i=0;i<guiControls_.size();++i){
+        const auto control=s.version==kStateV5?ext.guiControls[i]:0u;
+        guiControls_[i]=static_cast<float>(control)/10000.f;
+        guiControlMirrors_[i].store(control,std::memory_order_release);
+        (void)SingleComponentEffect::setParamNormalized(1100u+i,
+            static_cast<double>(control)/10000.);
+        if(synth_)synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+    }
+    (void)SingleComponentEffect::setParamNormalized(kProgram,
+        static_cast<double>(program_)/127.);
+    (void)SingleComponentEffect::setParamNormalized(kBank,
+        static_cast<double>(bank_)/2.);
+    (void)SingleComponentEffect::setParamNormalized(kVolume,
+        static_cast<double>(master_));
     // P015: when another project is restored while the engine is live,
     // clear the previous project's chip-side controller state FIRST.
     // Host state has been fully validated above, so invalid streams never
