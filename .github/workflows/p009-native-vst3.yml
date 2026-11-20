@@ -216,6 +216,21 @@ jobs:
           & _p009-build/Release/P010NativeHostQA.exe $bundle --public
           if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
           Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
+      - name: P165 native actual Windows EditorHost real hardware GUI and mouse controls
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 3 --target editorhost
+          if($LASTEXITCODE -ne 0){throw 'P165 actual Steinberg editorhost compile failed'}
+          $editor=(Get-ChildItem _p009-build -Filter editorhost.exe -Recurse -File |
+            Where-Object {$_.FullName -match 'Release'} |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if(!$editor){throw 'P165 actual EditorHost.exe not found'}
+          $plugin=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          python research/native-awe32emu/p009-vst3/tests/P165NativeEditorHostQA.py --editorhost $editor --plugin $plugin --output _p165-real-editor-evidence
+          if($LASTEXITCODE -ne 0){throw 'P165 actual native P007BW photographed 12-knob editor FAILED'}
+          Write-Host P165_NATIVE_ORIGINAL_P007BW_REAL_EDITORHOST_FULL_UI_INTERACTIVE_PASS
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
@@ -226,6 +241,7 @@ jobs:
             _p019-latency-report.json
             _p019-latency-report.txt
             _p021-original-chip-multirate.log
+            _p165-real-editor-evidence/**
             _p009-build/Release/P021OriginalChipResamplingProbe.exe
             _p009-build/Release/P019Probe980.exe
             _p009-build/Release/P019Probe128.exe
