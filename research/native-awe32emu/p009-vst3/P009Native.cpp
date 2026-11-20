@@ -48,6 +48,11 @@ struct Saved {
 static_assert(sizeof(Saved)==308u,"P012 exact 308-byte VST3 state");
 constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u;
 constexpr int32 kV1Bytes=20,kV2Bytes=52;
+struct MidiPoint {
+    int32 sampleOffset=0;
+    std::uint8_t channel=0,slot=0;
+    std::uint16_t value=0;
+};
 bool finite01(double x){return std::isfinite(x) && x>=0. && x<=1.;}
 unsigned toByte(float v) {
     return static_cast<unsigned>(std::clamp(
@@ -352,17 +357,59 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         bus->channelBuffers32[0]:nullptr;
     float* r=(bus && bus->numChannels>=2 && bus->channelBuffers32)?
         bus->channelBuffers32[1]:nullptr;
+    // Real VST3 MIDI CC is delivered by the host as mapped parameter
+    // points, not a LegacyMIDICCOutEvent (which is OUTPUT only).
+    // A bounded, stack-only queue ensures sample-offset timing and no heap.
+    std::array<MidiPoint,512> midiPoints{};
+    std::size_t numMidiPoints=0;
+    const auto reject=[&]() -> tresult {
+        if(l&&r&&data.numSamples>0){
+            std::fill_n(l,data.numSamples,0.f);
+            std::fill_n(r,data.numSamples,0.f);
+            if(bus)bus->silenceFlags=3;
+        }
+        return kResultFalse;
+    };
     if(data.inputParameterChanges){
-        const int32 n=std::clamp<int32>(
-            data.inputParameterChanges->getParameterCount(),0,128);
+        const int32 n=data.inputParameterChanges->getParameterCount();
+        if(n<0||n>1024)return reject();
         bool updated=false;
         for(int32 i=0;i<n;++i){
             auto* q=data.inputParameterChanges->getParameterData(i);
             if(!q||q->getPointCount()<1)continue;
+            const ParamID id=q->getParameterId();
+            if(id>=kMidiMappedBase &&
+               id<kMidiMappedBase+16u*kMappedCount){
+                const unsigned offset=id-kMidiMappedBase;
+                const unsigned channel=offset/kMappedCount;
+                const unsigned slot=offset%kMappedCount;
+                const int32 nPoints=q->getPointCount();
+                if(nPoints<0||nPoints>512)return reject();
+                for(int32 p=0;p<nPoints;++p){
+                    int32 frame=0;ParamValue v=0.;
+                    if(q->getPoint(p,frame,v)!=kResultOk || !finite01(v) ||
+                       frame<0||frame>=data.numSamples)continue;
+                    if(numMidiPoints==midiPoints.size())return reject();
+                    MidiPoint point{};
+                    point.sampleOffset=frame;
+                    point.channel=static_cast<std::uint8_t>(channel);
+                    point.slot=static_cast<std::uint8_t>(slot);
+                    point.value=static_cast<std::uint16_t>(std::lround(
+                        v*(slot==kMappedCount-1?16383.:127.)));
+                    // Stable insertion sort, preserving host point ordering.
+                    auto j=numMidiPoints;
+                    while(j>0 && midiPoints[j-1].sampleOffset>frame){
+                        midiPoints[j]=midiPoints[j-1];--j;
+                    }
+                    midiPoints[j]=point;
+                    ++numMidiPoints;
+                }
+                continue;
+            }
             int32 off=0;ParamValue val=0.;
             if(q->getPoint(q->getPointCount()-1,off,val)!=kResultOk||
                !finite01(val))continue;
-            switch(q->getParameterId()){
+            switch(id){
                 case kProgram:
                     program_=std::clamp<int>(
                         static_cast<int>(std::lround(val*127.)),0,127);
@@ -422,10 +469,23 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         }
     }
     int32 pos=0;
-    for(std::size_t i=0;i<num;++i){
-        const auto end=events[i].sampleOffset;
-        if(end>pos){render(l+pos,r+pos,end-pos);pos=end;}
-        dispatch(events[i]);
+    std::size_t notePos=0,midiPos=0;
+    while(notePos<num||midiPos<numMidiPoints){
+        const int32 noteOffset=notePos<num?
+            events[notePos].sampleOffset:data.numSamples;
+        const int32 midiOffset=midiPos<numMidiPoints?
+            midiPoints[midiPos].sampleOffset:data.numSamples;
+        const int32 next=std::min(noteOffset,midiOffset);
+        if(next>pos){render(l+pos,r+pos,next-pos);pos=next;}
+        // Controllers at the very same sample precede NoteOn, preserving
+        // sustain/modulation/velocity timing without changing chip DSP.
+        while(midiPos<numMidiPoints &&
+              midiPoints[midiPos].sampleOffset==next){
+            const auto& mp=midiPoints[midiPos++];
+            applyMidiController(mp.channel,mp.slot,mp.value);
+        }
+        while(notePos<num && events[notePos].sampleOffset==next)
+            dispatch(events[notePos++]);
     }
     if(pos<data.numSamples)render(l+pos,r+pos,data.numSamples-pos);
     if(bus)bus->silenceFlags=authenticRomLoaded_?0:3;
