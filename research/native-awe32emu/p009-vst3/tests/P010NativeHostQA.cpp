@@ -113,7 +113,7 @@ void verifyP165GuiV5OwnerAssetState(
  check(unit.component->getState(&initial)==kResultOk &&
        initial.getSize()==sizeof(Saved),
        "P165 unedited host project must preserve exact V4 580-byte format");
- auto* original=static_cast<const std::uint8_t*>(initial.getData());
+ auto* original=reinterpret_cast<const std::uint8_t*>(initial.getData());
  check(original && std::memcmp(original+4,"\004\000\000\000",4)==0,
        "P165 unedited project must use v4, not fake new format");
  // GUI gestures must be real host automation parameter IDs as in P007BW.
@@ -125,7 +125,7 @@ void verifyP165GuiV5OwnerAssetState(
  MemoryStream v5;
  check(unit.component->getState(&v5)==kResultOk &&
        v5.getSize()==644u,"P165 12 GUI edits did not persist in V5 644-byte owner state");
- const auto* bytes=static_cast<const std::uint8_t*>(v5.getData());
+ const auto* bytes=reinterpret_cast<const std::uint8_t*>(v5.getData());
  check(bytes && bytes[4]==5u&&bytes[5]==0u&&bytes[6]==0u&&bytes[7]==0u,
        "P165 GUI control state must be exact V5 header");
  // Verify extension 64B magic, empty path and all 12 quantized basis points.
