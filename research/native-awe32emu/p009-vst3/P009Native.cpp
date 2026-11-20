@@ -242,50 +242,103 @@ uint32 PLUGIN_API NativeVst3::getLatencySamples(){
         static_cast<double>(Emu8000Box::kLatencyFrames)*
         sampleRate_/44100.));
 }
-bool NativeVst3::openPrivateSoundBanksNonRealtime(){
-    authenticRomLoaded_=false;
+bool NativeVst3::buildInstrumentNonRealtime(const std::filesystem::path& selected,
+                                              std::unique_ptr<Synth>& result,
+                                              std::string& error){
     const auto folder=bundleResourcePath();
-    if(folder.empty())return false;
+    if(folder.empty()){error="Missing VST3 resource folder";return false;}
     const auto rom=folder/"awe32.raw";
     const auto sbk=folder/"SYNTHGM.SBK";
     if(!std::filesystem::is_regular_file(rom) ||
-       !std::filesystem::is_regular_file(sbk))return false;
-    // All allocations, ROM I/O, 28MiB RAM, and bank loading happen off
-    // process() in the host's setActive lifecycle.
+       !std::filesystem::is_regular_file(sbk)){
+        error="Original ROM / Creative SBK are missing";return false;
+    }
+    // This complete Synth is constructed on the host lifecycle or GUI
+    // thread, NEVER in the process() callback. Original chip and Creative
+    // voice/FX/memory path remain byte-identical to the P022 engine.
     auto candidate=std::make_unique<Synth>(
         static_cast<std::uint32_t>(sampleRate_+0.5));
-    std::string error;
-    const auto romPath=rom.u8string();
+    const auto bytes=[](const std::filesystem::path& p) {
+        const auto utf8=p.u8string();
+        return std::string(utf8.begin(),utf8.end());
+    };
+    const auto romPath=bytes(rom);
     if(!candidate->LoadWaveRom(romPath,error))return false;
     candidate->Core().SetChipRamKb(28672);
     if(!candidate->Core().UseBox86Chip(romPath,error))return false;
     candidate->Core().SetDriver(Awe32::Driver::Win95);
-    if(!candidate->LoadBank(sbk.u8string(),error,false,-1))
-        return false;
-    // User bank1 is OPTIONAL, never a fake sound. Existing ROM bank
-    // remains loaded if no user SF2 is present.
-    const auto user=folder/"user.sf2";
-    if(std::filesystem::is_regular_file(user) &&
-       !candidate->LoadBank(user.u8string(),error,false,1))
-        return false;
+    if(!candidate->LoadBank(bytes(sbk),error,false,-1))return false;
+    if(!selected.empty()){
+        if(!std::filesystem::is_regular_file(selected)){
+            error="Selected owner SoundFont cannot be found";return false;
+        }
+        if(!candidate->LoadBank(bytes(selected),error,false,1))return false;
+    }
     if(auto* ram=candidate->Core().ChipRam()){
         const auto n=std::min(candidate->Core().DramSize(),
                               candidate->Core().ChipRamWords());
         std::memcpy(ram,candidate->Core().DramData(),n*sizeof(std::int16_t));
-    }else return false;
+    } else {error="EMU8000 original 28 MiB memory not mapped";return false;}
     candidate->Core().PowerOnInit();
-    // Allocate ALL sample, selection, chorus, port FIFO, resampling scratch
-    // outside process() and fail closed if an owner bank is unbounded.
-    if (!candidate->PrepareRealtime(1024u))return false;
+    if(!candidate->PrepareRealtime(1024u)){
+        error="Realtime chip render cannot be prepared";return false;
+    }
+    result=std::move(candidate);
+    error.clear();
+    return true;
+}
+bool NativeVst3::openPrivateSoundBanksNonRealtime(){
+    authenticRomLoaded_=false;
+    const auto folder=bundleResourcePath();
+    if(folder.empty())return false;
+    std::filesystem::path sf2;
+    {std::lock_guard<std::mutex> lock(guiAssetMutex_);
+     if(!selectedUserSf2_.empty())sf2=std::filesystem::u8path(selectedUserSf2_);}
+    if(sf2.empty()&&std::filesystem::is_regular_file(folder/"user.sf2"))
+        sf2=folder/"user.sf2";
+    std::unique_ptr<Synth> candidate;
+    std::string error;
+    if(!buildInstrumentNonRealtime(sf2,candidate,error))return false;
     synth_=std::move(candidate);
     authenticRomLoaded_=true;
+    // CH1..16 and original Creative mapped CC state are restored in exactly
+    // the previous order; no previous-bank fallback and no fake preset.
     changeBankProgram();
     replayMidiState();
+    // Catalog is GUI-only; its data MUST follow the exact loaded owner file.
+    guiCatalog_.SetOriginalCreativeMidiNumbers();
+    if(!sf2.empty()){
+        const auto text=sf2.u8string();
+        AWE125::PresetCatalog user;
+        if(user.LoadSoundFont(std::string(text.begin(),text.end()),error))
+            guiCatalog_.AppendCreativeMelodicUserOneFromSource(user);
+        std::lock_guard<std::mutex> lock(guiAssetMutex_);
+        selectedUserSf2_=std::string(text.begin(),text.end());
+    }
+    guiCatalogRevision_.fetch_add(1,std::memory_order_release);
     return true;
+}
+void NativeVst3::cleanStagedAndRetiredNonRealtime() noexcept {
+    delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+}
+void NativeVst3::applyStagedInstrumentRealtime() noexcept {
+    // Only the audio thread uses synth_. Old engine must be reclaimed on the
+    // UI/non-real-time side; **never** destroy its 28MiB buffers in process.
+    if(retiredSynth_.load(std::memory_order_acquire)!=nullptr)return;
+    if(auto* incoming=stagedSynth_.exchange(nullptr,std::memory_order_acq_rel)){
+        retiredSynth_.store(synth_.release(),std::memory_order_release);
+        synth_.reset(incoming);
+        authenticRomLoaded_=true;
+        redirectedDrumNotes_.fill(0);
+        changeBankProgram();
+        replayMidiState();
+    }
 }
 tresult PLUGIN_API NativeVst3::setActive(TBool on){
     if(on){
         if(active_)return kResultOk;
+        cleanStagedAndRetiredNonRealtime();
         synth_.reset();
         redirectedDrumNotes_.fill(0);
         try {
@@ -298,6 +351,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
         }
         active_=true;
     }else{
+        cleanStagedAndRetiredNonRealtime();
         synth_.reset();active_=false;authenticRomLoaded_=false;
         redirectedDrumNotes_.fill(0);
     }
@@ -431,6 +485,7 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 }
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
+    applyStagedInstrumentRealtime();
     AudioBusBuffers* bus=(data.numOutputs>0)?&data.outputs[0]:nullptr;
     float* l=(bus && bus->numChannels>=2 && bus->channelBuffers32)?
         bus->channelBuffers32[0]:nullptr;
