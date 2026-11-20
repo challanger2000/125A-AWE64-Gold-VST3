@@ -23,7 +23,7 @@ set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P009_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 set(NATIVE "${P009_UPSTREAM}/AWE32Emu/src")
 smtg_add_vst3plugin(AWE64_Gold_Native_P009
-    P009Native.hpp P009Native.cpp P009NativeGui.cpp P009Factory.cpp
+    P009Native.hpp P009Native.cpp P009NativeGui.cpp P009AssetFingerprint.hpp P009Factory.cpp
     p165/PresetBrowserView.h p165/PresetBrowserView.cpp
     p165/PresetBrowserModel.h p165/PresetCatalog.h p165/IbkBank.h
     "${NATIVE}/Synth.cpp"
@@ -74,7 +74,7 @@ if(WIN32)
   endforeach()
   target_sources(AWE64_Gold_Native_P009 PRIVATE "${P009_P165_ASSET_RC}")
 endif()
-target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk vstgui_support comdlg32)
+target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk vstgui_support comdlg32 bcrypt)
 target_include_directories(AWE64_Gold_Native_P009 PRIVATE
    "${P009_SDK_ROOT}" "${NATIVE}" "${NATIVE}/86box/include")
 # P020: only the native research VST3 adopts the 64-frame chip window.
