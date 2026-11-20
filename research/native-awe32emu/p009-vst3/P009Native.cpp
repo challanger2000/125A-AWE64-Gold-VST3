@@ -1,4 +1,5 @@
 #include "P009Native.hpp"
+#include "Emu8000Box.h"
 #include "P009CreativeDefaults.hpp"
 #include "Synth.h"
 #include "Awe32Driver.h"
@@ -234,7 +235,12 @@ tresult PLUGIN_API NativeVst3::canProcessSampleSize(int32 size){
     return size==kSample32?kResultTrue:kResultFalse;
 }
 uint32 PLUGIN_API NativeVst3::getLatencySamples(){
-    return static_cast<uint32>(std::ceil(980.*sampleRate_/44100.));
+    // P019: never report invented zero latency to the DAW. The pinned
+    // 86Box chip has one render-window FIFO (980 native 44.1k frames).
+    // Derive the contract from the ACTUAL chip wrapper constant.
+    return static_cast<uint32>(std::ceil(
+        static_cast<double>(Emu8000Box::kLatencyFrames)*
+        sampleRate_/44100.));
 }
 bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     authenticRomLoaded_=false;
