@@ -580,6 +580,106 @@ void verifyP014PrivateTimedPCM(const VST3::Hosting::PluginFactory& factory,
  std::puts("P014_PRIVATE_ORIGINAL_EMU8000_SF2_ROM_SAMPLE_OFFSET_PATCH_PCM_PASS");
 }
 
+// P015 real owner-ROM audio gate: restoring a project into an ALREADY
+// active VST3 must sound identical whether that instance was freshly
+// initialized or previously held unrelated controllers from another song.
+// Public CI runs with no owner's licensed ROM; this gate is PRIVATE only.
+void p015Restore(Plugin& p,const Saved& saved){
+ MemoryStream stream;int32 size=0;
+ const int32 bytes=saved.version==1u?20:static_cast<int32>(sizeof(saved));
+ check(stream.write(const_cast<Saved*>(&saved),bytes,&size)==kResultOk&&size==bytes,
+       "P015 write owner real VST3 project state");
+ check(stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "P015 seek owner project");
+ check(p.component->setState(&stream)==kResultOk,
+       "P015 live VST3 project restore");
+}
+uint64_t p015Play(Plugin& p,int channel,int key){
+ EventList notes;
+ std::array<float,frames> l{},r{};
+ float* buffers[2]={l.data(),r.data()};
+ AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=buffers;
+ ProcessData data{};data.processMode=kRealtime;
+ data.symbolicSampleSize=kSample32;data.numSamples=frames;
+ data.numOutputs=1;data.outputs=&bus;data.inputEvents=&notes;
+ uint64_t hash=14695981039346656037ull;
+ double signalEnergy=0.;
+ for(int block=0;block<29;++block){
+    notes.clear();
+    if(block==0||block==12){
+        Event event{};event.busIndex=0;event.sampleOffset=block?511:12;
+        if(block==0){
+            event.type=Event::kNoteOnEvent;
+            event.noteOn.channel=channel;event.noteOn.pitch=key;
+            event.noteOn.velocity=100.f/127.f;
+        }else{
+            event.type=Event::kNoteOffEvent;
+            event.noteOff.channel=channel;event.noteOff.pitch=key;
+        }
+        check(notes.addEvent(event)==kResultOk,"P015 actual owner-ROM MIDI");
+    }
+    check(p.processor->process(data)==kResultOk,
+          "P015 real owner-ROM process after project reopen");
+    for(int n=0;n<frames;++n)
+       for(const float v:{l[n],r[n]}){
+          check(std::isfinite(v),"P015 nonfinite original PCM");
+          signalEnergy+=static_cast<double>(v)*v;
+          uint32 bits=0;std::memcpy(&bits,&v,sizeof(bits));
+          hash=(hash^bits)*1099511628211ull;
+       }
+ }
+ check(signalEnergy>0.00001,"P015 silent real owner-ROM after project recall");
+ return hash;
+}
+void verifyP015PrivateProjectPCM(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+ Saved target{};target.version=4u;target.program=7u;target.bank=0u;
+ target.master=.875f;
+ target.midiStates.fill(0xFFFFu);target.advancedStates.fill(0xFFFFu);
+ target.otherPrograms[14]=7u;
+ // Preserve a nontrivial RPN bend range and mod/volume on CH1; CH16
+ // deliberately has UNSET volume so stale CC7=0 would cause silence.
+ target.midiStates[0]=52u;
+ target.midiStates[7]=10300u;
+ target.advancedStates[2]=0u;
+ target.advancedStates[3]=0u;
+ target.advancedStates[4]=12u;
+ target.parameterModes[0]=1u;
+ Saved dirty=target;
+ dirty.program=0u;dirty.otherPrograms[14]=0u;
+ dirty.midiStates[1]=0u;                 // CH1 volume MUTE
+ dirty.midiStates[4]=127u;               // sustain on
+ dirty.midiStates[5]=127u;               // reverb send
+ dirty.midiStates[6]=127u;               // chorus send
+ dirty.midiStates[7]=16383u;             // full positive bend
+ dirty.midiStates[15*8+1]=0u;            // CH16 independently MUTE
+ dirty.advancedStates[4]=24u;            // bend range left by old song
+ auto fresh=Plugin(factory,id,host);fresh.start(7,0,44100.);
+ auto used=Plugin(factory,id,host);used.start(7,0,44100.);
+ p015Restore(fresh,target);
+ p015Restore(used,dirty);
+ p015Restore(used,target);
+ for(const int channel:{0,15}){
+     const auto expected=p015Play(fresh,channel,60);
+     const auto got=p015Play(used,channel,60);
+     check(expected==got,
+           "P015 RECALL PCM DIFFERENT: stale old-project CC or RPN survived");
+ }
+ std::puts("P015_PRIVATE_ORIGINAL_EMU8000_ACTIVE_V4_PROJECT_RECALL_PCM_EQUAL_PASS");
+ // Legacy 20-byte state has NO controller data. It must start clean even
+ // after a modern v4 project has previously muted the active synth.
+ Saved legacy{};legacy.version=1u;legacy.program=7u;legacy.bank=0u;
+ legacy.master=.75f;
+ auto oldFresh=Plugin(factory,id,host);oldFresh.start(7,0,44100.);
+ auto oldDirty=Plugin(factory,id,host);oldDirty.start(7,0,44100.);
+ p015Restore(oldFresh,legacy);
+ p015Restore(oldDirty,dirty);
+ p015Restore(oldDirty,legacy);
+ check(p015Play(oldFresh,0,60)==p015Play(oldDirty,0,60),
+       "P015 legacy V1 project did not clear previous modern controller state");
+ std::puts("P015_PRIVATE_ORIGINAL_EMU8000_LIVE_LEGACY_V1_PCM_EQUAL_PASS");
+}
+
 void wav(const char* path,const Stats& s,int sampleRate=44100){
  check(!s.audio.empty(),"empty real audio WAV");
  std::ofstream f(path,std::ios::binary);
@@ -714,6 +814,7 @@ int main(int argc,char** argv){
              "77SF2_PROGRAM7",44100,0,60,100,7,1,true);
   audible(other,"77 preset SF2");wav("P010-SF2-77-PRESETS.wav",other);
   verifyP014PrivateTimedPCM(factory,cls->ID(),host.get());
+  verifyP015PrivateProjectPCM(factory,cls->ID(),host.get());
   // Per-channel CC0 should select the *same owner SF2* as the browser's
   // bank1, before the first NoteOn at sample12.
   const auto viaBankCC=render(factory,cls->ID(),host.get(),
