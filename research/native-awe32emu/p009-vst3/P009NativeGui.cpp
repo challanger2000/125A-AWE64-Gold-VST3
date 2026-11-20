@@ -70,6 +70,10 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
             static_cast<std::uint16_t>(std::lround(value*10000.)),
             std::memory_order_release);
     }
+    if(result==kResultOk&&(id==1400u||id==1401u))
+        fxPresetMirrors_[id==1400u?0u:1u].store(
+            static_cast<std::uint8_t>(std::lround(value*7.)),
+            std::memory_order_release);
     return result;
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {

@@ -2,6 +2,7 @@
 #include "Emu8000Box.h"
 #include "P009CreativeDefaults.hpp"
 #include "P009AssetFingerprint.hpp"
+#include "P009CreativeFx.hpp"
 #include "Synth.h"
 #include "Awe32Driver.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -71,8 +72,9 @@ struct OwnerStateV5 {
     std::uint32_t pathBytes=0u;
     std::array<std::uint16_t,12> guiControls{};
     std::array<std::uint8_t,32> assetSha256{};
+    std::array<std::uint16_t,2> effectModes{{4u,2u}};
 };
-static_assert(sizeof(OwnerStateV5)==64u,"exact V5 owner bank path header");
+static_assert(sizeof(OwnerStateV5)==68u,"exact V5 owner-bank and FX-type header");
 constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u,kStateV4=4u,kStateV5=5u;
 constexpr int32 kV1Bytes=20,kV2Bytes=52,kV3Bytes=308;
 struct MidiPoint {
@@ -375,6 +377,7 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
         replayMidiState();
         for(unsigned i=0;i<guiControls_.size();++i)
             synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+        if(fxEdited_)fxPending_.store(true,std::memory_order_release);
     }
 }
 tresult PLUGIN_API NativeVst3::setActive(TBool on){
@@ -391,6 +394,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
             synth_.reset();
             authenticRomLoaded_=false;
         }
+        if(fxEdited_)fxPending_.store(true,std::memory_order_release);
         active_=true;
     }else{
         cleanStagedAndRetiredNonRealtime();
@@ -528,6 +532,10 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
     applyStagedInstrumentRealtime();
+    if(fxPending_.exchange(false,std::memory_order_acq_rel)&&synth_){
+        applyOriginalEmu8000Reverb(*synth_,unsigned(reverbPreset_));
+        applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
+    }
     AudioBusBuffers* bus=(data.numOutputs>0)?&data.outputs[0]:nullptr;
     float* l=(bus && bus->numChannels>=2 && bus->channelBuffers32)?
         bus->channelBuffers32[0]:nullptr;
@@ -542,7 +550,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // and NoteOn. Previously the FINAL parameter value was applied to the
     // ENTIRE block, which selected the wrong patch for earlier notes.
     constexpr unsigned kPatchProgram=16u,kPatchBank=17u,
-       kGuiControlSlotBase=20u;
+       kGuiControlSlotBase=20u,kGuiReverbType=32u,kGuiChorusType=33u;
     const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
                               unsigned slot,unsigned maximum)->bool{
         const int32 count=q->getPointCount();
@@ -603,6 +611,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             // 86Box EMU8000 register writes. Zero leaves P022 exact PCM.
             if(id>=1100u && id<1112u) {
                 if(!queuePatch(q,0,kGuiControlSlotBase+id-1100u,100u))
+                    return reject();
+                continue;
+            }
+            if(id==1400u||id==1401u){
+                if(!queuePatch(q,0,id==1400u?kGuiReverbType:kGuiChorusType,7u))
                     return reject();
                 continue;
             }
@@ -701,6 +714,19 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 else banksByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
+            }else if(mp.slot==kGuiReverbType||mp.slot==kGuiChorusType){
+                if(mp.slot==kGuiReverbType){
+                    reverbPreset_=int(mp.value);
+                    fxPresetMirrors_[0].store(static_cast<std::uint8_t>(mp.value),
+                                             std::memory_order_release);
+                    if(synth_)applyOriginalEmu8000Reverb(*synth_,unsigned(reverbPreset_));
+                }else{
+                    chorusPreset_=int(mp.value);
+                    fxPresetMirrors_[1].store(static_cast<std::uint8_t>(mp.value),
+                                             std::memory_order_release);
+                    if(synth_)applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
+                }
+                fxEdited_=true;
             }else if(mp.slot>=kGuiControlSlotBase &&
                      mp.slot<kGuiControlSlotBase+guiControls_.size()){
                 const auto index=static_cast<unsigned>(
@@ -742,7 +768,10 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
             extended.assetSha256=selectedUserSha256_;
         }
     }
-    bool changed=explicitOwner;
+    extended.effectModes[0]=fxPresetMirrors_[0].load(std::memory_order_acquire);
+    extended.effectModes[1]=fxPresetMirrors_[1].load(std::memory_order_acquire);
+    bool changed=explicitOwner||extended.effectModes[0]!=4u||
+                                  extended.effectModes[1]!=2u;
     for(unsigned i=0;i<guiControls_.size();++i){
         extended.guiControls[i]=guiControlMirrors_[i].load(
             std::memory_order_acquire);
@@ -823,6 +852,8 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             return kResultFalse;
         for(const auto control:ext.guiControls)
             if(control>10000u)return kResultFalse;
+        for(const auto effect:ext.effectModes)
+            if(effect>7u)return kResultFalse;
         if(ext.pathBytes){
             requestedPath.resize(ext.pathBytes);
             if(stream->read(requestedPath.data(),
@@ -911,6 +942,18 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             static_cast<double>(control)/10000.);
         if(synth_)synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
     }
+    const int nextRev=s.version==kStateV5?int(ext.effectModes[0]):4;
+    const int nextCho=s.version==kStateV5?int(ext.effectModes[1]):2;
+    if(nextRev!=reverbPreset_ || nextCho!=chorusPreset_ ||
+       nextRev!=4 || nextCho!=2 || fxEdited_){
+        fxEdited_=true;
+        fxPending_.store(true,std::memory_order_release);
+    }
+    reverbPreset_=nextRev;chorusPreset_=nextCho;
+    fxPresetMirrors_[0].store(static_cast<std::uint8_t>(nextRev),std::memory_order_release);
+    fxPresetMirrors_[1].store(static_cast<std::uint8_t>(nextCho),std::memory_order_release);
+    (void)SingleComponentEffect::setParamNormalized(1400u,double(nextRev)/7.);
+    (void)SingleComponentEffect::setParamNormalized(1401u,double(nextCho)/7.);
     (void)SingleComponentEffect::setParamNormalized(kProgram,
         static_cast<double>(program_)/127.);
     (void)SingleComponentEffect::setParamNormalized(kBank,

@@ -900,11 +900,22 @@ void PresetBrowserView::Sync(bool force) {
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
-    // The ORIGINAL P165 view defaults to Hall 2 / Chorus 3. The new
-    // Win95 VST3 does not yet register 1200/1201 because guest SysEx is
-    // missing. The old direct-synth idle sync would silently overwrite
-    // those visible defaults with Room 1 / Chorus 1 via unknown params.
-    // Retain the disabled historic presets without claiming DAW recall.
+    // Original 86Box chip DSP types now mirror actual VST3 host parameters,
+    // not a secondary software effect approximation.
+    if(reverbMenu_&&!reverbMenu_->isEditing()){
+        const auto v=float(std::lround(
+            controller_->getParamNormalized(kReverbType)*7.));
+        if(std::abs(reverbMenu_->getValue()-v)>.1f){
+            reverbMenu_->setValue(v);reverbMenu_->invalid();
+        }
+    }
+    if(chorusMenu_&&!chorusMenu_->isEditing()){
+        const auto v=float(std::lround(
+            controller_->getParamNormalized(kChorusType)*7.));
+        if(std::abs(chorusMenu_->getValue()-v)>.1f){
+            chorusMenu_->setValue(v);chorusMenu_->invalid();
+        }
+    }
 
     const auto master=static_cast<float>(std::clamp(
         controller_->getParamNormalized(kMasterVolume),0.,1.));
@@ -1011,8 +1022,8 @@ void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
     const int tag=control->getTag();
     if(tag==kReverbType || tag==kChorusType) {
-        // No registered host parameter or original Creative FX-type SysEx:
-        // deliberately reject the change, not a silent fake edit.
+        ChangeParameter(static_cast<Steinberg::Vst::ParamID>(tag),
+                        double(std::clamp(int(std::lround(control->getValue())),0,7))/7.);
         return;
     }
     if(tag==kMasterVolume) {

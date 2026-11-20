@@ -52,7 +52,7 @@ private:
                          kFilter=3104,kBankFilter=3105,kLoadSf2=3106,kReset=3107,
                          kLoadRom=3108,kActiveBank=3109,kDirectPreset=3110,
                          kMainPage=3111,
-                         kReverbType=1200,kChorusType=1201;
+                         kReverbType=1400,kChorusType=1401;
     static constexpr int kGuiFirst=1100,kGuiCount=12;
     static constexpr int kMasterVolume=1001; // preserve P007 original Win95 master ParamID
     Steinberg::Vst::EditController* controller_;

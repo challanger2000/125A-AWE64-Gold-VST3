@@ -27,6 +27,8 @@ public:
     NativeVst3() {
         midiState_.fill(0xFFFFu);
         advancedMidiState_.fill(0xFFFFu);
+        fxPresetMirrors_[0].store(4u);
+        fxPresetMirrors_[1].store(2u);
     }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
     Steinberg::uint32 PLUGIN_API addRef() override {
@@ -94,6 +96,10 @@ private:
     // Last P175's 12 original EMU8000 hardware performance modifiers.
     // 0% is exact unmodified P022 PCM; all fields are audio-thread owned.
     std::array<float,12> guiControls_{};
+    int reverbPreset_=4,chorusPreset_=2;
+    std::array<std::atomic<std::uint8_t>,2> fxPresetMirrors_{};
+    bool fxEdited_=false;
+    std::atomic<bool> fxPending_{false};
     // 8 original Creative CC controls per channel; 0xFFFF = untouched.
     // Never send default values unnecessarily (preserve original register PCM).
     std::array<std::uint16_t,16*8> midiState_{};

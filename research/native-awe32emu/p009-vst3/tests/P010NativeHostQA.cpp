@@ -124,7 +124,7 @@ void verifyP165GuiV5OwnerAssetState(
  }
  MemoryStream v5;
  check(unit.component->getState(&v5)==kResultOk &&
-       v5.getSize()==644u,"P165 12 GUI edits did not persist in V5 644-byte owner state");
+       v5.getSize()==648u,"P165 12 GUI edits did not persist in V5 648-byte owner state");
  const auto* bytes=reinterpret_cast<const std::uint8_t*>(v5.getData());
  check(bytes && bytes[4]==5u&&bytes[5]==0u&&bytes[6]==0u&&bytes[7]==0u,
        "P165 GUI control state must be exact V5 header");
@@ -136,6 +136,9 @@ void verifyP165GuiV5OwnerAssetState(
     check(v==static_cast<unsigned>((i+1)*500),
           "P165 control parameter did not roundtrip exactly");
  }
+ check(bytes[644]==4u&&bytes[645]==0u &&
+       bytes[646]==2u&&bytes[647]==0u,
+       "P165 original Hall2/Chorus3 FX default modes missing from V5");
  auto reopen=Plugin(factory,id,host);
  MemoryStream request;
  int32 n=0;
