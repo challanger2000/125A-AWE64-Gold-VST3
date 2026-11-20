@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(P009_AWE32Emu_Native_VST3 LANGUAGES C CXX)
+project(P009_AWE32Emu_Native_VST3 VERSION 0.0.1 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "P009 experiment is Windows x64 only")
 endif()
