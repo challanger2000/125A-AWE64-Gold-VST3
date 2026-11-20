@@ -587,6 +587,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         return true;
     };
     const auto reject=[&]() -> tresult {
+        // Fail CLOSED for overflowing host events and CC queue. Returning
+        // false without stopping the original EMU8000 leaves old voices
+        // sounding when NoteOff was part of the rejected block.
+        // Genuine Win95 Creative CC120, all 16 channels, no heap here.
+        if(synth_)
+            for(unsigned channel=0;channel<16u;++channel)
+                synth_->ControlChange(static_cast<std::uint8_t>(channel),120u,0u);
+        redirectedDrumNotes_.fill(0u);
         if(l&&r&&data.numSamples>0){
             std::fill_n(l,data.numSamples,0.f);
             std::fill_n(r,data.numSamples,0.f);
@@ -676,12 +684,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     std::size_t num=0;
     if(data.inputEvents){
         const int32 n=data.inputEvents->getEventCount();
-        if(n<0||n>static_cast<int32>(events.size())){
-            std::fill_n(l,data.numSamples,0.f);
-            std::fill_n(r,data.numSamples,0.f);
-            if(bus)bus->silenceFlags=3;
-            return kResultFalse;
-        }
+        if(n<0||n>static_cast<int32>(events.size()))
+            return reject();
         for(int32 i=0;i<n;++i){
             Event e{};
             if(data.inputEvents->getEvent(i,e)!=kResultOk)continue;
