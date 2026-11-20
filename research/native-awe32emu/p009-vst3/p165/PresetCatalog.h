@@ -215,15 +215,22 @@ public:
                 mapped.entries_.push_back({1u,e.program,e.name,false});
                 ++melodic;
             } else if(e.bank==128u && e.drums) {
-                // Display actual source bank128 drumkits in a separate
-                // browser lane (logical 129 => actual MIDI channel10).
-                mapped.entries_.push_back({129u,e.program,e.name,true});
+                // NATIVE, not Win95 guest: bank 2 auditions actual CH10.
+                // This engine has ONE original chip drum lane; do not invent
+                // P007 guest's separate virtual bank129 that cannot sound.
+                mapped.entries_.push_back({128u,e.program,e.name,true});
             }
         }
         entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
             [](const PresetEntry& e){
                 return e.bank==1u||e.bank==129u;
             }),entries_.end());
+        for(const auto& e:mapped.Entries())
+            if(e.bank==128u)
+                entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
+                    [&](const PresetEntry& old){
+                        return old.bank==128u&&old.program==e.program;
+                    }),entries_.end());
         entries_.insert(entries_.end(),
             mapped.Entries().begin(),mapped.Entries().end());
         std::sort(entries_.begin(),entries_.end(),
