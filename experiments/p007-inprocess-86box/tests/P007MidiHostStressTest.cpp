@@ -124,7 +124,7 @@ int main(){
     // Request a recovery while an old NoteOff is queued, prove that
     // new NoteOns cannot overtake the original Creative panic sequence.
     p007::MidiDelivery notes;
-    unsigned rejected=0,panicCount=0;
+    unsigned panicCount=0;
     const auto unavailable=[](std::uint8_t,std::uint8_t,std::uint8_t){return 0;};
     check(notes.submit(0x80u,60u,0u,unavailable)&&notes.pending()==1u,
           "test precondition: queued NoteOff");
@@ -132,6 +132,8 @@ int main(){
     check(notes.pending()==0u&&notes.panicPending(),
           "host overflow did not enter recovery");
     for(unsigned i=0;i<48u;++i){
+        // A persistent hostile host must not rewind/restart recovery.
+        notes.requestRecovery();
         check(!notes.submit(0x90u,60u,88u,unavailable),
               "host MIDI allowed during original Creative panic");
         const unsigned expectedChannel=i/3u;

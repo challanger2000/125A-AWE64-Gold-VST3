@@ -26,6 +26,10 @@ public:
     // rather than accepting an unknown tail of NoteOn/NoteOff messages.
     // Shares the existing FIFO-overflow panic sequence (3 CCs x 16 ch).
     void requestRecovery() noexcept {
+        // A malformed host may repeat its over-limit iterator EVERY
+        // callback. Do not restart the 48 original Creative panic CCs
+        // from zero each block, or only channel 1 gets released.
+        if(panicPending())return;
         head_=size_=0u;
         panicPacket_=0u;
     }
