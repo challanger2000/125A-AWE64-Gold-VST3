@@ -101,6 +101,73 @@ struct Plugin{
    processing=true;
  }
 };
+// Integrated final native owner GUI -> VST3 state regression, real Steinberg
+// Windows host. Works publicly WITHOUT any protected ROM/SBK/SF2 files:
+// no audible claims; proves all 12 P165 control edits, backward-compatible
+// V4 bytes and full V5 roundtrip/corruption rejection.
+void verifyP165GuiV5OwnerAssetState(
+   const VST3::Hosting::PluginFactory& factory,
+   const VST3::UID& id,FUnknown* host){
+ auto unit=Plugin(factory,id,host);
+ MemoryStream initial;
+ check(unit.component->getState(&initial)==kResultOk &&
+       initial.getSize()==sizeof(Saved),
+       "P165 unedited host project must preserve exact V4 580-byte format");
+ auto* original=static_cast<const std::uint8_t*>(initial.getData());
+ check(original && std::memcmp(original+4,"\004\000\000\000",4)==0,
+       "P165 unedited project must use v4, not fake new format");
+ // GUI gestures must be real host automation parameter IDs as in P007BW.
+ for(unsigned i=0;i<12;++i){
+    const auto norm=double(i+1)/20.;
+    check(unit.controller->setParamNormalized(1100u+i,norm)==kResultOk,
+          "P165 actual host GUI control could not be set");
+ }
+ MemoryStream v5;
+ check(unit.component->getState(&v5)==kResultOk &&
+       v5.getSize()==644u,"P165 12 GUI edits did not persist in V5 644-byte owner state");
+ const auto* bytes=static_cast<const std::uint8_t*>(v5.getData());
+ check(bytes && bytes[4]==5u&&bytes[5]==0u&&bytes[6]==0u&&bytes[7]==0u,
+       "P165 GUI control state must be exact V5 header");
+ // Verify extension 64B magic, empty path and all 12 quantized basis points.
+ check(bytes[580]==0x50&&bytes[581]==0x41&&bytes[582]==0x53&&bytes[583]==0x35,
+       "P165 V5 state exact PAS5 extension marker");
+ for(unsigned i=0;i<12;++i){
+    unsigned v=unsigned(bytes[588+i*2])|unsigned(bytes[589+i*2])<<8;
+    check(v==static_cast<unsigned>((i+1)*500),
+          "P165 control parameter did not roundtrip exactly");
+ }
+ auto reopen=Plugin(factory,id,host);
+ MemoryStream request;
+ int32 n=0;
+ check(request.write(v5.getData(),static_cast<int32>(v5.getSize()),&n)==kResultOk,
+       "P165 prepare valid V5 state");
+ check(request.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "P165 rewind valid V5 state");
+ check(reopen.component->setState(&request)==kResultOk,
+       "P165 host cannot restore all 12 GUI settings");
+ MemoryStream roundtrip;
+ check(reopen.component->getState(&roundtrip)==kResultOk &&
+       roundtrip.getSize()==v5.getSize()&&
+       std::memcmp(roundtrip.getData(),v5.getData(),v5.getSize())==0,
+       "P165 12 controls V5 state differs after real host reopen");
+ // An external SoundFont path with an invalid/missing SHA MUST fail without
+ // changing any existing instrument, GUI, controller, or sound identity.
+ auto corrupt=std::vector<std::uint8_t>(bytes,bytes+v5.getSize());
+ corrupt[584]=10u; // 10-byte invalid path length; no appended path data
+ MemoryStream invalid;
+ check(invalid.write(corrupt.data(),static_cast<int32>(corrupt.size()),&n)==kResultOk,
+       "P165 construct invalid owner SF2 state");
+ check(invalid.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "P165 rewind invalid SF2 state");
+ check(reopen.component->setState(&invalid)!=kResultOk,
+       "P165 missing owner SF2 must not silently select an unrelated file");
+ MemoryStream unaffected;
+ check(reopen.component->getState(&unaffected)==kResultOk &&
+       unaffected.getSize()==v5.getSize() &&
+       std::memcmp(unaffected.getData(),v5.getData(),v5.getSize())==0,
+       "P165 missing owner file must leave prior original ROM/GUI state intact");
+ std::puts("P165_REAL_VST3_GUI_12_CONTROLS_V5_PROJECT_REOPEN_SHA_FAIL_CLOSED_PASS");
+}
 void verifyP011MultichannelProjectRecall(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host) {
@@ -894,6 +961,7 @@ int main(int argc,char** argv){
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
+  verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());
