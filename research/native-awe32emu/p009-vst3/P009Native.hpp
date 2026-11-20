@@ -72,6 +72,7 @@ private:
     void applyAdvancedController(unsigned channel,unsigned slot,
                                  std::uint16_t value) noexcept;
     void changeBankProgram() noexcept;
+    void changeChannelBankProgram(unsigned channel) noexcept;
     void dispatch(const Steinberg::Vst::Event&) noexcept;
     void render(float*,float*,Steinberg::int32) noexcept;
     bool openPrivateSoundBanksNonRealtime();
