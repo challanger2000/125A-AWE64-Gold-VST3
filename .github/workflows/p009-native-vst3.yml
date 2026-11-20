@@ -320,8 +320,15 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'synthetic user SF2 generation failed'}
             Push-Location -LiteralPath $tester.Directory.FullName
             try {
-              & $tester.FullName $plugin *> $log
+              # The published ZIP is a WinMain *portable GUI stub*.
+              # Passing only the plugin path launches a GUI and exits
+              # without the automated worker. The real embedded dispatcher
+              # is invoked ONLY with the documented two-argument mode:
+              # --portable-test <vst3>, which unpacks 10 helper EXEs into
+              # a temporary runtime directory, runs them, then cleans up.
+              & $tester.FullName --portable-test $plugin *> $log
               $rc=$LASTEXITCODE
+              Write-Host "125A_TESTER_PORTABLE_DISPATCH_EXIT_CODE=$rc"
             } finally {Pop-Location}
             if(Test-Path $log){Get-Content -LiteralPath $log | Select-Object -Last 100}
             # Exit zero alone is not enough: retain the genuine 125A report.
@@ -331,8 +338,17 @@ jobs:
             foreach($item in $reports){
               Write-Host "125A_TESTER_REPORT $($item.Name)"
             }
-            if($reports.Count -eq 0){throw '125A Plugin Tester produced no QA sidecar reports'}
+            if($reports.Count -eq 0){throw "125A Plugin Tester portable worker produced no QA sidecars; exit $rc"}
+            $qa=@($reports|Where-Object {$_.Name -like '*_125A_QA_Report.txt'})
+            if($qa.Count -ne 1){throw "125A Plugin Tester did not produce exactly one plugin QA report: $($qa.Count)"}
+            $summary=@(Select-String -LiteralPath $qa[0].FullName -Pattern '^RESULT: ')
+            if($summary.Count -ne 1){throw '125A Plugin Tester QA report lacks one explicit RESULT line'}
+            Write-Host "125A_TESTER_VERDICT $($summary[0].Line)"
+            Get-Content -LiteralPath $qa[0].FullName | Select-Object -Last 35
             if($rc -ne 0){throw "125A Plugin Tester v0.2.10 reported failure: exit $rc"}
+            if($summary[0].Line -notmatch 'RESULT: [0-9]+ PASS / [0-9]+ WARNING / 0 FAIL'){
+              throw '125A Plugin Tester QA result is not actual clean 0-FAIL state'
+            }
             Write-Host P168_REAL_WIN64_VST3_125A_PUBLISHED_TESTER_V0210_COMPLETED_EXIT_ZERO
           } finally {
             Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
