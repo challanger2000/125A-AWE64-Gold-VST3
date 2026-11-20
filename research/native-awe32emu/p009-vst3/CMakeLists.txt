@@ -110,3 +110,8 @@ foreach(P019_WINDOW IN ITEMS 980 128 64)
   target_link_libraries(P019Probe${P019_WINDOW} PRIVATE winmm)
   target_compile_features(P019Probe${P019_WINDOW} PRIVATE cxx_std_17)
 endforeach()
+
+# P019 original owner ROM/SBK/SF2 test package uses a self-contained
+# Win64 native comparator; user Windows requires no Python or extra tools.
+add_executable(P019ComparePCM tests/P019ComparePCM.cpp)
+target_compile_features(P019ComparePCM PRIVATE cxx_std_17)
