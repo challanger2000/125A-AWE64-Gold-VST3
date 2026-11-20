@@ -119,12 +119,31 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
         return kResultFalse;
     addEventInput(STR16("Native Creative MIDI 16 channels"),16);
     addAudioOutput(STR16("EMU8000 stereo"),SpeakerArr::kStereo);
+    // Latest P007BW P165 actual hardware UI: identical host parameter IDs.
+    // Zero on all 12 modulation controls is original chip neutral.
+    guiCatalog_.SetOriginalCreativeMidiNumbers();
     parameters.addParameter(new RangeParameter(STR16("Program CH1"),
         kProgram,nullptr,0.,127.,0.,127));
     parameters.addParameter(new RangeParameter(STR16("Master"),
         kVolume,STR16("%"),0.,100.,100.));
     parameters.addParameter(new RangeParameter(STR16("Bank CH1"),
         kBank,nullptr,0.,2.,0.,2));
+    const std::array<const char*,12> guiNames{{
+      "AMP Attack","AMP Decay","AMP Sustain","AMP Release",
+      "Filter Attack","Filter Decay","Filter Sustain","Filter Release",
+      "Filter Cutoff","Filter Resonance","Reverb Send","Chorus Send"
+    }};
+    for(unsigned i=0;i<guiNames.size();++i) {
+        TChar wide[64]{};
+        for(unsigned j=0;j<63&&guiNames[i][j];++j)
+            wide[j]=static_cast<TChar>(guiNames[i][j]);
+        parameters.addParameter(new RangeParameter(
+            wide,1100u+i,STR16("%"),0.,100.,0.));
+    }
+    parameters.addParameter(new RangeParameter(
+        STR16("Reverb Type"),1400u,nullptr,0.,7.,4.,7));
+    parameters.addParameter(new RangeParameter(
+        STR16("Chorus Type"),1401u,nullptr,0.,7.,2.,7));
     // VST3 hosts translate actual MIDI CC to these per-channel parameters
     // through IMidiMapping. This is host-standard, NOT legacy CC input events.
     for(unsigned ch=0;ch<16;++ch){
@@ -499,7 +518,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // P014: host bank/program automation is timestamped just like MIDI CC
     // and NoteOn. Previously the FINAL parameter value was applied to the
     // ENTIRE block, which selected the wrong patch for earlier notes.
-    constexpr unsigned kPatchProgram=16u,kPatchBank=17u;
+    constexpr unsigned kPatchProgram=16u,kPatchBank=17u,
+       kGuiReverbSend=18u,kGuiChorusSend=19u;
     const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
                               unsigned slot,unsigned maximum)->bool{
         const int32 count=q->getPointCount();
@@ -553,6 +573,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     (channel==0u?2u:1u);
                 if(!queuePatch(q,channel,programChange?kPatchProgram:kPatchBank,
                                maxValue))return reject();
+                continue;
+            }
+            // Both last P165 physical send knobs directly drive the genuine
+            // Creative Win95 CC91/CC93 before the next NoteOn. Zero is
+            // unmodified ROM/SF2 original chip PCM. No alternative DSP.
+            if(id==1110u||id==1111u) {
+                if(!queuePatch(q,0,id==1110u?kGuiReverbSend:kGuiChorusSend,127u))
+                    return reject();
                 continue;
             }
             const bool basic=(id>=kMidiMappedBase &&
@@ -650,6 +678,10 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 else banksByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
+            }else if(mp.slot==kGuiReverbSend||mp.slot==kGuiChorusSend){
+                if(synth_)synth_->ControlChange(0,
+                    mp.slot==kGuiReverbSend?91:93,
+                    static_cast<std::uint8_t>(mp.value));
             }
         }
         while(notePos<num && events[notePos].sampleOffset==next)
