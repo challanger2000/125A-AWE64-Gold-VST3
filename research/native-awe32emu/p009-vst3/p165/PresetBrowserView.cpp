@@ -737,8 +737,8 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // unchanged, although an intervening MIDI CC0 switched the *audio* bank.
     // Reassert through the controller-to-processor message path in that case.
     const bool sameHostBank=controller_ &&
-        std::lround(controller_->getParamNormalized(kBankParam)*127.)==
-        (bank==128u?126u:(bank==129u?127u:bank));
+        std::lround(controller_->getParamNormalized(kBankParam)*2.)==
+        (bank>=128u?2u:bank);
     if(sameHostBank&&(!browserBankReselect_ ||
                       !browserBankReselect_(bank))) {
         // Without the explicit message the host may discard this unchanged
@@ -757,8 +757,8 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     SyncSf2Status();
     // Virtual drum browser lanes: 128=original ROM,129=source SF2.
     // State is persisted via the reserved real VST3 MIDI bank 126/127.
-    const auto hostBank=bank==128u?126u:(bank==129u?127u:bank);
-    ChangeParameter(kBankParam,double(hostBank)/127.);
+    const auto hostBank=bank>=128u?2u:bank;
+    ChangeParameter(kBankParam,double(hostBank)/2.);
     ChangeParameter(kProgram,double(program)/127.);
     // Reflect the clicked instrument immediately. The following idle
     // compares bank/program back with the controller: an unaccepted host
@@ -878,9 +878,9 @@ void PresetBrowserView::Sync(bool force) {
         }
     }
     const auto hostBank=static_cast<uint16_t>(std::clamp(int(std::lround(
-        controller_->getParamNormalized(kBankParam)*127.)),0,127));
-    const auto bank=static_cast<uint16_t>(
-        hostBank==126u?128u:(hostBank==127u?129u:hostBank));
+        controller_->getParamNormalized(kBankParam)*2.)),0,2));
+    // Native CH1 bank2 auditions physical original Creative CH10 drums.
+    const auto bank=static_cast<uint16_t>(hostBank==2u?128u:hostBank);
     const auto program=static_cast<uint8_t>(std::clamp(int(std::lround(
         controller_->getParamNormalized(kProgram)*127.)),0,127));
     for(int i=0;i<kGuiCount;++i) {
