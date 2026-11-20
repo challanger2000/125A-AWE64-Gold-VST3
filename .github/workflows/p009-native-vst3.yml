@@ -135,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          cmake --build _p009-build --config Release --parallel 4 --target P019Probe980 P019Probe128 P019Probe64
+          cmake --build _p009-build --config Release --parallel 4 --target P019Probe980 P019Probe128 P019Probe64 P019ComparePCM
           if($LASTEXITCODE -ne 0){throw 'P019 chip window probes compilation failed'}
           $fake='_p019-fake-rom-only.raw'
           $sf2='_p019-public-two-layer.sf2'
@@ -153,6 +153,12 @@ jobs:
           python research/native-awe32emu/p009-vst3/tests/p019_compare_pcm.py _p019-dry-980.pcm _p019-dry-128.pcm _p019-dry-64.pcm _p019-fx-980.pcm _p019-fx-128.pcm _p019-fx-64.pcm _p019-latency-report.json _p019-latency-report.txt
           if($LASTEXITCODE -ne 0){throw 'P019 original chip PCM comparison failed'}
           Get-Content _p019-latency-report.txt
+          foreach($mode in @('dry','fx')){
+            foreach($window in @(128,64)){
+              & _p009-build/Release/P019ComparePCM.exe "_p019-$mode-980.pcm" "_p019-$mode-$window.pcm" "$window" "$mode-public"
+              if($LASTEXITCODE -ne 0){throw "P019 Win64 native PCM comparator mismatch, $mode/$window"}
+            }
+          }
           $lines=@(Select-String -Path _p019-latency-report.txt -Pattern '^P019_(DRY|FX)_WINDOW(128|64)_PCM=')
           if($lines.Count -ne 4){throw 'P019 four shortened-window comparison results missing'}
           Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
@@ -176,6 +182,10 @@ jobs:
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt
+            _p009-build/Release/P019Probe980.exe
+            _p009-build/Release/P019Probe128.exe
+            _p009-build/Release/P019Probe64.exe
+            _p009-build/Release/P019ComparePCM.exe
             _p009-build/Release/P010NativeHostQA.exe
             _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
