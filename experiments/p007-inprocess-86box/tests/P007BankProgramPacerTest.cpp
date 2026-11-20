@@ -63,12 +63,26 @@ int main(){
     sent.clear();
     for(int i=0;i<4;++i)(void)p.tick(submit);
     assert(p.committed() && sent.size()==3u && sent[2].d1==8u);
-    // Real Creative ROM standard kit on MIDI channel 10.
+    // P007BU genuine Creative GM Standard kit: GM mode automatically
+    // owns channel 10. Only CC0=0 to leave SF2 bank1, NEVER CC32 or PC,
+    // which the previous implementation sent and could mute percussion.
     sent.clear();p.request(126u,0u,false);
-    for(int i=0;i<4;++i)(void)p.tick(submit);
-    assert(p.committed() && sent.size()==3u &&
-           sent[0].status==0xb9u && sent[0].d2==0u &&
-           sent[2].status==0xc9u && sent[2].d1==0u);
+    assert(p.tick(submit));
+    assert(!p.committed() && p.stage()==1u);
+    assert(!p.tick(submit));
+    assert(p.committed() && sent.size()==1u &&
+           sent[0].status==0xb9u && sent[0].d1==0u &&
+           sent[0].d2==0u);
+    sent.clear();p.request(126u,0u,false,true);
+    assert(p.tick(submit));
+    assert(!p.tick(submit) && p.committed());
+    assert(sent.size()==1u && sent[0].status==0xb9u);
+    // Do not let a rejected CC0=0 claim a ready GM drum lane.
+    p.reset();sent.clear();p.request(126u,0u,false);
+    assert(!p.tick([](auto,auto,auto){return 0;}));
+    assert(!p.committed() && p.stage()==0u);
+    assert(p.tick(submit) && !p.committed());
+    assert(!p.tick(submit) && p.committed());
     // Original Creative USER bank1 selected on channel10 for true SF2 kits.
     sent.clear();p.request(127u,5u,true);
     for(int i=0;i<4;++i)(void)p.tick(submit);
@@ -88,6 +102,7 @@ int main(){
         ++blocks;assert(blocks<100u);
     }
     assert(blocks>=13u);
+    std::puts("P007BU_GM_CH10_AUTO_STANDARD_KIT_CC0_RESET_ONLY_NO_PC_PASS");
     std::puts("P007AZ_CREATIVE_BANK_PROGRAM_FIFO_16B_PACING_AND_NOTES_GATE_UNIT_PASS"
               " commands=3 max_wire_bytes_per_tick=6 settling_gap=1");
 }

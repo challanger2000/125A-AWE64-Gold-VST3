@@ -33,6 +33,18 @@ public:
     }
     template<class Sender> bool tick(Sender&& send) noexcept {
         if(!requested_||committed_)return false;
+        // P007BU: official Creative GM mode automatically owns MIDI CH10
+        // Standard kit. In that mode a Program Change on CH10 is neither
+        // necessary nor guaranteed to preserve the drum lane. To RETURN
+        // from loaded USER bank1 drums, send only CC0=0 (select ROM)
+        // and allow the ordinary >=20ms settling interval. Do not
+        // overwrite original Win95's automatic GM percussion selection
+        // with CC32+PC0. The independent SF2 kit still needs all 3.
+        if(bank_==126u) {
+            if(stage_>0u){committed_=true;return false;}
+            if(send(0xb9u,0u,0u)!=1)return false;
+            stage_=1u;return true;
+        }
         // Host-bank tokens 126/127 identify original GM ROM or
         // real SF2 drum kits. All actual kit MIDI uses channel 10.
         const bool drums=(bank_==126u||bank_==127u);
