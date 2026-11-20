@@ -766,6 +766,82 @@ void audible(const Stats& s,const char* name){
    throw std::runtime_error("original PCM missing or below signal threshold");
  }
 }
+// P018: Read exact real SF2 phdr MIDI program IDs from the owner bank.
+ // Never assume a 77-preset bank occupies MIDI programs 0..76: that would
+ // accept a completely unrelated ROM fallback and miss the true last patch.
+std::set<int> exactOwnerSf2Programs(const fs::path& file){
+    const auto n=fs::file_size(file);
+    check(n>=12 && n<=64u*1024u*1024u,
+          "P018 owner SoundFont file size invalid");
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(n));
+    std::ifstream stream(file,std::ios::binary);
+    check(bool(stream) && bool(stream.read(
+          reinterpret_cast<char*>(bytes.data()),
+          static_cast<std::streamsize>(bytes.size()))),
+          "P018 cannot read full owner SoundFont");
+    const auto tag=[&](std::size_t at,const char* match){
+        return at+4<=bytes.size() &&
+               std::memcmp(bytes.data()+at,match,4)==0;
+    };
+    const auto u16=[&](std::size_t at)->std::uint16_t {
+        check(at+2<=bytes.size(),"P018 SF2 truncated u16");
+        return static_cast<std::uint16_t>(bytes[at]|
+               (static_cast<unsigned>(bytes[at+1])<<8));
+    };
+    const auto u32=[&](std::size_t at)->std::uint32_t {
+        check(at+4<=bytes.size(),"P018 SF2 truncated u32");
+        return static_cast<std::uint32_t>(bytes[at]|
+               (static_cast<unsigned>(bytes[at+1])<<8)|
+               (static_cast<unsigned>(bytes[at+2])<<16)|
+               (static_cast<unsigned>(bytes[at+3])<<24));
+    };
+    check(tag(0,"RIFF") && tag(8,"sfbk"),
+          "P018 private owner file is not RIFF SoundFont2");
+    const std::size_t riffEnd=8u+static_cast<std::size_t>(u32(4));
+    check(riffEnd>=12u && riffEnd<=bytes.size(),
+          "P018 malformed RIFF size");
+    std::set<int> result;
+    bool foundPhdr=false;
+    for(std::size_t outer=12;outer+8<=riffEnd;){
+        const std::size_t size=u32(outer+4);
+        check(size<=riffEnd-(outer+8u),"P018 malformed RIFF chunk");
+        const std::size_t next=outer+8+size;
+        if(tag(outer,"LIST") && size>=4 && tag(outer+8,"pdta")){
+            for(std::size_t inner=outer+12;inner+8<=next;){
+                const std::size_t sub=u32(inner+4);
+                check(sub<=next-(inner+8u),"P018 malformed pdta chunk");
+                if(tag(inner,"phdr")){
+                    check(!foundPhdr && sub>=76 && sub%38u==0,
+                          "P018 invalid or duplicate SF2 phdr table");
+                    foundPhdr=true;
+                    const std::size_t count=sub/38u;
+                    const std::size_t end=inner+8u;
+                    for(std::size_t i=0;i<count;++i){
+                        const std::size_t row=end+i*38u;
+                        const auto preset=u16(row+20u);
+                        const auto bank=u16(row+22u);
+                        if(i==count-1){
+                            check(std::memcmp(bytes.data()+row,"EOP",3)==0,
+                                  "P018 SF2 phdr terminal EOP missing");
+                            continue;
+                        }
+                        check(bank==0u && preset<=127u,
+                              "P018 unexpected owner SF2 native bank/program");
+                        check(result.insert(static_cast<int>(preset)).second,
+                              "P018 duplicate owner SF2 program");
+                    }
+                }
+                inner+=8u+sub+(sub&1u);
+                check(inner<=next,"P018 malformed pdta padding");
+            }
+        }
+        outer=next+(size&1u);
+        check(outer<=riffEnd,"P018 malformed RIFF padding");
+    }
+    check(foundPhdr && result.size()==77u,
+          "P018 owner SF2 does not contain exactly 77 real presets");
+    return result;
+}
 void ownerBank(const fs::path& folder,const char* name){
  const auto dest=folder/"user.sf2";
  std::error_code ec;
@@ -894,15 +970,50 @@ int main(int argc,char** argv){
       "P013 bank CC0 and SF2 browser bank1 produce different original PCM");
   std::puts("P013_PRIVATE_OWNER_SF2_BANK_SELECT_CC0_MATCHES_BANK1_PCM_PASS");
   check(first.hash!=other.hash,"both owner SF2s share the same PCM fingerprint");
+  // P018: enumerate the ACTUAL phdr entries, never a fabricated contiguous
+  // 0..76 range. This owner SF2 has program 77 but NO program 63.
+  const auto actualPrograms=exactOwnerSf2Programs(resources/"77-presets.sf2");
+  check(actualPrograms.count(63)==0u && actualPrograms.count(77)==1u,
+        "P018 original owner SF2's program hole 63/last 77 altered");
+  std::printf("P018_OWNER_SF2_EXACT_PHDR_77_REAL_PROGRAMS"
+              " missing63=%d includes77=%d\n",
+              int(actualPrograms.count(63)==0u),
+              int(actualPrograms.count(77)==1u));
   std::set<uint64_t> unique;
-  for(int prog=0;prog<77;++prog){
-    const auto s=render(factory,cls->ID(),host.get(),
-        "USER_77_SWEEP",44100,0,60,100,prog,1);
-    audible(s,"one of 77 SF2 presets");
-    unique.insert(s.hash);
+  unsigned clippedTotal=0;
+  unsigned affectedPresets=0;
+  for(const auto prog:actualPrograms){
+    const auto result=render(factory,cls->ID(),host.get(),
+        "P018_REAL_SF2_PHDR_PRESET",44100,0,60,100,prog,1);
+    audible(result,"P018 exact original SF2 preset");
+    check(unique.insert(result.hash).second,
+          "P018 real owner SF2 two programs share identical PCM at C3");
+    if(result.clippedSamples){
+        ++affectedPresets;
+        clippedTotal+=result.clippedSamples;
+        const auto v80=render(factory,cls->ID(),host.get(),
+            "P018_HEADROOM_VELOCITY80",44100,0,60,80,prog,1);
+        const auto v60=render(factory,cls->ID(),host.get(),
+            "P018_HEADROOM_VELOCITY60",44100,0,60,60,prog,1);
+        std::printf("P018_OWNER_SF2_PCM_LIMIT program=%d"
+           " vel100=%u vel80=%u vel60=%u\n",
+           prog,result.clippedSamples,v80.clippedSamples,v60.clippedSamples);
+    }
   }
-  check(unique.size()==77u,"77 preset SF2 outputs are not distinct");
-  std::puts("P010_WIN64_ORIGINAL_VST3_77_DISTINCT_OWNER_PRESETS_PASS");
+  check(unique.size()==actualPrograms.size(),
+        "P018 not all genuine owner SF2 programs were verified");
+  std::printf("P018_77_EXACT_SF2_PRESETS_REAL_VST3_PCM_PASS"
+              " tested=%u clips=%u affected=%u\n",
+              static_cast<unsigned>(unique.size()),clippedTotal,affectedPresets);
+  // Explicitly distinguish ROM fallback for missing SF2 program63 from a
+  // genuine owner SF2 patch. Never count a fallback toward the 77 presets.
+  const auto holeBank=render(factory,cls->ID(),host.get(),
+      "P018_MISSING_PROGRAM63_BANK1",44100,0,60,100,63,1);
+  const auto holeROM=render(factory,cls->ID(),host.get(),
+      "P018_PROGRAM63_ROM_BANK0",44100,0,60,100,63,0);
+  check(holeBank.hash==holeROM.hash,
+        "P018 missing SF2 program63 is not expected ROM fallback");
+  std::puts("P018_MISSING_SF2_PROGRAM63_IS_ROM_FALLBACK_NOT_USER_PRESET_PASS");
   ownerBank(resources,"vintage.sf2");
   const auto returned=render(factory,cls->ID(),host.get(),
              "VINTAGE_RETURN",44100,0,60,100,7,1,true);
