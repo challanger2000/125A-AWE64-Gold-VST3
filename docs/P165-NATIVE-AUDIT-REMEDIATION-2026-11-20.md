@@ -63,3 +63,7 @@
 ### First adversarial-run finding (2026-11-20)
 
 [Win64 run 44829340946](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44829340946) **FAILED** at new F-09 sustain-source precondition: the 768-frame original public one-shot had naturally ended before the held-note observation. No F-09/F-07 PASS was established. The follow-up increases only the *test* sample length to 44,100 frames per voice while retaining looping generator 54, adds early/late PCM checks, and tests that old CC0 does not override a later host bank choice in project recall (F-05). All follow-up test results are **PENDING exact-SHA Windows CI**; no original DSP core changed.
+
+### Source-based correction to synthetic F-09 envelope (2026-11-20)
+
+Windows run 44829978397 failed F-09's early audible fixture condition: first=0.000004041, held=0. The F-05 actual VST3 CC0 versus host-bank project recall/PCM gate passed independently. Pinned upstream AWE32Emu SoundFont.cpp (lines 1114-1141) specifies that a missing sustainVolEnv generator maps to Creative volume-envelope register sustain ZERO (decay to silence). Explicit SF2 generator 37=0 cB maps to original EMU8000 0x7F full-volume sustain. The F-09 generated looping test bank now has BOTH generator 37 and generator 54, and a full second of PCM. Verify the following Windows CI result before marking F-09 or F-07 PASS; no production DSP was changed.

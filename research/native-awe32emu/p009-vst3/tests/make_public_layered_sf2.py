@@ -27,6 +27,10 @@ alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
 sustain="--sustain" in sys.argv[2:]
 # A short 768-frame one-shot ends after 17 ms even when a note is HELD.
+# Creative's authentic SF2 mapping also gives a *missing* sustainVolEnv
+# generator zero register sustain (decay to silence). Explicit SF2 gen37=0
+# is therefore essential: it maps to 0x7F full-volume sustain, and gen54=1
+# instructs the original chip to loop. Both are needed for an honest test.
 # For voice-recovery QA, provide at least one full second of real PCM,
 # so a buggy stuck-note path cannot pass through natural sample exhaustion.
 sample_length=44100 if sustain else 768
@@ -46,14 +50,16 @@ pdta=(
     ck(b"pmod",bytes(10))+
     ck(b"pgen",gen(41,0)+gen(0,0))+
     ck(b"inst",inst("TwoLayerInstrument",0)+inst("EOI",2))+
-    ck(b"ibag",bag(0)+bag((3 if wet else 1)+(1 if sustain else 0))+
-        bag(2*((3 if wet else 1)+(1 if sustain else 0))))+
+    ck(b"ibag",bag(0)+bag((3 if wet else 1)+(2 if sustain else 0))+
+        bag(2*((3 if wet else 1)+(2 if sustain else 0))))+
     ck(b"imod",bytes(10))+
     ck(b"igen",(
-        gen(15,1000)+gen(16,1000)+(gen(54,1) if sustain else b"")+gen(53,0)+
-        gen(15,1000)+gen(16,1000)+(gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)
-      ) if wet else ((gen(54,1) if sustain else b"")+gen(53,0)+
-                      (gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)))+
+        gen(15,1000)+gen(16,1000)+
+        (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,0)+
+        gen(15,1000)+gen(16,1000)+
+        (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)
+      ) if wet else ((gen(37,0)+gen(54,1) if sustain else b"")+gen(53,0)+
+                      (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)))+
     ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
                 shdr("HarmonicWave",sample_length,2*sample_length,
                      sample_length+64,2*sample_length-128)+
