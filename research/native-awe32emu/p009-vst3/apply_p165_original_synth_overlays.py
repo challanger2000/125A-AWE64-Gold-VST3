@@ -140,21 +140,11 @@ float Synth::GuiControl(int index) const noexcept
                 q+int(std::lround(m_guiControls[9]*(15-q)))));
             v.ccca=(v.ccca&0x0FFFFFFFu)|(improved<<28);
         }
-        if(m_guiControls[10]>0.f) {
-            const int available=std::max(0,255-
-                int(m_channels[channel].reverbSend)*90/100-int(v.reverbSend));
-            v.reverbSend=static_cast<uint8_t>(std::min(255,int(v.reverbSend)+
-                int(std::lround(m_guiControls[10]*available))));
-        }
-        if(m_guiControls[11]>0.f) {
-            const auto current=static_cast<int>((v.csl>>Emu8000::kChorusShift)&0xFF);
-            const int available=std::max(0,255-
-                int(m_channels[channel].chorusSend)*90/100-current);
-            const auto boosted=static_cast<uint32_t>(std::min(255,current+
-                int(std::lround(m_guiControls[11]*available))));
-            v.csl=(v.csl&Emu8000::kLoopAddressMask)|
-                (boosted<<Emu8000::kChorusShift);
-        }
+        // Unlike envelope/filter overlays, the reverb and chorus SEND
+        // controls have absolute chip-register semantics after explicit
+        // activation (0=0, 100=255). Do not ALSO add any send value here.
+        // In ORIGINAL mode, do not touch original SoundFont generators at
+        // all: even when the host has a nonzero but inactive knob value.
         vps.push_back(v);
     }"""
     s=unique_replace(s,old,new,"Synth.cpp Original StartLayers")
