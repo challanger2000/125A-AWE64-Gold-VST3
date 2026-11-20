@@ -203,4 +203,8 @@ if(P009_INDEPENDENT_AUDIT)
   target_include_directories(NativeP165IndependentAudit PRIVATE "${P009_SDK_ROOT}")
   target_link_libraries(NativeP165IndependentAudit PRIVATE sdk_hosting)
   target_compile_features(NativeP165IndependentAudit PRIVATE cxx_std_23)
+  if(MSVC)
+    # Match the existing SDK host: its filesystem adapter predates char8_t.
+    target_compile_options(NativeP165IndependentAudit PRIVATE /Zc:char8_t-)
+  endif()
 endif()

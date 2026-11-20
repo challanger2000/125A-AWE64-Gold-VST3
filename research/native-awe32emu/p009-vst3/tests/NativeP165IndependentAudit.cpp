@@ -14,8 +14,8 @@ void audit(bool okay,const char* name) {
 std::vector<std::uint8_t> auditSave(Plugin& p) {
     MemoryStream out;
     check(p.component->getState(&out)==kResultOk,"audit save fixture");
-    const auto* b=static_cast<const std::uint8_t*>(out.getData());
-    return {b,b+out.getSize()};
+    const auto* b=reinterpret_cast<const std::uint8_t*>(out.getData());
+    return std::vector<std::uint8_t>(b,b+out.getSize());
 }
 void auditRestore(Plugin& p,std::vector<std::uint8_t> const& bytes) {
     MemoryStream in;int32 written=0;
