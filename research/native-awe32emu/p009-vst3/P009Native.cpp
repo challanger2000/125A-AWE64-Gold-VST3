@@ -1,4 +1,5 @@
 #include "P009Native.hpp"
+#include "P009CreativeDefaults.hpp"
 #include "Synth.h"
 #include "Awe32Driver.h"
 #include "pluginterfaces/vst/ivstevents.h"
@@ -347,30 +348,7 @@ void NativeVst3::applyAdvancedController(unsigned channel,
                           static_cast<std::uint8_t>(value));
 }
 void NativeVst3::resetMidiControllersForStateRestore() noexcept{
-    if(!synth_)return;
-    // A state replacement on an ALREADY active VST3 must be independent of
-    // the previous project's controller values. An absent CC (0xFFFF) means
-    // authentic freshly constructed ChannelState default, not "keep the
-    // previous song's CC7=0 / sustain / bend / FX send".
-    // These constants exactly match pinned AWE32Emu Synth::ChannelState.
-    // Only called for explicit host state replacement, NEVER on a clean
-    // fresh activation; do not introduce gratuitous register writes there.
-    for(unsigned ch=0;ch<16;++ch){
-        const auto channel=static_cast<std::uint8_t>(ch);
-        synth_->ControlChange(channel,64,0);     // sustain off
-        synth_->ControlChange(channel,1,0);      // modulation
-        synth_->ControlChange(channel,7,100);    // volume
-        synth_->ControlChange(channel,10,64);    // pan center
-        synth_->ControlChange(channel,11,127);   // expression
-        synth_->ControlChange(channel,91,0);     // original dry send = zero
-        synth_->ControlChange(channel,93,0);     // original dry send = zero
-        synth_->ControlChange(channel,101,0);    // select RPN 0,0
-        synth_->ControlChange(channel,100,0);
-        synth_->ControlChange(channel,6,2);      // original bend range = 2
-        synth_->ControlChange(channel,101,127);  // deselect RPN
-        synth_->ControlChange(channel,100,127);
-        synth_->PitchBend(channel,0);            // center
-    }
+    if(synth_)resetOriginalCreativeControllers(*synth_);
 }
 void NativeVst3::replayMidiState() noexcept{
     if(!synth_)return;
