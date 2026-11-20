@@ -38,13 +38,15 @@ void check(bool v,const char* why){
  if(!v){std::fprintf(stderr,"P010_FAIL %s\n",why);throw std::runtime_error(why);}
 }
 struct Saved {
- uint32 magic=0x39303050u,version=3u,program=0u,bank=0u;
+ uint32 magic=0x39303050u,version=4u,program=0u,bank=0u;
  float master=1.f;
  std::array<std::uint8_t,15> otherPrograms{},otherBanks{};
  std::array<std::uint8_t,2> reserved{};
  std::array<std::uint16_t,16*8> midiStates{};
+ std::array<std::uint16_t,16*8> advancedStates{};
+ std::array<std::uint8_t,16> parameterModes{};
 };
-static_assert(sizeof(Saved)==308,"P012 16-channel MIDI controller project state");
+static_assert(sizeof(Saved)==580,"P013 MIDI v4 state size");
 struct Plugin{
  IPtr<IComponent> component;
  IPtr<IEditController> controller;
@@ -72,6 +74,7 @@ struct Plugin{
  void start(int prog,int bank,double rate){
    Saved saved{};saved.program=static_cast<uint32>(prog);saved.bank=static_cast<uint32>(bank);
    saved.midiStates.fill(0xFFFFu);
+   saved.advancedStates.fill(0xFFFFu);
    // P011: program/bank on the ACTUAL MIDI channel, not merely the global
    // CH1 browser. Run every channel with the requested note's instrument.
    for(unsigned ch=1;ch<16;++ch){
@@ -103,6 +106,7 @@ void verifyP011MultichannelProjectRecall(
     const VST3::UID& id,FUnknown* host) {
  auto original=Plugin(factory,id,host);
  Saved expected{};expected.midiStates.fill(0xFFFFu);
+ expected.advancedStates.fill(0xFFFFu);
  expected.program=7;expected.bank=1;expected.master=.625f;
  for(unsigned channel=1;channel<16;++channel){
      expected.otherPrograms[channel-1]=static_cast<std::uint8_t>(
@@ -124,7 +128,7 @@ void verifyP011MultichannelProjectRecall(
      MemoryStream stream;
      check(p.component->getState(&stream)==kResultOk &&
            stream.getSize()==sizeof(value),
-           "P012 308-byte VST3 state output");
+           "P013 580-byte VST3 state output");
      std::memcpy(&value,stream.getData(),sizeof(value));
      return value;
  };
@@ -158,7 +162,7 @@ void verifyP011MultichannelProjectRecall(
  auto older=Plugin(factory,id,host);
  restore(older,&old,static_cast<int32>(sizeof(old)),true);
  const auto upgraded=snapshot(older);
- check(upgraded.version==3u&&upgraded.program==12u&&
+ check(upgraded.version==4u&&upgraded.program==12u&&
        upgraded.bank==1u&&upgraded.master==.5f,
        "P011 legacy P009 project upgrade failed");
  for(unsigned n=0;n<15;++n)
@@ -172,7 +176,7 @@ void verifyP011MultichannelProjectRecall(
  auto prev=Plugin(factory,id,host);
  restore(prev,&v2,52,true);
  const auto upgraded2=snapshot(prev);
- check(upgraded2.version==3u && upgraded2.program==out.program &&
+ check(upgraded2.version==4u && upgraded2.program==out.program &&
        upgraded2.bank==out.bank,"P012 version2 patch upgrade");
  for(const auto value:upgraded2.midiStates)
      check(value==0xFFFFu,"P012 version2 invented a MIDI CC");
@@ -187,6 +191,28 @@ void verifyP011MultichannelProjectRecall(
  equal=snapshot(reopened);
  check(std::memcmp(&out,&equal,sizeof(out))==0,
        "P012 invalid pitchbend value corrupted VST3 project");
+ // Native P012 308-byte v3 must remain readable without inventing CCs.
+ auto v3=out;v3.version=3u;
+ auto oldV3=Plugin(factory,id,host);
+ restore(oldV3,&v3,308,true);
+ const auto upgraded3=snapshot(oldV3);
+ check(upgraded3.version==4u&&
+       std::memcmp(upgraded3.midiStates.data(),v3.midiStates.data(),
+                   sizeof(v3.midiStates))==0,
+       "P013 project reopen P012 v3");
+ for(auto value:upgraded3.advancedStates)
+     check(value==0xFFFFu,"P013 v3 invented advanced CC");
+ invalid=out;invalid.advancedStates[2*8+4]=200u;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P013 invalid RPN value changed project");
+ invalid=out;invalid.parameterModes[15]=3u;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P013 invalid NRPN mode changed project");
+ std::puts("P013_REAL_VST3_PROJECT_STATE_V1_V2_V3_V4_PASS");
  std::puts("P012_REAL_VST3_16_CHANNEL_CONTROLLER_STATE_V1_V2_V3_BACKWARD_RECALL_PASS");
  std::puts("P011_REAL_VST3_16_CHANNEL_PROJECT_RECALL_CORRUPT_STATE_REJECT_LEGACY_V1_PASS");
 }
@@ -222,6 +248,22 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
             check(found,"P012 real VST3 MIDI mapping targets unregistered parameter");
         }
     check(unique.size()==128u,"P012 MIDI CC parameters have duplicate IDs");
+    constexpr std::array<CtrlNumber,8> advanced{
+        kCtrlBankSelectMSB,kCtrlBankSelectLSB,kCtrlRPNSelectMSB,
+        kCtrlRPNSelectLSB,kCtrlDataEntryMSB,kCtrlDataEntryLSB,
+        kCtrlNRPNSelectMSB,kCtrlNRPNSelectLSB
+    };
+    for(int ch=0;ch<16;++ch)
+        for(unsigned slot=0;slot<8;++slot){
+            ParamID mapped=0;
+            check(mapping->getMidiControllerAssignment(0,static_cast<int16>(ch),
+                  advanced[slot],mapped)==kResultTrue,
+                  "P013 RPN/NRPN/Bank MIDI assignment missing");
+            check(mapped==2400u+ch*8u+slot&&unique.insert(mapped).second,
+                  "P013 MIDI assignment ID duplicate");
+        }
+    check(unique.size()==256u,"P013 256 MIDI mappings incomplete");
+    std::puts("P013_REAL_VST3_256_CHANNEL_MIDI_CONTROLLER_ASSIGNMENTS_PASS");
     ParamID bad=0;
     check(mapping->getMidiControllerAssignment(1,0,kCtrlModWheel,bad)
           !=kResultTrue,"P012 rejects nonexistent MIDI bus");
@@ -231,7 +273,7 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
           !=kResultTrue,"P012 rejects unsupported CC");
 
     p.start(7,0,44100.);
-    ParameterChanges params(8);
+    ParameterChanges params(16);
     EventList eventList;
     std::array<float,1024> l{},r{};
     float* channels[2]={l.data(),r.data()};
@@ -255,6 +297,14 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
     put(2,kCtrlSustainOnOff,877,0.);
     put(15,kPitchBend,511,1.);
     put(0,kCtrlModWheel,60,.6);
+    put(4,kCtrlRPNSelectMSB,3,0.);
+    put(4,kCtrlRPNSelectLSB,4,0.);
+    put(4,kCtrlDataEntryMSB,5,12./127.);
+    put(6,kCtrlNRPNSelectMSB,10,1./127.);
+    put(6,kCtrlNRPNSelectLSB,11,2./127.);
+    put(6,kCtrlDataEntryMSB,12,99./127.);
+    put(8,kCtrlBankSelectMSB,13,1./127.);
+    put(8,kCtrlBankSelectLSB,14,0.);
     check(p.processor->process(data)==kResultOk,
           "P012 actual VST3 sample-offset MIDI controller processing");
     MemoryStream state;
@@ -271,6 +321,18 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
           "P012 CC1 modulation value not preserved");
     check(saved.midiStates[1*8+0]==0xFFFFu,
           "P012 unrelated channel modulation was accidentally modified");
+    check(saved.advancedStates[4*8+2]==0u &&
+          saved.advancedStates[4*8+3]==0u &&
+          saved.advancedStates[4*8+4]==12u &&
+          saved.parameterModes[4]==1u,
+          "P013 RPN pitchbend range state");
+    check(saved.advancedStates[6*8+6]==1u &&
+          saved.advancedStates[6*8+7]==2u &&
+          saved.parameterModes[6]==2u,
+          "P013 NRPN selector state");
+    check(saved.advancedStates[8*8+0]==1u &&
+          saved.advancedStates[8*8+1]==0u,
+          "P013 CC0/CC32 bank state");
     auto reopened=Plugin(factory,id,host);
     MemoryStream savedStream;int32 bytes=0;
     check(savedStream.write(&saved,sizeof(saved),&bytes)==kResultOk&&
@@ -284,6 +346,7 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
           reproduced.getSize()==sizeof(saved) &&
           std::memcmp(reproduced.getData(),&saved,sizeof(saved))==0,
           "P012 project lost per-channel CC or pitchbend on reopen");
+    std::puts("P013_REAL_VST3_BANK_RPN_NRPN_CONTROLLER_STATE_PASS");
     std::puts("P012_REAL_STEINBERG_VST3_IMIDIMAPPING_128_ASSIGNMENTS_SAMPLE_OFFSETS_STATE_RECALL_PASS");
 }
 
