@@ -67,3 +67,12 @@ target_compile_definitions(P009RealtimeAllocationProbe PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(P009RealtimeAllocationProbe PRIVATE winmm)
 target_compile_features(P009RealtimeAllocationProbe PRIVATE cxx_std_17)
+
+# P010: test ACTUAL compiled Windows VST3 using Steinberg's SDK hosting API.
+add_executable(P010NativeHostQA
+  tests/P010NativeHostQA.cpp
+  "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+  "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
+target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}")
+target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting)
+target_compile_features(P010NativeHostQA PRIVATE cxx_std_17)

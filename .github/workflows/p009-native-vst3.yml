@@ -106,10 +106,23 @@ jobs:
           Remove-Item _p009-two-layer-test.sf2
           if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
           Write-Host P009_RT_WINDOWS_5_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
+      - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P010NativeHostQA
+          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 host compile failed'}
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          & _p009-build/Release/P010NativeHostQA.exe $bundle --public
+          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
+          Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
-          name: P009-NATIVE-VST3-VALIDATION-LOGS-ONLY
-          path: _p009-validator.log
+          name: P010-OWNER-ONLY-EXPERIMENTAL-NATIVE-VST3-HOST
+          path: |
+            _p009-validator.log
+            _p009-build/Release/P010NativeHostQA.exe
+            _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
