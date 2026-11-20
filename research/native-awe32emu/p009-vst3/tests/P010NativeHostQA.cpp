@@ -1309,6 +1309,85 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
   ownerBank(resources,nullptr);
 }
+// P167: two genuinely independent original 86Box chip instances start
+// with the same sustained sample and note. Master is *post-chip* linear
+// output scaling, so an independent reference waveform predicts the exact
+// piecewise PCM of two host parameter points inside ONE audio callback.
+// A broken block-global "last master point" implementation fails the
+// early, middle and final PCM windows even though final state would pass.
+void verifyP167TimedMasterOriginalPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"sustain.sf2");
+  Plugin ref(factory,id,host);ref.start(0,1,44100.);
+  Plugin stepped(factory,id,host);stepped.start(0,1,44100.);
+  EventList notes1,notes2;
+  Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=0;
+  on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
+  check(notes1.addEvent(on)==kResultOk && notes2.addEvent(on)==kResultOk,
+        "P167 original-chip master independent NoteOn fixture");
+  ParameterChanges master(1);int32 queue=0,index=0;
+  auto* points=master.addParameterData(1001u,queue);
+  check(points&&points->addPoint(192,.25,index)==kResultOk&&
+        points->addPoint(700,.75,index)==kResultOk,
+        "P167 actual Steinberg host cannot enqueue two timed master points");
+  std::array<float,frames> baseL{},baseR{},stepL{},stepR{};
+  float* b[2]={baseL.data(),baseR.data()};
+  float* s[2]={stepL.data(),stepR.data()};
+  AudioBusBuffers out1{},out2{};
+  out1.numChannels=out2.numChannels=2;
+  out1.channelBuffers32=b;out2.channelBuffers32=s;
+  ProcessData d1{},d2{};
+  d1.processMode=d2.processMode=kRealtime;
+  d1.symbolicSampleSize=d2.symbolicSampleSize=kSample32;
+  d1.numSamples=d2.numSamples=frames;
+  d1.numOutputs=d2.numOutputs=1;d1.outputs=&out1;d2.outputs=&out2;
+  d1.inputEvents=&notes1;
+  d2.inputEvents=&notes2;d2.inputParameterChanges=&master;
+  check(ref.processor->process(d1)==kResultOk &&
+        stepped.processor->process(d2)==kResultOk,
+        "P167 real Windows 86Box VST3 dual chip master automation callback");
+  std::array<double,3> referenceEnergy{},sampleDifference{};
+  for(int i=0;i<frames;++i){
+     const int window=i<192?0:i<700?1:2;
+     const double gain=window==0?1.:window==1?.25:.75;
+     const double base=double(baseL[i])*baseL[i]+double(baseR[i])*baseR[i];
+     referenceEnergy[window]+=base;
+     const double dL=double(stepL[i])-double(baseL[i])*gain;
+     const double dR=double(stepR[i])-double(baseR[i])*gain;
+     sampleDifference[window]+=dL*dL+dR*dR;
+     check(std::abs(dL)<1e-6&&std::abs(dR)<1e-6,
+           "P167 sample-offset master output not piecewise original-chip PCM");
+  }
+  for(int i=0;i<3;++i)
+     check(referenceEnergy[i]>.001,
+           "P167 invalid timing oracle: no original chip audio in a PCM window");
+  // Negative control: a last-point (.75) applied to the ENTIRE block
+  // would produce a different early/middle PCM. A fake silence PASS fails.
+  double wrongLastPoint=0.;
+  for(int i=0;i<700;++i){
+    const double errL=double(stepL[i])-double(baseL[i])*.75;
+    const double errR=double(stepR[i])-double(baseR[i])*.75;
+    wrongLastPoint+=errL*errL+errR*errR;
+  }
+  check(wrongLastPoint>.001,
+        "P167 negative control did not catch last-point block-global master");
+  MemoryStream saved;
+  check(stepped.component->getState(&saved)==kResultOk &&
+        saved.getSize()==sizeof(Saved),
+        "P167 master timing unexpectedly changed V4 saved-state layout");
+  Saved finalState{};
+  std::memcpy(&finalState,saved.getData(),sizeof(finalState));
+  check(finalState.master==.75f &&
+        std::abs(stepped.controller->getParamNormalized(1001u)-.75)<.0001,
+        "P167 final master state/controller did not agree with last sample point");
+  std::printf("P167_ORIGINAL_86BOX_MASTER_PCM_WINDOWS energy=%.6f/%.6f/%.6f error=%.10f/%.10f/%.10f wrongLastPoint=%.6f\n",
+      referenceEnergy[0],referenceEnergy[1],referenceEnergy[2],
+      sampleDifference[0],sampleDifference[1],sampleDifference[2],wrongLastPoint);
+  std::puts("P167_ACTUAL_WINDOWS_VST3_SAMPLE_ACCURATE_MASTER_AUTOMATION_ORIGINAL_PCM_PASS");
+  ownerBank(resources,nullptr);
+}
+
 // F-09: Run the genuinely loaded Win64 original-chip VST3 with two
 // deliberately saturated host inputs. The public SoundFont used here is
 // *sustained*, not a self-decaying one-shot (which could falsely pass a
@@ -1702,6 +1781,7 @@ int main(int argc,char** argv){
   if(synthetic){
     ownerBank(resources,nullptr);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
+    verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);

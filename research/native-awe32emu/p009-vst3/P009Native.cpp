@@ -82,6 +82,9 @@ struct MidiPoint {
     int32 sampleOffset=0;
     std::uint8_t channel=0,slot=0;
     std::uint16_t value=0;
+    // Master is continuous and must not be forced through a 7-bit MIDI
+    // value or 16-bit quantizer; retain the exact host float at its offset.
+    float normalized=0.f;
 };
 bool finite01(double x){return std::isfinite(x) && x>=0. && x<=1.;}
 unsigned toByte(float v) {
@@ -690,7 +693,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // P014: host bank/program automation is timestamped just like MIDI CC
     // and NoteOn. Previously the FINAL parameter value was applied to the
     // ENTIRE block, which selected the wrong patch for earlier notes.
-    constexpr unsigned kPatchProgram=16u,kPatchBank=17u,
+    constexpr unsigned kPatchProgram=16u,kPatchBank=17u,kPatchMaster=18u,
        kGuiControlSlotBase=20u,kGuiReverbType=32u,kGuiChorusType=33u,
        kGuiSendManualSlotBase=34u;
     const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
@@ -770,6 +773,31 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                                maxValue))return reject();
                 continue;
             }
+            // Master automation is sample-offset accurate, not a
+            // block-global last-point override. This uses the same fixed
+            // RT-safe 512-entry queue as note, bank and program changes.
+            if(id==kVolume){
+                const int32 count=q->getPointCount();
+                if(count<0||count>512)return reject();
+                for(int32 p=0;p<count;++p){
+                    int32 at=0;ParamValue value=0.;
+                    if(q->getPoint(p,at,value)!=kResultOk||
+                       !finite01(value)||at<0||at>=data.numSamples)
+                        continue;
+                    if(numMidiPoints==midiPoints.size())return reject();
+                    MidiPoint point{};
+                    point.sampleOffset=at;
+                    point.slot=static_cast<std::uint8_t>(kPatchMaster);
+                    point.normalized=static_cast<float>(value);
+                    auto j=numMidiPoints;
+                    while(j>0&&midiPoints[j-1].sampleOffset>at){
+                        midiPoints[j]=midiPoints[j-1];--j;
+                    }
+                    midiPoints[j]=point;
+                    ++numMidiPoints;
+                }
+                continue;
+            }
             // All 12 original P175 hardware controls use the *real*
             // pinned Creative voice-parameter conversion, then actual
             // 86Box EMU8000 register writes. Zero leaves P022 exact PCM.
@@ -824,14 +852,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             int32 off=0;ParamValue val=0.;
             if(q->getPoint(q->getPointCount()-1,off,val)!=kResultOk||
                !finite01(val))continue;
-            if(id==kVolume){
-                master_=static_cast<float>(val);
-                if(masterAtBlock>=0.f){
-                    float expected=masterAtBlock;
-                    (void)hostMasterEdit_.compare_exchange_strong(
-                        expected,-1.f,std::memory_order_acq_rel);
-                }
-            }
+            // All recognized timed controls were handled above.
+            // Unknown IDs intentionally have no audio side effects.
         }
     }
     if(!l||!r||data.numSamples==0){
@@ -884,6 +906,13 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             }else if(mp.slot<kMappedCount+kAdvancedCount){
                 applyAdvancedController(mp.channel,
                                          mp.slot-kMappedCount,mp.value);
+            }else if(mp.slot==kPatchMaster){
+                master_=mp.normalized;
+                if(masterAtBlock>=0.f){
+                    float expected=masterAtBlock;
+                    (void)hostMasterEdit_.compare_exchange_strong(
+                        expected,-1.f,std::memory_order_acq_rel);
+                }
             }else if(mp.slot==kPatchProgram){
                 if(mp.channel==0)program_=static_cast<int>(mp.value);
                 else programsByChannel_[mp.channel]=
