@@ -229,7 +229,35 @@ jobs:
           python research/native-awe32emu/p009-vst3/tests/P165NativeEditorHostQA.py --editorhost $editor --plugin $plugin --output _p165-real-editor-evidence
           if($LASTEXITCODE -ne 0){throw 'P165 actual native P007BW photographed 12-knob editor FAILED'}
           Write-Host P165_NATIVE_ORIGINAL_P007BW_REAL_EDITORHOST_FULL_UI_INTERACTIVE_PASS
+      - name: Independent actual VST3 audit with public synthetic samples (read-only production)
+        if: startsWith(github.ref_name, 'audit/native-p165-')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S research/native-awe32emu/p009-vst3 -B _p009-build -DP009_INDEPENDENT_AUDIT=ON
+          if($LASTEXITCODE -ne 0){throw 'independent audit host configure failed'}
+          cmake --build _p009-build --config Release --parallel 3 --target NativeP165IndependentAudit
+          if($LASTEXITCODE -ne 0){throw 'independent audit host compilation failed'}
+          $destination='_p165-audit/AWE64_Gold_Native_P009.vst3'
+          New-Item -ItemType Directory -Force _p165-audit | Out-Null
+          Copy-Item -Recurse '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3' $destination
+          $resources="$destination/Contents/Resources/P009-Private"
+          New-Item -ItemType Directory -Force $resources | Out-Null
+          # Entirely generated public samples and null ROM. No owner assets.
+          [IO.File]::WriteAllBytes((Join-Path $PWD "$resources/awe32.raw"), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py "$resources/SYNTHGM.SBK"
+          if($LASTEXITCODE -ne 0){throw 'independent synthetic SF2 fixture failed'}
+          try {
+            $bundle=(Resolve-Path $destination).Path
+            & _p009-build/Release/NativeP165IndependentAudit.exe $bundle *> _p165-independent-audit.log
+            $auditResult=$LASTEXITCODE
+            Get-Content _p165-independent-audit.log
+          } finally {
+            Remove-Item -Recurse -Force _p165-audit
+          }
+          if($auditResult -ne 0){throw "Independent production-contract audit found failures (exit $auditResult); see evidence log"}
       - name: Archive evidence only, not unsigned unlicensed binary
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: P010-OWNER-ONLY-EXPERIMENTAL-NATIVE-VST3-HOST
@@ -240,6 +268,7 @@ jobs:
             _p019-latency-report.txt
             _p021-original-chip-multirate.log
             _p165-real-editor-evidence/**
+            _p165-independent-audit.log
             _p009-build/Release/P021OriginalChipResamplingProbe.exe
             _p009-build/Release/P019Probe980.exe
             _p009-build/Release/P019Probe128.exe

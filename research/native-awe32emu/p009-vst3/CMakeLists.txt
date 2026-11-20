@@ -191,3 +191,16 @@ target_compile_definitions(P021OriginalChipResamplingProbe PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
 target_link_libraries(P021OriginalChipResamplingProbe PRIVATE winmm)
 target_compile_features(P021OriginalChipResamplingProbe PRIVATE cxx_std_17)
+
+# Read-only independent audit: no production source substitution or fix.
+option(P009_INDEPENDENT_AUDIT "Build actual exported VST3 audit host" OFF)
+if(P009_INDEPENDENT_AUDIT)
+  add_executable(NativeP165IndependentAudit
+    tests/NativeP165IndependentAudit.cpp
+    "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+    "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
+    "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
+  target_include_directories(NativeP165IndependentAudit PRIVATE "${P009_SDK_ROOT}")
+  target_link_libraries(NativeP165IndependentAudit PRIVATE sdk_hosting)
+  target_compile_features(NativeP165IndependentAudit PRIVATE cxx_std_23)
+endif()
