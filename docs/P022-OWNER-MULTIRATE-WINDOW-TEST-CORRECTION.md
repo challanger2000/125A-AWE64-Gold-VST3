@@ -25,3 +25,18 @@ This is a change to **test methodology only**. The exact P021 VST3 with real 64-
 The public Windows CI must pass after the updated probe is compiled. The corrected **private owner** PCM probe still needs to be executed under Windows; until then the P021 full original-chip multi-rate gate is **not yet accepted**. Do not repeat all 77 VST3 instrument tests unnecessarily: those already passed in the user's P021 host log and are unchanged.
 
 No original private Creative ROM or SoundFont file is committed to GitHub. P007 is unchanged. Studio Pro end tests remain deferred.
+
+## P022 public Windows validation: PASS (real original-chip code, public samples)
+
+CI [run 44800839344](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44800839344): successful Windows build, 47/47 Steinberg tests. The revised 750ms original-chip multirate test completed all 8/8 DRY/FX comparisons:
+- 8 kHz: 6,000 stereo frames; zero differing values / 12,000 stereo values.
+- 48 kHz: 36,000 stereo frames; zero differing values / 72,000 stereo values.
+- 96 kHz: 72,000 stereo frames; zero differing values / 144,000 stereo values.
+- 192 kHz: 144,000 stereo frames; zero differing values / 288,000 stereo values.
+- The exact-pinned 44.1k reference PCM RMS was ~113 signed-int16 LSB DRY and ~134 signed-int16 LSB FX during 750ms (not silent).
+
+Further [run 44801114810](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44801114810) also **SUCCESS**, with new CI enforcement of exactly eight `P022_OWNER_ORIGINAL_CHIP_RATE_WINDOW_*` cases each containing `duration_ms=750`, plus the exact `P022_EQUAL_750MS_ALL_RATES_GENUINE_CHIP_PCM_PASS_8_OF_8` completion marker.
+
+The owner has not yet executed P022. A private one-click ZIP was created with only the rebuilt standalone Windows probe and SHA256-verified owner ROM, Creative SBK and original 77-preset SF2. No VST3 binary changed in P022; owner is **not** asked to retest all 77 presets or project recall.
+
+**Status: P021 private combined test remains FAIL; P022 public corrected test PASS; P022 private corrected original-ROM test PENDING.**
