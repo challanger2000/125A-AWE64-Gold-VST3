@@ -52,9 +52,13 @@ jobs:
           $v=Get-ChildItem -Path _p009-build -Filter validator.exe -Recurse -File | Where-Object {$_.FullName -match 'Release'} | Select-Object -First 1
           if(!$v){throw 'validator.exe not found'}
           $b=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
-          & $v.FullName $b 2>&1 | Tee-Object '_p009-validator.log'
-          if($LASTEXITCODE -ne 0){throw 'Steinberg validator failed'}
-          Write-Host P009_REAL_STEINBERG_VALIDATION_WITH_NO_ROM_AUDIO_PASS
+          $log='_p009-validator.log'
+          & $v.FullName $b *> $log
+          $rc=$LASTEXITCODE
+          Get-Content $log | Select-Object -Last 25
+          if($rc -ne 0){throw "Steinberg validator exited with $rc"}
+          if(!(Select-String -Path $log -Pattern 'Result: +47 tests passed, 0 tests failed' -Quiet)){throw '47/47 validator summary missing'}
+          Write-Host P009_REAL_STEINBERG_47_OF_47_VALIDATOR_WITH_NO_ROM_AUDIO_PASS
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
