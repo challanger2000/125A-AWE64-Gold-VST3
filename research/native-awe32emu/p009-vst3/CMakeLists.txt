@@ -77,3 +77,18 @@ add_executable(P010NativeHostQA
 target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}")
 target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting)
 target_compile_features(P010NativeHostQA PRIVATE cxx_std_17)
+ 
+# P016: PUBLIC two-layer SF2 -> exact same pinned Creative Win95 driver and
+# 86Box-derived EMU8000 chip as the VST3, with shared production reset code.
+# Only synthetic ROM is used. Not original-ROM fidelity evidence.
+add_executable(P016PublicRecallPCM
+   tests/P016PublicRecallPCM.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P016PublicRecallPCM PRIVATE
+   "${CMAKE_CURRENT_SOURCE_DIR}" "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P016PublicRecallPCM PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(P016PublicRecallPCM PRIVATE winmm)
+target_compile_features(P016PublicRecallPCM PRIVATE cxx_std_17)
