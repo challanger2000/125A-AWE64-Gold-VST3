@@ -20,6 +20,21 @@
 #include <mutex>
 #include <string>
 namespace p009 {
+// Prebuilt on the host lifecycle thread. The audio thread copies its
+// bounded POD state at a block boundary and retires the object *without*
+// freeing it. This prevents host state restores from racing chip register
+// writes and preserves all 16 channels' MIDI RPN/NRPN state.
+struct NativeRuntimeRestore {
+    std::uint32_t program=0,bank=0;
+    float master=1.f;
+    std::array<std::uint8_t,16> programs{},banks{};
+    std::array<std::uint16_t,16*8> midi{},advanced{};
+    std::array<std::uint8_t,16> modes{};
+    std::array<float,12> gui{};
+    int reverb=4,chorus=2;
+    std::uint64_t sequence=0;
+    NativeRuntimeRestore* next=nullptr;
+};
 class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect,
                          public Steinberg::Vst::IMidiMapping,
                          public VSTGUI::VST3EditorDelegate {
@@ -29,7 +44,10 @@ public:
         advancedMidiState_.fill(0xFFFFu);
         fxPresetMirrors_[0].store(4u);
         fxPresetMirrors_[1].store(2u);
+        for(auto& x:stateMidiMirror_)x.store(0xFFFFu);
+        for(auto& x:stateAdvancedMirror_)x.store(0xFFFFu);
     }
+    ~NativeVst3() override { cleanStagedAndRetiredNonRealtime(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
     Steinberg::uint32 PLUGIN_API addRef() override {
         return SingleComponentEffect::addRef();
@@ -79,6 +97,25 @@ private:
     std::array<std::atomic<std::uint16_t>,12> guiControlMirrors_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     std::atomic<Synth*> retiredSynth_{nullptr};
+    // Bounded POD host/audio state transfers. getState only reads atomic
+    // snapshots, never audio-thread-owned arrays or a mutable Synth.
+    std::atomic<NativeRuntimeRestore*> pendingRestore_{nullptr};
+    std::atomic<NativeRuntimeRestore*> retiredRestore_{nullptr};
+    std::mutex hostRestoreMutex_{};
+    NativeRuntimeRestore lastHostRestore_{};
+    std::atomic<std::uint64_t> restoreRequestedSeq_{0};
+    std::atomic<std::uint64_t> restoreAppliedSeq_{0};
+    std::atomic<std::uint64_t> stateMirrorEpoch_{0};
+    std::atomic<std::uint32_t> stateProgramMirror_{0},stateBankMirror_{0};
+    std::atomic<float> stateMasterMirror_{1.f};
+    std::array<std::atomic<std::uint8_t>,16> stateProgramsMirror_{},
+        stateBanksMirror_{},stateModesMirror_{};
+    std::array<std::atomic<std::uint16_t>,16*8> stateMidiMirror_{},
+        stateAdvancedMirror_{};
+    void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
+    void applyPendingRestoreRealtime() noexcept;
+    void publishRuntimeSnapshot() noexcept;
+    void drainRetiredRestoresNonRealtime() noexcept;
     // GUI repeated bank selection after MIDI CC0: the actual chip must
     // receive a bank/program reassert, not only a boolean "ack".
     std::atomic<std::uint8_t> bankReassertRequested_{0xFFu};
@@ -110,7 +147,7 @@ private:
     // NRPN is selector-only: upstream Creative driver has no NRPN synthesis.
     std::array<std::uint16_t,16*8> advancedMidiState_{};
     std::array<std::uint8_t,16> selectedParameterMode_{};
-    bool active_=false,authenticRomLoaded_=false;
+    std::atomic<bool> active_{false},authenticRomLoaded_{false};
     void applyMidiController(unsigned channel,unsigned slot,std::uint16_t raw) noexcept;
     void replayMidiState() noexcept;
     void resetMidiControllersForStateRestore() noexcept;

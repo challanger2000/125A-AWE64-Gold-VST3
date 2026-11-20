@@ -42,6 +42,7 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
         [this](){
             // Reclaim the *old* chip's 28 MiB heap outside the audio thread.
             delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+            drainRetiredRestoresNonRealtime();
             if(auto* latest=pendingGuiCatalog_.exchange(
                      nullptr,std::memory_order_acq_rel)){
                 guiCatalog_=std::move(*latest);

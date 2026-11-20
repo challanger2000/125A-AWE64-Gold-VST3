@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <new>
 #include <string>
 #include <vector>
 namespace p009 {
@@ -362,10 +363,81 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     delete pendingGuiCatalog_.exchange(nextCatalog,std::memory_order_acq_rel);
     return true;
 }
+void NativeVst3::publishRuntimeSnapshot() noexcept {
+    // Only process() publishes while active. Host setState publishes only
+    // while inactive; all members are ATOMIC so even a racing getState sees
+    // either a coherent version or safely retries.
+    stateMirrorEpoch_.fetch_add(1,std::memory_order_acq_rel); // odd
+    stateProgramMirror_.store(static_cast<std::uint32_t>(program_),std::memory_order_relaxed);
+    stateBankMirror_.store(static_cast<std::uint32_t>(bank_),std::memory_order_relaxed);
+    stateMasterMirror_.store(master_,std::memory_order_relaxed);
+    for(unsigned ch=0;ch<16u;++ch){
+        stateProgramsMirror_[ch].store(
+            ch?programsByChannel_[ch]:static_cast<std::uint8_t>(program_),
+            std::memory_order_relaxed);
+        stateBanksMirror_[ch].store(
+            ch?banksByChannel_[ch]:static_cast<std::uint8_t>(bank_),
+            std::memory_order_relaxed);
+        stateModesMirror_[ch].store(selectedParameterMode_[ch],
+                                   std::memory_order_relaxed);
+    }
+    for(unsigned i=0;i<midiState_.size();++i){
+        stateMidiMirror_[i].store(midiState_[i],std::memory_order_relaxed);
+        stateAdvancedMirror_[i].store(advancedMidiState_[i],std::memory_order_relaxed);
+    }
+    stateMirrorEpoch_.fetch_add(1,std::memory_order_release); // even
+}
+void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexcept {
+    // Executed at process() boundary (or by the stopped host before active).
+    // Never mutate any chip register or audio-owned state from setState().
+    program_=static_cast<int>(desired.program);
+    bank_=static_cast<int>(desired.bank);
+    master_=desired.master;
+    programsByChannel_=desired.programs;
+    banksByChannel_=desired.banks;
+    midiState_=desired.midi;
+    advancedMidiState_=desired.advanced;
+    selectedParameterMode_=desired.modes;
+    guiControls_=desired.gui;
+    reverbPreset_=desired.reverb;chorusPreset_=desired.chorus;
+    fxEdited_=reverbPreset_!=4||chorusPreset_!=2;
+    fxPending_.store(true,std::memory_order_release);
+    // The original Creative state is authoritative: discard old controller
+    // registers first and only then replay this project's exact CC/RPN.
+    resetMidiControllersForStateRestore();
+    changeBankProgram();
+    replayMidiState();
+    if(synth_)
+        for(unsigned i=0;i<guiControls_.size();++i)
+            synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+    publishRuntimeSnapshot();
+}
+void NativeVst3::applyPendingRestoreRealtime() noexcept {
+    if(auto* next=pendingRestore_.exchange(nullptr,std::memory_order_acq_rel)){
+        applyRuntimeRestore(*next);
+        restoreAppliedSeq_.store(next->sequence,std::memory_order_release);
+        // Lock-free linked retirement: delete ONLY on GUI/lifecycle thread.
+        auto* top=retiredRestore_.load(std::memory_order_relaxed);
+        do {
+            next->next=top;
+        } while(!retiredRestore_.compare_exchange_weak(
+            top,next,std::memory_order_release,std::memory_order_relaxed));
+    }
+}
+void NativeVst3::drainRetiredRestoresNonRealtime() noexcept {
+    auto* node=retiredRestore_.exchange(nullptr,std::memory_order_acq_rel);
+    while(node){
+        auto* following=node->next;
+        delete node;
+        node=following;
+    }
+}
 void NativeVst3::cleanStagedAndRetiredNonRealtime() noexcept {
     delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
     delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
     delete pendingGuiCatalog_.exchange(nullptr,std::memory_order_acq_rel);
+    delete pendingRestore_.exchange(nullptr,std::memory_order_acq_rel);
+    drainRetiredRestoresNonRealtime();
 }
 void NativeVst3::applyStagedInstrumentRealtime() noexcept {
     // Only the audio thread uses synth_. Old engine must be reclaimed on the
@@ -384,6 +456,14 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
     }
 }
 tresult PLUGIN_API NativeVst3::setActive(TBool on){
+    // Steinberg setActive is non-real-time. No process callback may be
+    // executing while it changes the original EMU8000 engine.
+    if(auto* waiting=pendingRestore_.exchange(nullptr,std::memory_order_acq_rel)){
+        applyRuntimeRestore(*waiting);
+        restoreAppliedSeq_.store(waiting->sequence,std::memory_order_release);
+        delete waiting;
+    }
+    drainRetiredRestoresNonRealtime();
     if(on){
         if(active_)return kResultOk;
         cleanStagedAndRetiredNonRealtime();
@@ -535,6 +615,7 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
     applyStagedInstrumentRealtime();
+    applyPendingRestoreRealtime();
     const auto reassert=bankReassertRequested_.exchange(
         0xFFu,std::memory_order_acq_rel);
     if(reassert<=2u){
@@ -600,6 +681,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             std::fill_n(r,data.numSamples,0.f);
             if(bus)bus->silenceFlags=3;
         }
+        publishRuntimeSnapshot();
         return kResultFalse;
     };
     if(data.inputParameterChanges){
@@ -677,7 +759,10 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             if(id==kVolume)master_=static_cast<float>(val);
         }
     }
-    if(!l||!r||data.numSamples==0)return kResultOk;
+    if(!l||!r||data.numSamples==0){
+        publishRuntimeSnapshot();
+        return kResultOk;
+    }
     // Fixed-buffer, bounded host events. Overflow deliberately fails the
     // prototype gate rather than silently dropping NoteOff and sticking.
     std::array<Event,512> events{};
@@ -759,19 +844,52 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     }
     if(pos<data.numSamples)render(l+pos,r+pos,data.numSamples-pos);
     if(bus)bus->silenceFlags=authenticRomLoaded_?0:3;
+    publishRuntimeSnapshot();
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     if(!stream)return kResultFalse;
-    Saved s{};s.program=static_cast<std::uint32_t>(program_);
-    s.bank=static_cast<std::uint32_t>(bank_);s.master=master_;
-    for(unsigned ch=1;ch<16;++ch){
-        s.otherPrograms[ch-1]=programsByChannel_[ch];
-        s.otherBanks[ch-1]=banksByChannel_[ch];
+    // Host save is allowed concurrently with audio callbacks. NEVER read
+    // the live non-atomic program/MIDI/RPN arrays here.
+    drainRetiredRestoresNonRealtime();
+    NativeRuntimeRestore stable{};
+    const auto request=restoreRequestedSeq_.load(std::memory_order_acquire);
+    if(request!=restoreAppliedSeq_.load(std::memory_order_acquire)){
+        // A valid project was accepted by setState but will be applied at
+        // the next audio block. Return its full requested state meanwhile.
+        std::lock_guard<std::mutex> lock(hostRestoreMutex_);
+        stable=lastHostRestore_;
+    }else{
+        bool consistent=false;
+        for(int attempt=0;attempt<128 && !consistent;++attempt){
+            const auto before=stateMirrorEpoch_.load(std::memory_order_acquire);
+            if(before&1u)continue;
+            stable.program=stateProgramMirror_.load(std::memory_order_relaxed);
+            stable.bank=stateBankMirror_.load(std::memory_order_relaxed);
+            stable.master=stateMasterMirror_.load(std::memory_order_relaxed);
+            for(unsigned ch=0;ch<16u;++ch){
+                stable.programs[ch]=stateProgramsMirror_[ch].load(std::memory_order_relaxed);
+                stable.banks[ch]=stateBanksMirror_[ch].load(std::memory_order_relaxed);
+                stable.modes[ch]=stateModesMirror_[ch].load(std::memory_order_relaxed);
+            }
+            for(unsigned i=0;i<stable.midi.size();++i){
+                stable.midi[i]=stateMidiMirror_[i].load(std::memory_order_relaxed);
+                stable.advanced[i]=stateAdvancedMirror_[i].load(std::memory_order_relaxed);
+            }
+            const auto after=stateMirrorEpoch_.load(std::memory_order_acquire);
+            consistent=(before==after && !(after&1u));
+        }
+        if(!consistent)return kResultFalse; // never return a torn session
     }
-    s.midiStates=midiState_;
-    s.advancedStates=advancedMidiState_;
-    s.parameterModes=selectedParameterMode_;
+    Saved s{};
+    s.program=stable.program;s.bank=stable.bank;s.master=stable.master;
+    for(unsigned ch=1;ch<16u;++ch){
+        s.otherPrograms[ch-1]=stable.programs[ch];
+        s.otherBanks[ch-1]=stable.banks[ch];
+    }
+    s.midiStates=stable.midi;
+    s.advancedStates=stable.advanced;
+    s.parameterModes=stable.modes;
     OwnerStateV5 extended{};
     std::string ownerPath;
     bool explicitOwner=false;
@@ -911,80 +1029,87 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         }
     }
 
-    // Only now mutate processor. Corrupt v4 cannot change any channel.
-    program_=static_cast<int>(s.program);bank_=static_cast<int>(s.bank);
-    master_=s.master;
-    programsByChannel_.fill(0u);banksByChannel_.fill(0u);
-    for(unsigned ch=1;ch<16;++ch){
-        programsByChannel_[ch]=s.otherPrograms[ch-1];
-        banksByChannel_[ch]=s.otherBanks[ch-1];
+    // Full state is validated, including SHA and FX modes, before any
+    // mutation or host hand-off. Allocation here is NON-realtime.
+    drainRetiredRestoresNonRealtime();
+    std::unique_ptr<NativeRuntimeRestore> desired(
+        new(std::nothrow) NativeRuntimeRestore);
+    if(!desired)return kResultFalse;
+    desired->program=s.program;desired->bank=s.bank;desired->master=s.master;
+    for(unsigned ch=1;ch<16u;++ch){
+        desired->programs[ch]=s.otherPrograms[ch-1];
+        desired->banks[ch]=s.otherBanks[ch-1];
     }
-    midiState_.fill(0xFFFFu);
-    if(s.version>=kStateV3)midiState_=s.midiStates;
-    advancedMidiState_.fill(0xFFFFu);
-    selectedParameterMode_.fill(0u);
-    // V5 retains the COMPLETE V4 580-byte prefix, including all
-    // advanced MIDI RPN/NRPN selectors, data entry and mode state.
-    // Missing >= originally erased pitch-bend range on a GUI-only edit.
+    desired->programs[0]=static_cast<std::uint8_t>(s.program);
+    desired->banks[0]=static_cast<std::uint8_t>(s.bank);
+    desired->midi.fill(0xFFFFu);
+    if(s.version>=kStateV3)desired->midi=s.midiStates;
+    desired->advanced.fill(0xFFFFu);
+    desired->modes.fill(0u);
     if(s.version>=kStateV4){
-        advancedMidiState_=s.advancedStates;
-        selectedParameterMode_=s.parameterModes;
+        desired->advanced=s.advancedStates;
+        desired->modes=s.parameterModes;
     }
-    // The original bank identity is now fully checked. After this point
-    // state restore cannot fail; queue prebuilt chip swap without touching
-    // the real-time heap, and apply catalog on the GUI idle thread.
+    for(unsigned i=0;i<desired->gui.size();++i)
+        desired->gui[i]=(s.version==kStateV5?ext.guiControls[i]:0u)/10000.f;
+    desired->reverb=s.version==kStateV5?int(ext.effectModes[0]):4;
+    desired->chorus=s.version==kStateV5?int(ext.effectModes[1]):2;
+    // User file and preset catalog are always handled on the host thread.
+    // The complete original-chip candidate is staged atomically and
+    // consumed at the following audio block, with no heap in process().
     if(replaceAsset){
         delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
-        if(preparedAsset){
+        if(preparedAsset)
             delete stagedSynth_.exchange(preparedAsset.release(),
                 std::memory_order_acq_rel);
-        }
         delete pendingGuiCatalog_.exchange(
             new AWE125::PresetCatalog(std::move(freshCatalog)),
             std::memory_order_acq_rel);
-        if(!synth_){
-            // Inactive instance: next setActive builds the chosen bank.
+        if(!synth_ && !active_.load(std::memory_order_acquire))
             delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
-        }
         std::lock_guard<std::mutex> guard(guiAssetMutex_);
         selectedUserSf2_=nextExplicit?requestedPath:std::string{};
         selectedUserSha256_=nextExplicit?ext.assetSha256:
             std::array<std::uint8_t,32>{};
         userChoseSf2_=nextExplicit;
     }
-    for(unsigned i=0;i<guiControls_.size();++i){
-        const auto control=s.version==kStateV5?ext.guiControls[i]:0u;
-        guiControls_[i]=static_cast<float>(control)/10000.f;
-        guiControlMirrors_[i].store(control,std::memory_order_release);
-        (void)SingleComponentEffect::setParamNormalized(1100u+i,
-            static_cast<double>(control)/10000.);
-        if(synth_)synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+    for(unsigned i=0;i<desired->gui.size();++i){
+        const auto value=s.version==kStateV5?ext.guiControls[i]:0u;
+        guiControlMirrors_[i].store(value,std::memory_order_release);
+        (void)SingleComponentEffect::setParamNormalized(
+            1100u+i,static_cast<double>(value)/10000.);
     }
-    const int nextRev=s.version==kStateV5?int(ext.effectModes[0]):4;
-    const int nextCho=s.version==kStateV5?int(ext.effectModes[1]):2;
-    if(nextRev!=reverbPreset_ || nextCho!=chorusPreset_ ||
-       nextRev!=4 || nextCho!=2 || fxEdited_){
-        fxEdited_=true;
-        fxPending_.store(true,std::memory_order_release);
+    fxPresetMirrors_[0].store(static_cast<std::uint8_t>(
+        desired->reverb),std::memory_order_release);
+    fxPresetMirrors_[1].store(static_cast<std::uint8_t>(
+        desired->chorus),std::memory_order_release);
+    (void)SingleComponentEffect::setParamNormalized(
+        1400u,double(desired->reverb)/7.);
+    (void)SingleComponentEffect::setParamNormalized(
+        1401u,double(desired->chorus)/7.);
+    (void)SingleComponentEffect::setParamNormalized(
+        kProgram,double(desired->program)/127.);
+    (void)SingleComponentEffect::setParamNormalized(
+        kBank,double(desired->bank)/2.);
+    (void)SingleComponentEffect::setParamNormalized(
+        kVolume,double(desired->master));
+    // Host getState must observe the just-accepted full session even if
+    // process() has not yet reached the next block boundary.
+    {
+        std::lock_guard<std::mutex> lock(hostRestoreMutex_);
+        lastHostRestore_=*desired;
     }
-    reverbPreset_=nextRev;chorusPreset_=nextCho;
-    fxPresetMirrors_[0].store(static_cast<std::uint8_t>(nextRev),std::memory_order_release);
-    fxPresetMirrors_[1].store(static_cast<std::uint8_t>(nextCho),std::memory_order_release);
-    (void)SingleComponentEffect::setParamNormalized(1400u,double(nextRev)/7.);
-    (void)SingleComponentEffect::setParamNormalized(1401u,double(nextCho)/7.);
-    (void)SingleComponentEffect::setParamNormalized(kProgram,
-        static_cast<double>(program_)/127.);
-    (void)SingleComponentEffect::setParamNormalized(kBank,
-        static_cast<double>(bank_)/2.);
-    (void)SingleComponentEffect::setParamNormalized(kVolume,
-        static_cast<double>(master_));
-    // P015: when another project is restored while the engine is live,
-    // clear the previous project's chip-side controller state FIRST.
-    // Host state has been fully validated above, so invalid streams never
-    // reset or otherwise touch a sounding plugin.
-    resetMidiControllersForStateRestore();
-    changeBankProgram();
-    replayMidiState();
+    desired->sequence=restoreRequestedSeq_.fetch_add(
+        1,std::memory_order_acq_rel)+1u;
+    if(active_.load(std::memory_order_acquire)){
+        // Superseded pending plans are reclaimed on this host thread only.
+        delete pendingRestore_.exchange(desired.release(),
+                                         std::memory_order_acq_rel);
+    }else{
+        applyRuntimeRestore(*desired);
+        restoreAppliedSeq_.store(desired->sequence,
+                                 std::memory_order_release);
+    }
     return kResultOk;
 }
 } // namespace p009
