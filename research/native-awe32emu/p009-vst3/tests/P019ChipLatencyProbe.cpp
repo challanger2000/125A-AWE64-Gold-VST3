@@ -25,14 +25,21 @@ void require(bool condition,const char* message){
     if(!condition)throw std::runtime_error(message);
 }
 std::uint64_t render(const char* rom,const char* sf2,
-                     const char* output,bool fx){
+                     const char* output,bool fx,
+                     const char* creativeGm=nullptr,
+                     unsigned bank=1,unsigned program=0){
     Synth synth(kRate);
     std::string err;
-    require(synth.LoadWaveRom(rom,err),"P019 failed synthetic ROM");
+    require(synth.LoadWaveRom(rom,err),"P019 failed ROM loading");
     synth.Core().SetChipRamKb(28672);
     require(synth.Core().UseBox86Chip(rom,err),"P019 failed genuine chip");
     synth.Core().SetDriver(Awe32::Driver::Win95);
-    require(synth.LoadBank(sf2,err,false,1),"P019 failed public SF2");
+    // The optional owner-only case uses real SYNTHGM.SBK alongside the
+    // owner's 77-preset SF2. No private samples go to public CI.
+    if(creativeGm)
+        require(synth.LoadBank(creativeGm,err,false,-1),
+                "P019 failed private Creative SYNTHGM.SBK");
+    require(synth.LoadBank(sf2,err,false,1),"P019 failed SF2 loading");
     auto* dst=synth.Core().ChipRam();
     require(dst,"P019 missing EMU8000 RAM");
     const auto words=std::min(synth.Core().DramSize(),
@@ -40,8 +47,9 @@ std::uint64_t render(const char* rom,const char* sf2,
     std::memcpy(dst,synth.Core().DramData(),words*sizeof(std::int16_t));
     synth.Core().PowerOnInit();
     require(synth.PrepareRealtime(kFrames),"P019 no RT scratch");
-    synth.ControlChange(0,0,1); // public user SF2, NOT fallback ROM
-    synth.ProgramChange(0,0);
+    require(bank<=1u && program<=127u,"P019 invalid MIDI patch");
+    synth.ControlChange(0,0,static_cast<std::uint8_t>(bank));
+    synth.ProgramChange(0,static_cast<std::uint8_t>(program));
     synth.ControlChange(0,7,100);
     synth.ControlChange(0,91,fx?83:0);
     synth.ControlChange(0,93,fx?71:0);
@@ -76,13 +84,25 @@ std::uint64_t render(const char* rom,const char* sf2,
 }
 int main(int argc,char** argv){
     try{
-        require(argc==5,"Usage: P019Probe<N>.exe fake.raw generated.sf2 dry|fx out.pcm");
-        const bool fx=std::strcmp(argv[3],"fx")==0;
-        require(fx||std::strcmp(argv[3],"dry")==0,"P019 mode must be dry|fx");
-        const auto h=render(argv[1],argv[2],argv[4],fx);
-        std::printf("P019_REAL_EMU8000_SYNTHETIC_SF2_WINDOW_PCM_OK"
-                    " block=%d rate=%u mode=%s frames=%u hash=%016llX\n",
-            Emu8000Box::kBlockFrames,kRate,fx?"fx":"dry",kBlocks*kFrames,
+        // PUBLIC: exe fake.raw generated.sf2 dry|fx out.pcm
+        // PRIVATE: exe awe32.raw SYNTHGM.SBK owner.sf2 dry|fx BANK PROGRAM out.pcm
+        require(argc==5||argc==8,
+           "Usage: P019Probe<N>.exe ROM [SYNTHGM.SBK] SF2 dry|fx [bank program] out.pcm");
+        const bool priv=argc==8;
+        const char* mode=argv[priv?4:3];
+        const bool fx=std::strcmp(mode,"fx")==0;
+        require(fx||std::strcmp(mode,"dry")==0,"P019 mode must be dry|fx");
+        const unsigned bank=priv?
+            static_cast<unsigned>(std::stoul(argv[5])):1u;
+        const unsigned program=priv?
+            static_cast<unsigned>(std::stoul(argv[6])):0u;
+        const auto h=render(argv[1],argv[priv?3:2],argv[priv?7:4],fx,
+                            priv?argv[2]:nullptr,bank,program);
+        std::printf("P019_REAL_EMU8000_%s_SF2_WINDOW_PCM_OK"
+                    " block=%d rate=%u mode=%s bank=%u program=%u frames=%u"
+                    " hash=%016llX\n",
+            priv?"OWNER_ORIGINAL_ROM_SBK":"SYNTHETIC",Emu8000Box::kBlockFrames,
+            kRate,fx?"fx":"dry",bank,program,kBlocks*kFrames,
             static_cast<unsigned long long>(h));
         return 0;
     }catch(const std::exception& e){
