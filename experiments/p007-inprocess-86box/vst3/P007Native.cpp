@@ -1,5 +1,6 @@
 #include "P007Native.hpp"
 #include "P007HostMidiOffset.hpp"
+#include "P007HostInputBudget.hpp"
 #include "P007MidiParamDedup.hpp"
 #include "P007PrivatePaths.hpp"
 #include "P007Sf2FatVolume.hpp"
@@ -749,12 +750,22 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // write the UART directly from its separate UI thread.
     bool programChanged=false,bankChanged=false;
     if(data.inputParameterChanges){
-        const int32 n=data.inputParameterChanges->getParameterCount();
+        const int32 reported=data.inputParameterChanges->getParameterCount();
+        const int32 n=host_budget::safeCount(
+            reported,host_budget::maxParameterQueues);
+        if(host_budget::invalidCount(reported,host_budget::maxParameterQueues))
+            midiDelivery_.requestRecovery();
         for(int32 i=0;i<n;++i){
             auto* queue=data.inputParameterChanges->getParameterData(i);
-            if(!queue||queue->getPointCount()<1)continue;
+            if(!queue)continue;
+            const int32 points=queue->getPointCount();
+            if(host_budget::invalidCount(points,host_budget::maxPointsPerQueue)){
+                midiDelivery_.requestRecovery();
+                continue;
+            }
+            if(points<1)continue;
             int32 offset=0;ParamValue value=0.;
-            if(queue->getPoint(queue->getPointCount()-1,offset,value)!=kResultOk)
+            if(queue->getPoint(points-1,offset,value)!=kResultOk)
                 continue;
             // Host automation may provide NaN/INF despite valid VST3
             // parameter ranges. std::clamp(NaN) is still NaN; converting
@@ -922,7 +933,11 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         rendered=end;
     };
     if(ready&&data.inputEvents) {
-        const auto n=data.inputEvents->getEventCount();
+        const int32 reported=data.inputEvents->getEventCount();
+        const int32 n=host_budget::safeCount(
+            reported,host_budget::maxEventDescriptors);
+        if(host_budget::invalidCount(reported,host_budget::maxEventDescriptors))
+            midiDelivery_.requestRecovery();
         for(int32 i=0;i<n;++i) {
             Event event{};
             if(data.inputEvents->getEvent(i,event)!=kResultOk)continue;

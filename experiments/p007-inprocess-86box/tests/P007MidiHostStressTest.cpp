@@ -4,6 +4,9 @@
 #include "../include/P007SerialRxGuard.h"
 #include "../vst3/P007MidiParamDedup.hpp"
 #include "../vst3/P007BankProgramPacer.hpp"
+#include "../vst3/P007HostInputBudget.hpp"
+#include "../vst3/P007MidiDelivery.hpp"
+#include <climits>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -93,6 +96,60 @@ int main(){
     check(pacer.committed()&&cc.size()==3u,"ROM bank change not committed");
     check(cc[0]==0xb00000u && cc[1]==0xb02000u && cc[2]==0xc00700u,
           "original ROM Bank0 CC0/CC32/Program mapping changed");
+    // P007BO: bounded iterations cannot read INT_MAX host descriptors.
+    using namespace p007::host_budget;
+    check(safeCount(0,maxEventDescriptors)==0,"empty events");
+    check(safeCount(maxEventDescriptors-1,maxEventDescriptors)==4095,
+          "valid event boundary -1");
+    check(safeCount(maxEventDescriptors,maxEventDescriptors)==4096,
+          "valid exact event boundary");
+    check(safeCount(maxEventDescriptors+1,maxEventDescriptors)==4096 &&
+          invalidCount(maxEventDescriptors+1,maxEventDescriptors),
+          "event over-limit must report recovery");
+    check(safeCount(INT_MAX,maxEventDescriptors)==4096 &&
+          invalidCount(INT_MAX,maxEventDescriptors),
+          "host INT_MAX events must be bounded");
+    check(safeCount(-1,maxEventDescriptors)==0 &&
+          invalidCount(-1,maxEventDescriptors),
+          "negative host iterator must fail closed");
+    check(safeCount(INT_MAX,maxParameterQueues)==64 &&
+          invalidCount(INT_MAX,maxParameterQueues),
+          "host INT_MAX parameter queues must be bounded");
+    check(safeCount(INT_MAX,maxPointsPerQueue)==4096 &&
+          invalidCount(INT_MAX,maxPointsPerQueue),
+          "host INT_MAX points must be bounded");
+    check(!invalidCount(maxParameterQueues,maxParameterQueues) &&
+          !invalidCount(maxPointsPerQueue,maxPointsPerQueue),
+          "valid host queue/point bounds falsely rejected");
+    // Request a recovery while an old NoteOff is queued, prove that
+    // new NoteOns cannot overtake the original Creative panic sequence.
+    p007::MidiDelivery notes;
+    unsigned rejected=0,panicCount=0;
+    const auto unavailable=[](std::uint8_t,std::uint8_t,std::uint8_t){return 0;};
+    check(notes.submit(0x80u,60u,0u,unavailable)&&notes.pending()==1u,
+          "test precondition: queued NoteOff");
+    notes.requestRecovery();
+    check(notes.pending()==0u&&notes.panicPending(),
+          "host overflow did not enter recovery");
+    for(unsigned i=0;i<48u;++i){
+        check(!notes.submit(0x90u,60u,88u,unavailable),
+              "host MIDI allowed during original Creative panic");
+        const unsigned expectedChannel=i/3u;
+        const unsigned expectedControl=i%3u==0u?64u:i%3u==1u?120u:123u;
+        const auto verify=[&](std::uint8_t status,std::uint8_t d1,
+                              std::uint8_t d2){
+            check(status==(0xb0u|expectedChannel) &&
+                  d1==expectedControl && d2==0u,
+                  "incorrect original Creative panic CC ordering");
+            ++panicCount;return 1;
+        };
+        check(notes.drain(verify,1u)==1u,"panic CC not delivered");
+    }
+    check(!notes.panicPending() && panicCount==48u,
+          "panic sequence did not finish");
+    check(notes.submit(0x90u,60u,88u,[](auto,auto,auto){return 1;}),
+          "fresh NoteOn was not rearmed after recovery");
+    std::puts("P007BO_HOST_INT_MAX_ITERATOR_BOUNDS_AND_ORIGINAL_MIDI_PANIC_PASS");
     std::puts("P007BA_ORIGINAL_16550_FIFO_BACKPRESSURE_128_PACKET_LOSSLESS_UNIT_PASS");
     std::puts("P007BA_DUPLICATE_HOST_BANK_PROGRAM_AUTOMATION_NO_STARVATION_UNIT_PASS");
     std::puts("P007BA_SYNTHETIC_NEGATIVE_CONTROL_NO_REAL_WIN95_PCM_CLAIM");
