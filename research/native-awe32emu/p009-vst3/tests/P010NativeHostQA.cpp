@@ -1309,6 +1309,120 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
   ownerBank(resources,nullptr);
 }
+// P168 adversarial original-chip per-knob audio contract: every one of
+// the 10 non-FX faceplate controls must change REAL rendered EMU8000 PCM on
+// a deliberately expressive SoundFont. A stored V5 project must produce
+// exactly the same audio in a completely fresh actual Windows VST3 instance.
+// Using a default fast-envelope one-shot for this test would falsely treat
+// an inaudible-but-correct envelope knob as broken.
+void verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+    ownerBank(resources,"expressive.sf2");
+    struct Extension {
+        std::uint32_t magic=0x35534150u,bytes=0u;
+        std::array<std::uint16_t,12> controls{};
+        std::array<std::uint8_t,32> sha{};
+        std::array<std::uint16_t,2> fx{{4u,2u}};
+    };
+    static_assert(sizeof(Extension)==68u);
+    struct AudioResult {
+        std::uint64_t hash=14695981039346656037ull;
+        double energy=0.;
+        std::vector<std::uint8_t> state;
+    };
+    const auto play=[&](int knob,const std::vector<std::uint8_t>* project){
+        Plugin p(factory,id,host);
+        p.start(0,1,44100.);
+        if(project){
+            MemoryStream read;int32 written=0;
+            check(read.write(const_cast<std::uint8_t*>(project->data()),
+                         static_cast<int32>(project->size()),&written)==kResultOk &&
+                  written==static_cast<int32>(project->size()) &&
+                  read.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+                  p.component->setState(&read)==kResultOk,
+                  "P168 V5 faceplate project reload rejected in real VST3");
+        }
+        std::array<float,frames> left{},right{};
+        float* channels[2]={left.data(),right.data()};
+        AudioBusBuffers output{};
+        output.numChannels=2;output.channelBuffers32=channels;
+        EventList events;
+        ParameterChanges params(1);
+        ProcessData pd{};pd.processMode=kRealtime;
+        pd.symbolicSampleSize=kSample32;pd.numSamples=frames;
+        pd.numOutputs=1;pd.outputs=&output;
+        pd.inputEvents=&events;pd.inputParameterChanges=&params;
+        AudioResult result{};
+        // Hold for >1s to reach the deliberately long envelopes; then
+        // release and measure the real original-chip tail for both AMP and
+        // FILTER release controls. No fake DSP or synthetic PCM substitution.
+        for(int block=0;block<112;++block){
+            events.clear();params.clearQueue();
+            if(block==0){
+                if(knob>=0){
+                    int32 qi=0,pi=0;
+                    auto* q=params.addParameterData(1100u+knob,qi);
+                    check(q&&q->addPoint(0,1.,pi)==kResultOk,
+                          "P168 actual VST3 host faceplate automation absent");
+                }
+                Event on{};on.type=Event::kNoteOnEvent;
+                on.sampleOffset=12;on.noteOn.channel=0;
+                on.noteOn.pitch=60;on.noteOn.velocity=100.f/127.f;
+                check(events.addEvent(on)==kResultOk,"P168 genuine NoteOn missing");
+            }
+            if(block==68){
+                Event off{};off.type=Event::kNoteOffEvent;
+                off.sampleOffset=511;off.noteOff.channel=0;off.noteOff.pitch=60;
+                check(events.addEvent(off)==kResultOk,"P168 genuine NoteOff missing");
+            }
+            check(p.processor->process(pd)==kResultOk,
+                  "P168 actual original-chip MIDI+hardware GUI process failed");
+            for(int i=0;i<frames;++i){
+                for(float sample:{left[i],right[i]}){
+                    check(std::isfinite(sample),"P168 original chip produced nonfinite PCM");
+                    result.energy+=double(sample)*double(sample);
+                    std::uint32_t bits=0;std::memcpy(&bits,&sample,sizeof(bits));
+                    result.hash=(result.hash^bits)*1099511628211ull;
+                }
+            }
+        }
+        MemoryStream state;
+        check(p.component->getState(&state)==kResultOk,
+              "P168 actual VST3 project state unavailable after audio");
+        result.state.assign(static_cast<const std::uint8_t*>(state.getData()),
+                            static_cast<const std::uint8_t*>(state.getData())+
+                                     state.getSize());
+        return result;
+    };
+    const auto baseline=play(-1,nullptr);
+    check(baseline.energy>0.01,
+          "P168 invalid adversarial control oracle: no expressive original PCM");
+    for(int knob=0;knob<10;++knob){
+        const auto edited=play(knob,nullptr);
+        check(edited.energy>0.001,
+              "P168 edited native SoundFont was accidentally muted");
+        check(edited.hash!=baseline.hash,
+              "P168 hardware faceplate knob changed state but not original-chip audio");
+        check(edited.state.size()==648u,
+              "P168 genuine faceplate control not serialized as V5 state");
+        const auto* ext=reinterpret_cast<const Extension*>(edited.state.data()+sizeof(Saved));
+        check(ext->magic==0x35534150u && ext->controls[knob]==10000u,
+              "P168 sound-producing control missing from saved project");
+        const auto recalled=play(-1,&edited.state);
+        check(recalled.hash==edited.hash &&
+              std::abs(recalled.energy-edited.energy)<1e-7,
+              "P168 reloaded V5 hardware control produces DIFFERENT genuine PCM");
+        check(recalled.hash!=baseline.hash,
+              "P168 negative control: audio reverted to unedited SoundFont after recall");
+        std::printf("P168_REAL_86BOX_GUI_KNOB_PCM_ORIGINAL_REOPEN_PASS control=%d base=%016llX changed=%016llX rms2=%.7f\n",
+              knob,static_cast<unsigned long long>(baseline.hash),
+              static_cast<unsigned long long>(edited.hash),edited.energy);
+    }
+    std::puts("P168_ACTUAL_WINDOWS_VST3_TEN_HARDWARE_KNOBS_AUDIBLE_V5_SAVE_REOPEN_PCM_PASS");
+    ownerBank(resources,nullptr);
+}
+
 // P167: two genuinely independent original 86Box chip instances start
 // with the same sustained sample and note. Master is *post-chip* linear
 // output scaling, so an independent reference waveform predicts the exact
@@ -1781,6 +1895,7 @@ int main(int argc,char** argv){
   if(synthetic){
     ownerBank(resources,nullptr);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
+    verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(factory,cls->ID(),host.get(),resources);
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);

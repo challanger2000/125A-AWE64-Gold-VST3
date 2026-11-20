@@ -19,13 +19,36 @@ def inst(name,bag):
 def bag(gen):
     return struct.pack("<HH",gen,0)
 def gen(op,val):
-    return struct.pack("<HH",op,val)
+    return struct.pack("<HH",op,val & 0xffff)
 def shdr(name,start,end,loop0,loop1):
     return struct.pack("<20sIIIIIBbHH",nm(name),start,end,loop0,loop1,
                        44100,60,0,0,1)
 alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
 sustain="--sustain" in sys.argv[2:]
+expressive="--expressive" in sys.argv[2:]
+# A specially authored, owner-independent two-zone soundfont containing
+# genuine audible volume and modulation envelopes, filter routing/cutoff,
+# resonance and long looping samples. This supplies an INDEPENDENT oracle
+# for every one of the ten non-FX P165 hardware control gestures. Ordinary
+# fixture modes remain byte-identical.
+expression_ops=[
+    (8,6000),    # original low-pass cutoff, cents
+    (9,100),     # original resonance, cB
+    (11,1200),   # real modulation envelope -> original hardware filter
+    (26,0),      # modulation attack 1 s
+    (28,0),      # modulation decay 1 s
+    (29,250),    # modulation sustain attenuation
+    (30,0),      # modulation release 1 s
+    (34,0),      # volume attack 1 s
+    (36,0),      # volume decay 1 s
+    (37,250),    # volume sustain attenuation
+    (38,0),      # volume release 1 s
+    (54,1),      # original SF2 continuously looping voice
+]
+expression_count=len(expression_ops)+1
+expression_zone=b"".join(gen(op,val) for op,val in expression_ops)
+
 # A short 768-frame one-shot ends after 17 ms even when a note is HELD.
 # Creative's authentic SF2 mapping also gives a *missing* sustainVolEnv
 # generator zero register sustain (decay to silence). Explicit SF2 gen37=0
@@ -33,7 +56,7 @@ sustain="--sustain" in sys.argv[2:]
 # instructs the original chip to loop. Both are needed for an honest test.
 # For voice-recovery QA, provide at least one full second of real PCM,
 # so a buggy stuck-note path cannot pass through natural sample exhaustion.
-sample_length=44100 if sustain else 768
+sample_length=44100 if (sustain or expressive) else 768
 samples=[]
 for kind in range(2):
     for i in range(sample_length):
@@ -50,10 +73,14 @@ pdta=(
     ck(b"pmod",bytes(10))+
     ck(b"pgen",gen(41,0)+gen(0,0))+
     ck(b"inst",inst("TwoLayerInstrument",0)+inst("EOI",2))+
-    ck(b"ibag",bag(0)+bag((3 if wet else 1)+(2 if sustain else 0))+
-        bag(2*((3 if wet else 1)+(2 if sustain else 0))))+
+    ck(b"ibag",bag(0)+bag(expression_count if expressive else
+                        ((3 if wet else 1)+(2 if sustain else 0)))+
+        bag(2*(expression_count if expressive else
+                        ((3 if wet else 1)+(2 if sustain else 0)))))+
     ck(b"imod",bytes(10))+
     ck(b"igen",(
+        expression_zone+gen(53,0)+expression_zone+gen(53,1)+gen(0,0)
+      ) if expressive else (
         gen(15,1000)+gen(16,1000)+
         (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,0)+
         gen(15,1000)+gen(16,1000)+
