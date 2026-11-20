@@ -193,6 +193,9 @@ jobs:
           if($rc -ne 0){throw "P021 86Box chip rate source mismatch or silent original chip: $rc"}
           $cases=@(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P021_ORIGINAL_BOX86_CHIP_RESAMPLER_(DRY|FX) rate=')
           if($cases.Count -ne 8){throw "P021 expected eight authentic chip rate comparisons, got $($cases.Count)"}
+          $equalDuration=@(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P022_OWNER_ORIGINAL_CHIP_RATE_WINDOW_(DRY|FX) rate=(8000|48000|96000|192000) duration_ms=750 ')
+          if($equalDuration.Count -ne 8){throw "P022 must test 750 ms of each of eight original chip signals, got $($equalDuration.Count)"}
+          if(!(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P022_EQUAL_750MS_ALL_RATES_GENUINE_CHIP_PCM_PASS_8_OF_8' -Quiet)){throw 'P022 corrected equal-duration 8/8 original-chip PCM evidence missing'}
           if(!(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P021_ALL_RATES_GENUINE_86BOX_EMU8000_PCM_FROM_NATIVE_44100_PASS_8_OF_8' -Quiet)){throw 'P021 chip reference proof missing'}
           Write-Host P021_BOX86_ORIGINAL_PCM_ALL_8_48_96_192K_TRULY_86BOX_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
