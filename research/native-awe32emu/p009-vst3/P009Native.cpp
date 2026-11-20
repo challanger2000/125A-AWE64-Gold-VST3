@@ -324,6 +324,8 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     // the previous order; no previous-bank fallback and no fake preset.
     changeBankProgram();
     replayMidiState();
+    for(unsigned i=0;i<guiControls_.size();++i)
+        synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
     // Catalog is GUI-only; its data MUST follow the exact loaded owner file.
     guiCatalog_.SetOriginalCreativeMidiNumbers();
     if(!sf2.empty()){
@@ -352,6 +354,8 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
         redirectedDrumNotes_.fill(0);
         changeBankProgram();
         replayMidiState();
+        for(unsigned i=0;i<guiControls_.size();++i)
+            synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
     }
 }
 tresult PLUGIN_API NativeVst3::setActive(TBool on){
@@ -519,7 +523,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // and NoteOn. Previously the FINAL parameter value was applied to the
     // ENTIRE block, which selected the wrong patch for earlier notes.
     constexpr unsigned kPatchProgram=16u,kPatchBank=17u,
-       kGuiReverbSend=18u,kGuiChorusSend=19u;
+       kGuiControlSlotBase=20u;
     const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
                               unsigned slot,unsigned maximum)->bool{
         const int32 count=q->getPointCount();
@@ -575,11 +579,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                                maxValue))return reject();
                 continue;
             }
-            // Both last P165 physical send knobs directly drive the genuine
-            // Creative Win95 CC91/CC93 before the next NoteOn. Zero is
-            // unmodified ROM/SF2 original chip PCM. No alternative DSP.
-            if(id==1110u||id==1111u) {
-                if(!queuePatch(q,0,id==1110u?kGuiReverbSend:kGuiChorusSend,127u))
+            // All 12 original P175 hardware controls use the *real*
+            // pinned Creative voice-parameter conversion, then actual
+            // 86Box EMU8000 register writes. Zero leaves P022 exact PCM.
+            if(id>=1100u && id<1112u) {
+                if(!queuePatch(q,0,kGuiControlSlotBase+id-1100u,100u))
                     return reject();
                 continue;
             }
@@ -678,10 +682,13 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 else banksByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
-            }else if(mp.slot==kGuiReverbSend||mp.slot==kGuiChorusSend){
-                if(synth_)synth_->ControlChange(0,
-                    mp.slot==kGuiReverbSend?91:93,
-                    static_cast<std::uint8_t>(mp.value));
+            }else if(mp.slot>=kGuiControlSlotBase &&
+                     mp.slot<kGuiControlSlotBase+guiControls_.size()){
+                const auto index=static_cast<unsigned>(
+                    mp.slot-kGuiControlSlotBase);
+                guiControls_[index]=static_cast<float>(mp.value)/100.f;
+                if(synth_)synth_->SetGuiControl(
+                    static_cast<int>(index),guiControls_[index]);
             }
         }
         while(notePos<num && events[notePos].sampleOffset==next)
