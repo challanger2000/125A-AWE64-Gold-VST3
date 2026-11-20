@@ -65,6 +65,8 @@ private:
     std::unique_ptr<Synth> synth_;
     // GUI-only preset index: never edited from a real-time callback.
     AWE125::PresetCatalog guiCatalog_{};
+    // DAW setState may run off the GUI thread. Apply new catalog on GUI idle.
+    std::atomic<AWE125::PresetCatalog*> pendingGuiCatalog_{nullptr};
     AWE125::PresetCatalog unusedFmCatalog_{};
     std::atomic<std::uint64_t> guiCatalogRevision_{1};
     std::mutex guiAssetMutex_{};
