@@ -65,6 +65,20 @@ jobs:
           if($rc -ne 0){throw "Steinberg validator exited with $rc"}
           if(!(Select-String -Path $log -Pattern 'Result: +47 tests passed, 0 tests failed' -Quiet)){throw '47/47 validator summary missing'}
           Write-Host P009_REAL_STEINBERG_47_OF_47_VALIDATOR_WITH_NO_ROM_AUDIO_PASS
+      - name: Two simultaneous same-process native synths AND DAW thread migration (synthetic test ROM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P009NativeInstanceProbe
+          if($LASTEXITCODE -ne 0){throw 'native parallel-instance harness build failed'}
+          $fake='_p009-fake-rom-only.raw'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          for($i=0;$i -lt 4;$i++){
+            & _p009-build/Release/P009NativeInstanceProbe.exe $fake
+            if($LASTEXITCODE -ne 0){throw "PCM race at simultaneous run $i"}
+          }
+          Remove-Item $fake
+          Write-Host P009_WINDOWS_4X_PARALLEL_AND_DAW_WORKER_MIGRATION_PASS_NO_PRIVATE_ROM
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:

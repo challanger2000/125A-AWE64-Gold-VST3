@@ -39,3 +39,17 @@ target_compile_definitions(AWE64_Gold_Native_P009 PRIVATE
 target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk winmm)
 target_compile_features(AWE64_Gold_Native_P009 PRIVATE cxx_std_17)
 smtg_target_configure_version_file(AWE64_Gold_Native_P009)
+
+# P009: standalone concurrency regression uses SAME original C EMU8000 and
+# reconstructed Win95 driver from this plugin, but WITHOUT Steinberg host.
+add_executable(P009NativeInstanceProbe
+   tests/P009NativeInstanceProbe.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P009NativeInstanceProbe PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P009NativeInstanceProbe PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(P009NativeInstanceProbe PRIVATE winmm)
+target_compile_features(P009NativeInstanceProbe PRIVATE cxx_std_17)
