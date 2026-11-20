@@ -361,14 +361,14 @@ Stats render(const VST3::Hosting::PluginFactory& factory,
              const char* label,int hz,int ch,int key,int velocity,
              int program,int bank,bool save=false,
              int mappedController=-1,int mappedChannel=0,
-             double mappedValue=0.,int mappedFrame=400) {
+             double mappedValue=0.,int mappedFrame=400,int rpnRange=-1) {
  Plugin p(factory,id,host);p.start(program,bank,hz);
  Stats s;
  std::array<float,frames> left{},right{};
  float* chan[2]={left.data(),right.data()};
  AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=chan;
  EventList ev;
- ParameterChanges midiChanges(1);
+ ParameterChanges midiChanges(5);
  ParamID mappedID=0;
  if(mappedController>=0){
     IMidiMapping* raw=nullptr;
@@ -394,6 +394,27 @@ Stats render(const VST3::Hosting::PluginFactory& factory,
       auto* queue=midiChanges.addParameterData(mappedID,parameterIndex);
       check(queue && queue->addPoint(mappedFrame,mappedValue,pointIndex)==kResultOk,
             "P012 original audio mapped controller point was lost");
+   }
+   if(b==0 && rpnRange>=0){
+      IMidiMapping* raw=nullptr;
+      check(p.controller->queryInterface(IMidiMapping::iid,
+            reinterpret_cast<void**>(&raw))==kResultOk && raw,
+            "P013 genuine host cannot query RPN mapping");
+      const IPtr<IMidiMapping> mapping=owned(raw);
+      constexpr std::array<CtrlNumber,3> rpn{
+          kCtrlRPNSelectMSB,kCtrlRPNSelectLSB,kCtrlDataEntryMSB
+      };
+      for(unsigned i=0;i<3;++i){
+          ParamID mapped=0;int32 queueIndex=0,pointIndex=0;
+          check(mapping->getMidiControllerAssignment(0,static_cast<int16>(ch),
+                  rpn[i],mapped)==kResultTrue,
+                  "P013 missing authentic RPN mapped controller");
+          auto* q=midiChanges.addParameterData(mapped,queueIndex);
+          check(q && q->addPoint(static_cast<int32>(i),
+                          i==2?static_cast<double>(rpnRange)/127.:0.,
+                          pointIndex)==kResultOk,
+               "P013 failed to queue RPN data before original ROM NoteOn");
+      }
    }
    if(b==0||b==13){
      Event e{};e.sampleOffset=b==0?12:511;e.busIndex=0;
@@ -508,6 +529,19 @@ int main(int argc,char** argv){
   check(quieted.hash!=melody.hash,
        "P012 CC7 volume zero did not affect original VST3 PCM");
   std::puts("P012_PRIVATE_REAL_WIN64_VST3_PITCHBEND_AND_CC7_PCM_CHANGED_PASS");
+  // Real owner-ROM waveform pitchbend RPN 0,0 range12 vs default range2,
+  // both applied before the note. Never synthesize a pretend emulator tone.
+  const auto bendDefault=render(factory,cls->ID(),host.get(),
+      "P013_ROM_BEND_RANGE_DEFAULT2",44100,0,60,100,7,0,false,
+      kPitchBend,0,1.,11);
+  const auto bendRpn12=render(factory,cls->ID(),host.get(),
+      "P013_ROM_BEND_RANGE_RPN12",44100,0,60,100,7,0,false,
+      kPitchBend,0,1.,11,12);
+  audible(bendDefault,"P013 original-ROM bend two semitones");
+  audible(bendRpn12,"P013 original-ROM bend twelve semitones");
+  check(bendDefault.hash!=bendRpn12.hash,
+      "P013 RPN bend range12 did not change actual original ROM PCM");
+  std::puts("P013_PRIVATE_ORIGINAL_ROM_RPN_PITCHBEND_RANGE_2_VS_12_PCM_PASS");
   const auto kick=render(factory,cls->ID(),host.get(),
             "ORIGINAL_ROM_KICK_CH10",44100,9,36,100,0,0,true);
   audible(kick,"original ROM kick");wav("P010-ROM-KICK.wav",kick);
@@ -546,6 +580,15 @@ int main(int argc,char** argv){
   const auto other=render(factory,cls->ID(),host.get(),
              "77SF2_PROGRAM7",44100,0,60,100,7,1,true);
   audible(other,"77 preset SF2");wav("P010-SF2-77-PRESETS.wav",other);
+  // Per-channel CC0 should select the *same owner SF2* as the browser's
+  // bank1, before the first NoteOn at sample12.
+  const auto viaBankCC=render(factory,cls->ID(),host.get(),
+      "P013_OWNER_SF2_BANK1_VIA_CC0",44100,0,60,100,7,0,false,
+      kCtrlBankSelectMSB,0,1./127.,0);
+  audible(viaBankCC,"P013 owner SF2 via bank CC0");
+  check(viaBankCC.hash==other.hash,
+      "P013 bank CC0 and SF2 browser bank1 produce different original PCM");
+  std::puts("P013_PRIVATE_OWNER_SF2_BANK_SELECT_CC0_MATCHES_BANK1_PCM_PASS");
   check(first.hash!=other.hash,"both owner SF2s share the same PCM fingerprint");
   std::set<uint64_t> unique;
   for(int prog=0;prog<77;++prog){
