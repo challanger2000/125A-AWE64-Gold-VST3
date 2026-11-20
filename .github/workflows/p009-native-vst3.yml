@@ -1,0 +1,64 @@
+name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
+on:
+  push:
+    branches: [research/awe32emu-native-isolated-20261120]
+    paths:
+      - ".github/workflows/p009-native-vst3.yml"
+      - "research/native-awe32emu/p009-vst3/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p009-native:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact AWE32Emu reconstructed driver/core SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git init _p009-upstream
+          git -C _p009-upstream remote add origin https://github.com/turican0/AWE32Emu.git
+          git -C _p009-upstream fetch --depth 1 origin 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          if($LASTEXITCODE -ne 0){throw 'upstream fetch error'}
+          git -C _p009-upstream checkout --detach FETCH_HEAD
+          $s=(git -C _p009-upstream rev-parse HEAD).Trim()
+          if($s -ne '17b0578fe59909dfaa784b5531d6d1a3a80729ce'){throw 'wrong upstream SHA'}
+      - name: Exact Steinberg VST3 SDK source
+        shell: pwsh
+        run: |
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git _p009-sdk
+          if($LASTEXITCODE -ne 0){throw 'Steinberg SDK fetch failed'}
+      - name: Build genuine native Windows x64 VST3 instrument
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S research/native-awe32emu/p009-vst3 -B _p009-build -G "Visual Studio 17 2022" -A x64 -DP009_SDK_ROOT="$env:GITHUB_WORKSPACE/_p009-sdk" -DP009_UPSTREAM="$env:GITHUB_WORKSPACE/_p009-upstream"
+          if($LASTEXITCODE -ne 0){throw 'configure error'}
+          cmake --build _p009-build --config Release --parallel 4 --target AWE64_Gold_Native_P009
+          if($LASTEXITCODE -ne 0){throw 'native VST3 compilation failed'}
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          if(!(Test-Path $bundle)){throw "bundle missing"}
+          $dll=Get-ChildItem -Path $bundle -Filter '*.vst3' -Recurse -File
+          if(!$dll){throw 'actual VST3 DLL missing'}
+          Write-Host P009_NATIVE_AWE32EMU_REAL_VST3_BUILT_NO_VM_PASS
+      - name: Run Steinberg validator against VST3 without private ROM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target validator
+          if($LASTEXITCODE -ne 0){throw 'Steinberg validator build error'}
+          $v=Get-ChildItem -Path _p009-build -Filter validator.exe -Recurse -File | Where-Object {$_.FullName -match 'Release'} | Select-Object -First 1
+          if(!$v){throw 'validator.exe not found'}
+          $b=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          & $v.FullName $b 2>&1 | Tee-Object '_p009-validator.log'
+          if($LASTEXITCODE -ne 0){throw 'Steinberg validator failed'}
+          Write-Host P009_REAL_STEINBERG_VALIDATION_WITH_NO_ROM_AUDIO_PASS
+      - name: Archive evidence only, not unsigned unlicensed binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: P009-NATIVE-VST3-VALIDATION-LOGS-ONLY
+          path: _p009-validator.log
+          if-no-files-found: error
+          retention-days: 7
