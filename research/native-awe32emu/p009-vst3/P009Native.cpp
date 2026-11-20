@@ -2,6 +2,7 @@
 #include "Synth.h"
 #include "Awe32Driver.h"
 #include "pluginterfaces/vst/ivstevents.h"
+#include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "pluginterfaces/base/ibstream.h"
 #ifndef NOMINMAX

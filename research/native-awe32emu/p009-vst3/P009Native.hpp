@@ -6,6 +6,7 @@
 // MIDI/render callbacks; realtime/parallel-host release acceptance NOT MET.
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "public.sdk/source/vst/vstparameters.h"
+#include "pluginterfaces/vst/ivstevents.h"
 #include <array>
 #include <cstdint>
 #include <memory>
