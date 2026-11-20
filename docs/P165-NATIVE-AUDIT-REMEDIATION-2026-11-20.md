@@ -71,3 +71,7 @@ Windows run 44829978397 failed F-09's early audible fixture condition: first=0.0
 ### Native Win64 F-09 host-harness capacity correction
 
 [Windows run 44830706267](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44830706267) failed while preparing 513 VST3 events, **not** while testing synthesizer overflow. Genuine sustained original-chip positive PCM was now proven (`first=13.728658215`, `held=13.317269059`) and F-05 CC0+host bank PCM/recall passed. The host SDK's `EventList(maxSize=50)` default had silently limited the fixture. The new adversarial host preallocates an independent genuine `EventList(514)` off audio, then challenges the plugin's 512 boundary. This test has not yet passed. This is a test-host correction, no core sound change.
+
+### F-09 overflow reaches true held voice: wet-tail isolation required
+
+Windows run 44831309815 failed F-09's audible post-overflow extinction check. This is NOT a PASS: true sustained source was audible, and the plugin rejected >512 events, but post-rejection PCM was still detected. Original Creative defaults can feed hardware reverb/chorus; CC120 intentionally kills voices, not legitimate FX tails. The next falsifiable A/B test sets explicit MANUAL 0% on BOTH send controls before the initial NoteOn, records quantitative held/after PCM and independently tests 513 NoteOff events and 513 CC points. If dry PCM still persists, a genuine stuck-note defect remains OPEN. Core DSP is unchanged.

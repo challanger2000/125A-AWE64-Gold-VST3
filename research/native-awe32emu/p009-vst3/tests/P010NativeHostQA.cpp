@@ -1301,7 +1301,7 @@ void verifyP165HeldNoteOverflowRecovery(
      // We deliberately need 513 genuine ABI events to challenge the
      // actual plugin limit of 512. Preallocate on the HOST/test thread.
      EventList notes(514);
-     ParameterChanges params(2);
+     ParameterChanges params(4);
      std::array<float,frames> left{},right{};
      float* channels[2]={left.data(),right.data()};
      AudioBusBuffers output{};
@@ -1322,9 +1322,21 @@ void verifyP165HeldNoteOverflowRecovery(
      Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=12;
      on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
      check(notes.addEvent(on)==kResultOk,"F09 sustained NoteOn fixture");
+     // The original Creative/SF2 instrument sends some signal to hardware
+     // FX by default. CC120 must stop the voice, but must NOT artificially
+     // clear a legitimately ringing reverb/chorus tail. Disable both
+     // hardware sends *before* this note to make post-CC120 PCM a valid
+     // sustained-VOICE (not FX-tail) oracle. This is genuine 86Box chip DSP.
+     for(const auto [id,value]:std::array<std::pair<ParamID,ParamValue>,4>{{
+          {1420u,1.},{1421u,1.},{1110u,0.},{1111u,0.}}}){
+       int32 idx=0,point=0;
+       auto* queue=params.addParameterData(id,idx);
+       check(queue && queue->addPoint(0,value,point)==kResultOk,
+             "F09 original chip hardware sends could not be set DRY");
+     }
      double heldEnergy=0.,earlyEnergy=0.;
      for(int block=0;block<6;++block){
-       if(block)notes.clear();
+       if(block){notes.clear();params.clearQueue();}
        check(p.processor->process(data)==kResultOk,
              "F09 held synthetic SF2 normal audio");
        if(block==1)earlyEnergy=energy();
@@ -1370,8 +1382,11 @@ void verifyP165HeldNoteOverflowRecovery(
              "F09 original synth stuck in overload failure state");
        if(block==7)after=energy();
      }
+     std::printf("P165_F09_VOICE_EXTINCTION path=%s held=%.9f after=%.9f ratio=%.9f\n",
+                 eventOverflow?"events":"CC",heldEnergy,after,
+                 heldEnergy>0.?after/heldEnergy:0.);
      check(after<heldEnergy*0.001,
-           "F09 sustained original chip voice survived rejected NoteOff block");
+           "F09 dry original chip voice survived rejected NoteOff block");
      // The safety event must kill the old note, NOT permanently mute the
      // device. A fresh legitimate NoteOn must still play.
      check(notes.addEvent(on)==kResultOk,
