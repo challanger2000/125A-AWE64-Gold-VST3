@@ -3,6 +3,7 @@
 #include "Awe32Driver.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include "pluginterfaces/base/ibstream.h"
 #ifndef NOMINMAX
@@ -11,6 +12,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -21,16 +23,31 @@ using namespace Steinberg::Vst;
 namespace {
 constexpr ParamID kProgram=1000u,kVolume=1001u,kBank=1002u;
 constexpr ParamID kChProgramBase=1200u,kChBankBase=1300u;
+constexpr ParamID kMidiMappedBase=2000u;
+constexpr unsigned kMappedCount=8u;
+constexpr std::array<CtrlNumber,kMappedCount> kMappedControllers{
+    kCtrlModWheel,kCtrlVolume,kCtrlPan,kCtrlExpression,kCtrlSustainOnOff,
+    kCtrlEff1Depth,kCtrlEff3Depth,kPitchBend
+};
+constexpr std::array<const char*,kMappedCount> kMappedNames{
+    "Mod", "Volume", "Pan", "Expression", "Sustain", "Reverb",
+    "Chorus", "Pitch Bend"
+};
+constexpr std::array<unsigned,kMappedCount> kMappedDefaults{
+    0,100,64,127,0,0,0,8192
+};
 struct Saved {
-    std::uint32_t magic=0x39303050u,version=2u;
+    std::uint32_t magic=0x39303050u,version=3u;
     std::uint32_t program=0u,bank=0u;
     float master=1.f;
     std::array<std::uint8_t,15> otherPrograms{};
     std::array<std::uint8_t,15> otherBanks{};
-    std::array<std::uint8_t,2> reserved{}; // explicit 4-byte aligned length
+    std::array<std::uint8_t,2> reserved{};
+    std::array<std::uint16_t,16*8> midiStates{};
 };
-static_assert(sizeof(Saved)==52u,"P011 precise VST3 state bytes");
-constexpr std::uint32_t kStateV1=1u,kStateV2=2u;
+static_assert(sizeof(Saved)==308u,"P012 exact 308-byte VST3 state");
+constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u;
+constexpr int32 kV1Bytes=20,kV2Bytes=52;
 bool finite01(double x){return std::isfinite(x) && x>=0. && x<=1.;}
 unsigned toByte(float v) {
     return static_cast<unsigned>(std::clamp(
@@ -52,6 +69,25 @@ std::filesystem::path bundleResourcePath(){
     return modulePath.parent_path().parent_path()/"Resources"/"P009-Private";
 }
 } // namespace
+tresult PLUGIN_API NativeVst3::queryInterface(const TUID id,void** obj){
+    if(!obj)return kInvalidArgument;
+    if(FUnknownPrivate::iidEqual(id,IMidiMapping::iid.toTUID())){
+        *obj=static_cast<IMidiMapping*>(this);
+        SingleComponentEffect::addRef();
+        return kResultOk;
+    }
+    return SingleComponentEffect::queryInterface(id,obj);
+}
+tresult PLUGIN_API NativeVst3::getMidiControllerAssignment(
+    int32 bus,int16 channel,CtrlNumber controller,ParamID& id) {
+    if(bus!=0||channel<0||channel>=16)return kResultFalse;
+    for(unsigned slot=0;slot<kMappedCount;++slot)
+        if(kMappedControllers[slot]==controller){
+            id=kMidiMappedBase+static_cast<unsigned>(channel)*kMappedCount+slot;
+            return kResultTrue;
+        }
+    return kResultFalse;
+}
 tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
     if(SingleComponentEffect::initialize(context)!=kResultOk)
         return kResultFalse;
@@ -63,6 +99,24 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
         kVolume,STR16("%"),0.,100.,100.));
     parameters.addParameter(new RangeParameter(STR16("Bank CH1"),
         kBank,nullptr,0.,2.,0.,2));
+    // VST3 hosts translate actual MIDI CC to these per-channel parameters
+    // through IMidiMapping. This is host-standard, NOT legacy CC input events.
+    for(unsigned ch=0;ch<16;++ch){
+        for(unsigned slot=0;slot<kMappedCount;++slot){
+            char shortName[64]{};
+            std::snprintf(shortName,sizeof(shortName),"CH%u %s",
+                          ch+1,kMappedNames[slot]);
+            TChar vstName[64]{};
+            for(unsigned j=0;j<63&&shortName[j];++j)
+                vstName[j]=static_cast<TChar>(shortName[j]);
+            const bool pitch=slot==kMappedCount-1;
+            parameters.addParameter(new RangeParameter(
+                vstName,kMidiMappedBase+ch*kMappedCount+slot,
+                nullptr,0.,pitch?16383.:127.,
+                static_cast<double>(kMappedDefaults[slot]),
+                pitch?16383:127));
+        }
+    }
     // All 16 physical MIDI channels have distinct, automatable patch state.
     // CH10 remains the original Creative GM drum channel, no user selection.
     parameters.addParameter(new RangeParameter(STR16("Program CH2"),
@@ -182,6 +236,7 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     synth_=std::move(candidate);
     authenticRomLoaded_=true;
     changeBankProgram();
+    replayMidiState();
     return true;
 }
 tresult PLUGIN_API NativeVst3::setActive(TBool on){
@@ -221,6 +276,28 @@ void NativeVst3::changeBankProgram() noexcept{
         synth_->ProgramChange(static_cast<std::uint8_t>(ch),
                               static_cast<std::uint8_t>(chosenProgram));
     }
+}
+void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
+                                     std::uint16_t raw) noexcept{
+    if(channel>=16||slot>=kMappedCount)return;
+    midiState_[channel*kMappedCount+slot]=raw;
+    if(!synth_)return;
+    if(slot==kMappedCount-1){
+        synth_->PitchBend(static_cast<std::uint8_t>(channel),
+                          static_cast<std::int16_t>(static_cast<int>(raw)-8192));
+    }else{
+        synth_->ControlChange(static_cast<std::uint8_t>(channel),
+                              static_cast<std::uint8_t>(kMappedControllers[slot]),
+                              static_cast<std::uint8_t>(raw));
+    }
+}
+void NativeVst3::replayMidiState() noexcept{
+    if(!synth_)return;
+    for(unsigned ch=0;ch<16;++ch)
+        for(unsigned slot=0;slot<kMappedCount;++slot){
+            const auto raw=midiState_[ch*kMappedCount+slot];
+            if(raw!=0xFFFFu)applyMidiController(ch,slot,raw);
+        }
 }
 void NativeVst3::dispatch(const Event& event) noexcept{
     if(!synth_)return;
@@ -356,13 +433,13 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     if(!stream)return kResultFalse;
-    Saved s{};
-    s.program=static_cast<std::uint32_t>(program_);
+    Saved s{};s.program=static_cast<std::uint32_t>(program_);
     s.bank=static_cast<std::uint32_t>(bank_);s.master=master_;
     for(unsigned ch=1;ch<16;++ch){
         s.otherPrograms[ch-1]=programsByChannel_[ch];
         s.otherBanks[ch-1]=banksByChannel_[ch];
     }
+    s.midiStates=midiState_;
     int32 n=0;
     return stream->write(&s,static_cast<int32>(sizeof(s)),&n)==kResultOk &&
            n==static_cast<int32>(sizeof(s))?kResultOk:kResultFalse;
@@ -370,28 +447,35 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
     Saved s{};
-    // Existing P009 v1 project payload was exactly 20 bytes. Read the
-    // original 20-byte prefix, then the optional v2 extension separately.
-    constexpr int32 kLegacyBytes=20;
+    // Compatible with existing owner P009 v1 (20B), P011 v2 (52B).
     int32 n=0;
-    if(stream->read(&s,kLegacyBytes,&n)!=kResultOk||n!=kLegacyBytes||
+    if(stream->read(&s,kV1Bytes,&n)!=kResultOk||n!=kV1Bytes||
        s.magic!=0x39303050u||
-       (s.version!=kStateV1&&s.version!=kStateV2)||
+       (s.version!=kStateV1&&s.version!=kStateV2&&s.version!=kStateV3)||
        s.program>127u||s.bank>2u||!finite01(s.master))
         return kResultFalse;
-    if(s.version==kStateV2){
+    if(s.version>=kStateV2){
         int32 tail=0;
-        if(stream->read(reinterpret_cast<unsigned char*>(&s)+kLegacyBytes,
-                        static_cast<int32>(sizeof(s))-kLegacyBytes,&tail)
-                        !=kResultOk ||
-           tail!=static_cast<int32>(sizeof(s))-kLegacyBytes)
-            return kResultFalse;
+        if(stream->read(reinterpret_cast<unsigned char*>(&s)+kV1Bytes,
+                        kV2Bytes-kV1Bytes,&tail)!=kResultOk ||
+           tail!=kV2Bytes-kV1Bytes)return kResultFalse;
         for(unsigned ch=0;ch<15;++ch)
             if(s.otherPrograms[ch]>127u||s.otherBanks[ch]>1u)
                 return kResultFalse;
     }
-    // Full validation above, THEN mutation: corrupt state cannot partially
-    // overwrite a running project's 16 channels.
+    if(s.version==kStateV3){
+        int32 tail=0;
+        if(stream->read(reinterpret_cast<unsigned char*>(&s)+kV2Bytes,
+                        static_cast<int32>(sizeof(s))-kV2Bytes,&tail)!=kResultOk ||
+           tail!=static_cast<int32>(sizeof(s))-kV2Bytes)return kResultFalse;
+        for(unsigned ch=0;ch<16;++ch)
+            for(unsigned slot=0;slot<kMappedCount;++slot){
+                const auto raw=s.midiStates[ch*kMappedCount+slot];
+                if(raw!=0xFFFFu && raw>(slot==kMappedCount-1?16383u:127u))
+                    return kResultFalse;
+            }
+    }
+    // Only now mutate processor. Corrupt v3 cannot change any channel.
     program_=static_cast<int>(s.program);bank_=static_cast<int>(s.bank);
     master_=s.master;
     programsByChannel_.fill(0u);banksByChannel_.fill(0u);
@@ -399,7 +483,10 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         programsByChannel_[ch]=s.otherPrograms[ch-1];
         banksByChannel_[ch]=s.otherBanks[ch-1];
     }
+    midiState_.fill(0xFFFFu);
+    if(s.version==kStateV3)midiState_=s.midiStates;
     changeBankProgram();
+    replayMidiState();
     return kResultOk;
 }
 } // namespace p009

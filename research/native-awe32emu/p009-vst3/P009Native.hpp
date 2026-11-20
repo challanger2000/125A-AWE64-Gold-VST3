@@ -7,13 +7,27 @@
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "public.sdk/source/vst/vstparameters.h"
 #include "pluginterfaces/vst/ivstevents.h"
+#include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "Synth.h"
 #include <array>
 #include <cstdint>
 #include <memory>
 namespace p009 {
-class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect {
+class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect,
+                         public Steinberg::Vst::IMidiMapping {
 public:
+    NativeVst3() { midiState_.fill(0xFFFFu); }
+    Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
+    Steinberg::uint32 PLUGIN_API addRef() override {
+        return SingleComponentEffect::addRef();
+    }
+    Steinberg::uint32 PLUGIN_API release() override {
+        return SingleComponentEffect::release();
+    }
+    Steinberg::tresult PLUGIN_API getMidiControllerAssignment(
+        Steinberg::int32 bus, Steinberg::int16 channel,
+        Steinberg::Vst::CtrlNumber controller, Steinberg::Vst::ParamID& id) override;
     static Steinberg::FUnknown* createInstance(void*) {
         return static_cast<Steinberg::Vst::IAudioProcessor*>(
             new NativeVst3());
@@ -42,7 +56,12 @@ private:
     std::array<std::uint8_t,16> programsByChannel_{};
     std::array<std::uint8_t,16> banksByChannel_{};
     float master_=1.f;
+    // 8 original Creative CC controls per channel; 0xFFFF = untouched.
+    // Never send default values unnecessarily (preserve original register PCM).
+    std::array<std::uint16_t,16*8> midiState_{};
     bool active_=false,authenticRomLoaded_=false;
+    void applyMidiController(unsigned channel,unsigned slot,std::uint16_t raw) noexcept;
+    void replayMidiState() noexcept;
     void changeBankProgram() noexcept;
     void dispatch(const Steinberg::Vst::Event&) noexcept;
     void render(float*,float*,Steinberg::int32) noexcept;
