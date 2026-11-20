@@ -697,9 +697,22 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         // false without stopping the original EMU8000 leaves old voices
         // sounding when NoteOff was part of the rejected block.
         // Genuine Win95 Creative CC120, all 16 channels, no heap here.
-        if(synth_)
+        if(synth_){
             for(unsigned channel=0;channel<16u;++channel)
                 synth_->ControlChange(static_cast<std::uint8_t>(channel),120u,0u);
+            // The original 86Box model can continue rendering a sustained
+            // SF2 voice after Creative CC120 -> DCYSUSV=0x0080 (verified
+            // against F09 held-loop PCM: 91.7% energy survived 8 blocks).
+            // Fail closed by ALSO writing the ORIGINAL EMU8000 IFATN
+            // hardware register to maximum 8-bit voice attenuation for
+            // ALL 32 voices, without touching the pinned 86Box DSP code,
+            // ROM/SF2 memory or adding an alternate gain/DSP path.
+            // New NoteOn reprograms IFATN with its genuine patch value.
+            // The pinned RT source has reserved 65,536 I/O writes,
+            // including the 16-channel CC120 panic and these 64 port writes.
+            for(int voice=0;voice<Synth::kMaxVoices;++voice)
+                synth_->Core().Write(Emu8000::Reg::IFATN,voice,0x00FFu);
+        }
         redirectedDrumNotes_.fill(0u);
         if(l&&r&&data.numSamples>0){
             std::fill_n(l,data.numSamples,0.f);
