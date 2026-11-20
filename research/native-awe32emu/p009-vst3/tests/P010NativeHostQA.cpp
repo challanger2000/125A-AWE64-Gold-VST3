@@ -397,6 +397,22 @@ void verifyP014PatchAutomationState(const VST3::Hosting::PluginFactory& factory,
  std::puts("P014_PUBLIC_REAL_WINDOWS_VST3_TIMED_16_CHANNEL_PATCH_AUTOMATION_STATE_PASS");
 }
 
+void verifyP019TruthfulHostLatency(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+ // P019: changing the host's reported latency without changing the
+ // original chip FIFO would break note alignment and project exports.
+ for(const double hz:{8000.,44100.,48000.,96000.,192000.}){
+    auto p=Plugin(factory,id,host);
+    p.start(7,0,hz);
+    const uint32 expected=static_cast<uint32>(std::ceil(980.*hz/44100.));
+    const uint32 actual=p.processor->getLatencySamples();
+    check(actual==expected,
+       "P019 VST3 reported latency differs from unchanged 980-frame chip");
+    std::printf("P019_PUBLIC_ACTUAL_WIN64_VST3_HONEST_CHIP_LATENCY_PASS"
+                " sample_rate=%.0f latency_samples=%u\n",hz,actual);
+ }
+}
+
 void verifyP015PublicActiveRestore(const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host){
  // The real Windows VST3 host must support setState on an active processor
@@ -879,6 +895,7 @@ int main(int argc,char** argv){
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());
+  verifyP019TruthfulHostLatency(factory,cls->ID(),host.get());
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
