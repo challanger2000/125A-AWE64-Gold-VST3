@@ -1,6 +1,12 @@
 #include "P007Native.hpp"
 #include "P007HostMidiOffset.hpp"
+#include "P007HostInputBudget.hpp"
+#include "P007BrowserBankReselect.hpp"
+#include "P007MidiParamDedup.hpp"
 #include "P007PrivatePaths.hpp"
+#include "P007Sf2FatVolume.hpp"
+#include "P007Sf2GuestProfile.hpp"
+#include "P007Sf2BankRoute.hpp"
 #include "p165/PresetBrowserView.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include "pluginterfaces/base/ibstream.h"
@@ -15,10 +21,12 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 #include <thread>
 #include <cwchar>
+#include <vector>
 namespace p007 {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -33,7 +41,7 @@ std::uint8_t midiVelocity(float x) noexcept {
         std::clamp(x,0.f,1.f)*127.f+0.5f);
 }
 } // namespace
-bool Core::openNonRealtime() noexcept {
+bool Core::openNonRealtime(const std::wstring& selectedSf2) noexcept {
     if(module_)return true;
     HMODULE own=nullptr;
     if(!GetModuleHandleExW(
@@ -65,7 +73,15 @@ bool Core::openNonRealtime() noexcept {
     guestClose=reinterpret_cast<GuestClose>(GetProcAddress(module_,"p007_core_guest_close"));
     bootAssist=reinterpret_cast<BootAssist>(GetProcAddress(module_,"p007_core_guest_boot_assist"));
     guestReadyFn=reinterpret_cast<GuestReady>(GetProcAddress(module_,"p007_midi_guest_ready"));
-    if(!initProfile||!boot||!step||!guestClose||!bootAssist||!guestReadyFn){
+    guestSf2StatusFn=reinterpret_cast<GuestSf2Status>(GetProcAddress(module_,"p007_midi_guest_sf2_status"));
+    livePublish=reinterpret_cast<LivePublish>(GetProcAddress(module_,"p007_live_soundfont_publish"));
+    liveState=reinterpret_cast<LiveState>(GetProcAddress(module_,"p007_live_soundfont_state"));
+    livePublishCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_publish_count"));
+    liveCompleteCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_complete_count"));
+    liveFailCount=reinterpret_cast<LiveCount>(GetProcAddress(module_,"p007_live_soundfont_failure_count"));
+    if(!initProfile||!boot||!step||!guestClose||!bootAssist||
+       !guestReadyFn||!guestSf2StatusFn||!livePublish||!liveState||
+       !livePublishCount||!liveCompleteCount||!liveFailCount){
         closeNonRealtime();return false;
     }
     bool expected=false;
@@ -75,13 +91,14 @@ bool Core::openNonRealtime() noexcept {
     ownsInstance_=true;
     bootStatus_.store(0,std::memory_order_release);
     guestReady_.store(0,std::memory_order_release);
+    sf2Result_.store(0,std::memory_order_release);
     // Neither a BIOS reset nor the start of Win95 proves Creative WinMM ready.
     // Leave MIDI disabled until a *real guest-ready acknowledgment* exists.
     midiEnabled(0);
     try{
         const std::wstring folder(path);
         stop_.store(false,std::memory_order_release);
-        emulatorThread_=std::thread([this,folder](){runPrivateGuest(folder);});
+        emulatorThread_=std::thread([this,folder,selectedSf2](){runPrivateGuest(folder,selectedSf2);});
     }catch(...){
         closeNonRealtime();return false;
     }
@@ -94,17 +111,43 @@ void Core::closeNonRealtime() noexcept {
     if(ownsInstance_ && midiEnabled)midiEnabled(0);
     stop_.store(true,std::memory_order_release);
     if(emulatorThread_.joinable())emulatorThread_.join();
+    reloadPending_.store(false,std::memory_order_release);
+    awaitingSf2Ack_.store(false,std::memory_order_release);
+    liveTransferInFlight_.store(false,std::memory_order_release);
+    expectedLiveComplete_=0u;
     pull=nullptr;trimBacklog=nullptr;midi=nullptr;midiEnabled=nullptr;
     initProfile=nullptr;boot=nullptr;step=nullptr;guestClose=nullptr;
-    bootAssist=nullptr;guestReadyFn=nullptr;
+    bootAssist=nullptr;guestReadyFn=nullptr;guestSf2StatusFn=nullptr;
+    livePublish=nullptr;liveState=nullptr;
+    livePublishCount=nullptr;liveCompleteCount=nullptr;liveFailCount=nullptr;
     guestReady_.store(0,std::memory_order_release);
+    sf2Result_.store(0,std::memory_order_release);
     if(module_){FreeLibrary(module_);module_=nullptr;}
     if(ownsInstance_){
         ownsInstance_=false;
         s_originalCoreOwner.store(false,std::memory_order_release);
     }
 }
-void Core::runPrivateGuest(std::wstring folder) noexcept {
+bool Core::requestSoundFontReload(const std::wstring& path) noexcept {
+    if(!module_||!ownsInstance_||stop_.load(std::memory_order_acquire))
+        return false;
+    try {
+        {
+            std::lock_guard<std::mutex> lock(reloadMutex_);
+            requestedSf2_=path;
+        }
+        awaitingSf2Ack_.store(true,std::memory_order_release);
+        reloadPending_.store(true,std::memory_order_release);
+        return true;
+    } catch(...) { return false; }
+}
+void Core::runPrivateGuest(std::wstring folder,std::wstring selectedSf2) noexcept {
+    // Cold-boot the original Win95 guest exactly ONCE per VST3 activation.
+    // Live SoundFont selection uses P007BE file transport in this same
+    // running x86 guest; it never calls pc_close/pc_init to select a bank.
+    runPrivateGuestSession(folder,selectedSf2);
+}
+void Core::runPrivateGuestSession(std::wstring folder,std::wstring selectedSf2) noexcept {
     namespace fs=std::filesystem;
     bool guestBooted=false;
     try{
@@ -136,12 +179,50 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             bootStatus_.store(-7,std::memory_order_release);return;
         }
         lease.acquired=true;
-        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM";
+        // P007AU ships an updated P007.EXE *inside the licensed Win95
+        // disk*. Do not reuse P007AR's old persisted guest image or
+        // overwrite its possibly user-modified Windows 95 data. Start
+        // with a new, versioned 86Box profile once; subsequent SF2
+        // selections replace ONLY a separate SF2 data disk, never Win95.
+        // Versioned PRIVATE per-user guest profile: P007BH contains a new
+        // Win95 P007.EXE with live SF2 hardware transport. Never silently
+        // run a stale P007AU guest from an earlier installation, and never
+        // overwrite the user's original persistent private Win95 HDD.
+        const fs::path work=fs::path(local)/L"125A"/L"AWE64Gold"/L"PrivateVM_P007BH";
         std::error_code ec;
         if(!privatevm::prepare(root,work,ec)){
             bootStatus_.store(-8,std::memory_order_release);return;
         }
         const fs::path vm=work/L"vm";
+        std::string setupError;
+        // Both operations run BEFORE original pc_init opens either disk,
+        // strictly on the non-RT private guest thread under the VM mutex.
+        // Never patch the licensed Win95 system disk: the user's SoundFont
+        // is mounted via a separate generated FAT16 IDE data image.
+        bool sf2Mounted=!selectedSf2.empty();
+        if(sf2Mounted&&!sf2_volume::build(
+                vm/L"p007sf2.img",fs::path(selectedSf2),setupError)) {
+            // User may have moved or deleted the SF2 since saving their
+            // Studio One project. Never make the entire synth silent
+            // merely because an optional bank cannot be mounted.
+            // Report the failure and boot the unmodified ORIGINAL ROM.
+            sf2Result_.store(-2,std::memory_order_release);
+            sf2Mounted=false;
+        }
+        if(!sf2_profile::configure(root/L"vm"/L"P007_AWE64.cfg",
+                vm/L"P007_AWE64.cfg",sf2Mounted,setupError)) {
+            // A mismatched/invalid secondary-drive config must never
+            // strand the original licensed 512MiB Win95 system image.
+            if(sf2Mounted && sf2_profile::configure(
+                   root/L"vm"/L"P007_AWE64.cfg",
+                   vm/L"P007_AWE64.cfg",false,setupError)) {
+                sf2Result_.store(-2,std::memory_order_release);
+                sf2Mounted=false;
+            } else {
+                bootStatus_.store(-11,std::memory_order_release);
+                return;
+            }
+        }
         const fs::path roms=root/L"roms";
         const fs::path assets=root/L"assets";
         if(!fs::is_directory(assets,ec)){
@@ -177,8 +258,83 @@ void Core::runPrivateGuest(std::wstring folder) noexcept {
             // Only original emulated keyboard controller receives Win95 boot
             // keys; no real host input events, no audio-thread work.
             (void)bootAssist(++guestMilliseconds);
+            if(guestSf2StatusFn){
+                const int source=guestSf2StatusFn();
+                const bool inFlight=liveTransferInFlight_.load(
+                    std::memory_order_acquire);
+                if(inFlight) {
+                    // Neither a stale UART OK token nor the AWEManager
+                    // loading API alone proves THIS soundfont was installed.
+                    // The original x86 guest must have completed EXACTLY
+                    // this private transfer generation before any new
+                    // positive user-bank status may become visible.
+                    const bool completed=source==1 && liveState &&
+                        liveState()==3 && liveCompleteCount &&
+                        liveCompleteCount()>=expectedLiveComplete_;
+                    const bool rejected=source<0 && liveState &&
+                        liveState()==4 && liveFailCount &&
+                        liveFailCount()>0u;
+                    if(completed||rejected) {
+                        sf2Result_.store(source,std::memory_order_release);
+                        liveTransferInFlight_.store(false,std::memory_order_release);
+                        if(!reloadPending_.load(std::memory_order_acquire))
+                            awaitingSf2Ack_.store(false,std::memory_order_release);
+                    } else {
+                        sf2Result_.store(0,std::memory_order_release);
+                    }
+                } else if(source!=0 ||
+                        sf2Result_.load(std::memory_order_acquire)!=-2) {
+                    sf2Result_.store(source,std::memory_order_release);
+                }
+            }
             if(guestReadyFn)
                 guestReady_.store(guestReadyFn()?1:0,std::memory_order_release);
+            // Called strictly on the worker between ORIGINAL x86 pc_run
+            // slices, not inside a VST3 process() audio callback.
+            if(reloadPending_.load(std::memory_order_acquire) &&
+               !liveTransferInFlight_.load(std::memory_order_acquire) &&
+               guestReadyFn && guestReadyFn() && livePublish &&
+               liveState && liveState()!=1 && liveState()!=2){
+                std::wstring target;
+                {
+                    std::lock_guard<std::mutex> lock(reloadMutex_);
+                    target=requestedSf2_;
+                }
+                // Reading host SoundFont on the emulator worker briefly
+                // pauses 86Box CPU; it does NOT reboot it or edit 86Box
+                // hardware, native Creative driver, or original ROM.
+                std::ifstream input(fs::path(target),std::ios::binary|std::ios::ate);
+                std::vector<std::uint8_t> bytes;
+                if(input) {
+                    const auto size=input.tellg();
+                    if(size>=96 && size<=static_cast<std::streamoff>(
+                        sf2_volume::maxSf2Bytes)) {
+                        bytes.resize(static_cast<std::size_t>(size));
+                        input.seekg(0);
+                        if(!input.read(reinterpret_cast<char*>(bytes.data()),
+                           static_cast<std::streamsize>(bytes.size())))
+                           bytes.clear();
+                    }
+                }
+                if(bytes.empty()){
+                    sf2Result_.store(-2,std::memory_order_release);
+                    awaitingSf2Ack_.store(false,std::memory_order_release);
+                    reloadPending_.store(false,std::memory_order_release);
+                } else {
+                    const int result=livePublish(bytes.data(),
+                         static_cast<std::uint32_t>(bytes.size()));
+                    if(result==1){
+                        sf2Result_.store(0,std::memory_order_release);
+                        expectedLiveComplete_=liveCompleteCount()+1u;
+                        liveTransferInFlight_.store(true,std::memory_order_release);
+                        reloadPending_.store(false,std::memory_order_release);
+                    }else if(result<0){
+                        sf2Result_.store(-1,std::memory_order_release);
+                        awaitingSf2Ack_.store(false,std::memory_order_release);
+                        reloadPending_.store(false,std::memory_order_release);
+                    } // 0: guest already busy. Retry after its ACK.
+                }
+            }
             next+=std::chrono::milliseconds(1);
             // No guest CPU, disk, timers, or sleep on the DAW audio callback.
             std::this_thread::sleep_until(next);
@@ -241,14 +397,30 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         if(active_)return kResultOk;
         // SDK activation is non-RT. Host cannot activate if internal core
         // is missing from the SAME .vst3 folder.
-        if(!core_.openNonRealtime())return kResultFalse;
+        // VST3 activation is non-realtime. Selected SF2 files are not
+        // touched by process(): only the private guest worker prepares
+        // a separate 64-MiB IDE volume before original Win95 boots.
+        std::string fontPath=selectedSf2Path();
+        std::wstring winPath;
+        try {
+            if(!fontPath.empty())winPath=std::filesystem::u8path(fontPath).wstring();
+        } catch(...) {return kResultFalse;}
+        if(!core_.openNonRealtime(winPath))return kResultFalse;
+        {
+            std::lock_guard<std::mutex> lock(sf2StateMutex_);
+            activeSf2Path_=std::move(fontPath);
+            confirmedSf2Catalog_=false;
+        }
         outputRate_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         programNeedsSending_.store(true,std::memory_order_release);
         creativePacer_.reset();
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
             if(creative_nrpn::shouldTransmit(
@@ -259,10 +431,13 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         core_.closeNonRealtime();active_=false;
         outputRate_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
     }
     return SingleComponentEffect::setActive(on);
 }
@@ -280,6 +455,7 @@ tresult PLUGIN_API Plugin::setupProcessing(ProcessSetup& setup) {
     if(result==kResultOk){
         outputRate_.configure(setup.sampleRate);
         creativeFramePace_.configure(setup.sampleRate);
+        bankFramePace_.configure(setup.sampleRate);
     }
     return result;
 }
@@ -293,6 +469,42 @@ tresult PLUGIN_API Plugin::setProcessing(TBool on) {
     // constant-time, heap-free and leaves the original EMU8000 untouched.
     if(on) outputRate_.reset();
     return kResultOk;
+}
+std::string Plugin::selectedSf2Path() const {
+    std::lock_guard<std::mutex> lock(sf2StateMutex_);
+    return selectedSf2Path_;
+}
+bool Plugin::chooseOriginalSf2(const std::string& path) {
+    // Runs on the VSTGUI thread, never on the audio callback.
+    try{
+        const auto file=std::filesystem::u8path(path);
+        std::error_code ec;
+        if(path.empty()||path.size()>state::maxSf2PathBytes ||
+           !std::filesystem::is_regular_file(file,ec) ||
+           std::filesystem::file_size(file,ec)>sf2_volume::maxSf2Bytes ||
+           ec) return false;
+        AWE125::PresetCatalog validated;
+        std::string error;
+        if(!validated.LoadSoundFont(path,error))return false;
+        // A selected SF2 takes effect without deactivating the VST3.
+        // The worker tears down and restarts ONLY the internal Win95 guest.
+        if(active_ && !core_.requestSoundFontReload(file.wstring()))
+            return false;
+        {
+            std::lock_guard<std::mutex> lock(sf2StateMutex_);
+            selectedSf2Path_=path;
+            activeSf2Path_=path;
+            confirmedSf2Catalog_=false;
+        }
+        sf2NoMelodicBank_.store(false,std::memory_order_release);
+        // The browser belongs to the GUI thread, not the audio callback.
+        // Remove stale SF2 names, then select the actual Creative user bank.
+        originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+        sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
+        // This callback runs on the GUI thread. Bank 1 becomes audible after
+        // the genuine Creative AWEMAN32 load acknowledgment at guest READY.
+        return true;
+    }catch(...){return false;}
 }
 int Plugin::p165GuestStatus() const noexcept {
     const int stage=core_.bootStatus();
@@ -310,23 +522,95 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
             originalMidiCatalog_,legacyFmCatalog_,std::string{},
             [this]() {
                 const int s=p165GuestStatus();
-                return s==2 ? std::string("ORIGINAL CREATIVE WINMM: BEREIT | SF2 LADEN NOCH NICHT ANGEBUNDEN") :
-                       s==1 ? std::string("WINDOWS 95: ORIGINAL-GAST STARTET") :
-                       s<0 ? std::string("WINDOWS 95 / CREATIVE: STARTFEHLER") :
-                             std::string("ORIGINAL CREATIVE: GAST NOCH NICHT BEREIT");
+                std::string selected,active;
+                {
+                    std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                    selected=selectedSf2Path_;active=activeSf2Path_;
+                }
+                if(!selected.empty()){
+                    if(core_.soundFontReloadPending())
+                        return std::string("SOUNDFONT LOADING");
+                    if(selected!=active)
+                        return std::string("SOUNDFONT LOADING");
+                    const int sf2=core_.guestSf2Status();
+                    if(sf2==1 && s==2)
+                        return sf2NoMelodicBank_.load(std::memory_order_acquire)
+                            ?std::string("SOUNDFONT LOADED | NO MELODIC PRESETS")
+                            :std::string("SOUNDFONT INSTALLED | AUDIO NOT VERIFIED");
+                    if(sf2==-2)
+                        return std::string("SOUNDFONT UNAVAILABLE | ROM ACTIVE");
+                    if(sf2==-1)
+                        return std::string("SOUNDFONT REJECTED | ROM ACTIVE");
+                    if(s==2)
+                        return std::string("SOUNDFONT NOT READY | ROM ACTIVE");
+                }
+                return s==2 ? std::string("ORIGINAL ROM READY") :
+                       s==1 ? std::string("SYSTEM BOOTING") :
+                       s<0 ? std::string("SYSTEM START FAILED") :
+                             std::string("SYSTEM INITIALIZING");
             },
             [this]() {
                 const int s=p165GuestStatus();
-                return s==2 ? std::string("ORIGINAL AWE64 | CREATIVE WINMM BEREIT") :
-                       s==1 ? std::string("WIN95: BOOTET") :
-                       s<0 ? std::string("WIN95: GASTFEHLER") :
-                             std::string("ROM IM BUNDLE | WIN95 NICHT BEREIT");
+                return s==2 ? std::string("AWE64 | AUDIO READY") :
+                       s==1 ? std::string("SYSTEM BOOTING") :
+                       s<0 ? std::string("SYSTEM ERROR") :
+                             std::string("ROM INSTALLED | SYSTEM NOT READY");
             },
-            [](const std::string&){return false;}, // no fake ROM load
-            [](const std::string&){return false;}, // no fake SF2 load
-            [](){return std::string{};},
-            [](){return std::uint64_t{1};},
-            [](std::uint16_t bank){return bank==0;});
+            [](const std::string&){return false;}, // original ROM immutable
+            [this](const std::string& path){return chooseOriginalSf2(path);},
+            [this](){return selectedSf2Path();},
+            [this]() {
+                // The project state may be restored on a NON-UI thread.
+                // Reset the old bank's GUI names only here on the UI idle
+                // thread, never while a VSTGUI browser is enumerating them.
+                if(sf2CatalogResetPending_.exchange(
+                       false,std::memory_order_acq_rel)) {
+                    originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+                    sf2CatalogRevision_.fetch_add(
+                        1u,std::memory_order_release);
+                }
+                if(core_.guestReady() && core_.guestSf2Status()==1) {
+                    std::string selected;
+                    {
+                        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                        if(confirmedSf2Catalog_ || selectedSf2Path_!=activeSf2Path_)
+                            return sf2CatalogRevision_.load(std::memory_order_acquire);
+                        selected=selectedSf2Path_;
+                    }
+                    AWE125::PresetCatalog candidate;
+                    std::string error;
+                    if(candidate.LoadSoundFont(selected,error)) {
+                        // A real SF2 may have *both* bank-0 melodic patches
+                        // and bank-128 drum kits (or other sound banks).
+                        // Only map its actual melodic bank-0 programs into
+                        // verified Creative USER bank 1. The old all-or-
+                        // nothing check silently discarded EVERY name for
+                        // perfectly valid multi-bank SoundFonts.
+                        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                        if(!confirmedSf2Catalog_ && selectedSf2Path_==selected){
+                            originalMidiCatalog_.SetOriginalCreativeMidiNumbers();
+                            const auto numMelodic=
+                                originalMidiCatalog_.AppendCreativeMelodicUserOneFromSource(
+                                    candidate);
+                            sf2NoMelodicBank_.store(numMelodic==0u,
+                                std::memory_order_release);
+                            confirmedSf2Catalog_=true;
+                            sf2CatalogRevision_.fetch_add(1u,std::memory_order_release);
+                        }
+                    }
+                }
+                return sf2CatalogRevision_.load(std::memory_order_acquire);
+            },
+            [this](std::uint16_t bank) noexcept {
+                // P007BQ: before this fix the browser had a placeholder
+                // which returned success for ROM/SF2 melodic banks
+                // WITHOUT delivering any Creative bank re-selection,
+                // and always rejected repeated ROM/SF2 drum selections
+                // (virtual browser banks 128 and 129).
+                // Queue the re-assertion for the audio consumer, preserving
+                // the original Win95 Creative >=20ms MIDI pacer.
+                return browser_bank::reselect(bank,programNeedsSending_);
+            });
     return nullptr;
 }
 IPlugView* PLUGIN_API Plugin::createView(FIDString name) {
@@ -349,7 +633,12 @@ tresult PLUGIN_API Plugin::getState(IBStream* stream) {
     };
     for(unsigned i=0;i<creative_nrpn::count;++i)
         values.modulation[i]=creativeMod_[i].load(std::memory_order_acquire);
-    const auto bytes=state::encode(values);
+    const auto path=selectedSf2Path();
+    const auto v2=state::encode(values);
+    std::vector<std::uint8_t> bytes;
+    if(path.empty()) bytes.assign(v2.begin(),v2.end());
+    else bytes=state::encodeWithSf2(values,path);
+    if(bytes.empty())return kResultFalse;
     int32 written=0;
     const auto result=stream->write(const_cast<std::uint8_t*>(bytes.data()),
             static_cast<int32>(bytes.size()),&written);
@@ -364,6 +653,7 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
                     &received)!=kResultOk ||
        received!=static_cast<int32>(header.size()))return kResultFalse;
     state::Values values{};
+    std::string selectedPath; // empty for legacy or original ROM-only states
     if(header[4]==1u) {
         if(!state::decode(header,values))return kResultFalse;
     }else if(header[4]==2u) {
@@ -374,7 +664,51 @@ tresult PLUGIN_API Plugin::setState(IBStream* stream) {
                 state::Image{}.size()-state::LegacyImage{}.size());
         if(stream->read(image.data()+header.size(),tail,&received)!=kResultOk ||
            received!=tail||!state::decode(image,values))return kResultFalse;
+    }else if(header[4]==3u) {
+        // Read the bounded variable-length UTF-8 path with exact counts
+        // and checksum BEFORE updating any live plugin parameter.
+        std::array<std::uint8_t,46u> prefix{};
+        std::copy(header.begin(),header.end(),prefix.begin());
+        received=0;
+        constexpr int32 more=46-16;
+        if(stream->read(prefix.data()+16u,more,&received)!=kResultOk ||
+           received!=more)return kResultFalse;
+        const unsigned n=unsigned(prefix[44])+(unsigned(prefix[45])<<8u);
+        if(n==0u||n>state::maxSf2PathBytes)return kResultFalse;
+        try{
+            std::vector<std::uint8_t> image(prefix.begin(),prefix.end());
+            image.resize(50u+n);
+            received=0;
+            const int32 remain=static_cast<int32>(n+4u);
+            if(stream->read(image.data()+46u,remain,&received)!=kResultOk ||
+               received!=remain ||
+               !state::decodeWithSf2(image,values,selectedPath))
+                return kResultFalse;
+        }catch(...){return kResultFalse;}
     }else return kResultFalse;
+    bool changedLivePath=false;
+    {
+        std::lock_guard<std::mutex> lock(sf2StateMutex_);
+        changedLivePath=(selectedSf2Path_!=selectedPath);
+        selectedSf2Path_=selectedPath;
+        confirmedSf2Catalog_=false;
+    }
+    // Host projects may restore SF2 state on an ALREADY ACTIVE plugin.
+    // Queue the same no-reboot original-Creative load as the GUI file
+    // picker, otherwise "project recall" merely changes a text label.
+    if(active_ && changedLivePath && !selectedPath.empty()) {
+        try {
+            const auto file=std::filesystem::u8path(selectedPath);
+            if(core_.requestSoundFontReload(file.wstring())) {
+                std::lock_guard<std::mutex> lock(sf2StateMutex_);
+                activeSf2Path_=selectedPath;
+            }
+        } catch(...) {
+            // Preserve the validated DAW project parameter state; the
+            // guest stays on original ROM and the new SF2 is NOT READY.
+        }
+    }
+    sf2CatalogResetPending_.store(true,std::memory_order_release);
     // In a combined IComponent+IEditController, restore BOTH the original
     // Creative MIDI engine parameters and the visible P165 host automation.
     (void)setParamNormalized(kP165Bank,double(values.bank)/127.);
@@ -396,14 +730,14 @@ tresult PLUGIN_API Plugin::setParamNormalized(ParamID tag,ParamValue value) {
     const double v=std::clamp(value,0.,1.);
     switch(tag) {
         case kP165Bank:
-            midiBank_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
-                            std::memory_order_release);
-            programNeedsSending_.store(true,std::memory_order_release);
+            if(midi_param::updateIfChanged(
+                midiBank_,static_cast<std::uint8_t>(std::lround(v*127.))))
+                programNeedsSending_.store(true,std::memory_order_release);
             break;
         case kP165Program:
-            midiProgram_.store(static_cast<std::uint8_t>(std::lround(v*127.)),
-                               std::memory_order_release);
-            programNeedsSending_.store(true,std::memory_order_release);
+            if(midi_param::updateIfChanged(
+                midiProgram_,static_cast<std::uint8_t>(std::lround(v*127.))))
+                programNeedsSending_.store(true,std::memory_order_release);
             break;
         case kP165Master:
             masterVolume_.store(static_cast<float>(v),std::memory_order_release);
@@ -428,12 +762,25 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
     // write the UART directly from its separate UI thread.
     bool programChanged=false,bankChanged=false;
     if(data.inputParameterChanges){
-        const int32 n=data.inputParameterChanges->getParameterCount();
+        const int32 reported=data.inputParameterChanges->getParameterCount();
+        const int32 n=host_budget::safeCount(
+            reported,host_budget::maxParameterQueues);
+        if(host_budget::invalidCount(reported,host_budget::maxParameterQueues)) {
+            midiDelivery_.requestRecovery();
+            midiNoteRoute_.reset();
+        }
         for(int32 i=0;i<n;++i){
             auto* queue=data.inputParameterChanges->getParameterData(i);
-            if(!queue||queue->getPointCount()<1)continue;
+            if(!queue)continue;
+            const int32 points=queue->getPointCount();
+            if(host_budget::invalidCount(points,host_budget::maxPointsPerQueue)){
+                midiDelivery_.requestRecovery();
+                midiNoteRoute_.reset();
+                continue;
+            }
+            if(points<1)continue;
             int32 offset=0;ParamValue value=0.;
-            if(queue->getPoint(queue->getPointCount()-1,offset,value)!=kResultOk)
+            if(queue->getPoint(points-1,offset,value)!=kResultOk)
                 continue;
             // Host automation may provide NaN/INF despite valid VST3
             // parameter ranges. std::clamp(NaN) is still NaN; converting
@@ -442,11 +789,15 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             value=std::clamp(value,0.,1.);
             switch(queue->getParameterId()){
                 case kP165Program:
-                    midiProgram_=static_cast<std::uint8_t>(std::lround(value*127.));
-                    programChanged=true;break;
+                    programChanged|=midi_param::updateIfChanged(
+                        midiProgram_,static_cast<std::uint8_t>(
+                            std::lround(value*127.)));
+                    break;
                 case kP165Bank:
-                    midiBank_=static_cast<std::uint8_t>(std::lround(value*127.));
-                    bankChanged=true;break;
+                    bankChanged|=midi_param::updateIfChanged(
+                        midiBank_,static_cast<std::uint8_t>(
+                            std::lround(value*127.)));
+                    break;
                 case kP165Master:
                     masterVolume_=static_cast<float>(value);break;
                 default:
@@ -470,13 +821,19 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         // frames from a previous original-Creative session.
         outputRate_.reset();
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         sentInitialProgram_=false;
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         creativePacer_.abort(creativeModPending_);
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
+        bankProgramPacer_.reset();
+        bankFramePace_.reset();
         // Original guest restarted: reassert modified generators and
         // always enforce 0% truly DRY for original Creative FX sends.
         // For tone controls, 0% does NOT send NRPN=0: that would replace
@@ -488,51 +845,49 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
                 i,creativeMod_[i].load(std::memory_order_acquire)))
                 creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
     }
-    // First retry a previously rejected NoteOff BEFORE allowing further
-    // program/NRPN writes or newer host notes to overtake it. The original
-    // guest UART returns 1 only after its bounded FIFO accepted a packet.
-    if(ready) (void)midiDelivery_.drain(
-        [this](std::uint8_t status,std::uint8_t d1,std::uint8_t d2) noexcept {
-            return core_.midi(status,d1,d2);
-        });
-    const bool midiBlocked=ready&&
-        (midiDelivery_.pending()!=0u||midiDelivery_.panicPending());
-    const bool resend=programNeedsSending_.exchange(false,std::memory_order_acq_rel);
-    // Preserve new host automation too: bank/program changes received
-    // DURING a MIDI retry must not disappear with this one callback.
-    if(midiBlocked && (resend||programChanged||bankChanged))
-        programNeedsSending_.store(true,std::memory_order_release);
+    // P007AZ: the guest has a real 16550 16-byte receive FIFO. Three
+    // original Creative 6-byte BankSelect/Program packets (18 bytes),
+    // followed by a 6-byte NoteOn, previously arrived as one burst.
+    // Queue the *entire* bank/program sequence, transmit ONE six-byte
+    // packet per >=20ms and leave one >=20ms settling interval before
+    // letting queued host MIDI notes reach the original guest.
+    const bool resend=programNeedsSending_.exchange(
+        false,std::memory_order_acq_rel);
+    if(ready)bankProgramPacer_.request(
+        midiBank_.load(std::memory_order_acquire),
+        midiProgram_.load(std::memory_order_acquire),
+        core_.guestSf2Status()==1,
+        resend||programChanged||bankChanged);
     bool justSentSelection=false;
-    if(ready&&!midiBlocked){
-        // The original 86Box UART is a bounded FIFO. A failed submit means
-        // Creative did NOT receive the selected bank/program: do not falsely
-        // consider it delivered. Retry the complete ordered selection on the
-        // next audio callback (still the ONLY MIDI producer thread).
-        const bool sendBank=!sentInitialProgram_||bankChanged||resend;
-        const bool sendProgram=sendBank||programChanged;
-        justSentSelection=sendProgram;
-        bool accepted=true;
-        if(sendBank) {
-            // Original Win95 Creative driver receives real MIDI BankSelect.
-            // Evaluate both calls even when the first packet was rejected.
-            accepted=(core_.midi(0xb0u,0u,0u)==1)&&accepted; // CC0 bank MSB
-            accepted=(core_.midi(0xb0u,32u,
-                       midiBank_.load(std::memory_order_acquire))==1)&&accepted;
-        }
-        if(sendProgram){
-            accepted=(core_.midi(0xc0u,
-                       midiProgram_.load(std::memory_order_acquire),0u)==1)&&accepted;
-        }
-        sentInitialProgram_=accepted;
-        // Program/bank changes can reset Creative generator offsets. Reapply
-        // all active user offsets AND zero FX sends after valid selection.
-        if(accepted&&sendProgram) {
-            for(unsigned i=0;i<creative_nrpn::count;++i)
-                if(creative_nrpn::shouldTransmit(
-                   i,creativeMod_[i].load(std::memory_order_acquire)))
-                    creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
-        }
+    if(ready&&!bankProgramPacer_.committed() &&
+       bankFramePace_.due(static_cast<std::uint32_t>(
+           std::max<Steinberg::int32>(0,data.numSamples)))) {
+        justSentSelection=bankProgramPacer_.tick(
+            [this](std::uint8_t status,std::uint8_t d1,
+                   std::uint8_t d2) noexcept {
+                return core_.midi(status,d1,d2);
+            });
     }
+    const bool committedNow=ready&&bankProgramPacer_.committed();
+    if(committedNow&&!sentInitialProgram_) {
+        // Selection has passed the original guest UART settling gap.
+        // Reapply actual user offsets and zero-sends ONLY after the
+        // ORIGINAL Creative program map is selected and settled.
+        for(unsigned i=0;i<creative_nrpn::count;++i)
+            if(creative_nrpn::shouldTransmit(
+               i,creativeMod_[i].load(std::memory_order_acquire)))
+                creativeModPending_.fetch_or(1u<<i,std::memory_order_acq_rel);
+    }
+    sentInitialProgram_=committedNow;
+    // A pending NoteOn must NEVER pass the bank/program selection.
+    // Unlike the old guard, queued notes do NOT block the selection
+    // itself: that would deadlock bank commits and waiting NoteOns.
+    if(committedNow) (void)midiDelivery_.drain(
+        [this](std::uint8_t status,std::uint8_t d1,
+               std::uint8_t d2) noexcept {
+            return core_.midi(status,d1,d2);
+        },1u);
+    const bool midiBlocked=ready&&midiDelivery_.panicPending();
     if(ready&&!midiBlocked&&sentInitialProgram_&&!justSentSelection) {
         // CC121 is specified by Creative to restore the original SoundFont
         // settings. This is essential when an ADSR/filter knob moves BACK
@@ -595,7 +950,13 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         rendered=end;
     };
     if(ready&&data.inputEvents) {
-        const auto n=data.inputEvents->getEventCount();
+        const int32 reported=data.inputEvents->getEventCount();
+        const int32 n=host_budget::safeCount(
+            reported,host_budget::maxEventDescriptors);
+        if(host_budget::invalidCount(reported,host_budget::maxEventDescriptors)) {
+            midiDelivery_.requestRecovery();
+            midiNoteRoute_.reset();
+        }
         for(int32 i=0;i<n;++i) {
             Event event{};
             if(data.inputEvents->getEvent(i,event)!=kResultOk)continue;
@@ -604,26 +965,56 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             const auto at=midi_offset::place(
                 event.sampleOffset,data.numSamples,rendered);
             renderTo(at);
+            // Channel mapping is captured at NoteOn, NOT recomputed
+            // from the potentially changed browser bank at NoteOff.
+            // VST3 zero-velocity NoteOn is a RELEASE, not a new voice.
+            const bool drums=midiBank_.load(std::memory_order_acquire)>=126u;
+            const auto send=[this](std::uint8_t status,std::uint8_t pitch,
+                                   std::uint8_t velocity) noexcept {
+                (void)midiDelivery_.submit(status,pitch,velocity,
+                    [this](std::uint8_t st,std::uint8_t d1,
+                           std::uint8_t d2) noexcept {
+                        return bankProgramPacer_.committed()
+                            ?core_.midi(st,d1,d2):0;
+                    });
+            };
+            const auto release=[this,&send,drums](
+                unsigned channel,unsigned pitch,std::uint8_t velocity) noexcept {
+                const auto route=midiNoteRoute_.noteOff(channel,pitch,drums);
+                send(static_cast<std::uint8_t>(0x80u|route.first),
+                     static_cast<std::uint8_t>(pitch),velocity);
+                if(route.count==2u)
+                    send(static_cast<std::uint8_t>(0x80u|route.second),
+                         static_cast<std::uint8_t>(pitch),velocity);
+            };
             if(event.type==Event::kNoteOnEvent) {
                 const auto& e=event.noteOn;
-                if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x90|e.channel),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
-                        [this](std::uint8_t status,std::uint8_t d1,
-                               std::uint8_t d2) noexcept {
-                            return core_.midi(status,d1,d2);
-                        });
+                if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128) {
+                    if(!std::isfinite(e.velocity)) {
+                        // Malformed host NoteOn cannot create phantom audio.
+                        midiDelivery_.requestRecovery();
+                        midiNoteRoute_.reset();
+                    } else if(e.velocity<=0.f) {
+                        release(static_cast<unsigned>(e.channel),
+                                static_cast<unsigned>(e.pitch),0u);
+                    } else {
+                        const auto routed=midiNoteRoute_.noteOn(
+                            static_cast<unsigned>(e.channel),
+                            static_cast<unsigned>(e.pitch),drums);
+                        // Tiny but positive VST3 velocity must not be
+                        // truncated to MIDI 0 (=NoteOff).
+                        const auto v=std::max<std::uint8_t>(
+                            1u,midiVelocity(e.velocity));
+                        send(static_cast<std::uint8_t>(0x90u|routed),
+                             static_cast<std::uint8_t>(e.pitch),v);
+                    }
+                }
             } else {
                 const auto& e=event.noteOff;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x80|e.channel),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
-                        [this](std::uint8_t status,std::uint8_t d1,
-                               std::uint8_t d2) noexcept {
-                            return core_.midi(status,d1,d2);
-                        });
+                    release(static_cast<unsigned>(e.channel),
+                            static_cast<unsigned>(e.pitch),
+                            midiVelocity(e.velocity));
             }
         }
     }

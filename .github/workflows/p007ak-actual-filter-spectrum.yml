@@ -1,7 +1,7 @@
 name: P007AL corrected original Creative filter A-B-A QA (no private Win95)
 on:
   push:
-    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119]
+    branches: [research/p007ak-original-filter-spectral-ab-a-20261118, fix/p007ap-guest-worker-failure-and-rt-guards-20261119, fix/p007aq-lossless-midi-delivery-bounded-20261119, fix/p007ar-host-midi-sample-offset-scheduling-20261119, research/p007as-sustain-spectral-evidence-robustness-20261119, fix/p007at-sustain-pedal-stuck-note-panic-20261119, feature/p007au-original-creative-sf2-guest-loading-20261119, test/p007av-original-win95-creative-sf2-audio-e2e-20261119]
     paths:
       - "experiments/p007-inprocess-86box/**"
       - ".github/workflows/p007ak-actual-filter-spectrum.yml"
@@ -54,6 +54,44 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalSpectralProofTest.cpp -o build/P007OriginalSpectralProofTest.exe
           build/P007OriginalSpectralProofTest.exe
+      - name: P007BE exact-byte native in-guest SF2 transport and busy/fail-closed controls
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/tests \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/tests/P007LiveSf2TransportTest.c \
+            -o build/P007LiveSf2TransportTest.exe
+          build/P007LiveSf2TransportTest.exe
+      - name: P007BB original ROM GM labels and sparse Creative user-bank metadata
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations experiments/p007-inprocess-86box/tests/P007BBRomCatalogTest.cpp -o build/P007BBRomCatalogTest.exe
+          build/P007BBRomCatalogTest.exe
+      - name: P007BA genuine MIDI dedup helper + original 16550 backpressure adversarial test
+        run: |
+          set -euo pipefail
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007MidiHostStressTest.cpp -o build/P007MidiHostStressTest.exe
+          build/P007MidiHostStressTest.exe
+      - name: P007BV authentic SYNTHGM.SBK bank2 CH10 pacing and UART retry negatives
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/vst3 experiments/p007-inprocess-86box/tests/P007BankProgramPacerTest.cpp -o build/P007BankProgramPacerTest.exe
+          build/P007BankProgramPacerTest.exe
+      - name: P007BV original guest MIDI GM ROM bank2 ACK / malformed / stale-reset tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O2 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/tests/P007MidiUartTest.c \
+            experiments/p007-inprocess-86box/fork/P007MidiUart.c \
+            -o build/P007MidiUartTest.exe
+          build/P007MidiUartTest.exe
+      - name: P007AW synthetic SF2-versus-ROM waveform fingerprint adversarial controls
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/tests experiments/p007-inprocess-86box/tests/P007OriginalAudioProofTest.cpp -o build/P007OriginalAudioProofTest.exe
+          build/P007OriginalAudioProofTest.exe
       - name: P007AL corrected filter spectrum and Creative NRPN15 synthetic-only unit tests
         run: |
           set -euo pipefail
@@ -64,6 +102,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007ASSustainClassifierTest.cpp -o build/P007ASSustainClassifierTest.exe
           build/P007ASSustainClassifierTest.exe
+      - name: P007AU host-independent FAT16 data disk + bounded SF2 project recall negative controls
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007AUSf2VolumeAndStateTest.cpp -o build/P007AUSf2VolumeAndStateTest.exe
+          build/P007AUSf2VolumeAndStateTest.exe
       - name: P007AM original EMU8000 multi-voice register capture regression
         run: |
           set -euo pipefail
@@ -152,6 +195,14 @@ jobs:
             throw 'CRITICAL: original filter proof claimed without original Win95'
           }
           Write-Host 'P007AL_NO_PRIVATE_GUEST_CORRECTED_FILTER_REFUSAL_PASS'
+          # P007AV must NEVER accept a public synthetic guest as genuine
+          # original Win95 SF2 sound. Check the REAL hosted VST3 binary.
+          & $tester $plugin --private-sf2 'Z:\\nonexistent-public-synthetic.sf2' *> 'build/p007av-private-sf2-denial.log'
+          if($LASTEXITCODE -eq 0) {throw 'CRITICAL: public CI invented genuine original Win95 SF2 playback'}
+          if(Select-String -Path 'build/p007av-private-sf2-denial.log' -Pattern 'P007AV_REAL_ORIGINAL_CREATIVE_SF2_BANK1_TO_EMU8000_PCM_PASS' -Quiet) {
+            throw 'CRITICAL: genuine original SF2 PCM claimed without private Win95'
+          }
+          Write-Host 'P007AV_PUBLIC_CANNOT_FAKE_ORIGINAL_WIN95_SF2_PCM_PASS'
           # The rejected private-only test MUST fail (exit=1). PowerShell
           # otherwise propagates that EXPECTED nonzero native exit code
           # as the whole successful job's final exit status.
@@ -172,7 +223,7 @@ jobs:
           foreach($d in @('vm','roms','assets')){
             New-Item -ItemType Directory -Force -Path (Join-Path $vmroot $d) | Out-Null
           }
-          Set-Content -Path (Join-Path $vmroot 'vm/P007_AWE64.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
+          Set-Content -Path (Join-Path $vmroot 'vm/P007_AWE64.cfg') -Value @('[Hard disks]', 'hdd_01_fn = win95.img', '[Ports (COM & LPT)]', 'serial2_enabled = 1')
           Set-Content -Path (Join-Path $vmroot 'vm/win95.img') -Value 'NOT_A_REAL_WIN95_DISK'
           Set-Content -Path (Join-Path $vmroot '86box.cfg') -Value 'P007AP_SYNTHETIC_ONLY'
           Set-Content -Path (Join-Path $vmroot 'P007_SYNTHETIC_TEST_ONLY.marker') -Value 'NEVER_ORIGINAL'

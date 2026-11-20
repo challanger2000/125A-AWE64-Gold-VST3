@@ -397,9 +397,13 @@ private:
 };
 // Preserve the exact owner's P165 faceplate and all original live knobs.
 std::string BankLabel(uint16_t id) {
-    if(id==16383)return "GM ROM - Original";
-    if(id==16382)return "GM ROM - Drumkit";
-    return id==128 ? "Bank 128 - Drumkits" : "Bank "+std::to_string(id);
+    // A/B is a BROWSER distinction (not a requirement to set MIDI CH10):
+    // instruments and drums remain selectable while 16 MIDI channels work.
+    if(id==128)return "ROM Bank B - Drums";
+    if(id==129)return "SF2 Bank B - Drums";
+    if(id==1)return "SF2 Bank A - Instrumente";
+    if(id==0)return "ROM Bank A - Instrumente";
+    return "Bank "+std::to_string(id);
 }
 std::string DisplayName(const std::string& path) {
     if(path.empty())return "Noch keine SoundFont ausgewaehlt";
@@ -466,16 +470,17 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
 
     // P152: the amber LCD owns the complete live status line, including
     // the current filename. Its labels remain real host-driven VSTGUI views.
-    auto* lcd=MakeLabel({350,96,570,112},"EMU8000 / CREATIVE WIN95",true);
+    // P168: 16px opaque metal bezel hides glyphs left of x=370.
+    auto* lcd=MakeLabel({370,96,570,112},"EMU8000 / AWE64 GOLD",true);
     lcd->setFontColor(CColor(55,42,9,255));
     fileLabel_=MakeLabel({575,96,728,112},"",false);
     fileLabel_->setFont(kNormalFontSmall);
     fileLabel_->setFontColor(CColor(65,46,12,255));
     fileLabel_->setTextTruncateMode(CTextLabel::kTruncateTail);
-    programLabel_=MakeLabel({350,118,728,145},"NO PRESET",false);
+    programLabel_=MakeLabel({370,118,728,145},"NO PRESET",false);
     programLabel_->setFont(kNormalFontBig);
     programLabel_->setFontColor(CColor(41,31,6,255));
-    hardwareInfoLabel_=MakeLabel({350,145,728,163},"ROM: ERFORDERLICH",true);
+    hardwareInfoLabel_=MakeLabel({370,145,728,163},"ROM: AUTOMATISCH",true);
     hardwareInfoLabel_->setFontColor(CColor(53,40,9,255));
     hardwareInfoLabel_->setTextTruncateMode(CTextLabel::kTruncateTail);
 
@@ -545,6 +550,11 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
         chorusMenu_->addEntry(label);
     reverbMenu_->setValue(4.f);
     chorusMenu_->setValue(2.f);
+    // These historical FX TYPE selectors do NOT have a Creative Win95
+    // SysEx bridge / registered VST3 parameter yet. Do not present
+    // interactive controls that silently do nothing to the actual chip.
+    reverbMenu_->setMouseEnabled(false);
+    chorusMenu_->setMouseEnabled(false);
     AddToCurrentPage(reverbMenu_);
     AddToCurrentPage(chorusMenu_);
 
@@ -617,7 +627,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     empty_->setFontColor(CColor(204,167,108,255));
 
     buildingPanel_=nullptr;
-    hint_=MakeLabel({350,166,728,184},
+    hint_=MakeLabel({370,166,728,184},
         "SF2-Audiostatus noch nicht vom Prozessor bestaetigt.",true);
     hint_->setTextTruncateMode(CTextLabel::kTruncateTail);
     SetPage(0);
@@ -690,8 +700,8 @@ CTextButton* PresetBrowserView::MakeButton(const CRect& r,int tag,const char* s)
 int PresetBrowserView::GestureIndex(int tag) noexcept {
     if(tag>=kGuiFirst&&tag<kGuiFirst+kGuiCount)return tag-kGuiFirst;
     if(tag==kMasterVolume)return kGuiCount;
-    if(tag==kReverbType)return kGuiCount+1;
-    if(tag==kChorusType)return kGuiCount+2;
+    // Reverb/chorus TYPE selectors are read-only until authentic
+    // Creative SysEx is implemented; SEND knobs remain functional.
     return -1;
 }
 void PresetBrowserView::controlBeginEdit(CControl* control) {
@@ -727,7 +737,8 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // unchanged, although an intervening MIDI CC0 switched the *audio* bank.
     // Reassert through the controller-to-processor message path in that case.
     const bool sameHostBank=controller_ &&
-        std::lround(controller_->getParamNormalized(kBankParam)*127.)==bank;
+        std::lround(controller_->getParamNormalized(kBankParam)*127.)==
+        (bank==128u?126u:(bank==129u?127u:bank));
     if(sameHostBank&&(!browserBankReselect_ ||
                       !browserBankReselect_(bank))) {
         // Without the explicit message the host may discard this unchanged
@@ -744,7 +755,10 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
     // status text instead of retaining a stale warning across successful UI.
     lastStatus_.clear();
     SyncSf2Status();
-    ChangeParameter(kBankParam,double(bank)/127.);
+    // Virtual drum browser lanes: 128=original ROM,129=source SF2.
+    // State is persisted via the reserved real VST3 MIDI bank 126/127.
+    const auto hostBank=bank==128u?126u:(bank==129u?127u:bank);
+    ChangeParameter(kBankParam,double(hostBank)/127.);
     ChangeParameter(kProgram,double(program)/127.);
     // Reflect the clicked instrument immediately. The following idle
     // compares bank/program back with the controller: an unaccepted host
@@ -840,6 +854,20 @@ void PresetBrowserView::Sync(bool force) {
             bankFilter_=-1;
             searchText_.clear();
             search_->setText("");
+            // The Creative guest *and* its Source SoundFont phdr index
+            // must agree that user Bank 1 exists BEFORE editing the DAW
+            // bank parameter. Otherwise bank_=1 with a ROM-only bank
+            // menu causes the observed "Bank 0 / No presets" contradiction.
+            if(sf2AutoSelectPending_) {
+                const auto presets=PresetBrowserModel::Programs(
+                    sf_.Entries(),1u);
+                if(!presets.empty()) {
+                    sf2AutoSelectPending_=false;
+                    const auto preferred=PresetBrowserModel::ChooseExistingProgram(
+                        sf_.Entries(),1u,program_);
+                    Select(1u,preferred);
+                }
+            }
         }
     }
     if(sf2CurrentPath_) {
@@ -849,8 +877,10 @@ void PresetBrowserView::Sync(bool force) {
             fileLabel_->setText(DisplayName(path).c_str());
         }
     }
-    const auto bank=static_cast<uint16_t>(std::clamp(int(std::lround(
-        controller_->getParamNormalized(kBankParam)*127.)),0,16383));
+    const auto hostBank=static_cast<uint16_t>(std::clamp(int(std::lround(
+        controller_->getParamNormalized(kBankParam)*127.)),0,127));
+    const auto bank=static_cast<uint16_t>(
+        hostBank==126u?128u:(hostBank==127u?129u:hostBank));
     const auto program=static_cast<uint8_t>(std::clamp(int(std::lround(
         controller_->getParamNormalized(kProgram)*127.)),0,127));
     for(int i=0;i<kGuiCount;++i) {
@@ -861,8 +891,12 @@ void PresetBrowserView::Sync(bool force) {
             knob->setValue(value);knob->invalid();
         }
         char label[16]{};
-        std::snprintf(label,sizeof(label),"%d%%",int(std::lround(value*100.)));
-        values_[size_t(i)]->setText(label); // host-backed original Creative NRPN
+        if(i<10 && value<.00005f)
+            std::snprintf(label,sizeof(label),"DEFAULT");
+        else
+            std::snprintf(label,sizeof(label),"%d%%",
+                          int(std::lround(value*100.)));
+        values_[size_t(i)]->setText(label); // 0 tone = original SF2 value
     }
     // State/host automation owns the visible selection; never leave a
     // painted preset different from the actual controller parameter.
@@ -900,11 +934,14 @@ void PresetBrowserView::Sync(bool force) {
 void PresetBrowserView::SyncSf2Status() {
     if(!hint_||!sf2StatusProvider_)return;
     std::string text=sf2StatusProvider_();
-    if(text.empty())text="SF2-Status noch nicht verfuegbar.";
+    if(text.empty())text="SOUNDFONT STATUS UNAVAILABLE";
     if(text==lastStatus_)return;
     lastStatus_=text;
     hint_->setText(text.c_str());
-    const bool err=text.find("Fehler")!=std::string::npos;
+    const bool err=text.find("ERROR")!=std::string::npos ||
+        text.find("FAILED")!=std::string::npos ||
+        text.find("REJECTED")!=std::string::npos ||
+        text.find("UNAVAILABLE")!=std::string::npos;
     hint_->setFontColor(err?CColor(112,30,18,255):CColor(63,47,13,255));
 }
 void PresetBrowserView::SyncHardwareInfo() {
@@ -928,32 +965,54 @@ void PresetBrowserView::SetPage(int page) {
     if(empty_)empty_->setVisible(currentPage_==1&&rows_.empty());
 }
 void PresetBrowserView::ChooseSf2() {
-    // This P007 guest is genuine Win95 + Creative. The old native SF2
-    // loader talked to a DIFFERENT synth engine; never claim it works here.
 #if defined(_WIN32)
-    MessageBoxW(GetForegroundWindow(),
-       L"Das originale Creative-Windows-95-SoundFont-Laden ist in der "
-       L"P007-Gaststeuerung noch nicht angebunden. Die Auswahl wird "
-       L"NICHT vorgenommen.",
-       L"125A AWE64 Gold: SF2 noch nicht verfuegbar",
-       MB_OK|MB_ICONWARNING);
+    // Windows file dialog only on the GUI thread; do NOT touch host
+    // audio callback, original 86Box chip registers or 512-MiB system disk.
+    wchar_t file[4096]{};
+    OPENFILENAMEW open{};
+    open.lStructSize=sizeof(open);
+    open.hwndOwner=GetForegroundWindow();
+    open.lpstrFilter=L"SoundFont 2 (*.sf2)\0*.sf2\0Alle Dateien (*.*)\0*.*\0\0";
+    open.lpstrFile=file;
+    open.nMaxFile=4096u;
+    open.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    open.lpstrDefExt=L"sf2";
+    if(!GetOpenFileNameW(&open))return;
+    const int needed=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+        file,-1,nullptr,0,nullptr,nullptr);
+    if(needed<=1)return;
+    std::string path(static_cast<size_t>(needed),'\0');
+    if(WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,file,-1,
+            path.data(),needed,nullptr,nullptr)!=needed)return;
+    if(path.back()!=0)return;
+    path.pop_back();
+    if(!sf2LoadRequest_||!sf2LoadRequest_(path)) {
+        MessageBoxW(GetForegroundWindow(),
+            L"Die SF2 konnte nicht geprueft werden. Nur vollstaendige "
+            L"SoundFont-2-Dateien bis 28 MiB werden akzeptiert.",
+            L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
+        return;
+    }
+    // The VST3 owner queued a genuine Win95/Creative SoundFont load.
+    // Keep the currently valid ROM bank until the guest ACK and actual
+    // phdr programs reach the browser. Sync() then selects Bank 1.
+    // Never show a non-existent user bank or require DAW deactivation.
+    sf2AutoSelectPending_=true;
 #endif
 }
 void PresetBrowserView::ChooseRom() {
-#if defined(_WIN32)
-    MessageBoxW(GetForegroundWindow(),
-       L"Das originale AWE-ROM liegt bereits im privaten VST3 und wird "
-       L"automatisch durch 86Box verwendet. Ein Austausch des ROMs "
-       L"im laufenden Windows-95-Gast ist noch nicht implementiert.",
-       L"125A AWE64 Gold: Original-ROM",MB_OK|MB_ICONINFORMATION);
-#endif
+    sf2AutoSelectPending_=false; // explicit ROM request overrides auto-SF2
+    // ROM is always mounted. Selecting it changes only original GM bank0.
+    // Pressing ROM when already on bank0 must be a harmless no-op and
+    // must not show an unrelated "bank reselection failed" warning.
+    if(bank_!=0u)ChangeParameter(kBankParam,0.);
 }
 void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;
     const int tag=control->getTag();
     if(tag==kReverbType || tag==kChorusType) {
-        ChangeParameter(static_cast<Steinberg::Vst::ParamID>(tag),
-            double(std::clamp(int(std::lround(control->getValue())),0,7))/7.);
+        // No registered host parameter or original Creative FX-type SysEx:
+        // deliberately reject the change, not a silent fake edit.
         return;
     }
     if(tag==kMasterVolume) {
@@ -968,6 +1027,7 @@ void PresetBrowserView::valueChanged(CControl* control) {
         return;
     }
     if(tag==kActiveBank) {
+        sf2AutoSelectPending_=false; // user explicitly chose a bank
         const auto idx=static_cast<int>(std::lround(activeBankMenu_->getValue()));
         if(idx>=0&&size_t(idx)<activeBanks_.size()) {
             const uint16_t candidate=activeBanks_[size_t(idx)];

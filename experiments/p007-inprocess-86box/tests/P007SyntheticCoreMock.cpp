@@ -53,6 +53,28 @@ P007_MOCK_EXPORT void __cdecl p007_midi_uart_enable(int active) {
 P007_MOCK_EXPORT int __cdecl p007_midi_guest_ready() {
     return ready.load(std::memory_order_acquire);
 }
+P007_MOCK_EXPORT int __cdecl p007_midi_guest_sf2_status() {
+    // Synthetic test deliberately has NO original Win95/Creative/SF2,
+    // so it MUST NEVER report an authentic SoundFont load.
+    return 0;
+}
+P007_MOCK_EXPORT int __cdecl p007_live_soundfont_publish(
+    const void*,std::uint32_t) {
+    // Public test core never has real Windows95 nor original Creative.
+    return -1;
+}
+P007_MOCK_EXPORT int __cdecl p007_live_soundfont_state() {
+    return 0; // public test never stages any real SoundFont bytes
+}
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_publish_count() {
+    return 0u; // never invent genuine file publication
+}
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_complete_count() {
+    return 0u; // never invent genuine guest completion
+}
+P007_MOCK_EXPORT std::uint32_t __cdecl p007_live_soundfont_failure_count() {
+    return 0u;
+}
 P007_MOCK_EXPORT int __cdecl p007_midi_submit(
     std::uint8_t status,std::uint8_t d1,std::uint8_t d2) {
     if(!enabled.load(std::memory_order_acquire)||
@@ -166,6 +188,9 @@ P007_MOCK_EXPORT int __cdecl p007_core_guest_boot_assist(std::uint32_t) {
 }
 P007_MOCK_EXPORT void __cdecl p007_core_guest_close() {
     enabled.store(0);ready.store(0);
+}
+P007_MOCK_EXPORT unsigned __cdecl p007_core_guest_cold_boot_count() {
+    return 0u; /* synthetic fixture has never booted original guest CPU */
 }
 P007_MOCK_EXPORT void __cdecl p007_mock_fail_next_guest_step() {
     failNextStep.store(true,std::memory_order_release);

@@ -22,6 +22,17 @@ public:
     void reset() noexcept {
         head_=0u;size_=0u;panicPacket_=48u;
     }
+    // Explicit host-iterator overflow: release original Creative voices
+    // rather than accepting an unknown tail of NoteOn/NoteOff messages.
+    // Shares the existing FIFO-overflow panic sequence (3 CCs x 16 ch).
+    void requestRecovery() noexcept {
+        // A malformed host may repeat its over-limit iterator EVERY
+        // callback. Do not restart the 48 original Creative panic CCs
+        // from zero each block, or only channel 1 gets released.
+        if(panicPending())return;
+        head_=size_=0u;
+        panicPacket_=0u;
+    }
     [[nodiscard]] unsigned pending() const noexcept {return size_;}
     [[nodiscard]] bool panicPending() const noexcept {
         return panicPacket_<48u;
@@ -38,7 +49,7 @@ public:
             // does not always release a note held by pedal CC64=127.
             // Reset sustain, silence the voices, then All Notes Off on
             // every channel, over the SAME original Creative UART.
-            head_=size_=0u;panicPacket_=0u;
+            requestRecovery();
             return false;
         }
         queue_[(head_+size_)%capacity]={status,d1,d2};

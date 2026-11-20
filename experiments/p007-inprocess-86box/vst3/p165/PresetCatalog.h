@@ -24,15 +24,213 @@ struct PresetEntry {
 class PresetCatalog {
 public:
     const std::vector<PresetEntry>& Entries() const noexcept {return entries_;}
-    // Original P007 guest is managed by Creative Win95, not by our direct
-    // historical SF2 synth. Number-only display is the truthful fallback;
-    // it does NOT claim any loaded SF2 preset names or synth-bank contents.
+    // P007BB: names for the original Creative GM-ROM Bank 0.
+    // This is the standardized GM program-name index, not a SoundFont
+    // loaded into the ROM nor a claim that sample data was parsed here.
     void SetOriginalCreativeMidiNumbers() {
+        static constexpr std::array<std::string_view,128> gm{{
+            "Acoustic Grand Piano",
+            "Bright Acoustic Piano",
+            "Electric Grand Piano",
+            "Honky-tonk Piano",
+            "Electric Piano 1",
+            "Electric Piano 2",
+            "Harpsichord",
+            "Clavinet",
+            "Celesta",
+            "Glockenspiel",
+            "Music Box",
+            "Vibraphone",
+            "Marimba",
+            "Xylophone",
+            "Tubular Bells",
+            "Dulcimer",
+            "Drawbar Organ",
+            "Percussive Organ",
+            "Rock Organ",
+            "Church Organ",
+            "Reed Organ",
+            "Accordion",
+            "Harmonica",
+            "Tango Accordion",
+            "Acoustic Guitar (nylon)",
+            "Acoustic Guitar (steel)",
+            "Electric Guitar (jazz)",
+            "Electric Guitar (clean)",
+            "Electric Guitar (muted)",
+            "Overdriven Guitar",
+            "Distortion Guitar",
+            "Guitar Harmonics",
+            "Acoustic Bass",
+            "Electric Bass (finger)",
+            "Electric Bass (pick)",
+            "Fretless Bass",
+            "Slap Bass 1",
+            "Slap Bass 2",
+            "Synth Bass 1",
+            "Synth Bass 2",
+            "Violin",
+            "Viola",
+            "Cello",
+            "Contrabass",
+            "Tremolo Strings",
+            "Pizzicato Strings",
+            "Orchestral Harp",
+            "Timpani",
+            "String Ensemble 1",
+            "String Ensemble 2",
+            "Synth Strings 1",
+            "Synth Strings 2",
+            "Choir Aahs",
+            "Voice Oohs",
+            "Synth Voice",
+            "Orchestra Hit",
+            "Trumpet",
+            "Trombone",
+            "Tuba",
+            "Muted Trumpet",
+            "French Horn",
+            "Brass Section",
+            "Synth Brass 1",
+            "Synth Brass 2",
+            "Soprano Sax",
+            "Alto Sax",
+            "Tenor Sax",
+            "Baritone Sax",
+            "Oboe",
+            "English Horn",
+            "Bassoon",
+            "Clarinet",
+            "Piccolo",
+            "Flute",
+            "Recorder",
+            "Pan Flute",
+            "Blown Bottle",
+            "Shakuhachi",
+            "Whistle",
+            "Ocarina",
+            "Lead 1 (square)",
+            "Lead 2 (sawtooth)",
+            "Lead 3 (calliope)",
+            "Lead 4 (chiff)",
+            "Lead 5 (charang)",
+            "Lead 6 (voice)",
+            "Lead 7 (fifths)",
+            "Lead 8 (bass + lead)",
+            "Pad 1 (new age)",
+            "Pad 2 (warm)",
+            "Pad 3 (polysynth)",
+            "Pad 4 (choir)",
+            "Pad 5 (bowed)",
+            "Pad 6 (metallic)",
+            "Pad 7 (halo)",
+            "Pad 8 (sweep)",
+            "FX 1 (rain)",
+            "FX 2 (soundtrack)",
+            "FX 3 (crystal)",
+            "FX 4 (atmosphere)",
+            "FX 5 (brightness)",
+            "FX 6 (goblins)",
+            "FX 7 (echoes)",
+            "FX 8 (sci-fi)",
+            "Sitar",
+            "Banjo",
+            "Shamisen",
+            "Koto",
+            "Kalimba",
+            "Bag Pipe",
+            "Fiddle",
+            "Shanai",
+            "Tinkle Bell",
+            "Agogo",
+            "Steel Drums",
+            "Woodblock",
+            "Taiko Drum",
+            "Melodic Tom",
+            "Synth Drum",
+            "Reverse Cymbal",
+            "Guitar Fret Noise",
+            "Breath Noise",
+            "Seashore",
+            "Bird Tweet",
+            "Telephone Ring",
+            "Helicopter",
+            "Applause",
+            "Gunshot"
+        }};
         entries_.clear();
-        entries_.reserve(128);
-        for(unsigned i=0;i<128;++i)
+        entries_.reserve(gm.size());
+        for(unsigned i=0;i<gm.size();++i)
             entries_.push_back({0u,static_cast<uint8_t>(i),
-                 "MIDI-PROGRAMM "+std::to_string(i),false});
+                 std::string(gm[i]),false});
+        // Standard GM percussion on the original ROM, MIDI CH10.
+        // This is a browser lane, not an extra sample bank.
+        entries_.push_back({128u,0u,"Standard Kit (ROM)",true});
+    }
+    // Creative AWEManager AWE_LOAD_USER_BANK(1) installs an ordinary
+    // single-instrument-bank SoundFont into original Creative USER bank 1.
+    // Its source SF2 phdr normally uses bank 0; do NOT make its names
+    // appear under the GM ROM bank 0 or fabricate another 128 presets.
+    // Ambiguous multi-bank/GM+drums metadata is *not* silently remapped.
+    bool AssignSingleBankToCreativeUserOne() noexcept {
+        if(entries_.empty())return false;
+        for(const auto& entry:entries_)
+            if(entry.bank!=0u)return false;
+        for(auto& entry:entries_)entry.bank=1u;
+        return true;
+    }
+    // Preserve all original GM-ROM names in bank 0 while exposing ONLY
+    // the actual source SoundFont entries in Creative user bank 1.
+    // The previous browser replaced its entire catalog with the new SF2
+    // and silently lost the ROM names whenever SF2 loading succeeded.
+    bool AppendCreativeUserBank(const PresetCatalog& font) {
+        for(const auto& e:font.Entries())
+            if(e.bank!=1u)return false;
+        entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
+            [](const PresetEntry& e){return e.bank==1u;}),entries_.end());
+        entries_.insert(entries_.end(),
+            font.Entries().begin(),font.Entries().end());
+        std::sort(entries_.begin(),entries_.end(),
+            [](const PresetEntry& a,const PresetEntry& b) {
+                return a.bank!=b.bank?a.bank<b.bank:a.program<b.program;
+            });
+        return true;
+    }
+    // Creative AWEManager loads the SoundFont as USER bank 1.
+    // A standard SF2 may contain bank 0 melodic programs *and* bank 128
+    // percussion programs. P007BB incorrectly rejected ALL melodic
+    // names whenever any nonzero source bank existed. Keep the original
+    // ROM bank 0, expose only actual SF2 melodic bank-0 phdr entries as
+    // Creative USER bank 1, and do not invent slots for absent programs.
+    // Other source banks are deliberately not assigned an unproven
+    // audible Creative MIDI routing; drum-channel support is separate.
+    // Host user-bank1 melodic programs and separate channel10 drum-kit lane.
+    // Never replace original ROM bank0 or fabricate absent SF2 slots.
+    std::size_t AppendCreativeMelodicUserOneFromSource(
+        const PresetCatalog& source) {
+        PresetCatalog mapped;
+        std::size_t melodic=0u;
+        for(const auto& e:source.Entries()) {
+            if(e.bank==0u && !e.drums) {
+                mapped.entries_.push_back({1u,e.program,e.name,false});
+                ++melodic;
+            } else if(e.bank==128u && e.drums) {
+                // Display actual source bank128 drumkits in a separate
+                // browser lane (logical 129 => actual MIDI channel10).
+                mapped.entries_.push_back({129u,e.program,e.name,true});
+            }
+        }
+        entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
+            [](const PresetEntry& e){
+                return e.bank==1u||e.bank==129u;
+            }),entries_.end());
+        entries_.insert(entries_.end(),
+            mapped.Entries().begin(),mapped.Entries().end());
+        std::sort(entries_.begin(),entries_.end(),
+            [](const PresetEntry& a,const PresetEntry& b){
+                return a.bank!=b.bank?a.bank<b.bank:a.program<b.program;
+            });
+        return melodic;
     }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;

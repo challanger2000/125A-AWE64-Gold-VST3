@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
+#include <vector>
+#include <utility>
 namespace p007::state {
 using LegacyImage=std::array<std::uint8_t,16>;
 using Image=std::array<std::uint8_t,44>;
@@ -78,6 +81,59 @@ inline bool decode(const Image& bytes,Values& out) noexcept {
  }
  out=v;return true;
 }
+// V3 stores the host SF2 path as UTF-8, NOT private SoundFont contents.
+// The usual ROM-only project remains exactly the V2 44-byte image.
+// V3 = 44-byte V2-compatible parameter prefix (but version 3), little-
+// endian path length, path bytes, final FNV-1a integrity hash.
+// Bounded to 1024 bytes; malformed state must not change live params/path.
+inline constexpr unsigned maxSf2PathBytes=1024u;
+inline std::vector<std::uint8_t> encodeWithSf2(
+    const Values& values,const std::string& utf8Path) {
+    if(utf8Path.empty()||utf8Path.size()>maxSf2PathBytes||
+       utf8Path.find('\0')!=std::string::npos)return {};
+    auto prefix=encode(values);
+    std::vector<std::uint8_t> bytes(prefix.begin(),prefix.end());
+    bytes[4]=3u;
+    for(unsigned i=40u;i<44u;++i)bytes[i]=0u;
+    const auto n=static_cast<std::uint16_t>(utf8Path.size());
+    bytes.push_back(static_cast<std::uint8_t>(n));
+    bytes.push_back(static_cast<std::uint8_t>(n>>8u));
+    bytes.insert(bytes.end(),utf8Path.begin(),utf8Path.end());
+    const auto hash=checksum(bytes.data(),static_cast<unsigned>(bytes.size()));
+    for(unsigned i=0u;i<4u;++i)
+        bytes.push_back(static_cast<std::uint8_t>(hash>>(8u*i)));
+    return bytes;
+}
+inline bool decodeWithSf2(const std::vector<std::uint8_t>& bytes,
+                          Values& output,std::string& utf8Path) {
+    if(bytes.size()<50u || bytes.size()>50u+maxSf2PathBytes ||
+       bytes[0]!='P'||bytes[1]!='7'||bytes[2]!='S'||bytes[3]!='T'||
+       bytes[4]!=3u||bytes[5]>127u||bytes[6]>127u||
+       bytes[7]||bytes[10]||bytes[11]||
+       bytes[36]||bytes[37]||bytes[38]||bytes[39]||
+       bytes[40]||bytes[41]||bytes[42]||bytes[43])
+        return false;
+    const unsigned n=unsigned(bytes[44])+(unsigned(bytes[45])<<8u);
+    if(n==0u || n>maxSf2PathBytes||bytes.size()!=50u+n ||
+       checksum(bytes.data(),static_cast<unsigned>(bytes.size()-4u))!=
+            (std::uint32_t(bytes[bytes.size()-4u]) | (std::uint32_t(bytes[bytes.size()-3u])<<8u) | (std::uint32_t(bytes[bytes.size()-2u])<<16u) | (std::uint32_t(bytes[bytes.size()-1u])<<24u)))return false;
+    for(unsigned i=46u;i<46u+n;++i)
+        if(bytes[i]==0u)return false;
+    Values values{};
+    values.bank=bytes[5];values.program=bytes[6];
+    values.master=static_cast<std::uint16_t>(
+        unsigned(bytes[8])+(unsigned(bytes[9])<<8u));
+    if(values.master>10000u)return false;
+    for(unsigned i=0u;i<12u;++i){
+        const auto value=unsigned(bytes[12u+i*2u])+
+                         (unsigned(bytes[13u+i*2u])<<8u);
+        if(value>10000u)return false;
+        values.modulation[i]=static_cast<std::uint16_t>(value);
+    }
+    std::string path(reinterpret_cast<const char*>(bytes.data()+46u),n);
+    output=values;utf8Path=std::move(path);return true;
+}
+
 inline std::uint16_t masterToBasisPoints(float value) noexcept {
  if(!std::isfinite(value))return 10000u;
  return static_cast<std::uint16_t>(std::lround(

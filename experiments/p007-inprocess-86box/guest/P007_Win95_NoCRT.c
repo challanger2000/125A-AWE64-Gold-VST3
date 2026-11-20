@@ -154,18 +154,322 @@ static void panic(HMIDIOUT h){
  for(ch=0;ch<16u;++ch)
   (void)midiOutShortMsg(h,(DWORD)(0xb0u|ch|(123u<<8)));
 }
+/* P007AU: ORIGINAL installed Creative Windows-95 AWEMAN32 API.
+ * A separate private FAT16 IDE slave exposes D:\P007FONT.SF2. This is
+ * NOT a SoundFont parser / replacement synth in the host VST3.
+ * Exact published Creative ABI: AWE_OPEN=101, AWE_LOAD_USER_BANK=204,
+ * 14-byte CBufferObject (#pragma pack 2), OPER_FILE=0, user bank 1.
+ * Do not emit a successful SF2 acknowledgment until AWEManager returns 0.
+ * The guest never modifies the original Win95 HDD or external host files.
+ */
+#define P007_SF2_OK_TOKEN "P007-AWE-SF2-OK-1\n"
+#define P007_SF2_FAIL_TOKEN "P007-AWE-SF2-FAIL-1\n"
+#define P007_GM_ROM_BANK2_OK_TOKEN "P007-GM-ROM-BANK2-OK-1\n"
+#define P007_GM_ROM_BANK2_FAIL_TOKEN "P007-GM-ROM-BANK2-FAIL-1\n"
+typedef LONG (WINAPI *P007_CREATIVE_MANAGER)(DWORD,UINT,LPARAM,LPARAM);
+#pragma pack(push,2)
+typedef struct {
+ DWORD m_Size;
+ LPSTR m_Buffer;
+ DWORD m_SizeUsed;
+ WORD m_Flag;
+} P007_CREATIVE_FILE_BUFFER;
+#pragma pack(pop)
+typedef char p007_creative_abi_assert[
+    (sizeof(P007_CREATIVE_FILE_BUFFER)==14u)?1:-1];
+static HMODULE s_creative_sf2_dll=0;
+static P007_CREATIVE_MANAGER s_creative_manager=0;
+static DWORD s_creative_handle=0u;
+static int s_creative_user_bank_loaded=0;
+static int s_original_gm_rom_bank2_loaded=0;
+
+/* P007BS: Create an ORIGINAL Creative manager handle even with NO user SF2.
+ * A bare 1-MiB EMU8000 sample ROM is not a bank-128 Standard kit mapping. */
+static int p007_open_original_creative_manager(void){
+ LONG rc;
+ if(s_creative_manager && s_creative_handle)return 1;
+ s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
+ if(!s_creative_sf2_dll){
+   log_line("P007BS_ORIGINAL_AWEMAN32_NOT_FOUND\r\n");return 0;
+ }
+ s_creative_manager=(P007_CREATIVE_MANAGER)
+     GetProcAddress(s_creative_sf2_dll,"AWEManager");
+ if(!s_creative_manager){
+   log_line("P007BS_ORIGINAL_AWEMANAGER_NOT_FOUND\r\n");
+   FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return 0;
+ }
+ rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
+ if(rc!=0||s_creative_handle==0u){
+   log_line("P007BS_ORIGINAL_AWE_OPEN_FAILED\r\n");
+   s_creative_manager=0;
+   FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return 0;
+ }
+ return 1;
+}
+/* Official Creative 1996 AWE API: AWE_SELECT_SYN_BANK=203,
+ * GM synth index 0 = SYNTHGM.SBK, installed in Win95 SYSTEM folder.
+ * Select before the WinMM stream and any user-bank load, without any
+ * emulated/replacement host synth or alteration to the EMU8000 core. */
+static int p007_select_original_gm_synthbank(void){
+ LONG rc;
+ if(!p007_open_original_creative_manager())return 0;
+ rc=s_creative_manager(s_creative_handle,203u,0u,0);
+ if(rc!=0){
+   log_line("P007BS_ORIGINAL_GM_SYNTHBANK_SELECT_FAILED\r\n");
+   return 0;
+ }
+ log_line("P007BS_ORIGINAL_GM_SYNTHBANK_SELECTED\r\n");
+ return 1;
+}
+/* Original Creative Windows95 manager loads the REAL 1996 SYNTHGM.SBK
+ * (ROM sample addresses, Standard drum preset) into a second independent
+ * USER bank 2, while USER bank 1 remains available for all owner SF2.
+ * No sample renderer or chip hack. The normal GM synth bank0 is untouched.
+ * Both AWE_LOAD_USER_BANK and AWE_GET_UBANK_PARENT must succeed. */
+static int p007_install_original_gm_drum_rom_bank2(void) {
+ const char *name="C:\\WINDOWS\\SYSTEM\\SYNTHGM.SBK";
+ char filename[128];
+ unsigned char riff[12];
+ DWORD n=0,size;
+ HANDLE f=INVALID_HANDLE_VALUE;
+ P007_CREATIVE_FILE_BUFFER bank;
+ WORD parent=2u;
+ LONG rc;
+ if(!p007_open_original_creative_manager())return 0;
+ f=CreateFileA(name,GENERIC_READ,FILE_SHARE_READ,NULL,OPEN_EXISTING,
+               FILE_ATTRIBUTE_NORMAL,NULL);
+ if(f==INVALID_HANDLE_VALUE){
+    log_line("P007BV_ORIGINAL_SYNTHGM_SBK_NOT_FOUND\r\n");return 0;
+ }
+ size=GetFileSize(f,NULL);
+ if(size<96u||size>28u*1024u*1024u||
+    !ReadFile(f,riff,12u,&n,NULL)||n!=12u||
+    riff[0]!='R'||riff[1]!='I'||riff[2]!='F'||riff[3]!='F'||
+    riff[8]!='s'||riff[9]!='f'||riff[10]!='b'||riff[11]!='k'||
+    ((DWORD)riff[4]|((DWORD)riff[5]<<8u)|
+     ((DWORD)riff[6]<<16u)|((DWORD)riff[7]<<24u))!=size-8u) {
+    CloseHandle(f);
+    log_line("P007BV_ORIGINAL_SYNTHGM_INVALID_RIFF\r\n");return 0;
+ }
+ CloseHandle(f);
+ clear(filename,sizeof(filename));
+ (void)lstrcpyA(filename,name);
+ bank.m_Size=(DWORD)lstrlenA(filename)+1u;
+ bank.m_Buffer=filename;
+ bank.m_SizeUsed=0u;
+ bank.m_Flag=0u; /* Creative OPER_FILE */
+ rc=s_creative_manager(s_creative_handle,204u,2u,(LPARAM)&bank);
+ if(rc!=0){
+    log_line("P007BV_ORIGINAL_ROM_USERBANK2_LOAD_FAILED\r\n");return 0;
+ }
+ rc=s_creative_manager(s_creative_handle,310u,(LPARAM)&parent,0);
+ if(rc!=0||parent!=2u){
+    log_line("P007BV_ORIGINAL_ROM_USERBANK2_PARENT_FAILED\r\n");return 0;
+ }
+ log_line("P007BV_ORIGINAL_ROM_USERBANK2_CREATIVE_API_PASS\r\n");
+ return 1;
+}
+/* Creative GM Channel10 initialization happens internally, never asking
+ * the owner to select a MIDI channel. It is reapplied after WinMM reopen.
+ * A failed original WinMM call never claims that ROM drums are playable. */
+static int p007_arm_original_gm_ch10(HMIDIOUT synth){
+ if(!synth || !s_original_gm_rom_bank2_loaded)return 0;
+ if(midiOutShortMsg(synth,(DWORD)(0xb9u|(2u<<16)))!=MMSYSERR_NOERROR ||
+    midiOutShortMsg(synth,(DWORD)(0xb9u|(32u<<8)))!=MMSYSERR_NOERROR ||
+    midiOutShortMsg(synth,(DWORD)0xc9u)!=MMSYSERR_NOERROR){
+    log_line("P007BV_ORIGINAL_ROM_CH10_WINMM_INIT_FAILED\r\n");
+    return 0;
+ }
+ return 1;
+}
+static int p007_load_original_creative_sf2_path(const char *path){
+ /* Source is always a REAL file in the live Win95 guest filesystem. */
+ if(!path || !*path)return -1;
+ char filename[128];
+ unsigned char riff[12];DWORD n=0,size=0;
+ HANDLE file=CreateFileA(path,GENERIC_READ,FILE_SHARE_READ,
+                         NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+ P007_CREATIVE_FILE_BUFFER b;
+ LONG rc;
+ if(file==INVALID_HANDLE_VALUE)return 0; /* guest ROM-only */
+ size=GetFileSize(file,NULL);
+ if(size<96u||size>28u*1024u*1024u||
+    !ReadFile(file,riff,12u,&n,NULL)||n!=12u||
+    riff[0]!='R'||riff[1]!='I'||riff[2]!='F'||riff[3]!='F'||
+    riff[8]!='s'||riff[9]!='f'||riff[10]!='b'||riff[11]!='k'||
+    ((DWORD)riff[4]|((DWORD)riff[5]<<8u)|
+     ((DWORD)riff[6]<<16u)|((DWORD)riff[7]<<24u))!=size-8u) {
+    CloseHandle(file);
+    log_line("P007_GUEST_SF2_INVALID_FILE\r\n");return -1;
+ }
+ CloseHandle(file);
+ if(!p007_open_original_creative_manager())return -1;
+ if(s_creative_user_bank_loaded) {
+    /* Creative AWE_CLEAR_USER_BANK=205, bank1 ONLY; never touch GM bank0 */
+    rc=s_creative_manager(s_creative_handle,205u,1u,0);
+    if(rc!=0)log_line("P007_LIVE_SF2_CREATIVE_CLEAR_BANK1_FAILED\r\n");
+    s_creative_user_bank_loaded=0;
+ }
+ clear(filename,sizeof(filename));
+ (void)lstrcpyA(filename,path);
+ /* Creative's 1996 SetUserBank reference passes nStrlen, not the
+  * 128-byte capacity of the local filename array. */
+ b.m_Size=(DWORD)lstrlenA(filename)+1u;
+ b.m_Buffer=filename;
+ b.m_SizeUsed=0u;
+ b.m_Flag=0u; /* OPER_FILE */
+ rc=s_creative_manager(s_creative_handle,204u,1u,(LPARAM)&b);
+ if(rc!=0) {
+    log_line("P007_GUEST_SF2_ORIGINAL_AWE_LOAD_USER_BANK_FAILED\r\n");
+    /* Reuse this real Creative AWEManager handle on the NEXT attempt;
+       a rejected bank file must not strand subsequent hot reloads. */
+    return -1;
+ }
+ /* An AWE_LOAD_USER_BANK return code alone is insufficient evidence
+  * that bank 1 was actually installed. The ORIGINAL Creative 1996
+  * AWE_GET_UBANK_PARENT (=310) returns bank number unchanged for a bank
+  * self-loaded by this API, or 0xffff if the bank is absent. Unlike a
+  * descriptive NAME, parent ownership is a bank-presence check. */
+ {
+    WORD parent=1u;
+    LONG qrc=s_creative_manager(s_creative_handle,310u,
+                                 (LPARAM)&parent,0);
+    if(qrc!=0 || parent!=1u) {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_NOT_SELF_LOADED\r\n");
+       return -1;
+    }
+    log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_PARENT_VERIFIED\r\n");
+ }
+ /* Optional original Creative bank-descriptor diagnostic. A blank
+  * descriptor is permitted for otherwise valid SoundFonts, so it must
+  * NOT create a false rejection of a present bank. */
+ {
+    char descriptor[64];
+    P007_CREATIVE_FILE_BUFFER verify;
+    LONG qrc;
+    clear(descriptor,sizeof(descriptor));
+    clear(&verify,sizeof(verify));
+    verify.m_Size=sizeof(descriptor);
+    verify.m_Buffer=descriptor;
+    qrc=s_creative_manager(s_creative_handle,306u,1u,(LPARAM)&verify);
+    if(qrc==0 && verify.m_SizeUsed>2u &&
+       verify.m_SizeUsed<=sizeof(descriptor) && descriptor[0]!=0) {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_PRESENT\r\n");
+    } else {
+       log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_EMPTY\r\n");
+    }
+ }
+ s_creative_user_bank_loaded=1;
+ log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_API_LOADED\r\n");
+ return 1;
+}
+
+/* P007BE private file transport, not a synth or synthetic playback.
+ * The original 86Box guest CPU performs all port reads as x86 hardware I/O.
+ * Win95 writes the file in its own filesystem, then AWEMAN32 loads it.
+ * Only a real AWEManager return and bank1 verification may emit SF2_OK.
+ */
+#define P007_LIVE_PORT 0xeb00u
+#define P007_LIVE_MAGIC 0xa7u
+static DWORD p007_live_in32(unsigned short port){
+ DWORD result;
+ __asm { mov dx,port
+         in eax,dx
+         mov result,eax }
+ return result;
+}
+static DWORD p007_live_length(void){
+ DWORD len=0u;
+ unsigned i;
+ for(i=0u;i<4u;++i)
+   len|=((DWORD)uart_in((unsigned short)(P007_LIVE_PORT+2u+i)))<<(8u*i);
+ return len;
+}
+static int p007_live_receive_file(void){
+ /* /NODEFAULTLIB Win95 PE32: avoid __chkstk for >4 KiB stack frames. */
+ static BYTE buffer[4096];
+ DWORD total=0u,pos=0u,written=0u;
+ DWORD length=p007_live_length();
+ HANDLE output;
+ if(length<96u || length>28u*1024u*1024u)return -1;
+ uart_out((unsigned short)(P007_LIVE_PORT+6u),1u);
+ output=CreateFileA("C:\\P007FONT.SF2",GENERIC_WRITE,0,NULL,
+                    CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,NULL);
+ if(output==INVALID_HANDLE_VALUE)return -1;
+ while(total<length) {
+   DWORD word=p007_live_in32((unsigned short)(P007_LIVE_PORT+8u));
+   unsigned i;
+   for(i=0u;i<4u && total<length;++i) {
+     buffer[pos++]=(BYTE)(word>>(8u*i));
+     ++total;
+     if(pos==sizeof(buffer)) {
+        written=0u;
+        if(!WriteFile(output,buffer,pos,&written,NULL)||written!=pos){
+            CloseHandle(output);return -1;
+        }
+        pos=0u;
+     }
+   }
+ }
+ if(pos) {
+    written=0u;
+    if(!WriteFile(output,buffer,pos,&written,NULL)||written!=pos) {
+        CloseHandle(output);return -1;
+    }
+ }
+ if(!FlushFileBuffers(output)){CloseHandle(output);return -1;}
+ CloseHandle(output);
+ return 1;
+}
+static void p007_live_ack(HANDLE com,int raw_mode,int ok){
+ uart_out((unsigned short)(P007_LIVE_PORT+6u),ok?2u:3u);
+ if(raw_mode)(void)uart_send_raw(ok?
+   P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN);
+ else if(com!=INVALID_HANDLE_VALUE)
+   (void)send_guest_marker(com,ok?
+     P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN);
+}
 __declspec(noreturn) void __cdecl P007GuestMain(void){
  HANDLE com=INVALID_HANDLE_VALUE;HMIDIOUT synth=NULL;
- int raw_mode=0,connected=0;
+ int raw_mode=0,connected=0, sf2_result=0;
  unsigned char bytes[P007_PACKET_SIZE],byte=0;
  unsigned count=0;DWORD got=0;
  log_line("P007 Windows95 original Creative AWE WinMM relay\r\n");
+ /* Follow the original Creative control-panel workflow: install
+  * the user bank BEFORE opening the WinMM synthesizer stream. Previously
+  * midiOutOpen happened first and could retain an older bank map.
+  * AWEManager's state is kept open for the entire guest relay lifetime. */
+ /* P007BS: actually install original GM Synthesizer Bank 0 first.
+  * The private Win95 HDD has real SYNTHGM.SBK with Standard kit bank128.
+  * Bank0 must be selected through ORIGINAL AWEMAN32, not by
+  * merely sending bank 0 MIDI to a possibly uninitialized synth bank. */
+ if(!p007_select_original_gm_synthbank())
+   log_line("P007BS_GM_ROM_PERCUSSION_BANK_NOT_CONFIRMED\r\n");
+ s_original_gm_rom_bank2_loaded=p007_install_original_gm_drum_rom_bank2();
+ sf2_result=p007_load_original_creative_sf2_path("D:\\P007FONT.SF2");
  if(!select_original(&synth))ExitProcess(2);
+ (void)p007_arm_original_gm_ch10(synth);
  /* First request Win95 VCOMM port ownership. If that original driver
   * reports ERROR_FILE_NOT_FOUND, use the real 16550 x86 port I/O fallback,
   * as proven by the first full original Creative->EMU8000 PCM test.
   * Direct ring-3 I/O before a VCOMM request is unsafe on Win95. */
  for(;;){
+  if(connected && uart_in((unsigned short)P007_LIVE_PORT)==P007_LIVE_MAGIC){
+    /* Stop old notes and close WinMM before replacing the original bank
+       mapping. The physical driver/EMU8000 guest remain booted. */
+    int loaded=0;
+    if(p007_live_receive_file()>0) {
+       if(synth) {midiOutReset(synth);midiOutClose(synth);synth=NULL;}
+       loaded=p007_load_original_creative_sf2_path("C:\\P007FONT.SF2");
+       if(!select_original(&synth))loaded=-1;
+       else (void)p007_arm_original_gm_ch10(synth);
+    }
+    sf2_result=loaded>0?1:-1;
+    p007_live_ack(com,raw_mode,loaded>0);
+    log_line(loaded>0?"P007_LIVE_SF2_ORIGINAL_CREATIVE_LOADED_NO_REBOOT\r\n":
+                      "P007_LIVE_SF2_ORIGINAL_CREATIVE_FAILED\r\n");
+    continue;
+  }
   if(!connected){
    if(!raw_mode){
     com=open_serial();
@@ -180,6 +484,16 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
    }
    count=0;
    if(raw_mode){
+    if(!uart_send_raw(s_original_gm_rom_bank2_loaded?
+        P007_GM_ROM_BANK2_OK_TOKEN:P007_GM_ROM_BANK2_FAIL_TOKEN)){
+     log_line("P007BV_ORIGINAL_GM_BANK2_STATUS_SEND_FAILED\r\n");
+     Sleep(200u);continue;
+    }
+    if(sf2_result!=0 && !uart_send_raw(sf2_result>0?
+        P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN)) {
+     log_line("P007_GUEST_SF2_STATUS_SEND_FAILED\r\n");
+     Sleep(200u);continue;
+    }
     if(!uart_send_raw(P007_GUEST_READY_TOKEN)){
      log_line("P007_RAW_UART_READY_SEND_FAILED\r\n");
      Sleep(200u);continue;
@@ -187,6 +501,14 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
     log_line("P007_GUEST_RAW_UART_READY_SENT\r\n");
    }else{
     log_line("P007_GUEST_COM2_CONNECTED\r\n");
+    if(!send_guest_marker(com,s_original_gm_rom_bank2_loaded?
+        P007_GM_ROM_BANK2_OK_TOKEN:P007_GM_ROM_BANK2_FAIL_TOKEN)){
+     CloseHandle(com);com=INVALID_HANDLE_VALUE;Sleep(200u);continue;
+    }
+    if(sf2_result!=0 && !send_guest_marker(com,sf2_result>0?
+        P007_SF2_OK_TOKEN:P007_SF2_FAIL_TOKEN)){
+     CloseHandle(com);com=INVALID_HANDLE_VALUE;Sleep(200u);continue;
+    }
     if(!send_guest_marker(com,P007_GUEST_READY_TOKEN)){
      CloseHandle(com);com=INVALID_HANDLE_VALUE;Sleep(200u);continue;
     }
@@ -231,5 +553,9 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
   }
  }
  if(com!=INVALID_HANDLE_VALUE)CloseHandle(com);
- midiOutReset(synth);midiOutClose(synth);ExitProcess(3);
+ midiOutReset(synth);midiOutClose(synth);
+ if(s_creative_handle && s_creative_manager)
+   (void)s_creative_manager(s_creative_handle,102u,0,0);
+ if(s_creative_sf2_dll)FreeLibrary(s_creative_sf2_dll);
+ ExitProcess(3);
 }

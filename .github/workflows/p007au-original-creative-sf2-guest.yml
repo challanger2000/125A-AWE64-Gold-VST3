@@ -1,0 +1,42 @@
+name: P007AU original Creative Win95 SF2 guest loader
+on:
+  push:
+    branches: [feature/p007au-original-creative-sf2-guest-loading-20261119]
+    paths:
+      - "experiments/p007-inprocess-86box/guest/**"
+      - ".github/workflows/p007au-original-creative-sf2-guest.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-creative-pe32:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Win95 PE32 guest relay using the ORIGINAL Creative AWEMAN32 API
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          cmake -S experiments/p007-inprocess-86box/guest -B build/p007-win95guest -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -ne 0) {throw "Win95 guest configuration failed"}
+          cmake --build build/p007-win95guest --config Release --target P007_Win95_Original_Creative_Relay --parallel 2
+          if ($LASTEXITCODE -ne 0) {throw "Win95 original Creative guest build failed"}
+          $exe="build/p007-win95guest/Release/P007_Win95_Original_Creative_Relay.exe"
+          if (!(Test-Path $exe)) {throw "Win95 original guest PE32 missing"}
+          $bytes=[IO.File]::ReadAllBytes((Resolve-Path $exe))
+          $pe=[BitConverter]::ToInt32($bytes,0x3C)
+          if ([Text.Encoding]::ASCII.GetString($bytes,0,2) -ne "MZ" -or
+              $bytes[$pe] -ne 80 -or $bytes[$pe+1] -ne 69 -or
+              [BitConverter]::ToUInt16($bytes,$pe+4) -ne 0x14c -or
+              [BitConverter]::ToUInt16($bytes,$pe+24+48) -ne 4) {
+             throw "Win95 PE32 x86 binary or subsystem major invalid"
+          }
+          Write-Host "P007AU_WIN95_32BIT_ORIGINAL_CREATIVE_AWEMAN_LOADER_BUILD_PASS"
+      - name: Publish ONLY public PE32 relay executable (never licensed guest HDD or SF2)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AU-Win95-Creative-SF2-Guest-Relay-EXE-PUBLIC
+          path: build/p007-win95guest/Release/P007_Win95_Original_Creative_Relay.exe
+          if-no-files-found: error
+          retention-days: 5

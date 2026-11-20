@@ -12,8 +12,12 @@
 #include <86box/mem.h>
 #include "P007BootTrace.h"
 #include "P007MidiUart.h"
+#include "P007LiveSf2.h"
 /* Configuration is owned by the original 86Box source. */
 extern int gfxcard[];
+/* 86Box original pc_close sets this exit latch. It must be reset before
+   starting another original guest in the SAME loaded VST3 module. */
+extern volatile int is_quit;
 #include "P007CoreABI.h"
 #ifdef _WIN32
 #define P007_EXPORT __declspec(dllexport)
@@ -86,6 +90,9 @@ P007_EXPORT int p007_core_init_profile(
     char *argv[]={
       program,vmpath,vm,rompath,rom,assetopt,asset,config,cfg,globalopt,global
     };
+    /* A DAW can reuse the same DLL after closing an internal guest.
+       Original pc_close sets is_quit; a new pc_init must clear this. */
+    is_quit=0;
     /* Match the ORIGINAL SDL frontend order: SDL_Init(0) precedes pc_init.
        86Box platform setup can touch SDL state while parsing the profile. */
     if (SDL_Init(0) != 0) return -3;
@@ -107,7 +114,11 @@ static void p007_headless_blit(int x,int y,int w,int h,int monitor_index) {
     video_blit_complete_monitor(monitor_index);
 }
 static int s_guest_stage;
+static unsigned s_real_guest_cold_boots;
 P007_EXPORT int p007_core_guest_stage(void) { return s_guest_stage; }
+P007_EXPORT unsigned p007_core_guest_cold_boot_count(void) {
+    return s_real_guest_cold_boots;
+}
 
 /* Private Win95 cold-boot aids, exclusively on the emulator worker thread.
    All keystrokes use ORIGINAL 86Box keyboard hardware inside the guest;
@@ -179,6 +190,9 @@ P007_EXPORT int p007_core_guest_boot(void) {
     /* Must register before the original BIOS/VGA first blit occurs. */
     video_setblit(p007_headless_blit);
     pc_reset_hard_init();
+    /* Private file-transfer hardware; no original CPU/EMU8000 changes. */
+    p007_live_soundfont_attach();
+    ++s_real_guest_cold_boots; /* actual original x86 cold reset count */
     s_f1_release_at=s_enter_release_at=0u;
     s_win95_start_at=s_last_enter_at=0u;
     s_f1_sent=s_win95_seen=s_enter_count=0u;
@@ -192,8 +206,19 @@ P007_EXPORT int p007_core_guest_step(void) {
 }
 P007_EXPORT void p007_core_guest_close(void) {
     if (s_guest_stage != 1) return;
+    p007_live_soundfont_detach();
     pc_close(NULL);
     video_setblit(NULL);
-    s_guest_stage = 2;
+    /* The guest has been torn down; clear all Creative WinMM ACK/serial
+       parser and queued MIDI bytes before a fresh Win95 boot. Otherwise
+       stale READY+SF2-OK from the old guest wrongly marks the new guest
+       ready before the Creative driver even starts. */
+    p007_midi_guest_retire();
     SDL_Quit();
+    /* Original 86Box was written for one process launch. The adapter must
+       re-arm its lifecycle latches after a full device teardown; otherwise
+       the next SF2 selection or DAW activation fails init with -2. */
+    s_profile_initialized=0;
+    s_guest_stage=0;
+    is_quit=0;
 }

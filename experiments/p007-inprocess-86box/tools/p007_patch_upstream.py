@@ -24,7 +24,7 @@ def main():
     cm=fork/"src/CMakeLists.txt"
     original=cm.read_text(encoding="utf-8")
     before="add_executable(86Box\n    86box.c\n"
-    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n    P007BootTrace.c\n"
+    after="add_library(86Box SHARED\n    86box.c\n    P007CoreExports.c\n    P007AudioRing.c\n    P007MidiUart.c\n    P007LiveSf2.c\n    P007BootTrace.c\n"
     if original.count(before)!=1:
         raise SystemExit("P007_REJECT_UPSTREAM_BUILD_LAYOUT")
     dst=fork/"src/P007CoreExports.c"
@@ -38,11 +38,14 @@ def main():
     dst.write_bytes((source/"fork/P007CoreExports.c").read_bytes())
     shutil.copyfile(source/"fork/P007AudioRing.c",fork/"src/P007AudioRing.c")
     shutil.copyfile(source/"fork/P007MidiUart.c",fork/"src/P007MidiUart.c")
+    shutil.copyfile(source/"fork/P007LiveSf2.c",fork/"src/P007LiveSf2.c")
     shutil.copyfile(source/"fork/P007BootTrace.c",fork/"src/P007BootTrace.c")
     include=fork/"src/include/P007CoreABI.h"
     shutil.copyfile(source/"include/P007CoreABI.h",include)
     shutil.copyfile(source/"include/P007AudioRing.h",fork/"src/include/P007AudioRing.h")
     shutil.copyfile(source/"include/P007MidiUart.h",fork/"src/include/P007MidiUart.h")
+    shutil.copyfile(source/"include/P007LiveSf2.h",fork/"src/include/P007LiveSf2.h")
+    shutil.copyfile(source/"include/P007SerialRxGuard.h",fork/"src/include/P007SerialRxGuard.h")
     shutil.copyfile(source/"include/P007BootTrace.h",fork/"src/include/P007BootTrace.h")
     # Connect directly to the ORIGINAL 86Box post-mixer wavetable
     # before its SDL/OpenAL audio device. Never mutate snd_emu8k.c.
@@ -103,11 +106,21 @@ def main():
             serial_write_fifo(dev, val);
     }
 """
-    uart_replace="""    /* P007: in-process only; COM2 byte takes original UART receive tick. */
+    uart_replace="""    /* P007BA: in-process COM2, but never overflow the ORIGINAL
+     * emulated 16550's 16-byte receiver FIFO with MIDI chords/NRPN.
+     * Check the actual hardware FIFO BEFORE taking another wire byte.
+     * Once full, keep the byte in our bounded host UART ring until the
+     * original Creative Win95 guest reads the hardware port. */
     if (dev->inst == 1 && p007_midi_uart_active()) {
-        uint8_t val;
-        if (p007_midi_uart_take_byte(&val))
-            serial_write_fifo(dev, val);
+        const int fifo_mode=(dev->type >= SERIAL_16550) && dev->fifo_enabled;
+        const unsigned filled=fifo_mode && dev->rcvr_fifo
+                              ?(unsigned)fifo_get_count(dev->rcvr_fifo):0u;
+        if (p007_serial_rx_has_room(fifo_mode,filled,
+                (dev->lsr & 0x01)!=0,dev->out_new != 0xffff)) {
+            uint8_t val;
+            if (p007_midi_uart_take_byte(&val))
+                serial_write_fifo(dev, val);
+        }
     } else if (dev->char_port.chardev.read) {
         uint8_t val;
         if (dev->char_port.chardev.read(&val, sizeof(val), dev->char_port.chardev.priv) > 0)
@@ -140,7 +153,7 @@ def main():
         raise SystemExit("P007_REJECT_ORIGINAL_UART_TRANSMIT_SIGNATURE")
     uart.write_text(uart_text.replace(
         "#include <86box/serial.h>",
-        "#include <86box/serial.h>\n#include <P007MidiUart.h>",1
+        "#include <86box/serial.h>\n#include <P007MidiUart.h>\n#include <P007SerialRxGuard.h>",1
     ).replace(uart_origin,uart_replace,1
     ).replace(tx_origin,tx_replace,1),encoding="utf-8",newline="\n")
 

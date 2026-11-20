@@ -9,6 +9,8 @@
 #include "P007CreativeNrpn.hpp"
 #include "P007CreativeNrpnPacer.hpp"
 #include "P007MidiDelivery.hpp"
+#include "P007MidiNoteRoute.hpp"
+#include "P007BankProgramPacer.hpp"
 #include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include "public.sdk/source/vst/vstparameters.h"
@@ -20,6 +22,7 @@
 #include <atomic>
 #include <string>
 #include <thread>
+#include <mutex>
 namespace p007 {
 inline constexpr Steinberg::Vst::ParamID kP165Program=1000u;
 inline constexpr Steinberg::Vst::ParamID kP165Master=1001u;
@@ -30,9 +33,19 @@ class Core final {
     bool ownsInstance_=false;
     std::thread emulatorThread_{};
     std::atomic<bool> stop_{false};
+    // GUI queues an SF2 switch; only the existing 86Box worker thread
+    // stops/starts the original Win95 guest. NEVER reboot in process().
+    std::mutex reloadMutex_{};
+    std::wstring requestedSf2_{};
+    std::atomic<bool> reloadPending_{false};
+    std::atomic<bool> awaitingSf2Ack_{false}; // no stale ROM/SF2 READY during hot swap
+    std::atomic<bool> liveTransferInFlight_{false}; // old ACK cannot approve newly queued SF2
+    std::uint32_t expectedLiveComplete_=0u; // original 86Box worker only; immutable per transfer
+    void runPrivateGuestSession(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
     std::atomic<int> bootStatus_{0};
     std::atomic<int> guestReady_{0};
-    void runPrivateGuest(std::wstring moduleFolder) noexcept;
+    std::atomic<int> sf2Result_{0};
+    void runPrivateGuest(std::wstring moduleFolder,std::wstring selectedSf2) noexcept;
 public:
     using Pull=std::uint32_t (__cdecl*)(float*,std::uint32_t);
     using Trim=std::uint32_t (__cdecl*)(std::uint32_t,std::uint32_t);
@@ -44,6 +57,10 @@ public:
     using GuestClose=void (__cdecl*)();
     using BootAssist=int (__cdecl*)(std::uint32_t);
     using GuestReady=int (__cdecl*)();
+    using GuestSf2Status=int (__cdecl*)();
+    using LivePublish=int (__cdecl*)(const void*,std::uint32_t);
+    using LiveState=int (__cdecl*)();
+    using LiveCount=std::uint32_t (__cdecl*)();
     Pull pull=nullptr;
     Trim trimBacklog=nullptr;
     Midi midi=nullptr;
@@ -54,15 +71,37 @@ public:
     GuestClose guestClose=nullptr;
     BootAssist bootAssist=nullptr;
     GuestReady guestReadyFn=nullptr;
+    GuestSf2Status guestSf2StatusFn=nullptr;
+    LivePublish livePublish=nullptr;
+    LiveState liveState=nullptr;
+    LiveCount livePublishCount=nullptr;
+    LiveCount liveCompleteCount=nullptr;
+    LiveCount liveFailCount=nullptr;
     Core()=default;
     Core(Core const&)=delete;
     Core& operator=(Core const&)=delete;
     ~Core(){closeNonRealtime();}
-    bool openNonRealtime() noexcept;
+    bool openNonRealtime(const std::wstring& selectedSf2=L"") noexcept;
     void closeNonRealtime() noexcept;
+    bool requestSoundFontReload(const std::wstring& path) noexcept;
     [[nodiscard]] bool present() const noexcept{return module_!=nullptr;}
     [[nodiscard]] int bootStatus() const noexcept{return bootStatus_.load(std::memory_order_acquire);}
-    [[nodiscard]] bool guestReady() const noexcept{return guestReady_.load(std::memory_order_acquire)!=0;}
+    // On live SF2 replacement the previous Win95 guest can remain READY
+    // for a few worker ticks. Do not publish its *old* Creative ACK or
+    // accept MIDI as if it belonged to the newly selected SoundFont.
+    [[nodiscard]] bool guestReady() const noexcept {
+        return !reloadPending_.load(std::memory_order_acquire) &&
+               !awaitingSf2Ack_.load(std::memory_order_acquire) &&
+               guestReady_.load(std::memory_order_acquire)!=0;
+    }
+    [[nodiscard]] bool soundFontReloadPending() const noexcept {
+        return reloadPending_.load(std::memory_order_acquire) ||
+               awaitingSf2Ack_.load(std::memory_order_acquire);
+    }
+    [[nodiscard]] int guestSf2Status() const noexcept {
+        return soundFontReloadPending()?0:
+               sf2Result_.load(std::memory_order_acquire);
+    }
 };
 class Plugin final : public Steinberg::Vst::SingleComponentEffect,
                      public VSTGUI::VST3EditorDelegate {
@@ -81,8 +120,20 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     creative_nrpn::FramePace creativeFramePace_{}; // at least 20ms between NRPN short MIDI packets
     std::atomic<bool> programNeedsSending_{true};
     bool sentInitialProgram_=false;
+    BankProgramPacer bankProgramPacer_{}; // P007AZ original Creative bank/patch pacing
+    creative_nrpn::FramePace bankFramePace_{}; // >=20ms per short MIDI message
     MidiDelivery midiDelivery_{}; // audio-thread only; retries rejected UART note packets
+    MidiNoteRoute midiNoteRoute_{}; // original MIDI channel for each held host note
+    mutable std::mutex sf2StateMutex_{}; // non-RT state/UI lifecycle only
+    std::string selectedSf2Path_{}; // UTF-8; selected for the NEXT activation
+    std::string activeSf2Path_{}; // user selection at the last successful activation
+    bool confirmedSf2Catalog_=false; // UI thread only; never fake selected presets
+    std::atomic<bool> sf2NoMelodicBank_{false}; // real SF2 may be drum-only; do not claim empty user bank
+    std::atomic<bool> sf2CatalogResetPending_{false}; // host-state restore -> UI thread only
+    std::atomic<std::uint64_t> sf2CatalogRevision_{1u};
     [[nodiscard]] int p165GuestStatus() const noexcept;
+    [[nodiscard]] std::string selectedSf2Path() const;
+    bool chooseOriginalSf2(const std::string& path);
 public:
     static Steinberg::FUnknown* createInstance(void*) {
         return static_cast<Steinberg::Vst::IAudioProcessor*>(new Plugin());

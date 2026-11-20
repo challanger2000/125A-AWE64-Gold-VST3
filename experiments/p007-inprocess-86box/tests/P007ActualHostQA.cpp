@@ -10,6 +10,7 @@
 #include "public.sdk/source/vst/hosting/eventlist.h"
 #include "public.sdk/source/common/memorystream.h"
 #include "P007OriginalAudioProof.hpp"
+#include "../vst3/P007StateCodec.hpp"
 #include "P007OriginalControlDifferential.hpp"
 #include "P007TenControlMatrix.hpp"
 #include "P007OriginalEnvFilterDepth.hpp"
@@ -32,6 +33,9 @@
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
+#include <fstream>
+#include <iterator>
+#include <vector>
 #include <string>
 #include <thread>
 
@@ -363,6 +367,13 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             auto next=std::chrono::steady_clock::now();
             for(unsigned iteration=0;iteration<100;++iteration) {
                 events.clear();
+                // P007BA actual VST3 integration negative control: hosts
+                // may resend unchanged automation at every buffer. The
+                // BankProgramPacer MUST still reach COMMIT; otherwise all
+                // NoteOn/Off and the original selected timbre starve.
+                require(plugin.controller->setParamNormalized(bankId,3./127.)==kResultOk &&
+                        plugin.controller->setParamNormalized(programId,40./127.)==kResultOk,
+                        "P007BA repeated identical host bank/program automation rejected");
                 if(iteration==5 || iteration==30 ||
                    iteration==40 || iteration==41) {
                     Event e{};
@@ -444,6 +455,7 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
             }
             require(noteOnCounter()>=2u && noteOffCounter()>=1u,
                     "host MIDI did not reach synthetic in-process guest core");
+            std::puts("P007BA_ACTUAL_WINDOWS_VST3_REPEATED_BANK_PROGRAM_AUTOMATION_SETTLES_PASS");
             require(noteOffRejections()==1u && noteOnOvertakes()==0u,
                     "P007AQ dropped rejected NoteOff or let later NoteOn overtake it");
             std::puts("P007AQ_REJECTED_NOTE_OFF_DELIVERED_BEFORE_LATER_NOTE_ON_PASS");
@@ -493,6 +505,48 @@ void syntheticGuestAudio(const VST3::Hosting::PluginFactory& factory,
                 require(noteOnCounter()==priorNotes,
                     "CRITICAL: MIDI note accepted after guest fatal failure");
                 std::puts("P007AP_FATAL_GUEST_STEP_MUTES_STALE_PCM_AND_MIDI_PASS");
+            }
+            // P007BB: the user's Studio One workflow exposed a guest
+            // lifecycle bug on deactivate/reactivate. Confirm a real VST3
+            // component reactivation in the SAME Windows host process, and
+            // deliver a new MIDI NoteOn after the second guest READY.
+            // This mode uses a SYNTHETIC test core only; the original
+            // Creative Win95 guest requires a separate private test.
+            if(hz==48000.) {
+                require(plugin.processor->setProcessing(false)==kResultOk,
+                        "P007BB synthetic first processing stop");
+                processing=false;
+                require(plugin.component->setActive(false)==kResultOk,
+                        "P007BB synthetic first guest deactivate");
+                active=false;
+                require(plugin.component->setActive(true)==kResultOk,
+                        "P007BB same-instance second guest activate");
+                active=true;
+                require(plugin.processor->setProcessing(true)==kResultOk,
+                        "P007BB same-instance processing resume");
+                processing=true;
+                for(unsigned spin=0;spin<300u&&!mockReady();++spin)
+                    std::this_thread::sleep_for(10ms);
+                require(mockReady()!=0u,
+                        "P007BB second guest never reported READY");
+                events.clear();
+                Event e{};
+                e.type=Event::kNoteOnEvent;
+                e.busIndex=0;e.sampleOffset=0;
+                e.noteOn.channel=0;e.noteOn.pitch=60;e.noteOn.velocity=.8f;
+                require(events.addEvent(e)==kResultOk,
+                        "P007BB MIDI event after guest reactivation");
+                for(unsigned tick=0;tick<20u;++tick) {
+                    left.fill(0.f);right.fill(0.f);
+                    require(plugin.processor->process(data)==kResultOk,
+                            "P007BB real VST3 processing after guest reactivation");
+                    if(noteOnCounter()>0u)break;
+                    events.clear();
+                    std::this_thread::sleep_for(22ms);
+                }
+                require(noteOnCounter()>0u,
+                        "P007BB NoteOn starved after second guest activation");
+                std::puts("P007BB_REAL_WINDOWS_VST3_SECOND_GUEST_ACTIVATION_SYNTHETIC_MIDI_PASS");
             }
             ++passedRates;
             std::printf("P007X_SYNTHETIC_VST3_HOST_AUDIO_MIDI_PASS"
@@ -1983,11 +2037,494 @@ void privateEnvFilterDepthProof(const VST3::Hosting::PluginFactory& factory,
     if(active)(void)plugin.component->setActive(false);
 }
 
+
+// P007AX: Read only the SoundFont2 preset headers, not its DSP/samples.
+// Prefer the distinctive bundled TX81Z Lately Bass (program 7) over
+// Program 0 (which formerly made the fallback-GM test inconclusive).
+// Every selected program comes from the ACTUAL user-supplied SF2, not a
+// fabricated 128-preset browser list.
+static unsigned sf2ProbeProgram(const fs::path& sf2) {
+    std::ifstream in(sf2,std::ios::binary);
+    require(bool(in),"P007AX SF2 file cannot be opened");
+    const std::vector<unsigned char> b(
+        (std::istreambuf_iterator<char>(in)),std::istreambuf_iterator<char>());
+    require(b.size()>=12 && b.size()<=28u*1024u*1024u,
+            "P007AX SF2 file size");
+    auto eq=[&](std::size_t off,const char* four) {
+        return off+4u<=b.size() &&
+            b[off]==static_cast<unsigned char>(four[0]) &&
+            b[off+1]==static_cast<unsigned char>(four[1]) &&
+            b[off+2]==static_cast<unsigned char>(four[2]) &&
+            b[off+3]==static_cast<unsigned char>(four[3]);
+    };
+    auto u32=[&](std::size_t off)->std::uint32_t {
+        return std::uint32_t(b[off])|(std::uint32_t(b[off+1])<<8u)|
+            (std::uint32_t(b[off+2])<<16u)|
+            (std::uint32_t(b[off+3])<<24u);
+    };
+    require(eq(0,"RIFF")&&eq(8,"sfbk")&&u32(4)==b.size()-8,
+            "P007AX invalid RIFF SoundFont");
+    int first=-1, prefer0=-1, prefer7=-1;
+    for(std::size_t pos=12;pos+8u<=b.size();) {
+        const auto len=u32(pos+4u);
+        const auto end=pos+8ull+len;
+        require(end<=b.size() && end>=pos+8u,"P007AX invalid RIFF chunk");
+        if(eq(pos,"LIST")&&len>=4u&&eq(pos+8,"pdta")){
+            for(std::size_t sub=pos+12u;sub+8u<=end;) {
+                const auto subLen=u32(sub+4u);
+                const auto subEnd=sub+8ull+subLen;
+                require(subEnd<=end && subEnd>=sub+8u,"P007AX invalid pdta chunk");
+                if(eq(sub,"phdr")) {
+                    require(subLen>=76u&&subLen%38u==0,
+                            "P007AX invalid SF2 preset headers");
+                    for(std::size_t i=0;i<(subLen/38u)-1u;++i){
+                        const auto p=sub+8u+i*38u;
+                        const unsigned program=unsigned(b[p+20u])|
+                            (unsigned(b[p+21u])<<8u);
+                        const unsigned bank=unsigned(b[p+22u])|
+                            (unsigned(b[p+23u])<<8u);
+                        if(bank==0u&&program<=127u){
+                            if(first<0) first=int(program);
+                            if(program==0u) prefer0=0;
+                            if(program==7u) prefer7=7;
+                        }
+                    }
+                }
+                sub=subEnd+(subLen&1u);
+            }
+        }
+        pos=end+(len&1u);
+    }
+    require(first>=0,"P007AX SF2 has no bank-0 melodic program");
+    return unsigned(prefer7>=0?prefer7:prefer0>=0?prefer0:first);
+}
+
+// P007AV: actual private Windows-95/Creative SF2 USER BANK sound acceptance.
+// Never use synthetic Audio/WinMM/Core-DLL to assert original Creative PCM.
+// The owner-side file is the same PRIVATE SF2 that the plugin mounts as
+// a separate IDE 0:1 FAT16 data disk before starting original Win95.
+// This test exercises REAL VST3 v3 project state and the publicly documented
+// ORIGINAL Win95 AWEMAN32.dll/AWEManager SF2 load (API 101+204).
+// No original Microsoft/Creative/SF2 assets ever enter GitHub CI.
+void privateSoundFontAudio(const VST3::Hosting::PluginFactory& factory,
+                           const VST3::UID& id,FUnknown* host,
+                           const fs::path& bundle,
+                           const fs::path& chosenSf2,
+                           bool hotSwitch=false) {
+    const auto resources=bundle/"Contents"/"Resources"/"PrivateVM";
+    const auto disk=resources/"vm"/"win95.img";
+    // This check MUST precede state/guest activation. A public CI VST3
+    // can never fake a valid ORIGINAL-guest/SF2 acoustic test.
+    require(fs::is_regular_file(disk) &&
+            fs::file_size(disk)==536870912ull &&
+            fs::is_directory(resources/"roms") &&
+            fs::is_directory(resources/"assets") &&
+            fs::is_regular_file(resources/"vm"/"P007_AWE64.cfg") &&
+            !fs::exists(resources/"P007_SYNTHETIC_TEST_ONLY.marker"),
+            "P007AV_NO_ORIGINAL_PRIVATE_WIN95_BUNDLE");
+    require(fs::is_regular_file(chosenSf2),
+            "P007AV_PRIVATE_ORIGINAL_SF2_FIXTURE_MISSING");
+    const auto size=fs::file_size(chosenSf2);
+    require(size>=96u && size<=28ull*1024ull*1024ull,
+            "P007AV_PRIVATE_ORIGINAL_SF2_SIZE_INVALID");
+    {
+        std::ifstream in(chosenSf2,std::ios::binary);
+        std::array<std::uint8_t,12> h{};
+        require(bool(in.read(reinterpret_cast<char*>(h.data()),h.size())) &&
+                h[0]=='R'&&h[1]=='I'&&h[2]=='F'&&h[3]=='F' &&
+                h[8]=='s'&&h[9]=='f'&&h[10]=='b'&&h[11]=='k' &&
+                (std::uint32_t(h[4]) |
+                 (std::uint32_t(h[5])<<8u) |
+                 (std::uint32_t(h[6])<<16u) |
+                 (std::uint32_t(h[7])<<24u))==size-8u,
+                "P007AV_PRIVATE_ORIGINAL_SF2_RIFF_MALFORMED");
+    }
+    // In particular, the real Win95 data disk will load the UTF-8
+    // SF2 filename from a version-3 VST3 project state. A UI preset
+    // label alone CANNOT be evidence that Creative actually loaded it.
+    const unsigned testProgram=sf2ProbeProgram(chosenSf2);
+    std::printf("P007AX_REAL_SF2_PRESET_SELECTED bank=1 program=%u"
+        " note=60 compare_same_program_in_ROM_bank0=1\n",testProgram);
+    std::fflush(stdout);
+    auto plugin=instantiate(factory,id,host);
+    p007::state::Values v{};
+    v.bank=1u; v.program=static_cast<std::uint8_t>(testProgram); v.master=10000u;
+    const auto sf2Utf8=fs::absolute(chosenSf2).u8string();
+    const auto stateBytes=p007::state::encodeWithSf2(v,sf2Utf8);
+    require(!stateBytes.empty(),"P007AV cannot encode private SF2 v3 state");
+    auto feedState=[&](const std::vector<std::uint8_t>& bytes,
+                       bool shouldPass) {
+        MemoryStream in;
+        int32 written=0;
+        require(in.write(const_cast<std::uint8_t*>(bytes.data()),
+                    static_cast<int32>(bytes.size()),&written)==kResultOk &&
+                    written==static_cast<int32>(bytes.size()),
+                "P007AV state stream did not write all bytes");
+        rewind(in);
+        require((plugin.component->setState(&in)==kResultOk)==shouldPass,
+                "P007AV wrong VST3 v3 SF2 state acceptance");
+    };
+    feedState(stateBytes,true);
+    require(closeTo(plugin.controller->getParamNormalized(bankId),1./127.) &&
+            closeTo(plugin.controller->getParamNormalized(programId),
+                    double(testProgram)/127.) &&
+            closeTo(plugin.controller->getParamNormalized(masterId),1.),
+            "P007AV v3 SoundFont project MIDI or master recall failed");
+    MemoryStream save;
+    require(plugin.component->getState(&save)==kResultOk &&
+            save.getSize()==static_cast<int64>(stateBytes.size()) &&
+            std::memcmp(save.getData(),stateBytes.data(),stateBytes.size())==0,
+            "P007AV selected original SoundFont path not recalled exactly");
+    auto bad=stateBytes;
+    bad.back()^=1u;
+    feedState(bad,false);
+    MemoryStream still;
+    require(plugin.component->getState(&still)==kResultOk &&
+            still.getSize()==static_cast<int64>(stateBytes.size()) &&
+            std::memcmp(still.getData(),stateBytes.data(),stateBytes.size())==0,
+            "P007AV corrupted project silently damaged chosen SoundFont");
+    std::puts("P007AV_REAL_WINDOWS_VST3_SF2_PATH_V3_RECALL_AND_CORRUPTION_REJECTION_PASS");
+    std::fflush(stdout);
+
+    // P007BI genuine ORIGINAL-guest live swap: first activate the actual
+    // Win95/Creative system WITHOUT an SF2. Then set the user-selected
+    // SF2 VST3 project state while this same instance remains processing.
+    // The test must observe old ROM -> genuine AWEMAN32 bank -> PCM with
+    // a SINGLE original x86 cold boot. No synthetic core or sample engine.
+    if(hotSwitch) {
+        p007::state::Values romValues{};
+        romValues.bank=0u;
+        romValues.program=static_cast<std::uint8_t>(testProgram);
+        romValues.master=10000u;
+        // The production state codec deliberately rejects an empty
+        // SoundFont path in V3. ROM-only projects MUST use the 44-byte
+        // checksum-protected V2 state instead. The previous test wrongly
+        // called encodeWithSf2(empty), failing BEFORE starting Win95.
+        const auto romImage=p007::state::encode(romValues);
+        const std::vector<std::uint8_t> romBytes(
+            romImage.begin(),romImage.end());
+        require(romBytes.size()==p007::state::Image{}.size(),
+                "P007BJ ROM-only V2 state has wrong encoded length");
+        feedState(romBytes,true);
+        require(closeTo(plugin.controller->getParamNormalized(bankId),0.),
+                "P007BI ROM-only initial state bank must be 0");
+        std::puts("P007BI_ROM_ONLY_COLD_BOOT_STATE_PREPARED");
+    }
+    OwnerGuestSandbox isolatedGuest;
+    ProcessSetup setup{};
+    setup.processMode=kRealtime;
+    setup.symbolicSampleSize=kSample32;
+    setup.maxSamplesPerBlock=block;
+    setup.sampleRate=44100.;
+    require(plugin.processor->setupProcessing(setup)==kResultOk,
+            "P007AV private VST3 44.1-kHz setup failed");
+    require(plugin.component->setActive(true)==kResultOk,
+            "P007AV original Creative guest VST3 activation failed");
+    bool active=true,processing=false;
+    try {
+        require(plugin.processor->setProcessing(true)==kResultOk,
+                "P007AV private original guest processor start failed");
+        processing=true;
+        HMODULE dll=GetModuleHandleW(L"125A_AWE_Core.dll");
+        require(dll!=nullptr,"P007AV original 86Box DLL not loaded");
+        using Symbol=std::uintptr_t (__cdecl*)();
+        using Ready=int (__cdecl*)();
+        const auto cpuInit=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_init"));
+        const auto cpuRun=reinterpret_cast<Symbol>(
+            GetProcAddress(dll,"p007_core_symbol_pc_run"));
+        const auto ready=reinterpret_cast<Ready>(
+            GetProcAddress(dll,"p007_midi_guest_ready"));
+        const auto sf2Status=reinterpret_cast<Ready>(
+            GetProcAddress(dll,"p007_midi_guest_sf2_status"));
+        const auto coldBoots=reinterpret_cast<unsigned(__cdecl*)()>(
+            GetProcAddress(dll,"p007_core_guest_cold_boot_count"));
+        const auto transportState=reinterpret_cast<Ready>(
+            GetProcAddress(dll,"p007_live_soundfont_state"));
+        require(cpuInit&&cpuRun&&ready&&sf2Status&&
+                cpuInit()!=0u&&cpuRun()!=0u,
+                "P007AV synthetic/foreign guest rejected: original CPU symbols missing");
+        // Actual original EMU8000-register writes, never synthetic MIDI acceptance.
+        // The probe is passive and already present in the private pinned core;
+        // it does not alter the original DSP or the Creative driver.
+        using ProbeVersion=unsigned(__cdecl*)();
+        using ProbeBegin=int(__cdecl*)(unsigned);
+        using ProbeStop=unsigned(__cdecl*)();
+        using ProbeCount=unsigned(__cdecl*)();
+        using ProbeDropped=unsigned(__cdecl*)();
+        using ProbeCopy=unsigned(__cdecl*)(p007aj_register_event*,unsigned,unsigned);
+        const auto version=reinterpret_cast<ProbeVersion>(
+            GetProcAddress(dll,"p007aj_probe_version"));
+        const auto beginProbeFn=reinterpret_cast<ProbeBegin>(
+            GetProcAddress(dll,"p007aj_probe_begin"));
+        const auto stopProbeFn=reinterpret_cast<ProbeStop>(
+            GetProcAddress(dll,"p007aj_probe_stop"));
+        const auto countProbeFn=reinterpret_cast<ProbeCount>(
+            GetProcAddress(dll,"p007aj_probe_count"));
+        const auto droppedProbeFn=reinterpret_cast<ProbeDropped>(
+            GetProcAddress(dll,"p007aj_probe_dropped"));
+        const auto copyProbeFn=reinterpret_cast<ProbeCopy>(
+            GetProcAddress(dll,"p007aj_probe_copy"));
+        require(version&&beginProbeFn&&stopProbeFn&&countProbeFn&&
+                droppedProbeFn&&copyProbeFn&&
+                version()==P007AJ_API_VERSION,
+                "P007AX requires real original register observation, not a synthetic core");
+        std::array<std::vector<p007aj_register_event>,2> chipWrites;
+        int observing=-1;
+        const auto beginProbe=[&](int bank) {
+            require(observing==-1 && beginProbeFn(unsigned(bank))==1,
+                    "P007AX could not begin bounded original chip register trace");
+            observing=bank;
+        };
+        const auto endProbe=[&]() {
+            require(observing>=0, "P007AX register trace missing start");
+            const unsigned n=stopProbeFn();
+            require(droppedProbeFn()==0 && n==countProbeFn() &&
+                    n>0 && n<=P007AJ_CAP,
+                    "P007AX no original chip note register writes or probe overflow");
+            auto& v=chipWrites[static_cast<unsigned>(observing)];
+            v.resize(n);
+            require(copyProbeFn(v.data(),0,n)==n,
+                    "P007AX original EMU8000 register trace copy incomplete");
+            observing=-1;
+        };
+        std::array<float,block> left{},right{};
+        float* channels[2]={left.data(),right.data()};
+        AudioBusBuffers output{};
+        output.numChannels=2;
+        output.channelBuffers32=channels;
+        EventList events;
+        ProcessData data{};
+        data.processMode=kRealtime;
+        data.symbolicSampleSize=kSample32;
+        data.numSamples=block;
+        data.numInputs=0;
+        data.numOutputs=1;
+        data.outputs=&output;
+        data.inputEvents=&events;
+        if(hotSwitch)require(coldBoots&&transportState,
+            "P007BI only the actual original 86Box live-SF2 core can prove no reboot");
+        using Clock=std::chrono::steady_clock;
+        const auto start=Clock::now();
+        auto next=start,lastReport=start;
+        Clock::time_point guestReadyAt{},sf2NoteAt{},romBankAt{},romNoteAt{};
+        bool hotRequestSent=false;
+        unsigned coldBootCountAtRequest=0u;
+        p007::original_audio_proof::Window baseline,sf2Sound,romSound;
+        int phase=0; // 0=ready+baseline, 1=SF2 on, 2=off,
+                     // 3=ROM bank, 4=ROM on, 5=ROM off
+        bool originalAck=false;
+        const auto addNote=[&](bool noteOn){
+            Event e{};
+            e.type=noteOn?Event::kNoteOnEvent:Event::kNoteOffEvent;
+            e.busIndex=0;e.sampleOffset=0;
+            if(noteOn) {
+                e.noteOn.channel=0;
+                e.noteOn.pitch=60;
+                e.noteOn.velocity=.86f;
+            } else {
+                e.noteOff.channel=0;
+                e.noteOff.pitch=60;
+                e.noteOff.velocity=0.f;
+            }
+            require(events.addEvent(e)==kResultOk,
+                    "P007AV original guest VST3 NoteOn/NoteOff could not queue");
+        };
+        while(Clock::now()-start<300s) {
+            events.clear();
+            const auto now=Clock::now();
+            const bool guestReady=ready()!=0;
+            const int fontState=sf2Status();
+            if(hotSwitch && guestReady && !hotRequestSent) {
+                // VST3 remains ACTIVE, 86Box remains running. A new
+                // project state carries the user SF2 path into the guest.
+                require(fontState==0,"P007BI expected original ROM-only cold boot");
+                coldBootCountAtRequest=coldBoots();
+                require(coldBootCountAtRequest==1u,
+                        "P007BI original guest must have cold booted exactly once");
+                feedState(stateBytes,true);
+                hotRequestSent=true;
+                std::printf("P007BI_LIVE_SF2_SWAP_REQUESTED guest_ready=1"
+                    " original_cold_boots=%u selected_bytes=%llu\n",
+                    coldBootCountAtRequest,
+                    static_cast<unsigned long long>(size));
+                std::fflush(stdout);
+            }
+            if(guestReady && guestReadyAt==Clock::time_point{} &&
+               (!hotSwitch || (hotRequestSent && fontState==1))) {
+                guestReadyAt=now;
+                require(fontState==1,
+                        "P007AV_ORIGINAL_CREATIVE_AWEMAN32_SF2_LOAD_NOT_ACKNOWLEDGED");
+                if(hotSwitch) {
+                    require(coldBoots()==coldBootCountAtRequest,
+                        "P007BI original Windows 95 cold rebooted during SF2 hot swap");
+                    require(transportState()==3,
+                        "P007BI private live SF2 transfer not fully consumed");
+                    std::puts("P007BI_ORIGINAL_WIN95_CREATIVE_LIVE_SF2_NO_REBOOT_LOAD_ACK_PASS");
+                    std::fflush(stdout);
+                }
+                originalAck=true;
+                std::printf("P007AV_REAL_WIN95_CREATIVE_SF2_LOAD_ACK_PASS"
+                    " sf2_bytes=%llu original_cpu=1 winmm_ready=1\n",
+                    static_cast<unsigned long long>(size));
+                std::fflush(stdout);
+            }
+            if(phase==0 && originalAck &&
+               now-guestReadyAt>=1500ms && baseline.frames>=44100u) {
+                beginProbe(0);
+                addNote(true);
+                sf2NoteAt=now;
+                phase=1;
+                std::puts("P007AV_ORIGINAL_CREATIVE_USER_BANK1_NOTEON_SENT");
+            } else if(phase==1 && now-sf2NoteAt>=3s) {
+                endProbe();
+                addNote(false);
+                phase=2;
+            } else if(phase==2 && now-sf2NoteAt>=4s) {
+                require(plugin.controller->setParamNormalized(bankId,0.)==kResultOk,
+                        "P007AV could not return to original GM ROM bank0");
+                romBankAt=now;
+                phase=3;
+                std::puts("P007AV_ORIGINAL_ROM_BANK0_RESELECTED");
+            } else if(phase==3 && now-romBankAt>=1700ms) {
+                beginProbe(1);
+                addNote(true);
+                romNoteAt=now;
+                phase=4;
+            } else if(phase==4 && now-romNoteAt>=3s) {
+                endProbe();
+                addNote(false);
+                phase=5;
+            }
+            require(plugin.processor->process(data)==kResultOk,
+                    "P007AV real Windows VST3 audio process failed");
+            for(int i=0;i<block;++i) {
+                const float l=left[static_cast<std::size_t>(i)];
+                const float r=right[static_cast<std::size_t>(i)];
+                require(std::isfinite(l)&&std::isfinite(r),
+                        "P007AV NaN/Inf from original 86Box/EMU8000 PCM");
+                if(phase==0 && originalAck)
+                    baseline.append(l,r);
+                if((phase==1||phase==2) &&
+                   now-sf2NoteAt>=250ms && now-sf2NoteAt<2700ms)
+                    sf2Sound.append(l,r);
+                if((phase==4||phase==5) &&
+                   now-romNoteAt>=250ms && now-romNoteAt<2700ms)
+                    romSound.append(l,r);
+            }
+            if(phase==5 && now-romNoteAt>=4s)break;
+            if(now-lastReport>=15s) {
+                std::printf("P007AV_REAL_WIN95_SF2_PROGRESS"
+                    " ready=%d sf2_api=%d phase=%d"
+                    " base_frames=%llu sf2_frames=%llu"
+                    " sf2_rms=%.8f rom_frames=%llu rom_rms=%.8f\n",
+                    int(guestReady),fontState,phase,
+                    static_cast<unsigned long long>(baseline.frames),
+                    static_cast<unsigned long long>(sf2Sound.frames),
+                    sf2Sound.rms(),
+                    static_cast<unsigned long long>(romSound.frames),
+                    romSound.rms());
+                std::fflush(stdout);lastReport=now;
+            }
+            next+=std::chrono::microseconds(23220);
+            std::this_thread::sleep_until(next);
+        }
+        require(originalAck && phase==5 && romSound.frames>=44100u,
+                "P007AV original guest did not complete SF2+ROM MIDI roundtrip");
+        if(hotSwitch) require(coldBoots()==coldBootCountAtRequest &&
+                             transportState()==3,
+            "P007BI Win95 was restarted or live SF2 transfer lost after MIDI playback");
+        // Keep original register traces even on an acoustic NO-GO.
+        // Different raw hashes are informative only; the original Creative
+        // allocator rotates chip voice addresses between NoteOns.
+        const auto hashRegisters=[](const auto& events)->std::uint64_t {
+            std::uint64_t h=14695981039346656037ull;
+            for(const auto& e:events){
+                const std::uint32_t pair=(std::uint32_t(e.port)<<16u)|e.value;
+                h=(h^pair)*1099511628211ull;
+            }
+            return h;
+        };
+        std::printf("P007AX_ORIGINAL_EMU8000_BANK_REGISTER_DIAG"
+            " sf2_events=%llu sf2_hash=%016llx"
+            " rom_events=%llu rom_hash=%016llx"
+            " real_guest=1 synthetic=0\n",
+            static_cast<unsigned long long>(chipWrites[0].size()),
+            static_cast<unsigned long long>(hashRegisters(chipWrites[0])),
+            static_cast<unsigned long long>(chipWrites[1].size()),
+            static_cast<unsigned long long>(hashRegisters(chipWrites[1])));
+        std::fflush(stdout);
+        const auto csvPath=bundle.parent_path()/
+            "P007AX-ORIGINAL-EMU8000-SF2-ROM-REGISTER-EVENTS.csv";
+        {
+            std::ofstream f(csvPath,std::ios::binary);
+            require(bool(f),"P007AX cannot write genuine register evidence CSV");
+            f<<"bank,program,serial,chip_frame_44100,io_port_hex,register_word_hex\n";
+            for(unsigned bank=0;bank<2;++bank){
+                for(const auto& e:chipWrites[bank]){
+                    char entry[128]{};
+                    std::snprintf(entry,sizeof(entry),"%u,%u,%u,%llu,%04X,%04X\n",
+                        bank==0?1u:0u,testProgram,e.serial,
+                        static_cast<unsigned long long>(e.frame),
+                        unsigned(e.port),unsigned(e.value));
+                    f<<entry;
+                }
+            }
+            require(bool(f),"P007AX original register evidence CSV incomplete");
+        }
+        require(p007::original_audio_proof::accept(baseline,sf2Sound),
+                "P007AV SF2 bank 1 original MIDI-dependent PCM not proven");
+        require(p007::original_audio_proof::accept(baseline,romSound),
+                "P007AV original ROM GM bank 0 did not return with real PCM");
+        // We do NOT call mere AWEMAN32 API acknowledgement sound proof.
+        // A user-SF2 with a completely identical PCM to original GM ROM
+        // would be INCONCLUSIVE rather than a falsely distinct source.
+        // Print all numerical evidence even on NO-GO, so the owner does
+        // not have to repeat the entire original Win95 boot to diagnose an
+        // unproven switch. RMS and peak alone are not a timbre fingerprint.
+        std::printf("P007AW_SF2_ROM_ACOUSTIC_DIAGNOSTIC"
+            " sf2_frames=%llu sf2_rms=%.9f sf2_peak=%.9f sf2_rough=%.9f"
+            " rom_frames=%llu rom_rms=%.9f rom_peak=%.9f rom_rough=%.9f"
+            " baseline_rms=%.9f original_guest=1 synthetic=0\n",
+            static_cast<unsigned long long>(sf2Sound.frames),
+            sf2Sound.rms(),sf2Sound.peak,sf2Sound.roughness(),
+            static_cast<unsigned long long>(romSound.frames),
+            romSound.rms(),romSound.peak,romSound.roughness(),
+            baseline.rms());
+        std::fflush(stdout);
+        require(p007::original_audio_proof::distinguishBanks(sf2Sound,romSound),
+                "P007AW original SF2/ROM bank switch INCONCLUSIVE: "
+                "RMS/peak/roughness alike, inspect Creative MIDI bank routing");
+        std::printf("P007AV_REAL_ORIGINAL_CREATIVE_SF2_BANK1_TO_EMU8000_PCM_PASS"
+             " sf2_rms=%.9f sf2_peak=%.9f"
+             " rom_rms=%.9f rom_peak=%.9f"
+             " original_guest=1 original_aweman32=1 synthetic=0\n",
+             sf2Sound.rms(),sf2Sound.peak,
+             romSound.rms(),romSound.peak);
+        std::puts("P007AV_REAL_WIN95_ORIGINAL_ROM_BANK0_RETURN_PCM_PASS");
+        if(hotSwitch) {
+            std::puts("P007BI_OWNER_PRIVATE_ORIGINAL_CREATIVE_HOT_SF2_TO_EMU8000_PCM_AND_ROM_PASS");
+        }
+        std::fflush(stdout);
+    }catch(...) {
+        if(processing)(void)plugin.processor->setProcessing(false);
+        if(active)(void)plugin.component->setActive(false);
+        throw;
+    }
+    if(processing)(void)plugin.processor->setProcessing(false);
+    if(active)(void)plugin.component->setActive(false);
+}
+
+// Dedicated genuine 86Box/Win95/Creative A/B/A and channel-10 bank test.
+// Included here to reuse the established real Steinberg Windows VST3 host.
+#include "P007BKOriginalSequence.inc"
 } // namespace
 
 int main(int argc,char** argv) {
     try{
-        require(argc==2 || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--private-spectrum")==0 || std::strcmp(argv[2],"--private-filter-corrected")==0 || std::strcmp(argv[2],"--synthetic")==0)),
+        require(argc==2 || (argc==5 && std::strcmp(argv[2],"--private-sequence")==0) ||
+                (argc==4 && (std::strcmp(argv[2],"--private-sf2")==0 ||
+                                  std::strcmp(argv[2],"--private-hot-sf2")==0)) || (argc==3 && (std::strcmp(argv[2],"--private-audio")==0 || std::strcmp(argv[2],"--private-nrpn")==0 || std::strcmp(argv[2],"--private-matrix")==0 || std::strcmp(argv[2],"--private-pad-sweep")==0 || std::strcmp(argv[2],"--private-env-depth")==0 || std::strcmp(argv[2],"--private-regtrace")==0 || std::strcmp(argv[2],"--private-spectrum")==0 || std::strcmp(argv[2],"--private-filter-corrected")==0 || std::strcmp(argv[2],"--synthetic")==0)),
                 "usage: P007ActualHostQA.exe <AWE64_Gold_P007.vst3 folder> [--private-audio]");
         const fs::path bundle=fs::absolute(argv[1]);
         require(fs::is_directory(bundle),"actual VST3 bundle not found");
@@ -2003,6 +2540,16 @@ int main(int argc,char** argv) {
         auto host=owned(new HostApplication());
         stateRoundtrip(factory,choice->ID(),host.get());
         if(argc==2) publicWindowsAudioLifecycle(factory,choice->ID(),host.get(),bundle);
+        if(argc==4 && (std::strcmp(argv[2],"--private-sf2")==0 ||
+                       std::strcmp(argv[2],"--private-hot-sf2")==0))
+            privateSoundFontAudio(factory,choice->ID(),host.get(),bundle,
+                                  fs::absolute(fs::path(argv[3])),
+                                  std::strcmp(argv[2],"--private-hot-sf2")==0);
+        if(argc==5 && std::strcmp(argv[2],"--private-sequence")==0)
+            privateOriginalMultiSf2DrumSequence(
+                factory,choice->ID(),host.get(),bundle,
+                fs::absolute(fs::path(argv[3])),
+                fs::absolute(fs::path(argv[4])));
         if(argc==3 && std::strcmp(argv[2],"--synthetic")==0)
             syntheticGuestAudio(factory,choice->ID(),host.get(),bundle);
         if(argc==3 && std::strcmp(argv[2],"--private-audio")==0)
