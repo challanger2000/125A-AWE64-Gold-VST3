@@ -31,8 +31,9 @@ void* countedMalloc(std::size_t n){
 }
 struct SynthUnit{
     Synth synth;
+    const bool hasUserBank_;
     explicit SynthUnit(std::uint32_t rate,const char* rom,
-                       const char* gm,const char* bank):synth(rate){
+                       const char* gm,const char* bank):synth(rate),hasUserBank_(bank!=nullptr){
         std::string err;
         if(!synth.LoadWaveRom(rom,err))throw std::runtime_error("ROM "+err);
         synth.Core().SetChipRamKb(28672);
@@ -61,6 +62,10 @@ struct SynthUnit{
         for(unsigned i=0;i<events;++i){
             const unsigned ch=i%16;
             const unsigned pitch=ch==9?36u+(i%5):48u+(i%24);
+            // Exercise genuine owner user-bank1 SF2 presets, not only the
+            // base ROM bank0. CH10 remains original GM bank128.
+            if(hasUserBank_ && ch!=9)
+                synth.ControlChange(static_cast<std::uint8_t>(ch),0,1);
             if(i%3==0)synth.ProgramChange(
                 static_cast<std::uint8_t>(ch),static_cast<std::uint8_t>(i%77));
             if(i%5==0)synth.ControlChange(
