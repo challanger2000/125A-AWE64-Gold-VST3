@@ -110,7 +110,7 @@ int main(int argc,char**argv){
     try {
         const char* gm=argc>=3?argv[2]:nullptr;
         const char* bank=argc>=4?argv[3]:nullptr;
-        for(const auto rate:{44100u,48000u,96000u}){
+        for(const auto rate:{8000u,44100u,48000u,96000u,192000u}){
             SynthUnit a(rate,argv[1],gm,bank),b(rate,argv[1],gm,bank);
             const auto before=callbackAllocs.load();
             const auto ha=a.run(128),hb=b.run(128);
@@ -128,7 +128,7 @@ int main(int argc,char**argv){
                      <<" events=512 allocations="<<delta
                      <<" hash="<<std::hex<<pa<<std::dec<<"\n";
         }
-        std::cout<<"P009_RT_THREE_RATES_TWO_INSTANCES_NO_HEAP_PASS\n";
+        std::cout<<"P009_RT_FIVE_RATES_TWO_INSTANCES_NO_HEAP_PASS\n";
         return 0;
     }catch(const std::exception&e){
         std::cerr<<"P009_RT_CALLBACK_FAIL "<<e.what()

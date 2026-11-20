@@ -87,7 +87,7 @@ jobs:
           }
           Remove-Item $fake
           Write-Host P009_WINDOWS_4X_PARALLEL_AND_DAW_WORKER_MIGRATION_PASS_NO_PRIVATE_ROM
-      - name: Audio/MIDI callback HEAP = ZERO at 44.1/48/96k with 2 parallel instances
+      - name: Audio/MIDI callback HEAP = ZERO at 8/44.1/48/96/192k incl 2-layer SF2 and 2 parallel synths
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -105,7 +105,7 @@ jobs:
           Remove-Item $fake
           Remove-Item _p009-two-layer-test.sf2
           if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
-          Write-Host P009_RT_WINDOWS_3_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
+          Write-Host P009_RT_WINDOWS_5_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
