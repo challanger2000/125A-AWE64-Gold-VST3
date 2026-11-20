@@ -25,6 +25,12 @@ jobs:
           git -C _p009-upstream checkout --detach FETCH_HEAD
           $s=(git -C _p009-upstream rev-parse HEAD).Trim()
           if($s -ne '17b0578fe59909dfaa784b5531d6d1a3a80729ce'){throw 'wrong upstream SHA'}
+      - name: Apply instance-local EMU8000 clock to pinned upstream checkout
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/apply_per_instance.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'original EMU8000 pin or clock patch mismatch'}
+          Write-Host P009_NO_PROCESS_GLOBAL_WAVETABLE_CLOCK_PASS
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
