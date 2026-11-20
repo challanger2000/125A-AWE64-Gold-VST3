@@ -228,9 +228,11 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'synthetic selected Vintage SoundFont fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir '77-presets.sf2') --alternate --wet
           if($LASTEXITCODE -ne 0){throw 'synthetic deliberately different alternate SF2 fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'sustain.sf2') --sustain
+          if($LASTEXITCODE -ne 0){throw 'synthetic sustained loop SF2 fixture failed'}
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic
           $rc=$LASTEXITCODE
-          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
           if($rc -ne 0){throw 'Actual VST3 86Box V5 external SoundFont source PCM/SHA recall failed'}
           Write-Host P165_PUBLIC_SYNTHETIC_ACTUAL_WIN64_VST3_V5_EXTERNAL_SF2_SHA_AND_PCM_RECALL_PASS
       - name: Original EMU8000 VST3 FX type UI is enabled, not a visual-only fake

@@ -1217,6 +1217,173 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
   ownerBank(resources,nullptr);
 }
+// F-09: Run the genuinely loaded Win64 original-chip VST3 with two
+// deliberately saturated host inputs. The public SoundFont used here is
+// *sustained*, not a self-decaying one-shot (which could falsely pass a
+// stuck-note test with no CC120 voice cleanup).
+void verifyP165HeldNoteOverflowRecovery(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"sustain.sf2");
+   for(const bool eventOverflow:{true,false}){
+     Plugin p(factory,id,host);
+     p.start(0,1,44100.);
+     EventList notes;
+     ParameterChanges params(2);
+     std::array<float,frames> left{},right{};
+     float* channels[2]={left.data(),right.data()};
+     AudioBusBuffers output{};
+     output.numChannels=2;output.channelBuffers32=channels;
+     ProcessData data{};
+     data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+     data.numSamples=frames;data.numOutputs=1;data.outputs=&output;
+     data.inputEvents=&notes;data.inputParameterChanges=&params;
+     const auto energy=[&](){
+       double sum=0.;
+       for(int i=0;i<frames;++i)
+         for(float sample:{left[i],right[i]}){
+           check(std::isfinite(sample),"F09 original chip nonfinite PCM");
+           sum+=double(sample)*double(sample);
+         }
+       return sum;
+     };
+     Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=12;
+     on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
+     check(notes.addEvent(on)==kResultOk,"F09 sustained NoteOn fixture");
+     double heldEnergy=0.;
+     for(int block=0;block<6;++block){
+       if(block)notes.clear();
+       check(p.processor->process(data)==kResultOk,
+             "F09 held synthetic SF2 normal audio");
+       if(block==5)heldEnergy=energy();
+     }
+     check(heldEnergy>0.001,
+           "F09 test not valid: synthetic SoundFont did not sustain a note");
+     if(eventOverflow){
+       // No matching CH1 NoteOff is present. This must not leave the
+       // original EMU8000 voice held once the VST3 input is rejected.
+       for(int i=0;i<513;++i){
+         Event off{};off.type=Event::kNoteOffEvent;
+         off.sampleOffset=0;off.noteOff.channel=15;
+         off.noteOff.pitch=i%128;
+         check(notes.addEvent(off)==kResultOk,
+               "F09 actual host cannot enqueue >512 MIDI events");
+       }
+     }else{
+       int32 qIndex=0,point=0;
+       auto* q=params.addParameterData(2000u,qIndex); // CH1 CC1
+       check(q!=nullptr,"F09 actual host CC queue missing");
+       for(int i=0;i<513;++i)
+         check(q->addPoint(i%frames,double(i%127)/127.,point)==kResultOk,
+               "F09 actual host cannot enqueue >512 CC points");
+     }
+     left.fill(-1.f);right.fill(1.f);
+     check(p.processor->process(data)==kResultFalse,
+           "F09 input saturation must be explicit fail-closed");
+     for(int i=0;i<frames;++i)
+       check(left[i]==0.f&&right[i]==0.f,
+             "F09 rejected block leaked original chip audio");
+     check(output.silenceFlags==3u,
+           "F09 rejected block did not advertise actual zero output");
+     notes.clear();params.clearQueue();
+     double after=0.;
+     for(int block=0;block<8;++block){
+       output.silenceFlags=0;
+       check(p.processor->process(data)==kResultOk,
+             "F09 original synth stuck in overload failure state");
+       if(block==7)after=energy();
+     }
+     check(after<heldEnergy*0.001,
+           "F09 sustained original chip voice survived rejected NoteOff block");
+     // The safety event must kill the old note, NOT permanently mute the
+     // device. A fresh legitimate NoteOn must still play.
+     check(notes.addEvent(on)==kResultOk,
+           "F09 post-recovery legitimate NoteOn enqueue");
+     double retrigger=0.;
+     for(int block=0;block<4;++block){
+       if(block)notes.clear();
+       check(p.processor->process(data)==kResultOk,
+             "F09 post-recovery original chip callback failed");
+       if(block==3)retrigger=energy();
+     }
+     check(retrigger>heldEnergy*0.01,
+           "F09 overflow recovery permanently muted new original-chip notes");
+   }
+   std::puts("P165_F09_ACTUAL_WINDOWS_VST3_SUSTAINED_VOICE_EVENT_AND_CC_OVERFLOW_RECOVERY_PCM_PASS");
+   ownerBank(resources,nullptr);
+}
+
+// F-07: Interleave multiple full original-chip SoundFont swaps with
+// stopped audio and normal audio, and close the *actual VST3 instance*
+// while a 28 MiB replacement has not yet reached an audio callback.
+// Each restored V5 file identity and SHA must remain exact. This is a
+// lifecycle stress contract, NOT a sanitizer or proof of every host race.
+void verifyP165InterruptedAssetLifecycle(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"vintage.sf2");
+   struct Extension {
+     std::uint32_t magic=0x35534150u,bytes=0u;
+     std::array<std::uint16_t,12> controls{};
+     std::array<std::uint8_t,32> sha{};
+     std::array<std::uint16_t,2> fx{{4u,2u}};
+   };
+   static_assert(sizeof(Extension)==68u);
+   const auto projectFor=[&](const fs::path& sf2){
+     std::array<std::uint8_t,32> digest{};
+     check(p009::sha256FileNonRealtime(sf2,digest),
+           "F07 interrupted asset has no verifiable SF2 SHA");
+     const auto utf8=sf2.u8string();
+     const std::string path(utf8.begin(),utf8.end());
+     Saved state{};state.version=5u;state.bank=1u;
+     state.midiStates.fill(0xFFFFu);
+     state.advancedStates.fill(0xFFFFu);
+     Extension ext{};ext.sha=digest;
+     ext.bytes=static_cast<std::uint32_t>(path.size());
+     std::vector<std::uint8_t> payload(sizeof(state)+sizeof(ext)+path.size());
+     std::memcpy(payload.data(),&state,sizeof(state));
+     std::memcpy(payload.data()+sizeof(state),&ext,sizeof(ext));
+     std::memcpy(payload.data()+sizeof(state)+sizeof(ext),path.data(),path.size());
+     return payload;
+   };
+   const auto a=projectFor(resources/"vintage.sf2");
+   const auto b=projectFor(resources/"77-presets.sf2");
+   for(int cycle=0;cycle<6;++cycle){
+     Plugin p(factory,id,host);p.start(0,1,44100.);
+     for(int swap=0;swap<3;++swap){
+       const auto& target=(swap&1)?b:a;
+       MemoryStream stream;int32 written=0;
+       check(stream.write(const_cast<std::uint8_t*>(target.data()),
+                 static_cast<int32>(target.size()),&written)==kResultOk &&
+             written==static_cast<int32>(target.size()) &&
+             stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+             p.component->setState(&stream)==kResultOk,
+             "F07 actual VST3 interrupted 28 MiB asset swap rejected");
+       MemoryStream saved;
+       check(p.component->getState(&saved)==kResultOk &&
+             saved.getSize()==target.size() &&
+             std::memcmp(saved.getData(),target.data(),target.size())==0,
+             "F07 queued asset swap corrupted serialized SHA/path");
+       if(cycle%2==0 && swap==1){
+         std::array<float,frames> l{},r{};
+         float* lr[2]={l.data(),r.data()};
+         AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=lr;
+         ProcessData data{};data.processMode=kRealtime;
+         data.symbolicSampleSize=kSample32;data.numSamples=frames;
+         data.numOutputs=1;data.outputs=&out;
+         check(p.processor->process(data)==kResultOk,
+               "F07 staged synth could not transition at audio boundary");
+       }
+     }
+     // Deliberately no final process(): odd cycles die with the newest
+     // replacement staged; even cycles have an older chip retired.
+     // Plugin destructor performs normal processing-stop/deactivation/
+     // termination; each must release unused synths outside audio.
+   }
+   std::puts("P165_F07_ACTUAL_WINDOWS_VST3_INTERRUPTED_SF2_SWAP_CLOSE_REOPEN_STATE_PASS");
+   ownerBank(resources,nullptr);
+}
+
 // In the exact native EMU8000 instrument: 0% SEND means zero ORIGINAL
 // hardware reverb/chorus register after an explicit human/host edit.
 // Untouched "DEFAULT" sends MUST preserve the original SoundFont PCM.
@@ -1349,6 +1516,8 @@ int main(int argc,char** argv){
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
   if(synthetic){
     ownerBank(resources,nullptr);
+    verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
+    verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);

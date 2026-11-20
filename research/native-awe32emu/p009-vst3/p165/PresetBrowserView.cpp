@@ -1021,7 +1021,11 @@ void PresetBrowserView::ChooseRom() {
     // ROM is always mounted. Selecting it changes only original GM bank0.
     // Pressing ROM when already on bank0 must be a harmless no-op and
     // must not show an unrelated "bank reselection failed" warning.
-    if(bank_!=0u)ChangeParameter(kBankParam,0.);
+    // A preceding MIDI CC0 can select another *chip* bank even when the
+    // VST3 host and this button still display ROM. Route the button through
+    // Select(), whose same-bank path explicitly reasserts the actual chip
+    // bank/program at the next audio-block boundary.
+    Select(0u,program_);
 }
 void PresetBrowserView::valueChanged(CControl* control) {
     if(!control||syncing_)return;

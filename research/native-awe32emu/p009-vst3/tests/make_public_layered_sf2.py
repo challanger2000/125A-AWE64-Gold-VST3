@@ -25,6 +25,7 @@ def shdr(name,start,end,loop0,loop1):
                        44100,60,0,0,1)
 alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
+sustain="--sustain" in sys.argv[2:]
 samples=[]
 for kind in range(2):
     for i in range(768):
@@ -41,12 +42,14 @@ pdta=(
     ck(b"pmod",bytes(10))+
     ck(b"pgen",gen(41,0)+gen(0,0))+
     ck(b"inst",inst("TwoLayerInstrument",0)+inst("EOI",2))+
-    ck(b"ibag",(bag(0)+bag(3)+bag(6)) if wet else (bag(0)+bag(1)+bag(2)))+
+    ck(b"ibag",bag(0)+bag((3 if wet else 1)+(1 if sustain else 0))+
+        bag(2*((3 if wet else 1)+(1 if sustain else 0))))+
     ck(b"imod",bytes(10))+
     ck(b"igen",(
-        gen(15,1000)+gen(16,1000)+gen(53,0)+
-        gen(15,1000)+gen(16,1000)+gen(53,1)+gen(0,0)
-      ) if wet else (gen(53,0)+gen(53,1)+gen(0,0)))+
+        gen(15,1000)+gen(16,1000)+(gen(54,1) if sustain else b"")+gen(53,0)+
+        gen(15,1000)+gen(16,1000)+(gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)
+      ) if wet else ((gen(54,1) if sustain else b"")+gen(53,0)+
+                      (gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)))+
     ck(b"shdr",shdr("SineWave",0,768,64,640)+
                 shdr("HarmonicWave",768,1536,832,1408)+
                 shdr("EOS",1536,1536,1536,1536))

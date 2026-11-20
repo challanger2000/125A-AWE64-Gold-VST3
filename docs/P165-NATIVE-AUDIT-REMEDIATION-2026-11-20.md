@@ -52,3 +52,10 @@
 6. A second independent adversarial audit (e.g. Codex) using `125A-Engineering/QA/AUDIT-COMPLETENESS-CONTRACT.md` with no leniency for unverified areas.
 
 **Current disposition: substantial verified corrections, but NOT a completed FULL AUDIT and NOT a public release authorization.**
+
+## F-05/F-07/F-09 targeted follow-up (candidate; CI verification required)
+
+- **F-05 code repair:** the ROM button now routes through the same bank/program reassert function as other browser selections. This closes the previously unhandled case of MIDI CC0 changing the real chip while GUI and host still display ROM. Actual GUI click + MIDI CC0 + PCM remains **NOT RUN**.
+- **F-07 new Windows VST3 adversarial lifecycle gate:** repeatedly stage two different SHA-verified public SF2 instruments, save/compare V5 identity, process some but not all swaps, close/reopen/deactivate while 28-MiB candidates remain staged or retired. This is **NOT RUN until CI**; sanitizers and concurrent teardown remain separately **NOT RUN**.
+- **F-09 new Windows VST3 original-chip audible gate:** build an independently sustained (SF2 sampleModes=1) public dual-layer patch, start a held note, reject 513 host NoteOff events or 513 CC points, require the rejected audio block to be zero, verify genuine held-voice extinction in later PCM and subsequent new playable notes. This is **NOT RUN until CI**; the previous one-shot public fixture would have been a false-positive voice-release oracle.
+- This change does **not** authorize public release or transfer synthetic tests to private ROM/SBK/user SF2 acceptance. The unmodified P007 Win95 branch remains a separate reference.
