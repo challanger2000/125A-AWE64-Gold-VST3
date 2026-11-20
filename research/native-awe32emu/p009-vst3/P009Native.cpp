@@ -27,8 +27,9 @@ struct Saved {
     float master=1.f;
     std::array<std::uint8_t,15> otherPrograms{};
     std::array<std::uint8_t,15> otherBanks{};
+    std::array<std::uint8_t,2> reserved{}; // explicit 4-byte aligned length
 };
-static_assert(sizeof(Saved)==50u,"P011 precise VST3 state bytes");
+static_assert(sizeof(Saved)==52u,"P011 precise VST3 state bytes");
 constexpr std::uint32_t kStateV1=1u,kStateV2=2u;
 bool finite01(double x){return std::isfinite(x) && x>=0. && x<=1.;}
 unsigned toByte(float v) {

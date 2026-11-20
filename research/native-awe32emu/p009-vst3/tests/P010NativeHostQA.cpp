@@ -39,8 +39,9 @@ struct Saved {
  uint32 magic=0x39303050u,version=2u,program=0u,bank=0u;
  float master=1.f;
  std::array<std::uint8_t,15> otherPrograms{},otherBanks{};
+ std::array<std::uint8_t,2> reserved{};
 };
-static_assert(sizeof(Saved)==50,"P011 multi-channel project state size");
+static_assert(sizeof(Saved)==52,"P011 multi-channel project state size");
 struct Plugin{
  IPtr<IComponent> component;
  IPtr<IEditController> controller;
