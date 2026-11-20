@@ -7,10 +7,10 @@
 #include "public.sdk/source/vst/vstsinglecomponenteffect.h"
 #include "public.sdk/source/vst/vstparameters.h"
 #include "pluginterfaces/vst/ivstevents.h"
+#include "Synth.h"
 #include <array>
 #include <cstdint>
 #include <memory>
-class Synth;
 namespace p009 {
 class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect {
 public:
