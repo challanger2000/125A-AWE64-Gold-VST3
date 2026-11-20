@@ -304,6 +304,12 @@ jobs:
           $sbk=Join-Path $resource 'SYNTHGM.SBK'
           $sf2=Join-Path $resource 'user.sf2'
           $log=Join-Path $env:GITHUB_WORKSPACE '_p009-published-tester-v0210.log'
+          # Exact official tester source report_paths.h: an explicit override
+          # directs ALL launcher/worker/probe sidecars into this workdir,
+          # not into Windows LOCALAPPDATA where the previous search missed.
+          $evidence=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          $env:125A_PLUGIN_TESTER_REPORT_DIR=$evidence
           try {
             # Test only with publicly generated synthetic data. Never stage
             # real owner Creative ROM/SBK/SF2 in a GitHub Actions artifact.
@@ -319,17 +325,10 @@ jobs:
             } finally {Pop-Location}
             if(Test-Path $log){Get-Content -LiteralPath $log | Select-Object -Last 100}
             # Exit zero alone is not enough: retain the genuine 125A report.
-            $evidence=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-evidence'
-            New-Item -ItemType Directory -Force -Path $evidence | Out-Null
             Copy-Item -LiteralPath $log -Destination $evidence -Force
-            $reports=@(
-              Get-ChildItem -Path $tester.Directory.FullName -Recurse -File |
-                Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'}
-              Get-ChildItem -Path (Split-Path -Parent $plugin) -File |
-                Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'}
-            )
+            $reports=@(Get-ChildItem -LiteralPath $evidence -File |
+              Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'})
             foreach($item in $reports){
-              Copy-Item -LiteralPath $item.FullName -Destination $evidence -Force
               Write-Host "125A_TESTER_REPORT $($item.Name)"
             }
             if($reports.Count -eq 0){throw '125A Plugin Tester produced no QA sidecar reports'}
