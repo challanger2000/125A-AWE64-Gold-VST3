@@ -44,7 +44,7 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
             delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
             return guiCatalogRevision_.load(std::memory_order_acquire);
         },
-        [](std::uint16_t bank){return bank<=2u||bank==128u||bank==129u;});
+        [](std::uint16_t bank){return bank<=2u||bank==128u;});
 }
 IPlugView* PLUGIN_API NativeVst3::createView(FIDString name) {
     if(name && std::strcmp(name,ViewType::kEditor)==0){
