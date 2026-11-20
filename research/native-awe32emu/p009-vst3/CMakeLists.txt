@@ -34,8 +34,18 @@ smtg_add_vst3plugin(AWE64_Gold_Native_P009
     "${P009_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
 target_include_directories(AWE64_Gold_Native_P009 PRIVATE
    "${P009_SDK_ROOT}" "${NATIVE}" "${NATIVE}/86box/include")
+# P020: only the native research VST3 adopts the 64-frame chip window.
+# The pinned 86Box C core, driver logic, and all P019 980/128/64 probes
+# remain unchanged. Fail CLOSED if CI forgot the reviewed P019 header patch.
+file(READ "${NATIVE}/Emu8000Box.h" P020_UPSTREAM_BOX_HEADER)
+if(NOT P020_UPSTREAM_BOX_HEADER MATCHES "P019_EMU_BLOCK_FRAMES")
+  message(FATAL_ERROR
+    "P020 requires exact pinned P019 render-window header patch before build")
+endif()
+unset(P020_UPSTREAM_BOX_HEADER)
 target_compile_definitions(AWE64_Gold_Native_P009 PRIVATE
-   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+   P019_EMU_BLOCK_FRAMES=64)
 target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk winmm)
 target_compile_features(AWE64_Gold_Native_P009 PRIVATE cxx_std_17)
 smtg_target_configure_version_file(AWE64_Gold_Native_P009)
