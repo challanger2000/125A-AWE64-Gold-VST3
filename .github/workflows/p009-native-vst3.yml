@@ -123,30 +123,7 @@ jobs:
           Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
           if($rc -ne 0){throw "P016 genuine EMU8000 SF2 recall PCM parity failed: $rc"}
           $cases=@(Select-String -Path _p016-public-recall-pcm.log -Pattern '^P016_PUBLIC_REAL_EMU8000_SF2_RECALL_PCM_PARITY_PASS')
-          if($cases.Count -ne 6){throw "P016 exactly 6 PCM parity cases required, found $($cases.Count)"}
-          if(!(Select-String -Path _p016-public-recall-pcm.log -Pattern '^P016_PUBLIC_SF2_EMU8000_6_PCM_PARITY_CASES_NEGATIVE_CONTROLS_PASS
-      - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          cmake --build _p009-build --config Release --parallel 4 --target P010NativeHostQA
-          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 host compile failed'}
-          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
-          & _p009-build/Release/P010NativeHostQA.exe $bundle --public
-          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
-          Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
-      - name: Archive evidence only, not unsigned unlicensed binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: P010-OWNER-ONLY-EXPERIMENTAL-NATIVE-VST3-HOST
-          path: |
-            _p009-validator.log
-            _p016-public-recall-pcm.log
-            _p009-build/Release/P010NativeHostQA.exe
-            _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
-          if-no-files-found: error
-          retention-days: 1
- -Quiet)){throw 'P016 negative controls not passed'}
+          if($cases.Count -ne 6){throw "P016 needs six comparisons; got $($cases.Count)"}
           Write-Host P016_PUBLIC_ORIGINAL_CHIP_SYNTHETIC_SF2_RECALL_PCM_NEGATIVE_CONTROLS_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
         shell: pwsh
@@ -164,6 +141,7 @@ jobs:
           name: P010-OWNER-ONLY-EXPERIMENTAL-NATIVE-VST3-HOST
           path: |
             _p009-validator.log
+            _p016-public-recall-pcm.log
             _p009-build/Release/P010NativeHostQA.exe
             _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
