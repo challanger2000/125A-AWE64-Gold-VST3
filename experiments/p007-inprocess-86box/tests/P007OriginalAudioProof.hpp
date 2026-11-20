@@ -111,23 +111,33 @@ inline double spectralShapeDistance(const Window& x,
     return static_cast<double>(difference);
 }
 
-// P007BM: A/B/A must prove that reloading A restores A's measured sound,
-// not merely that the second and third banks differ. This intentionally
-// uses the existing conservative RMS/peak/temporal-content gates and is
-// a coarse PCM-fingerprint check, NOT a bit-identical waveform assertion.
+// P007BT: A/B/A must match A's TIMBRE and overall gain, NOT the single
+// largest transient PCM sample peak. Win95 guest scheduling and sample
+// playback phase can shift one peak of the same patch by 15%-20%, even
+// when RMS, roughness and the eight normalized spectral bands recover A.
+// Independent original-Win95 PCM/EMU8000 register and SF2 ACK remain required.
 inline bool restoredAfterAlternate(const Window& first,
                                    const Window& alternate,
                                    const Window& restored) noexcept {
     if(!distinguishBanks(first,alternate) ||
        !distinguishBanks(restored,alternate) ||
-       distinguishBanks(first,restored))return false;
-    // P007BN: close aggregate metrics alone are insufficient. On an
-    // independently spectral-different alternate, the returned patch
-    // must be at least twice as close to the first patch as to B.
-    // 0.15 is a conservative *provisional* shape tolerance for time-varying
-    // original Creative voices; the real private Win95 gate remains NOT RUN.
-    return spectralShapeDistance(first,restored)<=
-           std::max(0.15,0.5*spectralShapeDistance(first,alternate));
+       first.frames<33075u || restored.frames<33075u ||
+       first.rms()<0.00001 || restored.rms()<0.00001)
+        return false;
+    const double level=restored.rms()/first.rms();
+    if(!std::isfinite(level)||level<0.85||level>1.15)return false;
+    const double roughFirst=first.roughness();
+    const double roughRestored=restored.roughness();
+    if(!std::isfinite(roughFirst)||!std::isfinite(roughRestored) ||
+       std::abs(roughFirst-roughRestored)>
+           std::max(0.02,0.25*roughFirst))
+        return false;
+    const double different=spectralShapeDistance(first,alternate);
+    const double returned=spectralShapeDistance(first,restored);
+    if(!std::isfinite(different)||!std::isfinite(returned) ||
+       different<0.20)return false;
+    // Keep the adversarial P007BN A/B/C fake-bank rejection.
+    return returned<=std::max(0.15,0.5*different);
 }
 
 inline bool accept(const Window& before,const Window& after,

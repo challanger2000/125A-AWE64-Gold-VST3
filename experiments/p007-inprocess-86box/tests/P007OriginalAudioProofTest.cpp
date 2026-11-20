@@ -67,10 +67,37 @@ int main() {
                 "A/B/A exact tone replay rejected");
         require(restoredAfterAlternate(tone440,tone1760,tone440SlightGain),
                 "A/B/A safe two-percent replay gain drift rejected");
+        // Owner's latest original Win95 take differs mainly in peak: the
+        // SAME tone may have a louder first transient without changing
+        // its spectral profile. The old comparator rejected this.
+        Window samePatchNewAttack;
+        for(unsigned i=0u;i<88200u;++i){
+            const double time=double(i)/44100.;
+            const float a=float(.02*std::sin(
+                2.*3.141592653589793*440.*time));
+            const float gain=(i<250u?1.22f:1.f);
+            samePatchNewAttack.append(a*gain,a*gain);
+        }
+        require(p007::original_audio_proof::distinguishBanks(
+                    tone440,samePatchNewAttack),
+                "P007BT legacy peak-only false negative not reproduced");
+        require(restoredAfterAlternate(
+                    tone440,tone1760,samePatchNewAttack),
+                "same SF2 timbre with one louder transient rejected");
         require(!restoredAfterAlternate(tone440,tone1760,tone1760),
                 "A/B/B mistaken for A/B/A original bank recovery");
         require(!restoredAfterAlternate(tone440,tone1760,quiet),
                 "A/B/silent falsely accepted as bank recovery");
+        Window impostorSameLevel;
+        for(unsigned i=0u;i<88200u;++i) {
+            const double time=double(i)/44100.;
+            const float val=float(.02*std::sin(
+                2.*3.141592653589793*880.*time));
+            impostorSameLevel.append(val,val);
+        }
+        require(!restoredAfterAlternate(
+                    tone440,tone1760,impostorSameLevel),
+                "A/B/C different timbre, same loudness falsely accepted");
         require(!restoredAfterAlternate(tone440,tone440Copy,tone440Copy),
                 "A/A/A without different second bank accepted");
         // P007BN: concrete false-positive of the old RMS/peak/roughness
@@ -106,6 +133,7 @@ int main() {
                 "P007BN spectral counterexample lost independent separation");
         require(!restoredAfterAlternate(mixtureA,mixtureB,impostorC),
                 "P007BN fake A/B/C was falsely accepted as original A/B/A");
+        std::puts("P007BT_SAME_PATCH_TRANSIENT_PEAK_DRIFT_AND_WRONG_TIMBRE_NEGATIVE_PASS");
         std::puts("P007BN_OLD_AGGREGATE_FALSE_POSITIVE_KILLED_BY_SPECTRAL_GATE_PASS");
         std::puts("P007BM_ABA_RECOVERY_POSITIVE_AND_NEGATIVE_CONTROLS_PASS");
         std::puts("P007AW_SPECTRAL_BANK_DIFFERENCE_NEGATIVE_CONTROLS_PASS"
