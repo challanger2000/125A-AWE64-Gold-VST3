@@ -60,10 +60,14 @@ std::uint64_t render(const char* rom,const char* sf2,
     std::uint64_t energy=0;
     for(unsigned b=0;b<kBlocks;++b){
         if(b==0)synth.NoteOn(0,60,100);
+        if(b==2)synth.NoteOn(0,72,90); // overlapping polyphonic layer
         if(b==5)synth.ControlChange(0,1,96);
         if(b==10)synth.PitchBend(0,2050);
+        if(b==12)synth.NoteOff(0,72);
         if(b==15)synth.NoteOff(0,60);
         if(b==18)synth.NoteOn(0,64,75);
+        if(b==20)synth.NoteOn(0,67,115); // overlap + velocity layer
+        if(b==28)synth.NoteOff(0,67);
         if(b==30)synth.NoteOff(0,64);
         if(b==33)synth.PitchBend(0,0);
         if(b==36)synth.NoteOn(0,67,125);
