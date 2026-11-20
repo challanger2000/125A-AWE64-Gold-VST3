@@ -397,6 +397,69 @@ void verifyP014PatchAutomationState(const VST3::Hosting::PluginFactory& factory,
  std::puts("P014_PUBLIC_REAL_WINDOWS_VST3_TIMED_16_CHANNEL_PATCH_AUTOMATION_STATE_PASS");
 }
 
+void verifyP015PublicActiveRestore(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+ // The real Windows VST3 host must support setState on an active processor
+ // and re-upgrade an old v1 project without inventing CC/NRPN settings.
+ Plugin p(factory,id,host);p.start(7,0,44100.);
+ ParameterChanges changes(1);
+ EventList notes;
+ std::array<float,frames> l{},right{};
+ float* ptrs[2]={l.data(),right.data()};
+ AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ptrs;
+ ProcessData data{};data.processMode=kRealtime;
+ data.symbolicSampleSize=kSample32;data.numSamples=frames;
+ data.numOutputs=1;data.outputs=&bus;data.inputParameterChanges=&changes;
+ data.inputEvents=&notes;
+ int32 qi=0,pi=0;
+ auto* q=changes.addParameterData(2000u+1u,qi); // CH1 CC7
+ check(q&&q->addPoint(0,0.,pi)==kResultOk,
+       "P015 active host CC7=0 before switching projects");
+ check(p.processor->process(data)==kResultOk,
+       "P015 active host mapped mute");
+ const auto snapshot=[&](){
+   MemoryStream saved;Saved value{};
+   check(p.component->getState(&saved)==kResultOk &&
+         saved.getSize()==sizeof(value),
+         "P015 get active v4 state");
+   std::memcpy(&value,saved.getData(),sizeof(value));
+   return value;
+ };
+ const auto dirty=snapshot();
+ check(dirty.midiStates[1]==0u,"P015 active old project is not muted");
+ struct Legacy {
+   uint32 magic=0x39303050u,version=1u,program=7u,bank=0u;
+   float master=1.f;
+ } legacy{};
+ const auto restore=[&](const void* source,int32 bytes,bool expected){
+   MemoryStream in;int32 wrote=0;
+   check(in.write(const_cast<void*>(source),bytes,&wrote)==kResultOk &&
+         wrote==bytes,"P015 live project state write");
+   check(in.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+         "P015 live project state seek");
+   check((p.component->setState(&in)==kResultOk)==expected,
+         "P015 active project accept/reject");
+ };
+ restore(&legacy,sizeof(legacy),true);
+ auto clean=snapshot();
+ check(clean.version==4u && clean.midiStates[1]==0xFFFFu &&
+       clean.program==7u && clean.bank==0u,
+       "P015 active legacy reopen retained previously muted CC7");
+ for(auto val:clean.advancedStates)
+   check(val==0xFFFFu,"P015 active legacy invented an NRPN");
+ restore(&dirty,sizeof(dirty),true);
+ check(snapshot().midiStates[1]==0u,
+       "P015 active v4 state lost old CC7");
+ auto corrupt=dirty;corrupt.midiStates[1]=256u;
+ restore(&corrupt,sizeof(corrupt),false);
+ check(snapshot().midiStates[1]==0u,
+       "P015 corrupt live state unexpectedly modified processor");
+ restore(&legacy,sizeof(legacy),true);
+ check(snapshot().midiStates[1]==0xFFFFu,
+       "P015 second legacy restore retained ghost CC7");
+ std::puts("P015_PUBLIC_REAL_WIN64_VST3_ACTIVE_V1_V4_PROJECT_RECALL_PASS");
+}
+
 struct Stats {
  double rms=0,peak=0;
  unsigned clippedSamples=0;
@@ -669,7 +732,7 @@ void verifyP015PrivateProjectPCM(const VST3::Hosting::PluginFactory& factory,
      check(expected==got,
            "P015 RECALL PCM DIFFERENT: stale old-project CC or RPN survived");
  }
- std::printf("P015_PRIVATE_ORIGINAL_EMU8000_ACTIVE_V4_BANK%d_PROJECT_RECALL_PCM_EQUAL_PASS\\n",selectedBank);
+ std::printf("P015_PRIVATE_ORIGINAL_EMU8000_ACTIVE_V4_BANK%d_PROJECT_RECALL_PCM_EQUAL_PASS\n",selectedBank);
  // Legacy 20-byte state has NO controller data. It must start clean even
  // after a modern v4 project has previously muted the active synth.
  Saved legacy{};legacy.version=1u;legacy.program=7u;legacy.bank=0u;
@@ -739,6 +802,7 @@ int main(int argc,char** argv){
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
+  verifyP015PublicActiveRestore(factory,cls->ID(),host.get());
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
