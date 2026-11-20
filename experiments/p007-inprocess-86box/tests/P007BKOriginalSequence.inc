@@ -120,17 +120,18 @@ void privateOriginalMultiSf2DrumSequence(
         using Clock=std::chrono::steady_clock;
         auto next=Clock::now();
         auto tick=[&](int action,int pitch,
-                      p007::original_audio_proof::Window* capture=nullptr){
+                      p007::original_audio_proof::Window* capture=nullptr,
+                      int midiChannel=0){
             events.clear();
             if(action!=0) {
                 Event e{};
                 e.type=action>0?Event::kNoteOnEvent:Event::kNoteOffEvent;
                 e.busIndex=0;e.sampleOffset=0;
                 if(action>0){
-                    e.noteOn.channel=0;e.noteOn.pitch=static_cast<int16>(pitch);
+                    e.noteOn.channel=static_cast<int16>(midiChannel);e.noteOn.pitch=static_cast<int16>(pitch);
                     e.noteOn.velocity=.9f;
                 }else{
-                    e.noteOff.channel=0;e.noteOff.pitch=static_cast<int16>(pitch);
+                    e.noteOff.channel=static_cast<int16>(midiChannel);e.noteOff.pitch=static_cast<int16>(pitch);
                     e.noteOff.velocity=0.f;
                 }
                 require(events.addEvent(e)==kResultOk,
@@ -201,7 +202,7 @@ void privateOriginalMultiSf2DrumSequence(
         };
         auto playVoice=[&](const char* label,std::uint8_t bank,
                            unsigned program,int pitch,
-                           bool strictAudio=true) {
+                           bool strictAudio=true,int midiChannel=0) {
             require(plugin.controller->setParamNormalized(bankId,
                     double(bank)/127.)==kResultOk &&
                     plugin.controller->setParamNormalized(programId,
@@ -212,16 +213,16 @@ void privateOriginalMultiSf2DrumSequence(
             require(probeBegin(unsigned(bank))==1,
                     "P007BK_ORIGINAL_EMU8000_REGISTER_PROBE_START_FAILED");
             p007::original_audio_proof::Window window;
-            tick(1,pitch,&window);
+            tick(1,pitch,&window,midiChannel);
             for(int i=0;i<109;++i)tick(0,0,&window);
             const auto chipEvents=probeStop();
-            tick(-1,pitch);
+            tick(-1,pitch,nullptr,midiChannel);
             for(int i=0;i<18;++i)tick(0,0);
             std::printf("P007BK_ORIGINAL_PCM_NOTE"
-                 " %s bank=%u program=%u note=%d"
+                 " %s bank=%u program=%u note=%d input_ch=%d"
                  " pcm_frames=%llu rms=%.9f peak=%.9f rough=%.9f"
                  " emu8k_register_events=%u cold_boots=%u\n",
-                label,unsigned(bank),program,pitch,
+                label,unsigned(bank),program,pitch,midiChannel+1,
                 static_cast<unsigned long long>(window.frames),
                 window.rms(),window.peak,window.roughness(),
                 chipEvents,bootCount());
@@ -239,6 +240,28 @@ void privateOriginalMultiSf2DrumSequence(
                     "P007BK_ORIGINAL_CREATIVE_MIDI_EMU8000_PCM_NOT_PROVEN");
             return window;
         };
+        // P007BT: distinguish original GM manager/bank failure from
+        // accidentally overriding GM channel 10 by our own CC0/CC32/PC.
+        // In GM mode CH10 must play Standard kit WITHOUT selecting any
+        // drum preset. First play CH10 untouched, while bank0 changes
+        // only modify the INDEPENDENT CH1 melodic channel.
+        const auto gmAutoKick=playVoice(
+            "GM_AUTO_CH10_UNTOUCHED_KICK",0u,progA,36,false,9);
+        const auto gmAutoSnare=playVoice(
+            "GM_AUTO_CH10_UNTOUCHED_SNARE",0u,progA,38,false,9);
+        const auto gmMelodyBefore=playVoice(
+            "GM_MELODIC_BEFORE_ANY_SF2",0u,progA,60,false,0);
+        std::printf("P007BT_GM_CH10_AUTO_VERSUS_EXPLICIT"
+                    " untouched_kick_rms=%.9f untouched_snare_rms=%.9f"
+                    " melodic_rms=%.9f"
+                    " untouched_kick_audible=%d untouched_snare_audible=%d"
+                    " melodic_audible=%d\n",
+                    gmAutoKick.rms(),gmAutoSnare.rms(),gmMelodyBefore.rms(),
+                    p007::original_audio_proof::accept(baseline,gmAutoKick)?1:0,
+                    p007::original_audio_proof::accept(baseline,gmAutoSnare)?1:0,
+                    p007::original_audio_proof::accept(baseline,gmMelodyBefore)?1:0);
+        std::fflush(stdout);
+
         // P007BR: genuine original GM Standard preset exists in installed
         // private SYNTHGM.SBK; establish whether it sounds BEFORE any user
         // SF2 reload. No synthetic fallback or silent-ROM false positive.
@@ -282,16 +305,20 @@ void privateOriginalMultiSf2DrumSequence(
                     audioB.rms(),audioB.peak,audioB.roughness(),
                     again.rms(),again.peak,again.roughness());
         std::fflush(stdout);
-        require(p007::original_audio_proof::restoredAfterAlternate(
-                    audioA,audioB,again),
-                "P007BM_VINTAGE_RETURN_PCM_NOT_CONSISTENT_WITH_FIRST_VINTAGE");
+        // Always log both independent spectral distances BEFORE the
+        // acceptance gate; a failure must still be diagnostically useful.
+        const double distToSecond=
+            p007::original_audio_proof::spectralShapeDistance(audioA,audioB);
+        const double distToReturn=
+            p007::original_audio_proof::spectralShapeDistance(audioA,again);
         std::printf("P007BN_ABA_SPECTRAL_SHAPE_DISTANCES"
                     " vintage_to_77=%.8f vintage_to_return=%.8f\n",
-                    p007::original_audio_proof::spectralShapeDistance(
-                        audioA,audioB),
-                    p007::original_audio_proof::spectralShapeDistance(
-                        audioA,again));
-        std::puts("P007BM_VINTAGE_RETURN_MATCHES_FIRST_VINTAGE_PCM_PASS");
+                    distToSecond,distToReturn);
+        std::fflush(stdout);
+        require(p007::original_audio_proof::restoredAfterAlternate(
+                    audioA,audioB,again),
+                "P007BT_VINTAGE_RETURN_RMS_ROUGHNESS_OR_SPECTRUM_DIFFERENT");
+        std::puts("P007BT_VINTAGE_RETURN_RMS_SPECTRUM_MATCHES_FIRST_VINTAGE_PASS");
         std::fflush(stdout);
         require(publishCount()==3u && completeCount()==3u &&
                 failCount()==0u && bootCount()==1u,
