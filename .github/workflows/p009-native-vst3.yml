@@ -97,9 +97,15 @@ jobs:
           [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
           & _p009-build/Release/P009RealtimeAllocationProbe.exe $fake
           $rc=$LASTEXITCODE
+          if($rc -ne 0){throw 'RT fallback-MIDI C++ allocation test failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py _p009-two-layer-test.sf2
+          if($LASTEXITCODE -ne 0){throw 'generated SF2 failed'}
+          & _p009-build/Release/P009RealtimeAllocationProbe.exe $fake _p009-two-layer-test.sf2
+          $rc=$LASTEXITCODE
           Remove-Item $fake
-          if($rc -ne 0){throw 'RT new/delete instrument callback test failed'}
-          Write-Host P009_RT_WINDOWS_3_RATES_2_CONCURRENT_INSTANCES_ZERO_CXX_HEAP_PASS
+          Remove-Item _p009-two-layer-test.sf2
+          if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
+          Write-Host P009_RT_WINDOWS_3_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
