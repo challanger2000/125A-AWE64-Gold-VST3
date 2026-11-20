@@ -20,11 +20,16 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 namespace {
 constexpr ParamID kProgram=1000u,kVolume=1001u,kBank=1002u;
+constexpr ParamID kChProgramBase=1200u,kChBankBase=1300u;
 struct Saved {
-    std::uint32_t magic=0x39303050u,version=1u;
+    std::uint32_t magic=0x39303050u,version=2u;
     std::uint32_t program=0u,bank=0u;
     float master=1.f;
+    std::array<std::uint8_t,15> otherPrograms{};
+    std::array<std::uint8_t,15> otherBanks{};
 };
+static_assert(sizeof(Saved)==50u,"P011 precise VST3 state bytes");
+constexpr std::uint32_t kStateV1=1u,kStateV2=2u;
 bool finite01(double x){return std::isfinite(x) && x>=0. && x<=1.;}
 unsigned toByte(float v) {
     return static_cast<unsigned>(std::clamp(
@@ -57,6 +62,68 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
         kVolume,STR16("%"),0.,100.,100.));
     parameters.addParameter(new RangeParameter(STR16("Bank CH1"),
         kBank,nullptr,0.,2.,0.,2));
+    // All 16 physical MIDI channels have distinct, automatable patch state.
+    // CH10 remains the original Creative GM drum channel, no user selection.
+    parameters.addParameter(new RangeParameter(STR16("Program CH2"),
+        kChProgramBase+1,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH2"),
+        kChBankBase+1,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH3"),
+        kChProgramBase+2,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH3"),
+        kChBankBase+2,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH4"),
+        kChProgramBase+3,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH4"),
+        kChBankBase+3,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH5"),
+        kChProgramBase+4,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH5"),
+        kChBankBase+4,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH6"),
+        kChProgramBase+5,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH6"),
+        kChBankBase+5,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH7"),
+        kChProgramBase+6,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH7"),
+        kChBankBase+6,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH8"),
+        kChProgramBase+7,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH8"),
+        kChBankBase+7,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH9"),
+        kChProgramBase+8,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH9"),
+        kChBankBase+8,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH10"),
+        kChProgramBase+9,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH10"),
+        kChBankBase+9,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH11"),
+        kChProgramBase+10,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH11"),
+        kChBankBase+10,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH12"),
+        kChProgramBase+11,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH12"),
+        kChBankBase+11,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH13"),
+        kChProgramBase+12,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH13"),
+        kChBankBase+12,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH14"),
+        kChProgramBase+13,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH14"),
+        kChBankBase+13,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH15"),
+        kChProgramBase+14,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH15"),
+        kChBankBase+14,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(STR16("Program CH16"),
+        kChProgramBase+15,nullptr,0.,127.,0.,127));
+    parameters.addParameter(new RangeParameter(STR16("Bank CH16"),
+        kChBankBase+15,nullptr,0.,1.,0.,1));
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::terminate(){
@@ -139,13 +206,20 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
 tresult PLUGIN_API NativeVst3::setProcessing(TBool){return kResultOk;}
 void NativeVst3::changeBankProgram() noexcept{
     if(!synth_)return;
-    // All channels preserve independent Creative state. A selected drum
-    // browser token redirects ONLY CH1 audition to standard GM CH10.
-    const int melodicBank=bank_==1?1:0;
-    synth_->ControlChange(0,0,static_cast<std::uint8_t>(melodicBank));
-    synth_->ControlChange(0,32,0);
-    synth_->ProgramChange(0,static_cast<std::uint8_t>(program_));
-    synth_->ProgramChange(9,0); // default Standard GM kit
+    // Apply a distinct original Creative program/bank selection on ALL 16
+    // MIDI channels. Only CH1's browser bank2 is an audition shortcut to
+    // GM channel 10. CH10 itself always uses the original GM drum bank128.
+    for(unsigned ch=0;ch<16;++ch){
+        const unsigned chosenBank=ch==0?static_cast<unsigned>(bank_):
+                                    static_cast<unsigned>(banksByChannel_[ch]);
+        const unsigned chosenProgram=ch==0?static_cast<unsigned>(program_):
+                                       static_cast<unsigned>(programsByChannel_[ch]);
+        synth_->ControlChange(static_cast<std::uint8_t>(ch),0,
+                              static_cast<std::uint8_t>(chosenBank==1?1:0));
+        synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
+        synth_->ProgramChange(static_cast<std::uint8_t>(ch),
+                              static_cast<std::uint8_t>(chosenProgram));
+    }
 }
 void NativeVst3::dispatch(const Event& event) noexcept{
     if(!synth_)return;
@@ -221,7 +295,23 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     updated=true;break;
                 case kVolume:
                     master_=static_cast<float>(val);break;
-                default:break;
+                default: {
+                    // CH2..CH16, independent automation. Preserve every
+                    // channel's MIDI state and last selected program.
+                    const ParamID id=q->getParameterId();
+                    if(id>=kChProgramBase+1 && id<kChProgramBase+16){
+                        const unsigned ch=id-kChProgramBase;
+                        programsByChannel_[ch]=static_cast<std::uint8_t>(
+                            std::clamp<int>(static_cast<int>(std::lround(val*127.)),0,127));
+                        updated=true;
+                    }else if(id>=kChBankBase+1 && id<kChBankBase+16){
+                        const unsigned ch=id-kChBankBase;
+                        banksByChannel_[ch]=static_cast<std::uint8_t>(
+                            std::clamp<int>(static_cast<int>(std::lround(val)),0,1));
+                        updated=true;
+                    }
+                    break;
+                }
             }
         }
         if(updated)changeBankProgram();
@@ -265,21 +355,50 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     if(!stream)return kResultFalse;
-    Saved s{};s.program=static_cast<std::uint32_t>(program_);
+    Saved s{};
+    s.program=static_cast<std::uint32_t>(program_);
     s.bank=static_cast<std::uint32_t>(bank_);s.master=master_;
+    for(unsigned ch=1;ch<16;++ch){
+        s.otherPrograms[ch-1]=programsByChannel_[ch];
+        s.otherBanks[ch-1]=banksByChannel_[ch];
+    }
     int32 n=0;
-    return stream->write(&s,sizeof(s),&n)==kResultOk &&
-           n==sizeof(s)?kResultOk:kResultFalse;
+    return stream->write(&s,static_cast<int32>(sizeof(s)),&n)==kResultOk &&
+           n==static_cast<int32>(sizeof(s))?kResultOk:kResultFalse;
 }
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
-    Saved s{};int32 n=0;
-    if(stream->read(&s,sizeof(s),&n)!=kResultOk||n!=sizeof(s)||
-       s.magic!=0x39303050u||s.version!=1u||
+    Saved s{};
+    // Existing P009 v1 project payload was exactly 20 bytes. Read the
+    // original 20-byte prefix, then the optional v2 extension separately.
+    constexpr int32 kLegacyBytes=20;
+    int32 n=0;
+    if(stream->read(&s,kLegacyBytes,&n)!=kResultOk||n!=kLegacyBytes||
+       s.magic!=0x39303050u||
+       (s.version!=kStateV1&&s.version!=kStateV2)||
        s.program>127u||s.bank>2u||!finite01(s.master))
         return kResultFalse;
+    if(s.version==kStateV2){
+        int32 tail=0;
+        if(stream->read(reinterpret_cast<unsigned char*>(&s)+kLegacyBytes,
+                        static_cast<int32>(sizeof(s))-kLegacyBytes,&tail)
+                        !=kResultOk ||
+           tail!=static_cast<int32>(sizeof(s))-kLegacyBytes)
+            return kResultFalse;
+        for(unsigned ch=0;ch<15;++ch)
+            if(s.otherPrograms[ch]>127u||s.otherBanks[ch]>1u)
+                return kResultFalse;
+    }
+    // Full validation above, THEN mutation: corrupt state cannot partially
+    // overwrite a running project's 16 channels.
     program_=static_cast<int>(s.program);bank_=static_cast<int>(s.bank);
-    master_=s.master;changeBankProgram();
+    master_=s.master;
+    programsByChannel_.fill(0u);banksByChannel_.fill(0u);
+    for(unsigned ch=1;ch<16;++ch){
+        programsByChannel_[ch]=s.otherPrograms[ch-1];
+        banksByChannel_[ch]=s.otherBanks[ch-1];
+    }
+    changeBankProgram();
     return kResultOk;
 }
 } // namespace p009

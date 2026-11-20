@@ -35,8 +35,12 @@ constexpr int frames=1024;
 void check(bool v,const char* why){
  if(!v){std::fprintf(stderr,"P010_FAIL %s\n",why);throw std::runtime_error(why);}
 }
-struct Saved {uint32 magic=0x39303050u,version=1u,program=0u,bank=0u;float master=1.f;};
-static_assert(sizeof(Saved)==20,"P009 state format changed");
+struct Saved {
+ uint32 magic=0x39303050u,version=2u,program=0u,bank=0u;
+ float master=1.f;
+ std::array<std::uint8_t,15> otherPrograms{},otherBanks{};
+};
+static_assert(sizeof(Saved)==50,"P011 multi-channel project state size");
 struct Plugin{
  IPtr<IComponent> component;
  IPtr<IEditController> controller;
@@ -63,6 +67,12 @@ struct Plugin{
  Plugin& operator=(const Plugin&)=delete;
  void start(int prog,int bank,double rate){
    Saved saved{};saved.program=static_cast<uint32>(prog);saved.bank=static_cast<uint32>(bank);
+   // P011: program/bank on the ACTUAL MIDI channel, not merely the global
+   // CH1 browser. Run every channel with the requested note's instrument.
+   for(unsigned ch=1;ch<16;++ch){
+      saved.otherPrograms[ch-1]=static_cast<std::uint8_t>(prog);
+      saved.otherBanks[ch-1]=static_cast<std::uint8_t>(bank==1?1:0);
+   }
    MemoryStream stream;int32 written=0;
    check(stream.write(&saved,sizeof(saved),&written)==kResultOk&&written==sizeof(saved),"write VST3 saved state");
    check(stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,"rewind VST3 saved state");
@@ -212,6 +222,20 @@ int main(int argc,char** argv){
        "ROM_16_MIDI_CHANNELS",44100,ch,ch==9?36:60,100,ch==9?0:7,0);
     audible(x,"16-channel MIDI/ROM");
   }
+  // Previously the P010 note/channel test could sound on all channels
+  // while only CH1 had the chosen program. Explicitly prove CH2 and CH16
+  // actually switch between two distinct authentic ROM programs.
+  for(int ch:{1,15}){
+     const auto seven=render(factory,cls->ID(),host.get(),
+         "P011_CHANNEL_PROGRAM7",44100,ch,60,100,7,0);
+     const auto zero=render(factory,cls->ID(),host.get(),
+         "P011_CHANNEL_PROGRAM0",44100,ch,60,100,0,0);
+     audible(seven,"independent Creative CH program7");
+     audible(zero,"independent Creative CH program0");
+     check(seven.hash!=zero.hash,
+         "P011 independent per-channel ROM program selection did not change PCM");
+  }
+  std::puts("P011_ACTUAL_VST3_CH2_CH16_INDEPENDENT_PROGRAM_CHANGE_PASS");
   std::puts("P010_ORIGINAL_ROM_GM_KICK_SNARE_16_MIDI_CHANNELS_PASS");
   ownerBank(resources,"vintage.sf2");
   const auto first=render(factory,cls->ID(),host.get(),

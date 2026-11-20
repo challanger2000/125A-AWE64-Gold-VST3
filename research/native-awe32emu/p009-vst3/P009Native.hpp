@@ -37,6 +37,10 @@ private:
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
     double sampleRate_=44100.;
     int program_=0,bank_=0;
+    // CH2-16 independent Win95 Creative MIDI preset/bank states.
+    // CH1 stays in program_/bank_ to preserve browser behavior.
+    std::array<std::uint8_t,16> programsByChannel_{};
+    std::array<std::uint8_t,16> banksByChannel_{};
     float master_=1.f;
     bool active_=false,authenticRomLoaded_=false;
     void changeBankProgram() noexcept;
