@@ -326,13 +326,29 @@ jobs:
               # is invoked ONLY with the documented two-argument mode:
               # --portable-test <vst3>, which unpacks 10 helper EXEs into
               # a temporary runtime directory, runs them, then cleans up.
-              & $tester.FullName --portable-test $plugin *> $log
-              $rc=$LASTEXITCODE
+              # The portable entry is a GUI-subsystem wWinMain executable.
+              # PowerShell's native '&' invocation may return without
+              # waiting for GUI descendants; LASTEXITCODE can remain stale
+              # from a successful prior Python fixture command. Explicitly
+              # WAIT for this exact portable process and its real child
+              # dispatcher/probes. Do not infer success from a stale zero.
+              $stderrLog=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-v0210-stderr.log'
+              $quotedPlugin='"'+$plugin+'"'
+              $child=Start-Process -FilePath $tester.FullName -ArgumentList @('--portable-test',$quotedPlugin) -WorkingDirectory $tester.Directory.FullName -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError $stderrLog
+              $rc=$child.ExitCode
               Write-Host "125A_TESTER_PORTABLE_DISPATCH_EXIT_CODE=$rc"
+              if(Test-Path -LiteralPath $stderrLog){
+                Get-Content -LiteralPath $stderrLog | Select-Object -Last 30
+              }
             } finally {Pop-Location}
             if(Test-Path $log){Get-Content -LiteralPath $log | Select-Object -Last 100}
             # Exit zero alone is not enough: retain the genuine 125A report.
-            Copy-Item -LiteralPath $log -Destination $evidence -Force
+            if(Test-Path -LiteralPath $log){
+              Copy-Item -LiteralPath $log -Destination $evidence -Force
+            }
+            if(Test-Path -LiteralPath $stderrLog){
+              Copy-Item -LiteralPath $stderrLog -Destination $evidence -Force
+            }
             $reports=@(Get-ChildItem -LiteralPath $evidence -File |
               Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'})
             foreach($item in $reports){
@@ -353,6 +369,14 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
           }
+      - name: Preserve diagnostic report-only evidence when owner tester fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P168-FAILED-125A-TESTER-DIAGNOSTICS-ONLY
+          path: _p009-tester-evidence/**
+          if-no-files-found: warn
+          retention-days: 1
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
