@@ -1,6 +1,7 @@
 #include "P007Native.hpp"
 #include "P007HostMidiOffset.hpp"
 #include "P007HostInputBudget.hpp"
+#include "P007BrowserBankReselect.hpp"
 #include "P007MidiParamDedup.hpp"
 #include "P007PrivatePaths.hpp"
 #include "P007Sf2FatVolume.hpp"
@@ -600,7 +601,16 @@ VSTGUI::CView* Plugin::createCustomView(VSTGUI::UTF8StringPtr name,
                 }
                 return sf2CatalogRevision_.load(std::memory_order_acquire);
             },
-            [](std::uint16_t bank){return bank<=127u;});
+            [this](std::uint16_t bank) noexcept {
+                // P007BQ: before this fix the browser had a placeholder
+                // which returned success for ROM/SF2 melodic banks
+                // WITHOUT delivering any Creative bank re-selection,
+                // and always rejected repeated ROM/SF2 drum selections
+                // (virtual browser banks 128 and 129).
+                // Queue the re-assertion for the audio consumer, preserving
+                // the original Win95 Creative >=20ms MIDI pacer.
+                return browser_bank::reselect(bank,programNeedsSending_);
+            });
     return nullptr;
 }
 IPlugView* PLUGIN_API Plugin::createView(FIDString name) {

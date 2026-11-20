@@ -7,6 +7,7 @@
 #include "../vst3/P007HostInputBudget.hpp"
 #include "../vst3/P007MidiDelivery.hpp"
 #include "../vst3/P007MidiNoteRoute.hpp"
+#include "../vst3/P007BrowserBankReselect.hpp"
 #include <climits>
 #include <atomic>
 #include <cstdint>
@@ -184,6 +185,43 @@ int main(){
     rel=routes.noteOff(3u,64u,true);
     check(rel.count==1u&&rel.first==9u,
           "post-guest-reset best-effort release lost");
+    // P007BQ real browser callback helper: selecting the SAME program/bank
+    // twice must not depend on whether the host forwards identical points.
+    std::atomic<bool> browserResend{false};
+    check(p007::browser_bank::reselect(0u,browserResend) &&
+          browserResend.exchange(false),
+          "ROM melodic same-bank reselect was not forwarded");
+    check(p007::browser_bank::reselect(1u,browserResend) &&
+          browserResend.exchange(false),
+          "SF2 melodic same-bank reselect was not forwarded");
+    check(p007::browser_bank::reselect(128u,browserResend) &&
+          browserResend.exchange(false),
+          "Original ROM drum CH10 bank reselect rejected");
+    check(p007::browser_bank::reselect(129u,browserResend) &&
+          browserResend.exchange(false),
+          "Real SF2 drum CH10 bank reselect rejected");
+    check(!p007::browser_bank::reselect(130u,browserResend) &&
+          !browserResend.load(),
+          "Invalid browser bank was acknowledged as Creative reselect");
+    p007::BankProgramPacer reselectPacer;
+    reselectPacer.request(1u,12u,true);
+    unsigned reselectPackets=0u;
+    const auto sendReselect=[&](std::uint8_t,std::uint8_t,std::uint8_t){
+        ++reselectPackets;return 1;
+    };
+    for(unsigned k=0u;k<4u;++k)(void)reselectPacer.tick(sendReselect);
+    check(reselectPacer.committed()&&reselectPackets==3u,
+          "Original guest initial bank/program selection not committed");
+    check(p007::browser_bank::reselect(1u,browserResend),
+          "SAME bank 1 browser reselect not accepted");
+    reselectPacer.request(1u,12u,true,
+                         browserResend.exchange(false));
+    check(!reselectPacer.committed()&&reselectPacer.stage()==0u,
+          "Identical bank/program reselect left original Creative pacer idle");
+    for(unsigned k=0u;k<4u;++k)(void)reselectPacer.tick(sendReselect);
+    check(reselectPacer.committed()&&reselectPackets==6u,
+          "Same-bank reselect did not actually queue three Creative packets");
+    std::puts("P007BQ_P165_BROWSER_ROM_SF2_CH10_SAME_BANK_RESELECT_REAL_PACER_PASS");
     std::puts("P007BP_HOST_NOTEON_OFF_ORIGINAL_CHANNEL_OWNERSHIP_ACROSS_BANKS_PASS");
     std::puts("P007BO_HOST_INT_MAX_ITERATOR_BOUNDS_AND_ORIGINAL_MIDI_PANIC_PASS");
     std::puts("P007BA_ORIGINAL_16550_FIFO_BACKPRESSURE_128_PACKET_LOSSLESS_UNIT_PASS");
