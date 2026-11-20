@@ -127,3 +127,24 @@ endforeach()
 # Win64 native comparator; user Windows requires no Python or extra tools.
 add_executable(P019ComparePCM tests/P019ComparePCM.cpp)
 target_compile_features(P019ComparePCM PRIVATE cxx_std_17)
+
+# P021: A VST3 at 48/96k must STILL play the real 86Box EMU8000 chip!
+# Resampling the alternative C++ synth engine is a false sound PASS.
+# Compare 8/48/96/192k chip output with original 44.1k PCM at exact timestamps.
+file(READ "${NATIVE}/Emu8000.cpp" P021_CORE_SOURCE)
+if(NOT P021_CORE_SOURCE MATCHES "P021_BOX86_ORIGINAL_CHIP_RESAMPLE")
+  message(FATAL_ERROR
+     "P021 original Box86 non-native-rate output fix is missing")
+endif()
+unset(P021_CORE_SOURCE)
+add_executable(P021OriginalChipResamplingProbe
+   tests/P021OriginalChipResamplingProbe.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P021OriginalChipResamplingProbe PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P021OriginalChipResamplingProbe PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
+target_link_libraries(P021OriginalChipResamplingProbe PRIVATE winmm)
+target_compile_features(P021OriginalChipResamplingProbe PRIVATE cxx_std_17)
