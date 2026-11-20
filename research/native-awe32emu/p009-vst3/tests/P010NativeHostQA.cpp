@@ -1297,7 +1297,10 @@ void verifyP165HeldNoteOverflowRecovery(
    for(const bool eventOverflow:{true,false}){
      Plugin p(factory,id,host);
      p.start(0,1,44100.);
-     EventList notes;
+     // Steinberg's *example host* EventList defaults to maxSize=50.
+     // We deliberately need 513 genuine ABI events to challenge the
+     // actual plugin limit of 512. Preallocate on the HOST/test thread.
+     EventList notes(514);
      ParameterChanges params(2);
      std::array<float,frames> left{},right{};
      float* channels[2]={left.data(),right.data()};

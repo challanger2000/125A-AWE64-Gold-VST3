@@ -67,3 +67,7 @@
 ### Source-based correction to synthetic F-09 envelope (2026-11-20)
 
 Windows run 44829978397 failed F-09's early audible fixture condition: first=0.000004041, held=0. The F-05 actual VST3 CC0 versus host-bank project recall/PCM gate passed independently. Pinned upstream AWE32Emu SoundFont.cpp (lines 1114-1141) specifies that a missing sustainVolEnv generator maps to Creative volume-envelope register sustain ZERO (decay to silence). Explicit SF2 generator 37=0 cB maps to original EMU8000 0x7F full-volume sustain. The F-09 generated looping test bank now has BOTH generator 37 and generator 54, and a full second of PCM. Verify the following Windows CI result before marking F-09 or F-07 PASS; no production DSP was changed.
+
+### Native Win64 F-09 host-harness capacity correction
+
+[Windows run 44830706267](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44830706267) failed while preparing 513 VST3 events, **not** while testing synthesizer overflow. Genuine sustained original-chip positive PCM was now proven (`first=13.728658215`, `held=13.317269059`) and F-05 CC0+host bank PCM/recall passed. The host SDK's `EventList(maxSize=50)` default had silently limited the fixture. The new adversarial host preallocates an independent genuine `EventList(514)` off audio, then challenges the plugin's 512 boundary. This test has not yet passed. This is a test-host correction, no core sound change.
