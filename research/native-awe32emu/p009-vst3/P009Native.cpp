@@ -108,6 +108,9 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
         std::memcpy(ram,candidate->Core().DramData(),n*sizeof(std::int16_t));
     }else return false;
     candidate->Core().PowerOnInit();
+    // Allocate ALL sample, selection, chorus, port FIFO, resampling scratch
+    // outside process() and fail closed if an owner bank is unbounded.
+    if (!candidate->PrepareRealtime(1024u))return false;
     synth_=std::move(candidate);
     authenticRomLoaded_=true;
     changeBankProgram();

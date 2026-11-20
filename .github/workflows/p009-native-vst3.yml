@@ -31,6 +31,14 @@ jobs:
           python research/native-awe32emu/p009-vst3/apply_per_instance.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'original EMU8000 pin or clock patch mismatch'}
           Write-Host P009_NO_PROCESS_GLOBAL_WAVETABLE_CLOCK_PASS
+      - name: Apply reviewed bounded memory/RT SoundFont patch (fail on upstream drift)
+        shell: pwsh
+        run: |
+          git -C _p009-upstream apply --check "$env:GITHUB_WORKSPACE/research/native-awe32emu/p009-vst3/rt_safe.patch"
+          if($LASTEXITCODE -ne 0){throw 'RT source patch does not match pinned upstream'}
+          git -C _p009-upstream apply "$env:GITHUB_WORKSPACE/research/native-awe32emu/p009-vst3/rt_safe.patch"
+          if($LASTEXITCODE -ne 0){throw 'RT source patch application failed'}
+          Write-Host P009_BOUNDED_ORIGINAL_EMU8000_RT_SOURCE_PATCH_APPLIED_PASS
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
