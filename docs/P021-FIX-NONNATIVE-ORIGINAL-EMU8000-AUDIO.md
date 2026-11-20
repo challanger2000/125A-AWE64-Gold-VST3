@@ -29,3 +29,24 @@ The original-owner Windows private VST3 host test now also rejects the two previ
 The P021 fix must pass Steinberg 47/47, original ROM public fixture probe 8/8, realtime callback memory and multi-instance tests and real Windows host silence behavior before being called build-valid. Then privately rerun genuine owner-ROM/SBK/SF2 VST3 and original-chip rate probe. **The corrected non-native host sample-offset MIDI alignment also requires further edge-case testing**, since a linear interpolator may look ahead up to two native chip samples. It would be premature to claim sample-exact event timing at every rate from the old P014 tests, which focused mainly on 44.1k.
 
 No proprietary ROM/SBK/SF2 assets may be committed to GitHub; P007 remains untouched; no DAW Studio Pro testing until final gate.
+
+## P021 build verified — actual Windows QA
+
+The final P021 source build [Windows Actions run #44798483699](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44798483699), source commit `751aba0a22ded63e14ede72e15c586f2364657b5`, completed **SUCCESS**.
+
+- Steinberg VST3 validator **47/47 PASS**.
+- Authentic original-chip resampler proof **8/8 PASS**: DRY/FX at 8, 48, 96 and 192 kHz each compared 16,384 stereo int16 sample values to independently captured native 44.1k PCM, with **0 mismatches and 0 LSB error**.
+- Genuine 64-window 86Box chip RT memory and dual-instance checks at all five rates passed, including no heap allocation in tested callback paths.
+- P019 independent 980/128/64 DRY/FX PCM parity remains bit-exact.
+- Actual Windows VST3 reports accurate 64-native-frame chip latency: 12, 64, 70, 140, 279 host frames at 8, 44.1, 48, 96, 192 kHz.
+
+### Private original ROM/SBK/SF2 acceptance
+
+A **complete P021 private Windows-only test ZIP** was assembled from the exact P021 CI Win64 VST3 and host/independent chip-probe binaries, plus SHA256-verified original owner ROM, Creative SBK and both SF2s from the already successful P020 owner archive. These proprietary sources stay inside the owner's downloadable chat attachment, NOT GitHub.
+
+The included `START-P021-TEST.bat` runs:
+1. Actual Windows VST3 P010 full private ROM/77 preset/legacy and v4 project recall + CC/RPN + banks + A/B/A, including new 48/96k **negative controls** against known P020 approximate-core hashes.
+2. Direct source-chip reference 8/48/96/192 kHz, DRY and FX, all against 44.1 kHz original chip PCM with the owner's ROM/SBK/SF2.
+3. Records `P021-ERGEBNISSE/P021-ERGEBNIS.txt` with explicit `P021_TEST_EXITCODE`.
+
+**The P021 private test has not yet been executed.** The user's P020 result still validates the 44.1k real 64-frame VST3, but its old 48/96k smoke tests must not be misrepresented as chip authenticity.
