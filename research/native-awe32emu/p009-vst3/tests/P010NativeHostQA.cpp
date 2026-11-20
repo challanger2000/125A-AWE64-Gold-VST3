@@ -1039,7 +1039,8 @@ void ownerBank(const fs::path& folder,const char* name){
 // across project reopen. NOT a copy-back of bundle-local user.sf2.
 void verifyP165PrivateExternalSf2V5OriginalPCM(
     const VST3::Hosting::PluginFactory& factory,
-    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+    const VST3::UID& id,FUnknown* host,const fs::path& resources,
+    int program=7) {
   const auto vintage=resources/"vintage.sf2";
   const auto user77=resources/"77-presets.sf2";
   check(fs::is_regular_file(vintage)&&fs::is_regular_file(user77),
@@ -1048,12 +1049,16 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   // ORIGINAL Creative chip with bundle-local vintage SF2, as V4 always did.
   ownerBank(resources,"vintage.sf2");
   auto oldProject=Plugin(factory,id,host);
-  oldProject.start(7,1,44100.);
+  oldProject.start(program,1,44100.);
   const auto originalPCM=p015Play(oldProject,0,60);
-  // Now intentionally alter the default bank on disk to DIFFERENT real SF2.
-  // The new V5 project must STILL load the exact requested original Vintage
-  // Dreams file by absolute path and digest, not silently the other SF2.
+  // Now intentionally alter the default bank on disk to DIFFERENT SF2.
+  // Independent negative control: the wrong bank must produce a different
+  // real 86Box chip waveform, or our positive V5 test could pass vacuously.
   ownerBank(resources,"77-presets.sf2");
+  auto wrongBank=Plugin(factory,id,host);
+  wrongBank.start(program,1,44100.);
+  check(p015Play(wrongBank,0,60)!=originalPCM,
+        "P165 owner A/B fixture has identical original chip PCM");
   std::array<std::uint8_t,32> digest{};
   check(p009::sha256FileNonRealtime(vintage,digest),
         "P165 cannot hash real original owner SoundFont");
@@ -1067,7 +1072,7 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   };
   static_assert(sizeof(Extension)==68u);
   Saved state{};
-  state.version=5u;state.program=7u;state.bank=1u;
+  state.version=5u;state.program=static_cast<uint32_t>(program);state.bank=1u;
   state.midiStates.fill(0xFFFFu);
   state.advancedStates.fill(0xFFFFu);
   Extension extension{};
@@ -1090,7 +1095,7 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
       return plugin.component->setState(&stream);
   };
   auto reopen=Plugin(factory,id,host);
-  reopen.start(7,1,44100.);
+  reopen.start(program,1,44100.);
   check(restore(reopen,project)==kResultOk,
         "P165 positive owner V5 external SF2 SHA restore failed");
   MemoryStream stored;
@@ -1103,7 +1108,7 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
         "P165 private V5 reopened original chip PCM differs from selected SF2");
   // Independent fresh host instance (project reopens after DAW restart).
   auto fresh=Plugin(factory,id,host);
-  fresh.start(7,1,44100.);
+  fresh.start(program,1,44100.);
   check(restore(fresh,project)==kResultOk,
         "P165 fresh project did not load owner SF2 by full path");
   check(p015Play(fresh,0,60)==originalPCM,
@@ -1120,14 +1125,17 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
         std::memcmp(unchanged.getData(),project.data(),project.size())==0,
         "P165 rejected changed SF2 corrupted the current project state");
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
+  ownerBank(resources,nullptr);
 }
 }
 int main(int argc,char** argv){
  try{
   check(argc==3&&(std::strcmp(argv[2],"--public")==0||
-      std::strcmp(argv[2],"--private")==0),
-      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private");
+      std::strcmp(argv[2],"--private")==0||
+      std::strcmp(argv[2],"--synthetic")==0),
+      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic");
   const bool priv=std::strcmp(argv[2],"--private")==0;
+  const bool synthetic=std::strcmp(argv[2],"--synthetic")==0;
   const fs::path bundle=fs::absolute(argv[1]);
   check(fs::is_directory(bundle),"actual native VST3 bundle missing");
   const auto resources=bundle/"Contents"/"Resources"/"P009-Private";
@@ -1135,6 +1143,12 @@ int main(int argc,char** argv){
     for(const char* file:{"awe32.raw","SYNTHGM.SBK","77-presets.sf2","vintage.sf2"})
       check(fs::is_regular_file(resources/file),"original ROM/SBK/2 owner SF2 missing");
     check(fs::file_size(resources/"awe32.raw")==1048576u,"ROM must be genuine 1MiB");
+  }else if(synthetic){
+    for(const char* file:{"awe32.raw","SYNTHGM.SBK","77-presets.sf2","vintage.sf2"})
+      check(fs::is_regular_file(resources/file),
+            "public P165 original-chip VST3 synthetic A/B SF2 fixture missing");
+    check(fs::file_size(resources/"awe32.raw")==1048576u,
+          "public fake ROM must be exactly 1MiB");
   }else check(!fs::exists(resources/"awe32.raw"),
               "public QA must NEVER use a real owner's licensed ROM");
   std::string err;
@@ -1154,6 +1168,13 @@ int main(int argc,char** argv){
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
+  if(synthetic){
+    ownerBank(resources,nullptr);
+    verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
+                                              resources,0);
+    std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
+    return 0;
+  }
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);

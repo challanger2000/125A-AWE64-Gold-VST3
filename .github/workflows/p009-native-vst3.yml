@@ -214,6 +214,25 @@ jobs:
           & _p009-build/Release/P010NativeHostQA.exe $bundle --public
           if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
           Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
+      - name: Actual native Win64 VST3 synthetic original 86Box chip V5 external SF2 SHA and PCM end-to-end
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          $dir=Join-Path $bundle 'Contents/Resources/P009-Private'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $dir 'awe32.raw'),(New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'SYNTHGM.SBK')
+          if($LASTEXITCODE -ne 0){throw 'synthetic original Creative base-bank fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'vintage.sf2')
+          if($LASTEXITCODE -ne 0){throw 'synthetic selected Vintage SoundFont fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir '77-presets.sf2') --alternate
+          if($LASTEXITCODE -ne 0){throw 'synthetic deliberately different alternate SF2 fixture failed'}
+          & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic
+          $rc=$LASTEXITCODE
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          if($rc -ne 0){throw 'Actual VST3 86Box V5 external SoundFont source PCM/SHA recall failed'}
+          Write-Host P165_PUBLIC_SYNTHETIC_ACTUAL_WIN64_VST3_V5_EXTERNAL_SF2_SHA_AND_PCM_RECALL_PASS
       - name: Original EMU8000 VST3 FX type UI is enabled, not a visual-only fake
         shell: pwsh
         run: |

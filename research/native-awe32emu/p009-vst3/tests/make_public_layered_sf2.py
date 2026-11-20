@@ -23,12 +23,15 @@ def gen(op,val):
 def shdr(name,start,end,loop0,loop1):
     return struct.pack("<20sIIIIIBbHH",nm(name),start,end,loop0,loop1,
                        44100,60,0,0,1)
+alternate=len(sys.argv)>2 and sys.argv[2]=="--alternate"
 samples=[]
 for kind in range(2):
     for i in range(768):
         phase=2*math.pi*(i%256)/256
         v=math.sin(phase) if kind==0 else math.sin(phase)*math.cos(phase)
-        samples.append(int(11000*v))
+        # Identical RIFF bank/preset structure with genuinely different PCM
+        # so a wrong-bank fallback MUST change the original chip's audio.
+        samples.append(int((3400 if alternate else 11000)*v))
 smpl=struct.pack("<%dh"%len(samples),*samples)
 # Both instrument zones are active simultaneously, MIDI velocity 1..127.
 pdta=(
