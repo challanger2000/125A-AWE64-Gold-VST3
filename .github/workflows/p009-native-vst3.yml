@@ -39,6 +39,12 @@ jobs:
           git -C _p009-upstream apply "$env:GITHUB_WORKSPACE/research/native-awe32emu/p009-vst3/rt_safe.patch"
           if($LASTEXITCODE -ne 0){throw 'RT source patch application failed'}
           Write-Host P009_BOUNDED_ORIGINAL_EMU8000_RT_SOURCE_PATCH_APPLIED_PASS
+      - name: P019 permit diagnostic shorter chip windows ONLY in standalone probes
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p019_latency_window_probe.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P019 original pinned chip header window-override mismatch'}
+          Write-Host P019_DEFAULT_WINDOW_REMAINS_ORIGINAL_980_FRAMES_PASS
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
@@ -125,6 +131,32 @@ jobs:
           $cases=@(Select-String -Path _p016-public-recall-pcm.log -Pattern '^P016_PUBLIC_REAL_EMU8000_SF2_RECALL_PCM_PARITY_PASS')
           if($cases.Count -ne 6){throw "P016 needs six comparisons; got $($cases.Count)"}
           Write-Host P016_PUBLIC_ORIGINAL_CHIP_SYNTHETIC_SF2_RECALL_PCM_NEGATIVE_CONTROLS_PASS
+      - name: P019 compare real chip dry and FX PCM at 980 128 64 sample windows (experiment)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P019Probe980 P019Probe128 P019Probe64
+          if($LASTEXITCODE -ne 0){throw 'P019 chip window probes compilation failed'}
+          $fake='_p019-fake-rom-only.raw'
+          $sf2='_p019-public-two-layer.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2
+          if($LASTEXITCODE -ne 0){throw 'P019 synthetic SF2 construction failed'}
+          foreach($mode in @('dry','fx')){
+            foreach($window in @(980,128,64)){
+              $exe="_p009-build/Release/P019Probe$window.exe"
+              $output="_p019-$mode-$window.pcm"
+              & $exe $fake $sf2 $mode $output
+              if($LASTEXITCODE -ne 0){throw "P019 original-chip PCM probe failed: mode=$mode window=$window"}
+            }
+          }
+          python research/native-awe32emu/p009-vst3/tests/p019_compare_pcm.py _p019-dry-980.pcm _p019-dry-128.pcm _p019-dry-64.pcm _p019-fx-980.pcm _p019-fx-128.pcm _p019-fx-64.pcm _p019-latency-report.json _p019-latency-report.txt
+          if($LASTEXITCODE -ne 0){throw 'P019 original chip PCM comparison failed'}
+          Get-Content _p019-latency-report.txt
+          $lines=@(Select-String -Path _p019-latency-report.txt -Pattern '^P019_(DRY|FX)_WINDOW(128|64)_PCM=')
+          if($lines.Count -ne 4){throw 'P019 four shortened-window comparison results missing'}
+          Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          Write-Host P019_EXPERIMENT_ONLY_PRODUCTION_STAYS_980_FRAMES_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
         shell: pwsh
         run: |
@@ -142,6 +174,8 @@ jobs:
           path: |
             _p009-validator.log
             _p016-public-recall-pcm.log
+            _p019-latency-report.json
+            _p019-latency-report.txt
             _p009-build/Release/P010NativeHostQA.exe
             _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
