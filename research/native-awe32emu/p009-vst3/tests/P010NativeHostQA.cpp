@@ -13,6 +13,7 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "P009AssetFingerprint.hpp"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
@@ -1034,6 +1035,92 @@ void ownerBank(const fs::path& folder,const char* name){
  fs::copy_file(folder/name,dest,fs::copy_options::overwrite_existing,ec);
  if(ec)throw std::runtime_error("owner SF2 hot replacement failed "+ec.message());
 }
+// True private real-asset POSITIVE V5 file identity + original-chip PCM
+// across project reopen. NOT a copy-back of bundle-local user.sf2.
+void verifyP165PrivateExternalSf2V5OriginalPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+  const auto vintage=resources/"vintage.sf2";
+  const auto user77=resources/"77-presets.sf2";
+  check(fs::is_regular_file(vintage)&&fs::is_regular_file(user77),
+        "P165 actual original owner SF2 positive test assets missing");
+  // First obtain an independent source PCM fingerprint from a genuine
+  // ORIGINAL Creative chip with bundle-local vintage SF2, as V4 always did.
+  ownerBank(resources,"vintage.sf2");
+  auto oldProject=Plugin(factory,id,host);
+  oldProject.start(7,1,44100.);
+  const auto originalPCM=p015Play(oldProject,0,60);
+  // Now intentionally alter the default bank on disk to DIFFERENT real SF2.
+  // The new V5 project must STILL load the exact requested original Vintage
+  // Dreams file by absolute path and digest, not silently the other SF2.
+  ownerBank(resources,"77-presets.sf2");
+  std::array<std::uint8_t,32> digest{};
+  check(p009::sha256FileNonRealtime(vintage,digest),
+        "P165 cannot hash real original owner SoundFont");
+  const auto utf8=vintage.u8string();
+  const std::string path(utf8.begin(),utf8.end());
+  struct Extension {
+     std::uint32_t magic=0x35534150u,bytes=0u;
+     std::array<std::uint16_t,12> controls{};
+     std::array<std::uint8_t,32> sha{};
+     std::array<std::uint16_t,2> fx{{4u,2u}};
+  };
+  static_assert(sizeof(Extension)==68u);
+  Saved state{};
+  state.version=5u;state.program=7u;state.bank=1u;
+  state.midiStates.fill(0xFFFFu);
+  state.advancedStates.fill(0xFFFFu);
+  Extension extension{};
+  extension.bytes=static_cast<std::uint32_t>(path.size());
+  extension.sha=digest;
+  check(!path.empty()&&path.size()<4096u,"P165 owner SF2 path invalid");
+  std::vector<std::uint8_t> project(sizeof(state)+sizeof(extension)+path.size());
+  std::memcpy(project.data(),&state,sizeof(state));
+  std::memcpy(project.data()+sizeof(state),&extension,sizeof(extension));
+  std::memcpy(project.data()+sizeof(state)+sizeof(extension),
+              path.data(),path.size());
+  const auto restore=[&](Plugin& plugin,const std::vector<std::uint8_t>& payload){
+      MemoryStream stream;int32 bytes=0;
+      check(stream.write(payload.data(),static_cast<int32>(payload.size()),
+                         &bytes)==kResultOk&&
+            bytes==static_cast<int32>(payload.size()),
+            "P165 private owner V5 state write");
+      check(stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+            "P165 private owner V5 state rewind");
+      return plugin.component->setState(&stream);
+  };
+  auto reopen=Plugin(factory,id,host);
+  reopen.start(7,1,44100.);
+  check(restore(reopen,project)==kResultOk,
+        "P165 positive owner V5 external SF2 SHA restore failed");
+  MemoryStream stored;
+  check(reopen.component->getState(&stored)==kResultOk &&
+        stored.getSize()==project.size()&&
+        std::memcmp(stored.getData(),project.data(),project.size())==0,
+        "P165 selected real SF2 file identity not preserved bit-exact");
+  const auto actualPCM=p015Play(reopen,0,60);
+  check(actualPCM==originalPCM,
+        "P165 private V5 reopened original chip PCM differs from selected SF2");
+  // Independent fresh host instance (project reopens after DAW restart).
+  auto fresh=Plugin(factory,id,host);
+  fresh.start(7,1,44100.);
+  check(restore(fresh,project)==kResultOk,
+        "P165 fresh project did not load owner SF2 by full path");
+  check(p015Play(fresh,0,60)==originalPCM,
+        "P165 fresh project PCM wrong bank despite SHA-positive SF2 path");
+  // Negative control: a changed real file identity must FAIL WITHOUT
+  // destroying the loaded original instrument or V5 project content.
+  auto invalid=project;
+  invalid[sizeof(state)+8u+24u]^=0x55u;
+  check(restore(reopen,invalid)!=kResultOk,
+        "P165 corrupted owner SF2 SHA was incorrectly accepted");
+  MemoryStream unchanged;
+  check(reopen.component->getState(&unchanged)==kResultOk &&
+        unchanged.getSize()==project.size() &&
+        std::memcmp(unchanged.getData(),project.data(),project.size())==0,
+        "P165 rejected changed SF2 corrupted the current project state");
+  std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
+}
 }
 int main(int argc,char** argv){
  try{
@@ -1141,6 +1228,7 @@ int main(int argc,char** argv){
   const auto first=render(factory,cls->ID(),host.get(),
              "VINTAGE_FIRST",44100,0,60,100,7,1,true);
   audible(first,"Vintage Dreams initial");wav("P010-SF2-VINTAGE-FIRST.wav",first);
+  verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),resources);
   ownerBank(resources,"77-presets.sf2");
   const auto other=render(factory,cls->ID(),host.get(),
              "77SF2_PROGRAM7",44100,0,60,100,7,1,true);
