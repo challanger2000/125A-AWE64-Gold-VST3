@@ -289,25 +289,49 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
 
 struct Stats {
  double rms=0,peak=0;
+ unsigned clippedSamples=0;
  uint64_t hash=14695981039346656037ull;
  std::vector<int16_t> audio;
 };
 Stats render(const VST3::Hosting::PluginFactory& factory,
              const VST3::UID& id,FUnknown* host,
              const char* label,int hz,int ch,int key,int velocity,
-             int program,int bank,bool save=false) {
+             int program,int bank,bool save=false,
+             int mappedController=-1,int mappedChannel=0,
+             double mappedValue=0.,int mappedFrame=400) {
  Plugin p(factory,id,host);p.start(program,bank,hz);
  Stats s;
  std::array<float,frames> left{},right{};
  float* chan[2]={left.data(),right.data()};
  AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=chan;
  EventList ev;
+ ParameterChanges midiChanges(1);
+ ParamID mappedID=0;
+ if(mappedController>=0){
+    IMidiMapping* raw=nullptr;
+    check(p.controller->queryInterface(IMidiMapping::iid,
+       reinterpret_cast<void**>(&raw))==kResultOk && raw,
+       "P012 real host pitch bend mapping query");
+    const IPtr<IMidiMapping> mapping=owned(raw);
+    check(mapping->getMidiControllerAssignment(0,
+       static_cast<int16>(mappedChannel),
+       static_cast<CtrlNumber>(mappedController),mappedID)==kResultTrue,
+       "P012 original audio controller not mapped");
+ }
  ProcessData data{};
  data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
  data.numSamples=frames;data.numOutputs=1;data.outputs=&output;data.inputEvents=&ev;
+ data.inputParameterChanges=&midiChanges;
  double sum=0;unsigned count=0;
  for(int b=0;b<34;++b){
    ev.clear();
+   midiChanges.clearQueue();
+   if(b==0 && mappedController>=0){
+      int32 parameterIndex=0,pointIndex=0;
+      auto* queue=midiChanges.addParameterData(mappedID,parameterIndex);
+      check(queue && queue->addPoint(mappedFrame,mappedValue,pointIndex)==kResultOk,
+            "P012 original audio mapped controller point was lost");
+   }
    if(b==0||b==13){
      Event e{};e.sampleOffset=b==0?12:511;e.busIndex=0;
      if(b==0){e.type=Event::kNoteOnEvent;e.noteOn.channel=ch;
@@ -322,6 +346,7 @@ Stats render(const VST3::Hosting::PluginFactory& factory,
        check(std::isfinite(sample)&&std::abs(sample)<=1.01f,"nonfinite/clipped PCM");
        sum+=static_cast<double>(sample)*sample;
        s.peak=std::max(s.peak,std::abs(static_cast<double>(sample)));
+       if(std::abs(sample)>=0.999999f)++s.clippedSamples;
        uint32_t bits=0;std::memcpy(&bits,&sample,4);
        s.hash=(s.hash^bits)*1099511628211ull;
        if(save) s.audio.push_back(static_cast<int16_t>(std::clamp(
@@ -332,9 +357,10 @@ Stats render(const VST3::Hosting::PluginFactory& factory,
  }
  s.rms=std::sqrt(sum/count);
  std::printf("P010_ACTUAL_VST3_PCM %s hz=%d ch=%d bank=%d program=%d note=%d"
-             " velocity=%d rms=%.9f peak=%.9f hash=%016llX latency=%u\n",
+             " velocity=%d rms=%.9f peak=%.9f hash=%016llX latency=%u clipped=%u\n",
              label,hz,ch+1,bank,program,key,velocity,s.rms,s.peak,
-             static_cast<unsigned long long>(s.hash),p.processor->getLatencySamples());
+             static_cast<unsigned long long>(s.hash),p.processor->getLatencySamples(),
+             s.clippedSamples);
  std::fflush(stdout);
  return s;
 }
@@ -403,6 +429,22 @@ int main(int argc,char** argv){
   const auto melody=render(factory,cls->ID(),host.get(),
             "ORIGINAL_ROM_MELODIC",44100,0,60,100,7,0,true);
   audible(melody,"ROM melodic");wav("P010-ROM-MELODIC.wav",melody);
+  // The actual Host -> IMidiMapping -> VST3 process -> reconstructed
+  // SBAWE.VXD -> original 86Box EMU8000 audio path must respond to
+  // nontrivial controller values at a precise offset INSIDE the note.
+  const auto bent=render(factory,cls->ID(),host.get(),
+       "P012_REAL_ROM_PITCHBEND_CH1",44100,0,60,100,7,0,false,
+       kPitchBend,0,1.,400);
+  audible(bent,"P012 original ROM pitchbend");
+  check(bent.hash!=melody.hash,
+       "P012 pitchbend mapping produced identical original ROM PCM");
+  const auto quieted=render(factory,cls->ID(),host.get(),
+       "P012_REAL_ROM_CC7_ZERO_CH1",44100,0,60,100,7,0,false,
+       kCtrlVolume,0,0.,400);
+  audible(quieted,"P012 original ROM CC7");
+  check(quieted.hash!=melody.hash,
+       "P012 CC7 volume zero did not affect original VST3 PCM");
+  std::puts("P012_PRIVATE_REAL_WIN64_VST3_PITCHBEND_AND_CC7_PCM_CHANGED_PASS");
   const auto kick=render(factory,cls->ID(),host.get(),
             "ORIGINAL_ROM_KICK_CH10",44100,9,36,100,0,0,true);
   audible(kick,"original ROM kick");wav("P010-ROM-KICK.wav",kick);
