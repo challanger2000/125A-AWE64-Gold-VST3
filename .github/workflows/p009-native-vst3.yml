@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -51,6 +51,12 @@ jobs:
           python research/native-awe32emu/p009-vst3/p021_box86_native_resampling.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P021 pinned original EMU8000 source fix mismatch'}
           Write-Host P021_GENUINE_BOX86_CHIP_AUDIO_ALL_SAMPLE_RATES_PATCHED
+      - name: Import owner-approved P175 REAL 12 generator controls onto pinned original native chip
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/apply_p165_original_synth_overlays.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P165 original hardware-control pin/source mismatch'}
+          Write-Host P165_ALL_12_REAL_ORIGINAL_CHIP_GENERATOR_OVERLAYS_PINNED
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
