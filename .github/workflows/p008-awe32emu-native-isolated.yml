@@ -46,6 +46,8 @@ jobs:
           mkdir -p _p008-delivery
           tar -czf _p008-delivery/AWE32Emu-upstream-pinned-src.tar.gz --exclude=.git -C _p008-upstream .
           cp _p008-linux/AWE32Emu _p008-delivery/AWE32Emu-linux
+          cp research/native-awe32emu/compare.py _p008-delivery/compare.py
+          cp research/native-awe32emu/README.md _p008-delivery/P008-README.md
           cp _p008-results/* _p008-delivery/
           sha256sum _p008-delivery/* > _p008-delivery/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
