@@ -94,6 +94,75 @@ struct Plugin{
    processing=true;
  }
 };
+void verifyP011MultichannelProjectRecall(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host) {
+ auto original=Plugin(factory,id,host);
+ Saved expected{};
+ expected.program=7;expected.bank=1;expected.master=.625f;
+ for(unsigned channel=1;channel<16;++channel){
+     expected.otherPrograms[channel-1]=static_cast<std::uint8_t>(
+         (channel*11u)%128u);
+     expected.otherBanks[channel-1]=static_cast<std::uint8_t>(
+         channel%2u);
+ }
+ const auto restore=[&](Plugin& p,const void* bytes,int32 size,bool mustPass){
+     MemoryStream stream;int32 n=0;
+     check(stream.write(const_cast<void*>(bytes),size,&n)==kResultOk &&
+           n==size,"P011 host write state");
+     check(stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+           "P011 host rewind state");
+     const auto result=p.component->setState(&stream);
+     check((result==kResultOk)==mustPass,"P011 project acceptance mismatch");
+ };
+ const auto snapshot=[&](Plugin& p){
+     Saved value{};
+     MemoryStream stream;
+     check(p.component->getState(&stream)==kResultOk &&
+           stream.getSize()==sizeof(value),
+           "P011 52-byte VST3 state output");
+     std::memcpy(&value,stream.getData(),sizeof(value));
+     return value;
+ };
+ restore(original,&expected,static_cast<int32>(sizeof(expected)),true);
+ auto out=snapshot(original);
+ check(std::memcmp(&out,&expected,sizeof(expected))==0,
+       "P011 unique 16 MIDI channel patches lost on state restore");
+ auto reopened=Plugin(factory,id,host);
+ restore(reopened,&out,static_cast<int32>(sizeof(out)),true);
+ auto equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P011 new VST3 instance cannot restore separate MIDI patches");
+ auto invalid=out;
+ invalid.otherPrograms[4]=255;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P011 invalid program corrupted active VST3 state");
+ invalid=out;
+ invalid.otherBanks[8]=3;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P011 invalid bank corrupted active VST3 state");
+ // P009 v1 old projects contain only 20 bytes. They must still open.
+ struct Legacy {
+     uint32_t magic=0x39303050u,version=1u,program=12u,bank=1u;
+     float master=.5f;
+ } old{};
+ static_assert(sizeof(Legacy)==20,"P009 legacy state bytes");
+ auto older=Plugin(factory,id,host);
+ restore(older,&old,static_cast<int32>(sizeof(old)),true);
+ const auto upgraded=snapshot(older);
+ check(upgraded.version==2u&&upgraded.program==12u&&
+       upgraded.bank==1u&&upgraded.master==.5f,
+       "P011 legacy P009 project upgrade failed");
+ for(unsigned n=0;n<15;++n)
+     check(upgraded.otherPrograms[n]==0u&&upgraded.otherBanks[n]==0u,
+           "P011 legacy project invented channel programs");
+ std::puts("P011_REAL_VST3_16_CHANNEL_PROJECT_RECALL_CORRUPT_STATE_REJECT_LEGACY_V1_PASS");
+}
+
 struct Stats {
  double rms=0,peak=0;
  uint64_t hash=14695981039346656037ull;
@@ -197,6 +266,7 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
