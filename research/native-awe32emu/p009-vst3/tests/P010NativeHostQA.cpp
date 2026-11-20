@@ -1390,9 +1390,10 @@ void verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(
         MemoryStream state;
         check(p.component->getState(&state)==kResultOk,
               "P168 actual VST3 project state unavailable after audio");
-        result.state.assign(static_cast<const std::uint8_t*>(state.getData()),
-                            static_cast<const std::uint8_t*>(state.getData())+
-                                     state.getSize());
+        const auto* bytes=reinterpret_cast<const std::uint8_t*>(state.getData());
+        check(bytes!=nullptr && state.getSize()>0,
+              "P168 host returned empty project state after real PCM");
+        result.state.assign(bytes,bytes+state.getSize());
         return result;
     };
     const auto baseline=play(-1,nullptr);
@@ -1406,8 +1407,11 @@ void verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(
               "P168 hardware faceplate knob changed state but not original-chip audio");
         check(edited.state.size()==648u,
               "P168 genuine faceplate control not serialized as V5 state");
-        const auto* ext=reinterpret_cast<const Extension*>(edited.state.data()+sizeof(Saved));
-        check(ext->magic==0x35534150u && ext->controls[knob]==10000u,
+        // std::vector<uint8_t> has no contractual alignment for Extension.
+        // Decode the wire format via memcpy, never an unaligned cast.
+        Extension ext{};
+        std::memcpy(&ext,edited.state.data()+sizeof(Saved),sizeof(ext));
+        check(ext.magic==0x35534150u && ext.controls[knob]==10000u,
               "P168 sound-producing control missing from saved project");
         const auto recalled=play(-1,&edited.state);
         check(recalled.hash==edited.hash &&
