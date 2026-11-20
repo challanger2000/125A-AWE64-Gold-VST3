@@ -31,3 +31,18 @@ P020 64-frame VST3 **cannot be considered fully accepted** until:
 3. The final Studio Pro 8 live use is deferred until other core quality gates are ready.
 
 There is no claim of sample-exact true Win95/hardware parity, comprehensive polyphony/velocity coverage, or guaranteed project-file SF2 identity recall. P019 original chip compared at 44.1k; the P020 host's 48–192k latency contract is independently tested, but same-input private PCM parity at all rates is still a future gate.
+
+## Public Windows P020 result — PASSED on real 64-frame instrument
+
+Windows Actions [run 44794648362](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44794648362), source commit `fe39a722bd65c1d3ed90683102244ef0fe915ec7`:
+
+- Steinberg validator: **47 tests passed, zero failed**.
+- The actual Windows x64 VST3 reports **12, 64, 70, 140, 279 host frames** at **8k, 44.1k, 48k, 96k, 192k Hz**, respectively. This verifies it is actually compiled with the shorter chip window, not merely claiming a lower latency.
+- Windows no-heap audio/MIDI callback regressions across five sample rates, genuine two-layer SoundFont and two concurrent original-chip instances: PASSED.
+- Same-process dual-synth and DAW thread migration: PASSED.
+- Independent original-chip 980/128/64 DRY and FX PCM regression with synthetic SF2: 0 sample differences in all four latency-aligned cases, verified twice by Python and native Win64 comparator.
+- No private ROM data or authentic sample banks are present in public CI; no silent fixture is interpreted as owner-ROM sound proof.
+
+**P020 private Windows package assembled** with the exact publicly passed 64-frame VST3 binary and host QA, plus the owner's pre-existing private source assets. Private package holds original ROM, `SYNTHGM.SBK`, real 77-presets SF2 and vintage SF2, with checksum verification, one-click `START-P020-TEST.bat`, and gated `P020-ERGEBNISSE/P020-ERGEBNIS.txt`. This package must remain private and is **not published to GitHub**.
+
+**Acceptance status:** P020 real VST3 public CI PASS. Original owner PCM inside the **new** 64-frame VST3 still awaits local private test results. P019 owner 28/28 chip-only results are not falsely substituted for that P020 test. P007 remains untouched.
