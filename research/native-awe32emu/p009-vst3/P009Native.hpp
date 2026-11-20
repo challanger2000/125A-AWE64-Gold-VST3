@@ -69,6 +69,10 @@ private:
     std::atomic<std::uint64_t> guiCatalogRevision_{1};
     std::mutex guiAssetMutex_{};
     std::string selectedUserSf2_{};
+    std::array<std::uint8_t,32> selectedUserSha256_{};
+    bool userChoseSf2_=false;
+    // UI-side atomic mirrors of real audio-thread control states for safe DAW getState.
+    std::array<std::atomic<std::uint16_t>,12> guiControlMirrors_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     std::atomic<Synth*> retiredSynth_{nullptr};
     bool requestUserSf2NonRealtime(const std::string&);
