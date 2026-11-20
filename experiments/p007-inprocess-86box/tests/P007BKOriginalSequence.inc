@@ -263,7 +263,7 @@ void privateOriginalMultiSf2DrumSequence(
                         " CCCA_count=%u CCCA_last=0x%04X"
                         " PSST_count=%u PSST_last=0x%04X"
                         " CSL_count=%u CSL_last=0x%04X"
-                        " trace_hash=%016llX\\n",
+                        " trace_hash=%016llX\n",
                         label,midiChannel+1,pitch,copied,chipEvents,
                         sourceWrites,voiceMask,ccca,cccaValue,
                         psst,psstValue,csl,cslValue,
