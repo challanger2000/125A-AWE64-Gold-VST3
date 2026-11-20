@@ -888,7 +888,8 @@ void PresetBrowserView::Sync(bool force) {
             knob->setValue(value);knob->invalid();
         }
         char label[16]{};
-        if(i<10 && value<.00005f)
+        if((i<10 && value<.00005f) ||
+           (i>=10 && controller_->getParamNormalized(1420u+i-10u)<.5))
             std::snprintf(label,sizeof(label),"DEFAULT");
         else
             std::snprintf(label,sizeof(label),"%d%%",
@@ -1030,6 +1031,10 @@ void PresetBrowserView::valueChanged(CControl* control) {
     }
     if(tag>=kGuiFirst && tag<kGuiFirst+kGuiCount) {
         const int idx=tag-kGuiFirst;
+        // First user touch changes the send from ORIGINAL preset behaviour
+        // to an absolute 0..100% original-chip register. 0% then means 0,
+        // not an invisible additive SoundFont send offset.
+        if(idx>=10)ChangeParameter(1420u+idx-10u,1.);
         ChangeParameter(static_cast<Steinberg::Vst::ParamID>(tag),
                         std::clamp(double(control->getValue()),0.,1.));
         return;
@@ -1060,8 +1065,12 @@ void PresetBrowserView::valueChanged(CControl* control) {
     } else if(tag==kLoadSf2) {
         if(control->getValue()>0.5f)ChooseSf2();
     } else if(tag==kReset) {
-        if(control->getValue()>0.5f)
+        if(control->getValue()>0.5f){
             for(int i=0;i<kGuiCount;++i)ChangeParameter(kGuiFirst+i,0.);
+            // Reset means original Creative/SF2 settings, not silent sends.
+            ChangeParameter(1420u,0.);
+            ChangeParameter(1421u,0.);
+        }
     } else if(tag==kPrevious||tag==kNext) {
         if(control->getValue()>0.5f) {
             const int target=PresetBrowserModel::Neighbor(0,sf_,fm_,

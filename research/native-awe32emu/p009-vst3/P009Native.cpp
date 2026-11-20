@@ -158,6 +158,10 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
         STR16("Reverb Type"),1400u,nullptr,0.,7.,4.,7));
     parameters.addParameter(new RangeParameter(
         STR16("Chorus Type"),1401u,nullptr,0.,7.,2.,7));
+    parameters.addParameter(new RangeParameter(
+        STR16("Reverb Send Original/Manual"),1420u,nullptr,0.,1.,0.,1));
+    parameters.addParameter(new RangeParameter(
+        STR16("Chorus Send Original/Manual"),1421u,nullptr,0.,1.,0.,1));
     // VST3 hosts translate actual MIDI CC to these per-channel parameters
     // through IMidiMapping. This is host-standard, NOT legacy CC input events.
     for(unsigned ch=0;ch<16;++ch){
@@ -343,6 +347,8 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     replayMidiState();
     for(unsigned i=0;i<guiControls_.size();++i)
         synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+    for(unsigned i=0;i<2u;++i)
+        synth_->SetGuiSendManual(static_cast<int>(i),sendManual_[i]);
     // Catalog is GUI-only; its data MUST follow the exact loaded owner file.
     auto* nextCatalog=new AWE125::PresetCatalog;
     nextCatalog->SetOriginalCreativeMidiNumbers();
@@ -399,6 +405,7 @@ void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexce
     advancedMidiState_=desired.advanced;
     selectedParameterMode_=desired.modes;
     guiControls_=desired.gui;
+    sendManual_=desired.sendManual;
     reverbPreset_=desired.reverb;chorusPreset_=desired.chorus;
     fxEdited_=reverbPreset_!=4||chorusPreset_!=2;
     fxPending_.store(true,std::memory_order_release);
@@ -407,9 +414,12 @@ void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexce
     resetMidiControllersForStateRestore();
     changeBankProgram();
     replayMidiState();
-    if(synth_)
+    if(synth_){
         for(unsigned i=0;i<guiControls_.size();++i)
             synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+        for(unsigned i=0;i<2u;++i)
+            synth_->SetGuiSendManual(static_cast<int>(i),sendManual_[i]);
+    }
     publishRuntimeSnapshot();
 }
 void NativeVst3::applyPendingRestoreRealtime() noexcept {
@@ -452,6 +462,8 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
         replayMidiState();
         for(unsigned i=0;i<guiControls_.size();++i)
             synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
+        for(unsigned i=0;i<2u;++i)
+            synth_->SetGuiSendManual(static_cast<int>(i),sendManual_[i]);
         if(fxEdited_)fxPending_.store(true,std::memory_order_release);
     }
 }
@@ -642,7 +654,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // and NoteOn. Previously the FINAL parameter value was applied to the
     // ENTIRE block, which selected the wrong patch for earlier notes.
     constexpr unsigned kPatchProgram=16u,kPatchBank=17u,
-       kGuiControlSlotBase=20u,kGuiReverbType=32u,kGuiChorusType=33u;
+       kGuiControlSlotBase=20u,kGuiReverbType=32u,kGuiChorusType=33u,
+       kGuiSendManualSlotBase=34u;
     const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
                               unsigned slot,unsigned maximum)->bool{
         const int32 count=q->getPointCount();
@@ -717,6 +730,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             }
             if(id==1400u||id==1401u){
                 if(!queuePatch(q,0,id==1400u?kGuiReverbType:kGuiChorusType,7u))
+                    return reject();
+                continue;
+            }
+            if(id==1420u||id==1421u){
+                if(!queuePatch(q,0,kGuiSendManualSlotBase+id-1420u,1u))
                     return reject();
                 continue;
             }
@@ -827,6 +845,12 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     if(synth_)applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
                 }
                 fxEdited_=true;
+            }else if(mp.slot>=kGuiSendManualSlotBase &&
+                     mp.slot<kGuiSendManualSlotBase+2u){
+                const auto i=static_cast<unsigned>(mp.slot-kGuiSendManualSlotBase);
+                sendManual_[i]=mp.value!=0u;
+                sendManualMirrors_[i].store(sendManual_[i],std::memory_order_release);
+                if(synth_)synth_->SetGuiSendManual(int(i),sendManual_[i]);
             }else if(mp.slot>=kGuiControlSlotBase &&
                      mp.slot<kGuiControlSlotBase+guiControls_.size()){
                 const auto index=static_cast<unsigned>(
@@ -837,6 +861,13 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     std::memory_order_release);
                 if(synth_)synth_->SetGuiControl(
                     static_cast<int>(index),guiControls_[index]);
+                if(index>=10u){
+                    // A real performed send gesture (including an explicit
+                    // 0%) switches to absolute hardware send operation.
+                    sendManual_[index-10u]=true;
+                    sendManualMirrors_[index-10u].store(true,std::memory_order_release);
+                    if(synth_)synth_->SetGuiSendManual(int(index-10u),true);
+                }
             }
         }
         while(notePos<num && events[notePos].sampleOffset==next)
@@ -901,8 +932,13 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
             extended.assetSha256=selectedUserSha256_;
         }
     }
-    extended.effectModes[0]=fxPresetMirrors_[0].load(std::memory_order_acquire);
-    extended.effectModes[1]=fxPresetMirrors_[1].load(std::memory_order_acquire);
+    // V5 extension high bit encodes independent manual-mode overrides;
+    // low three bits remain the actual original EMU8000 FX type. Old V5
+    // files without the flag retain their exact unmodified SF2 defaults.
+    extended.effectModes[0]=fxPresetMirrors_[0].load(std::memory_order_acquire)|
+        (sendManualMirrors_[0].load(std::memory_order_acquire)?0x0100u:0u);
+    extended.effectModes[1]=fxPresetMirrors_[1].load(std::memory_order_acquire)|
+        (sendManualMirrors_[1].load(std::memory_order_acquire)?0x0100u:0u);
     bool changed=explicitOwner||extended.effectModes[0]!=4u||
                                   extended.effectModes[1]!=2u;
     for(unsigned i=0;i<guiControls_.size();++i){
@@ -986,7 +1022,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         for(const auto control:ext.guiControls)
             if(control>10000u)return kResultFalse;
         for(const auto effect:ext.effectModes)
-            if(effect>7u)return kResultFalse;
+            if((effect&~0x0107u)!=0u)return kResultFalse;
         if(ext.pathBytes){
             requestedPath.resize(ext.pathBytes);
             if(stream->read(requestedPath.data(),
@@ -1052,8 +1088,12 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     }
     for(unsigned i=0;i<desired->gui.size();++i)
         desired->gui[i]=(s.version==kStateV5?ext.guiControls[i]:0u)/10000.f;
-    desired->reverb=s.version==kStateV5?int(ext.effectModes[0]):4;
-    desired->chorus=s.version==kStateV5?int(ext.effectModes[1]):2;
+    desired->reverb=s.version==kStateV5?int(ext.effectModes[0]&7u):4;
+    desired->chorus=s.version==kStateV5?int(ext.effectModes[1]&7u):2;
+    if(s.version==kStateV5)
+        for(unsigned i=0;i<2u;++i)
+            desired->sendManual[i]=(ext.effectModes[i]&0x0100u)!=0u ||
+                ext.guiControls[10u+i]>0u; // pre-override V5 compatibility
     // User file and preset catalog are always handled on the host thread.
     // The complete original-chip candidate is staged atomically and
     // consumed at the following audio block, with no heap in process().
@@ -1080,6 +1120,11 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         guiControlMirrors_[i].store(value,std::memory_order_release);
         (void)SingleComponentEffect::setParamNormalized(
             1100u+i,static_cast<double>(value)/10000.);
+    }
+    for(unsigned i=0;i<2u;++i){
+        sendManualMirrors_[i].store(desired->sendManual[i],std::memory_order_release);
+        (void)SingleComponentEffect::setParamNormalized(
+            1420u+i,desired->sendManual[i]?1.:0.);
     }
     fxPresetMirrors_[0].store(static_cast<std::uint8_t>(
         desired->reverb),std::memory_order_release);

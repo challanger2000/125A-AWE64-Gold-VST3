@@ -78,7 +78,16 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
         guiControlMirrors_[id-1100u].store(
             static_cast<std::uint16_t>(std::lround(value*10000.)),
             std::memory_order_release);
+        if(id>=1110u){
+            const auto sendIndex=id-1110u;
+            sendManualMirrors_[sendIndex].store(true,std::memory_order_release);
+            (void)SingleComponentEffect::setParamNormalized(
+                1420u+sendIndex,1.);
+        }
     }
+    if(result==kResultOk&&(id==1420u||id==1421u))
+        sendManualMirrors_[id-1420u].store(
+            value>=.5,std::memory_order_release);
     if(result==kResultOk&&(id==1400u||id==1401u))
         fxPresetMirrors_[id==1400u?0u:1u].store(
             static_cast<std::uint8_t>(std::lround(value*7.)),

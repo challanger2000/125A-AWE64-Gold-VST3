@@ -29,15 +29,20 @@ def main():
     // This is per-VST3-instance; zero is exact native Creative PCM.
     static constexpr int kGuiControlCount=12;
     void SetGuiControl(int index,float normalized) noexcept;
+    void SetGuiSendManual(int index,bool manual) noexcept;
     float GuiControl(int index) const noexcept;""","Synth.h ctor")
     h=unique_replace(h,"    Emu8000Core m_core;",
-       "    Emu8000Core m_core;\n    std::array<float,kGuiControlCount> m_guiControls{};",
+       "    Emu8000Core m_core;\n    std::array<float,kGuiControlCount> m_guiControls{};\n    std::array<bool,2> m_guiSendManual{};",
        "Synth.h core")
     setter="""void Synth::SetGuiControl(int index,float normalized) noexcept
 {
     if(index>=0 && index<kGuiControlCount && std::isfinite(normalized))
         m_guiControls[static_cast<size_t>(index)] =
             std::clamp(normalized,0.f,1.f);
+}
+void Synth::SetGuiSendManual(int index,bool manual) noexcept
+{
+    if(index>=0 && index<2)m_guiSendManual[static_cast<size_t>(index)]=manual;
 }
 float Synth::GuiControl(int index) const noexcept
 {
@@ -153,6 +158,24 @@ float Synth::GuiControl(int index) const noexcept
         vps.push_back(v);
     }"""
     s=unique_replace(s,old,new,"Synth.cpp Original StartLayers")
+    # Only an explicit UI/host SEND edit switches from faithful original
+    # Creative/SF2 send levels to absolute 0..255 hardware send values.
+    # Untouched patches retain BIT-EXACT original PCM; explicit 0% is the
+    # ACTUAL hardware register value zero, including any channel CC91/93.
+    s=unique_replace(s,
+        """    const int chorus = std::clamp(
+        static_cast<int>((vp.csl >> Emu8000::kChorusShift) & 0xFF) + chChorus, 0, 255);""",
+        """    const int chorus = m_guiSendManual[1]
+        ? std::clamp(int(std::lround(m_guiControls[11]*255.f)),0,255)
+        : std::clamp(static_cast<int>((vp.csl >> Emu8000::kChorusShift) & 0xFF)
+                     + chChorus,0,255);""",
+        "Synth.cpp ORIGINAL chorus register")
+    s=unique_replace(s,
+        """    const int reverb = std::clamp(static_cast<int>(vp.reverbSend) + chReverb, 0, 255);""",
+        """    const int reverb = m_guiSendManual[0]
+        ? std::clamp(int(std::lround(m_guiControls[10]*255.f)),0,255)
+        : std::clamp(static_cast<int>(vp.reverbSend)+chReverb,0,255);""",
+        "Synth.cpp ORIGINAL reverb register")
     hdr.write_text(h,encoding="utf-8")
     src.write_text(s,encoding="utf-8")
     print("P165_ORIGINAL_P175_NATIVE_GENERATOR_OVERLAYS_PATCHED_12_OF_12")

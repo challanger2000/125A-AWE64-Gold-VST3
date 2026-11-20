@@ -32,6 +32,7 @@ struct NativeRuntimeRestore {
     std::array<std::uint8_t,16> modes{};
     std::array<float,12> gui{};
     int reverb=4,chorus=2;
+    std::array<bool,2> sendManual{};
     std::uint64_t sequence=0;
     NativeRuntimeRestore* next=nullptr;
 };
@@ -138,6 +139,10 @@ private:
     std::array<float,12> guiControls_{};
     int reverbPreset_=4,chorusPreset_=2;
     std::array<std::atomic<std::uint8_t>,2> fxPresetMirrors_{};
+    // 0% in MANUAL = true hardware send zero. Untouched ORIGINAL mode
+    // preserves each patch's original 86Box Creative effect register PCM.
+    std::array<bool,2> sendManual_{};
+    std::array<std::atomic<bool>,2> sendManualMirrors_{};
     bool fxEdited_=false;
     std::atomic<bool> fxPending_{false};
     // 8 original Creative CC controls per channel; 0xFFFF = untouched.

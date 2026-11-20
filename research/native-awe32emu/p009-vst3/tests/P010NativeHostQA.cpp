@@ -139,9 +139,9 @@ void verifyP165GuiV5OwnerAssetState(
     check(v==static_cast<unsigned>((i+1)*500),
           "P165 control parameter did not roundtrip exactly");
  }
- check(bytes[644]==4u&&bytes[645]==0u &&
-       bytes[646]==2u&&bytes[647]==0u,
-       "P165 original Hall2/Chorus3 FX default modes missing from V5");
+ check(bytes[644]==4u&&bytes[645]==1u &&
+       bytes[646]==2u&&bytes[647]==1u,
+       "P165 V5 must persist two explicit SEND hardware modes with FX types");
  // REAL original hardware FX menus are VST3-automatable, not decorative.
  // Test both menu modes and V5 exact recall independently of any private ROM.
  auto fxUnit=Plugin(factory,id,host);
