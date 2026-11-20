@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <atomic>
+#include <thread>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -269,6 +271,80 @@ void auditV5DoesNotEraseAdvancedMidiControllers(
  check(identical,"P165 V5 lost advanced MIDI RPN/NRPN controller state after GUI gesture");
  std::puts("AUDIT_V5_GUI_AND_RPN_INDEPENDENT_PROJECT_RECALL_PASS");
 }
+// ADVERSE actual Win64 VST3 same-instance concurrency challenge.
+// One real processor audio thread calls process at 128 frames continuously;
+// the DAW host thread alternates full MIDI/RPN V4 projects while invoking
+// getState concurrently. Output must be A or B, never a torn hybrid.
+// A public ROM-less instrument is intentional: tests the *host/runtime
+// ownership and serialization* without claiming any original PCM fidelity.
+void verifyP165ConcurrentHostStateWithLiveProcess(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin plugin(factory,id,host);
+  plugin.start(0,0,48000.);
+  Saved a{},b{};
+  a.program=7u;a.bank=1u;a.master=.375f;
+  b.program=91u;b.bank=0u;b.master=.8125f;
+  a.midiStates.fill(0xFFFFu);b.midiStates.fill(0xFFFFu);
+  a.advancedStates.fill(0xFFFFu);b.advancedStates.fill(0xFFFFu);
+  a.advancedStates[2]=0u;a.advancedStates[3]=0u;
+  a.advancedStates[4]=12u;a.parameterModes[0]=1u;
+  b.advancedStates[2]=0u;b.advancedStates[3]=0u;
+  b.advancedStates[4]=2u;b.parameterModes[0]=1u;
+  for(unsigned i=0;i<15u;++i){
+    a.otherPrograms[i]=static_cast<std::uint8_t>((i*7u)%128u);
+    b.otherPrograms[i]=static_cast<std::uint8_t>((i*11u+9u)%128u);
+    a.otherBanks[i]=static_cast<std::uint8_t>(i%2u);
+    b.otherBanks[i]=static_cast<std::uint8_t>((i+1u)%2u);
+  }
+  std::atomic<bool> keepAudio{true},audioOk{true};
+  std::atomic<unsigned> audioBlocks{0};
+  std::thread audio([&](){
+    std::array<float,128> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
+    ProcessData pd{};
+    pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
+    pd.numSamples=128;pd.numOutputs=1;pd.outputs=&out;
+    while(keepAudio.load(std::memory_order_acquire) ||
+          audioBlocks.load(std::memory_order_relaxed)<5000u){
+        if(plugin.processor->process(pd)!=kResultOk){
+            audioOk.store(false,std::memory_order_release);
+            break;
+        }
+        audioBlocks.fetch_add(1u,std::memory_order_relaxed);
+    }
+  });
+  auto pass=true;
+  for(int trial=0;trial<400 && pass;++trial){
+    auto& expected=trial%2?b:a;
+    MemoryStream source;
+    int32 bytes=0;
+    if(source.write(&expected,sizeof(expected),&bytes)!=kResultOk ||
+       bytes!=sizeof(expected) ||
+       source.seek(0,IBStream::kIBSeekSet,nullptr)!=kResultOk ||
+       plugin.component->setState(&source)!=kResultOk){
+       pass=false;break;
+    }
+    MemoryStream saved;
+    if(plugin.component->getState(&saved)!=kResultOk ||
+       saved.getSize()!=sizeof(expected)){
+       pass=false;break;
+    }
+    const bool matchesA=std::memcmp(saved.getData(),&a,sizeof(a))==0;
+    const bool matchesB=std::memcmp(saved.getData(),&b,sizeof(b))==0;
+    if(!matchesA&&!matchesB){pass=false;break;}
+  }
+  keepAudio.store(false,std::memory_order_release);
+  audio.join();
+  check(pass,"P165 concurrent getState/setState returned corrupted/torn MIDI/RPN project");
+  check(audioOk.load(std::memory_order_acquire),
+        "P165 native audio thread failed concurrent full 16-channel host-state restore");
+  check(audioBlocks.load(std::memory_order_acquire)>=5000u,
+        "P165 same-instance audio-thread scheduler stress was not executed");
+  std::puts("P165_REAL_WIN64_VST3_SAME_INSTANCE_5000_BLOCKS_400_PROJECT_STATES_LOCKFREE_AUDIO_PASS");
+}
+
 void verifyP011MultichannelProjectRecall(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host) {
@@ -1164,6 +1240,7 @@ int main(int argc,char** argv){
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
   auditV5DoesNotEraseAdvancedMidiControllers(factory,cls->ID(),host.get());
+  verifyP165ConcurrentHostStateWithLiveProcess(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());

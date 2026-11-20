@@ -1065,7 +1065,9 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         delete pendingGuiCatalog_.exchange(
             new AWE125::PresetCatalog(std::move(freshCatalog)),
             std::memory_order_acq_rel);
-        if(!synth_ && !active_.load(std::memory_order_acquire))
+        // Only the host-owned atomic active flag may be read here. Never
+        // inspect synth_ (an audio-thread-owned unique_ptr) from setState.
+        if(!active_.load(std::memory_order_acquire))
             delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
         std::lock_guard<std::mutex> guard(guiAssetMutex_);
         selectedUserSf2_=nextExplicit?requestedPath:std::string{};
