@@ -25,6 +25,18 @@ constexpr ParamID kProgram=1000u,kVolume=1001u,kBank=1002u;
 constexpr ParamID kChProgramBase=1200u,kChBankBase=1300u;
 constexpr ParamID kMidiMappedBase=2000u;
 constexpr unsigned kMappedCount=8u;
+constexpr unsigned kAdvancedCount=8u;
+constexpr ParamID kAdvancedMappedBase=2400u;
+constexpr std::array<CtrlNumber,kAdvancedCount> kAdvancedControllers{
+    kCtrlBankSelectMSB,kCtrlBankSelectLSB,
+    kCtrlRPNSelectMSB,kCtrlRPNSelectLSB,
+    kCtrlDataEntryMSB,kCtrlDataEntryLSB,
+    kCtrlNRPNSelectMSB,kCtrlNRPNSelectLSB
+};
+constexpr std::array<const char*,kAdvancedCount> kAdvancedNames{
+    "Bank MSB","Bank LSB","RPN MSB","RPN LSB",
+    "Data MSB","Data LSB","NRPN MSB","NRPN LSB"
+};
 constexpr std::array<CtrlNumber,kMappedCount> kMappedControllers{
     kCtrlModWheel,kCtrlVolume,kCtrlPan,kCtrlExpression,kCtrlSustainOnOff,
     kCtrlEff1Depth,kCtrlEff3Depth,kPitchBend
@@ -37,17 +49,19 @@ constexpr std::array<unsigned,kMappedCount> kMappedDefaults{
     0,100,64,127,0,0,0,8192
 };
 struct Saved {
-    std::uint32_t magic=0x39303050u,version=3u;
+    std::uint32_t magic=0x39303050u,version=4u;
     std::uint32_t program=0u,bank=0u;
     float master=1.f;
     std::array<std::uint8_t,15> otherPrograms{};
     std::array<std::uint8_t,15> otherBanks{};
     std::array<std::uint8_t,2> reserved{};
     std::array<std::uint16_t,16*8> midiStates{};
+    std::array<std::uint16_t,16*8> advancedStates{};
+    std::array<std::uint8_t,16> parameterModes{};
 };
-static_assert(sizeof(Saved)==308u,"P012 exact 308-byte VST3 state");
-constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u;
-constexpr int32 kV1Bytes=20,kV2Bytes=52;
+static_assert(sizeof(Saved)==580u,"P013 exact 580-byte VST3 state");
+constexpr std::uint32_t kStateV1=1u,kStateV2=2u,kStateV3=3u,kStateV4=4u;
+constexpr int32 kV1Bytes=20,kV2Bytes=52,kV3Bytes=308;
 struct MidiPoint {
     int32 sampleOffset=0;
     std::uint8_t channel=0,slot=0;
@@ -91,6 +105,11 @@ tresult PLUGIN_API NativeVst3::getMidiControllerAssignment(
             id=kMidiMappedBase+static_cast<unsigned>(channel)*kMappedCount+slot;
             return kResultTrue;
         }
+    for(unsigned slot=0;slot<kAdvancedCount;++slot)
+        if(kAdvancedControllers[slot]==controller){
+            id=kAdvancedMappedBase+static_cast<unsigned>(channel)*kAdvancedCount+slot;
+            return kResultTrue;
+        }
     return kResultFalse;
 }
 tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
@@ -120,6 +139,19 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
                 nullptr,0.,pitch?16383.:127.,
                 static_cast<double>(kMappedDefaults[slot]),
                 pitch?16383:127));
+        }
+    }
+    for(unsigned ch=0;ch<16;++ch){
+        for(unsigned slot=0;slot<kAdvancedCount;++slot){
+            char ascii[64]{};
+            std::snprintf(ascii,sizeof(ascii),"CH%u %s",
+                          ch+1,kAdvancedNames[slot]);
+            TChar name[64]{};
+            for(unsigned j=0;j<63&&ascii[j];++j)
+                name[j]=static_cast<TChar>(ascii[j]);
+            parameters.addParameter(new RangeParameter(
+                name,kAdvancedMappedBase+ch*kAdvancedCount+slot,
+                nullptr,0.,127.,0.,127));
         }
     }
     // All 16 physical MIDI channels have distinct, automatable patch state.
@@ -296,13 +328,50 @@ void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
                               static_cast<std::uint8_t>(raw));
     }
 }
+void NativeVst3::applyAdvancedController(unsigned channel,
+                                         unsigned slot,std::uint16_t value) noexcept{
+    if(channel>=16||slot>=kAdvancedCount||value>127u)return;
+    advancedMidiState_[channel*kAdvancedCount+slot]=value;
+    if(slot==2||slot==3) selectedParameterMode_[channel]=1u;  // RPN
+    if(slot==6||slot==7) selectedParameterMode_[channel]=2u;  // NRPN
+    if(!synth_)return;
+    // NRPN has no implemented Creative parameter interpretation. Explicitly
+    // deselect RPN before passing the selector to avoid mistakenly applying
+    // later NRPN data-entry to a previously selected pitch-bend RPN.
+    if(slot==6||slot==7){
+        synth_->ControlChange(static_cast<std::uint8_t>(channel),101,127);
+        synth_->ControlChange(static_cast<std::uint8_t>(channel),100,127);
+    }
+    synth_->ControlChange(static_cast<std::uint8_t>(channel),
+                          static_cast<std::uint8_t>(kAdvancedControllers[slot]),
+                          static_cast<std::uint8_t>(value));
+}
 void NativeVst3::replayMidiState() noexcept{
     if(!synth_)return;
-    for(unsigned ch=0;ch<16;++ch)
-        for(unsigned slot=0;slot<kMappedCount;++slot){
-            const auto raw=midiState_[ch*kMappedCount+slot];
-            if(raw!=0xFFFFu)applyMidiController(ch,slot,raw);
+    for(unsigned ch=0;ch<16;++ch){
+        // CC bank state first. Then melodic CCs, RPN selection + data entry.
+        for(unsigned slot=0;slot<2;++slot){
+            const auto v=advancedMidiState_[ch*kAdvancedCount+slot];
+            if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
         }
+        for(unsigned slot=0;slot<kMappedCount;++slot){
+            const auto v=midiState_[ch*kMappedCount+slot];
+            if(v!=0xFFFFu)applyMidiController(ch,slot,v);
+        }
+        const auto mode=selectedParameterMode_[ch];
+        if(mode==1){
+            for(unsigned slot=2;slot<=5;++slot){
+                const auto v=advancedMidiState_[ch*kAdvancedCount+slot];
+                if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
+            }
+        }else if(mode==2){
+            for(unsigned slot=6;slot<=7;++slot){
+                const auto v=advancedMidiState_[ch*kAdvancedCount+slot];
+                if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
+            }
+            // No synthetic NRPN data-entry action; actual driver ignores it.
+        }
+    }
 }
 void NativeVst3::dispatch(const Event& event) noexcept{
     if(!synth_)return;
@@ -378,11 +447,16 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             auto* q=data.inputParameterChanges->getParameterData(i);
             if(!q||q->getPointCount()<1)continue;
             const ParamID id=q->getParameterId();
-            if(id>=kMidiMappedBase &&
-               id<kMidiMappedBase+16u*kMappedCount){
-                const unsigned offset=id-kMidiMappedBase;
+            const bool basic=(id>=kMidiMappedBase &&
+                             id<kMidiMappedBase+16u*kMappedCount);
+            const bool advanced=(id>=kAdvancedMappedBase &&
+                             id<kAdvancedMappedBase+16u*kAdvancedCount);
+            if(basic||advanced){
+                const unsigned offset=basic?id-kMidiMappedBase:
+                                               id-kAdvancedMappedBase;
                 const unsigned channel=offset/kMappedCount;
-                const unsigned slot=offset%kMappedCount;
+                const unsigned slot=(offset%kMappedCount)+
+                                    (advanced?kMappedCount:0u);
                 const int32 nPoints=q->getPointCount();
                 if(nPoints<0||nPoints>512)return reject();
                 for(int32 p=0;p<nPoints;++p){
@@ -482,7 +556,10 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         while(midiPos<numMidiPoints &&
               midiPoints[midiPos].sampleOffset==next){
             const auto& mp=midiPoints[midiPos++];
-            applyMidiController(mp.channel,mp.slot,mp.value);
+            if(mp.slot<kMappedCount)
+                applyMidiController(mp.channel,mp.slot,mp.value);
+            else applyAdvancedController(mp.channel,
+                                         mp.slot-kMappedCount,mp.value);
         }
         while(notePos<num && events[notePos].sampleOffset==next)
             dispatch(events[notePos++]);
@@ -500,6 +577,8 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
         s.otherBanks[ch-1]=banksByChannel_[ch];
     }
     s.midiStates=midiState_;
+    s.advancedStates=advancedMidiState_;
+    s.parameterModes=selectedParameterMode_;
     int32 n=0;
     return stream->write(&s,static_cast<int32>(sizeof(s)),&n)==kResultOk &&
            n==static_cast<int32>(sizeof(s))?kResultOk:kResultFalse;
@@ -511,7 +590,8 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     int32 n=0;
     if(stream->read(&s,kV1Bytes,&n)!=kResultOk||n!=kV1Bytes||
        s.magic!=0x39303050u||
-       (s.version!=kStateV1&&s.version!=kStateV2&&s.version!=kStateV3)||
+       (s.version!=kStateV1&&s.version!=kStateV2&&
+        s.version!=kStateV3&&s.version!=kStateV4)||
        s.program>127u||s.bank>2u||!finite01(s.master))
         return kResultFalse;
     if(s.version>=kStateV2){
@@ -523,11 +603,11 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             if(s.otherPrograms[ch]>127u||s.otherBanks[ch]>1u)
                 return kResultFalse;
     }
-    if(s.version==kStateV3){
+    if(s.version>=kStateV3){
         int32 tail=0;
         if(stream->read(reinterpret_cast<unsigned char*>(&s)+kV2Bytes,
-                        static_cast<int32>(sizeof(s))-kV2Bytes,&tail)!=kResultOk ||
-           tail!=static_cast<int32>(sizeof(s))-kV2Bytes)return kResultFalse;
+                        kV3Bytes-kV2Bytes,&tail)!=kResultOk ||
+           tail!=kV3Bytes-kV2Bytes)return kResultFalse;
         for(unsigned ch=0;ch<16;++ch)
             for(unsigned slot=0;slot<kMappedCount;++slot){
                 const auto raw=s.midiStates[ch*kMappedCount+slot];
@@ -535,7 +615,20 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
                     return kResultFalse;
             }
     }
-    // Only now mutate processor. Corrupt v3 cannot change any channel.
+    if(s.version==kStateV4){
+        int32 tail=0;
+        if(stream->read(reinterpret_cast<unsigned char*>(&s)+kV3Bytes,
+                        static_cast<int32>(sizeof(s))-kV3Bytes,&tail)!=kResultOk ||
+           tail!=static_cast<int32>(sizeof(s))-kV3Bytes)return kResultFalse;
+        for(unsigned ch=0;ch<16;++ch){
+            if(s.parameterModes[ch]>2u)return kResultFalse;
+            for(unsigned slot=0;slot<kAdvancedCount;++slot){
+                const auto val=s.advancedStates[ch*kAdvancedCount+slot];
+                if(val!=0xFFFFu&&val>127u)return kResultFalse;
+            }
+        }
+    }
+    // Only now mutate processor. Corrupt v4 cannot change any channel.
     program_=static_cast<int>(s.program);bank_=static_cast<int>(s.bank);
     master_=s.master;
     programsByChannel_.fill(0u);banksByChannel_.fill(0u);
@@ -544,7 +637,13 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         banksByChannel_[ch]=s.otherBanks[ch-1];
     }
     midiState_.fill(0xFFFFu);
-    if(s.version==kStateV3)midiState_=s.midiStates;
+    if(s.version>=kStateV3)midiState_=s.midiStates;
+    advancedMidiState_.fill(0xFFFFu);
+    selectedParameterMode_.fill(0u);
+    if(s.version==kStateV4){
+        advancedMidiState_=s.advancedStates;
+        selectedParameterMode_=s.parameterModes;
+    }
     changeBankProgram();
     replayMidiState();
     return kResultOk;

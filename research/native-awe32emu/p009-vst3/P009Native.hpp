@@ -17,7 +17,10 @@ namespace p009 {
 class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect,
                          public Steinberg::Vst::IMidiMapping {
 public:
-    NativeVst3() { midiState_.fill(0xFFFFu); }
+    NativeVst3() {
+        midiState_.fill(0xFFFFu);
+        advancedMidiState_.fill(0xFFFFu);
+    }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
     Steinberg::uint32 PLUGIN_API addRef() override {
         return SingleComponentEffect::addRef();
@@ -59,9 +62,15 @@ private:
     // 8 original Creative CC controls per channel; 0xFFFF = untouched.
     // Never send default values unnecessarily (preserve original register PCM).
     std::array<std::uint16_t,16*8> midiState_{};
+    // Additional standard MIDI CCs, independently mapped per channel.
+    // NRPN is selector-only: upstream Creative driver has no NRPN synthesis.
+    std::array<std::uint16_t,16*8> advancedMidiState_{};
+    std::array<std::uint8_t,16> selectedParameterMode_{};
     bool active_=false,authenticRomLoaded_=false;
     void applyMidiController(unsigned channel,unsigned slot,std::uint16_t raw) noexcept;
     void replayMidiState() noexcept;
+    void applyAdvancedController(unsigned channel,unsigned slot,
+                                 std::uint16_t value) noexcept;
     void changeBankProgram() noexcept;
     void dispatch(const Steinberg::Vst::Event&) noexcept;
     void render(float*,float*,Steinberg::int32) noexcept;
