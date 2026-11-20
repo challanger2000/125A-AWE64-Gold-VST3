@@ -45,6 +45,12 @@ jobs:
           python research/native-awe32emu/p009-vst3/p019_latency_window_probe.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P019 original pinned chip header window-override mismatch'}
           Write-Host P019_DEFAULT_WINDOW_REMAINS_ORIGINAL_980_FRAMES_PASS
+      - name: P021 fix chip source for ALL host rates, not alternative DSP at 48 or 96k
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p021_box86_native_resampling.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P021 pinned original EMU8000 source fix mismatch'}
+          Write-Host P021_GENUINE_BOX86_CHIP_AUDIO_ALL_SAMPLE_RATES_PATCHED
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
@@ -169,6 +175,26 @@ jobs:
           if($parseErrors.Count -gt 0){throw "P019 owner offline launcher PowerShell syntax error: $parseErrors"}
           Write-Host P019_PRIVATE_OWNER_WINDOWS_SCRIPT_SYNTAX_PASS
           Write-Host P019_EXPERIMENT_ONLY_PRODUCTION_STAYS_980_FRAMES_PASS
+      - name: P021 prove authentic 86Box chip PCM at 8 48 96 192k vs 44100 reference, dry plus FX
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P021OriginalChipResamplingProbe
+          if($LASTEXITCODE -ne 0){throw 'P021 authentic chip native-rate reference harness compile failed'}
+          $fake='_p021-fake-rom-only.raw'
+          $sf2='_p021-public-two-layer.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2
+          if($LASTEXITCODE -ne 0){throw 'P021 public 2-layer SF2 generation failed'}
+          & _p009-build/Release/P021OriginalChipResamplingProbe.exe $fake $sf2 *> _p021-original-chip-multirate.log
+          $rc=$LASTEXITCODE
+          Get-Content _p021-original-chip-multirate.log
+          Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          if($rc -ne 0){throw "P021 86Box chip rate source mismatch or silent original chip: $rc"}
+          $cases=@(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P021_ORIGINAL_BOX86_CHIP_RESAMPLER_(DRY|FX) rate=')
+          if($cases.Count -ne 8){throw "P021 expected eight authentic chip rate comparisons, got $($cases.Count)"}
+          if(!(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P021_ALL_RATES_GENUINE_86BOX_EMU8000_PCM_FROM_NATIVE_44100_PASS_8_OF_8' -Quiet)){throw 'P021 chip reference proof missing'}
+          Write-Host P021_BOX86_ORIGINAL_PCM_ALL_8_48_96_192K_TRULY_86BOX_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
         shell: pwsh
         run: |
@@ -188,6 +214,8 @@ jobs:
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt
+            _p021-original-chip-multirate.log
+            _p009-build/Release/P021OriginalChipResamplingProbe.exe
             _p009-build/Release/P019Probe980.exe
             _p009-build/Release/P019Probe128.exe
             _p009-build/Release/P019Probe64.exe
