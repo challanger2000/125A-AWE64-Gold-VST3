@@ -89,6 +89,7 @@ void privateOriginalMultiSf2DrumSequence(
             GetProcAddress(core,"p007_core_symbol_pc_run"));
         const auto ready=getInt("p007_midi_guest_ready");
         const auto creativeAck=getInt("p007_midi_guest_sf2_status");
+        const auto gmRomStatus=getInt("p007_midi_guest_gm_rom_bank_status");
         const auto transferState=getInt("p007_live_soundfont_state");
         const auto bootCount=getCount("p007_core_guest_cold_boot_count");
         const auto publishCount=getCount("p007_live_soundfont_publish_count");
@@ -100,7 +101,8 @@ void privateOriginalMultiSf2DrumSequence(
             GetProcAddress(core,"p007aj_probe_stop"));
         require(symbolInit && symbolRun &&
                 symbolInit()!=0u && symbolRun()!=0u &&
-                ready && creativeAck && transferState && bootCount &&
+                ready && creativeAck && gmRomStatus &&
+                transferState && bootCount &&
                 publishCount && completeCount && failCount &&
                 probeBegin && probeStop,
                 "P007BK_ORIGINAL_CPU_CREATIVE_TRANSFER_GENERATION_OR_CHIP_PROBE_MISSING");
@@ -161,6 +163,8 @@ void privateOriginalMultiSf2DrumSequence(
         require(baseline.frames>=44100u && baseline.rms()<0.0001,
             "P007BK_NO_MIDI_ORIGINAL_ROM_BASELINE_NOT_SILENT");
         std::puts("P007BK_ORIGINAL_WIN95_ROM_ONLY_COLD_BOOT_ONCE_PASS");
+        std::printf("P007BV_ORIGINAL_SYNTHGM_SBK_GUEST_USERBANK2_ACK status=%d\n",
+                    gmRomStatus());
         std::fflush(stdout);
 
         auto installUserBank=[&](const fs::path& source,unsigned program,
@@ -279,6 +283,19 @@ void privateOriginalMultiSf2DrumSequence(
                     bootCount());
         std::fflush(stdout);
 
+        // An AWEManager successful call alone cannot establish PCM, and
+        // register events alone wrongly passed near-silent drum voices.
+        // Require both genuine GM ROM samples BEFORE the first SF2 load.
+        const bool originalGMColdBootAudible=
+            gmRomStatus()==1 &&
+            p007::original_audio_proof::accept(baseline,romDrumBefore) &&
+            p007::original_audio_proof::accept(baseline,romSnareBefore);
+        std::printf("P007BV_GM_ROM_BANK2_BEFORE_SF2"
+                    " creative_api_status=%d kick_audible=%d snare_audible=%d\n",
+                    gmRomStatus(),
+                    p007::original_audio_proof::accept(baseline,romDrumBefore)?1:0,
+                    p007::original_audio_proof::accept(baseline,romSnareBefore)?1:0);
+        std::fflush(stdout);
         // Genuine, audibly distinct multi-SF2 hot reloading in ONE guest:
         // owner Vintage Dreams (136 programs), alternate 77-preset bank,
         // then Vintage Dreams again to prove repeatability and fresh ACK.
@@ -354,11 +371,13 @@ void privateOriginalMultiSf2DrumSequence(
         std::fflush(stdout);
         // Genuine GM kick AND snare must both be audible. A register-write
         // counter alone does not prove ROM drum audio (P007BQ failure).
-        require(romKickAudible&&romSnareAudible,
-                "P007BR_ORIGINAL_GM_ROM_KICK_OR_SNARE_SILENT");
+        require(originalGMColdBootAudible &&
+                romKickAudible&&romSnareAudible,
+                "P007BV_ORIGINAL_ROM_BANK2_CREATIVE_ACK_OR_PCM_INCONCLUSIVE");
         require(p007::original_audio_proof::distinguishBanks(
                      sf2Drum,romDrum),
                 "P007BK_SF2_AND_ROM_DRUM_PCM_INCONCLUSIVE_OR_SAME_KIT");
+        std::puts("P007BV_ORIGINAL_ROM_SBK_KICK_SNARE_PRE_POST_SF2_PCM_PASS");
         std::puts("P007BK_ORIGINAL_ROM_STANDARD_DRUM_CH10_PCM_PASS");
         require(bootCount()==1u && publishCount()==3u &&
                 completeCount()==3u && failCount()==0u,
