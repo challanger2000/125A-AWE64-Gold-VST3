@@ -297,22 +297,22 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
     return SingleComponentEffect::setActive(on);
 }
 tresult PLUGIN_API NativeVst3::setProcessing(TBool){return kResultOk;}
+void NativeVst3::changeChannelBankProgram(unsigned ch) noexcept{
+    if(!synth_ || ch>=16)return;
+    // Never resend ProgramChange to other channels during a host automation
+    // event. Their held notes and original Creative controller state remain.
+    const unsigned chosenBank=ch==0?static_cast<unsigned>(bank_):
+                                static_cast<unsigned>(banksByChannel_[ch]);
+    const unsigned chosenProgram=ch==0?static_cast<unsigned>(program_):
+                                   static_cast<unsigned>(programsByChannel_[ch]);
+    synth_->ControlChange(static_cast<std::uint8_t>(ch),0,
+                          static_cast<std::uint8_t>(chosenBank==1?1:0));
+    synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
+    synth_->ProgramChange(static_cast<std::uint8_t>(ch),
+                          static_cast<std::uint8_t>(chosenProgram));
+}
 void NativeVst3::changeBankProgram() noexcept{
-    if(!synth_)return;
-    // Apply a distinct original Creative program/bank selection on ALL 16
-    // MIDI channels. Only CH1's browser bank2 is an audition shortcut to
-    // GM channel 10. CH10 itself always uses the original GM drum bank128.
-    for(unsigned ch=0;ch<16;++ch){
-        const unsigned chosenBank=ch==0?static_cast<unsigned>(bank_):
-                                    static_cast<unsigned>(banksByChannel_[ch]);
-        const unsigned chosenProgram=ch==0?static_cast<unsigned>(program_):
-                                       static_cast<unsigned>(programsByChannel_[ch]);
-        synth_->ControlChange(static_cast<std::uint8_t>(ch),0,
-                              static_cast<std::uint8_t>(chosenBank==1?1:0));
-        synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
-        synth_->ProgramChange(static_cast<std::uint8_t>(ch),
-                              static_cast<std::uint8_t>(chosenProgram));
-    }
+    for(unsigned ch=0;ch<16;++ch)changeChannelBankProgram(ch);
 }
 void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
                                      std::uint16_t raw) noexcept{
@@ -431,6 +431,34 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // A bounded, stack-only queue ensures sample-offset timing and no heap.
     std::array<MidiPoint,512> midiPoints{};
     std::size_t numMidiPoints=0;
+    // P014: host bank/program automation is timestamped just like MIDI CC
+    // and NoteOn. Previously the FINAL parameter value was applied to the
+    // ENTIRE block, which selected the wrong patch for earlier notes.
+    constexpr unsigned kPatchProgram=16u,kPatchBank=17u;
+    const auto queuePatch=[&](IParamValueQueue* q,unsigned channel,
+                              unsigned slot,unsigned maximum)->bool{
+        const int32 count=q->getPointCount();
+        if(count<0||count>512)return false;
+        for(int32 p=0;p<count;++p){
+            int32 frame=0;ParamValue value=0.;
+            if(q->getPoint(p,frame,value)!=kResultOk ||
+               !finite01(value) || frame<0 || frame>=data.numSamples)
+                continue;
+            if(numMidiPoints==midiPoints.size())return false;
+            MidiPoint point{};
+            point.sampleOffset=frame;
+            point.channel=static_cast<std::uint8_t>(channel);
+            point.slot=static_cast<std::uint8_t>(slot);
+            point.value=static_cast<std::uint16_t>(std::lround(value*maximum));
+            auto j=numMidiPoints;
+            while(j>0 && midiPoints[j-1].sampleOffset>frame){
+                midiPoints[j]=midiPoints[j-1];--j;
+            }
+            midiPoints[j]=point;
+            ++numMidiPoints;
+        }
+        return true;
+    };
     const auto reject=[&]() -> tresult {
         if(l&&r&&data.numSamples>0){
             std::fill_n(l,data.numSamples,0.f);
@@ -442,11 +470,26 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.inputParameterChanges){
         const int32 n=data.inputParameterChanges->getParameterCount();
         if(n<0||n>1024)return reject();
-        bool updated=false;
         for(int32 i=0;i<n;++i){
             auto* q=data.inputParameterChanges->getParameterData(i);
             if(!q||q->getPointCount()<1)continue;
             const ParamID id=q->getParameterId();
+            // Bank, Program, and all CH2..CH16 patches are sample-offset
+            // events, not last-point block-global state changes.
+            if(id==kProgram || id==kBank ||
+               (id>=kChProgramBase+1 && id<kChProgramBase+16) ||
+               (id>=kChBankBase+1 && id<kChBankBase+16)){
+                const bool programChange=(id==kProgram ||
+                    (id>=kChProgramBase+1 && id<kChProgramBase+16));
+                const unsigned channel=(id==kProgram||id==kBank)?0u:
+                    (id>=kChProgramBase+1 && id<kChProgramBase+16)?
+                        id-kChProgramBase:id-kChBankBase;
+                const unsigned maxValue=programChange?127u:
+                    (channel==0u?2u:1u);
+                if(!queuePatch(q,channel,programChange?kPatchProgram:kPatchBank,
+                               maxValue))return reject();
+                continue;
+            }
             const bool basic=(id>=kMidiMappedBase &&
                              id<kMidiMappedBase+16u*kMappedCount);
             const bool advanced=(id>=kAdvancedMappedBase &&
@@ -483,37 +526,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             int32 off=0;ParamValue val=0.;
             if(q->getPoint(q->getPointCount()-1,off,val)!=kResultOk||
                !finite01(val))continue;
-            switch(id){
-                case kProgram:
-                    program_=std::clamp<int>(
-                        static_cast<int>(std::lround(val*127.)),0,127);
-                    updated=true;break;
-                case kBank:
-                    bank_=std::clamp<int>(
-                        static_cast<int>(std::lround(val*2.)),0,2);
-                    updated=true;break;
-                case kVolume:
-                    master_=static_cast<float>(val);break;
-                default: {
-                    // CH2..CH16, independent automation. Preserve every
-                    // channel's MIDI state and last selected program.
-                    const ParamID id=q->getParameterId();
-                    if(id>=kChProgramBase+1 && id<kChProgramBase+16){
-                        const unsigned ch=id-kChProgramBase;
-                        programsByChannel_[ch]=static_cast<std::uint8_t>(
-                            std::clamp<int>(static_cast<int>(std::lround(val*127.)),0,127));
-                        updated=true;
-                    }else if(id>=kChBankBase+1 && id<kChBankBase+16){
-                        const unsigned ch=id-kChBankBase;
-                        banksByChannel_[ch]=static_cast<std::uint8_t>(
-                            std::clamp<int>(static_cast<int>(std::lround(val)),0,1));
-                        updated=true;
-                    }
-                    break;
-                }
-            }
+            if(id==kVolume)master_=static_cast<float>(val);
         }
-        if(updated)changeBankProgram();
     }
     if(!l||!r||data.numSamples==0)return kResultOk;
     // Fixed-buffer, bounded host events. Overflow deliberately fails the
@@ -556,10 +570,22 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         while(midiPos<numMidiPoints &&
               midiPoints[midiPos].sampleOffset==next){
             const auto& mp=midiPoints[midiPos++];
-            if(mp.slot<kMappedCount)
+            if(mp.slot<kMappedCount){
                 applyMidiController(mp.channel,mp.slot,mp.value);
-            else applyAdvancedController(mp.channel,
+            }else if(mp.slot<kMappedCount+kAdvancedCount){
+                applyAdvancedController(mp.channel,
                                          mp.slot-kMappedCount,mp.value);
+            }else if(mp.slot==kPatchProgram){
+                if(mp.channel==0)program_=static_cast<int>(mp.value);
+                else programsByChannel_[mp.channel]=
+                    static_cast<std::uint8_t>(mp.value);
+                changeChannelBankProgram(mp.channel);
+            }else if(mp.slot==kPatchBank){
+                if(mp.channel==0)bank_=static_cast<int>(mp.value);
+                else banksByChannel_[mp.channel]=
+                    static_cast<std::uint8_t>(mp.value);
+                changeChannelBankProgram(mp.channel);
+            }
         }
         while(notePos<num && events[notePos].sampleOffset==next)
             dispatch(events[notePos++]);
