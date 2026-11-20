@@ -37,17 +37,17 @@ smtg_add_vst3plugin(AWE64_Gold_Native_P009
 # The last complete original Win95 P007BW owner GUI (not stale P007Z).
 # Preserve the P168 LCD x=370 inset and 73% knob-island shading.
 # Faceplate is PUBLIC user artwork, never the private Creative ROM.
-set(P009_P165_FACEPLATE "\${CMAKE_CURRENT_SOURCE_DIR}/resource/125A_P165_Original_Faceplate_1000x708.png")
-if(NOT EXISTS "\${P009_P165_FACEPLATE}")
+set(P009_P165_FACEPLATE "${CMAKE_CURRENT_SOURCE_DIR}/resource/125A_P165_Original_Faceplate_1000x708.png")
+if(NOT EXISTS "${P009_P165_FACEPLATE}")
   file(DOWNLOAD
     "https://raw.githubusercontent.com/challanger2000/125A-AWE-Synthesizer/8e8315c2ecab9f4a8bdbd415c1b7af5a8485a3c1/src/vst3/resource/125A_P165_Original_Faceplate_1000x708.png"
-    "\${P009_P165_FACEPLATE}" STATUS P009_P165_DL TLS_VERIFY ON TIMEOUT 90)
+    "${P009_P165_FACEPLATE}" STATUS P009_P165_DL TLS_VERIFY ON TIMEOUT 90)
   list(GET P009_P165_DL 0 P009_P165_DL_STATUS)
   if(NOT P009_P165_DL_STATUS EQUAL 0)
-    message(FATAL_ERROR "Original approved P165 GUI asset missing: \${P009_P165_DL}")
+    message(FATAL_ERROR "Original approved P165 GUI asset missing: ${P009_P165_DL}")
   endif()
 endif()
-execute_process(COMMAND git hash-object "\${P009_P165_FACEPLATE}"
+execute_process(COMMAND git hash-object "${P009_P165_FACEPLATE}"
   OUTPUT_VARIABLE P009_P165_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
   RESULT_VARIABLE P009_P165_RC)
 if(NOT P009_P165_RC EQUAL 0 OR
@@ -62,17 +62,17 @@ smtg_target_add_plugin_resources(AWE64_Gold_Native_P009 RESOURCES
   resource/125A_Knob_Master_33frames_134px.png)
 # Hardware sprites use exact Windows PNG resource names.
 if(WIN32)
-  set(P009_P165_ASSET_RC "\${CMAKE_CURRENT_BINARY_DIR}/p009_p165_assets.rc")
-  file(WRITE "\${P009_P165_ASSET_RC}" "")
+  set(P009_P165_ASSET_RC "${CMAKE_CURRENT_BINARY_DIR}/p009_p165_assets.rc")
+  file(WRITE "${P009_P165_ASSET_RC}" "")
   foreach(P009_ASSET IN ITEMS
     "125A_P165_Original_Faceplate_1000x708.png"
     "125A_Button_Atlas_Hardware_Normal_Pressed.png"
     "125A_Knob_Standard_33frames_58px.png"
     "125A_Knob_Master_33frames_134px.png")
-    file(APPEND "\${P009_P165_ASSET_RC}"
-      "\"\${P009_ASSET}\" PNG DISCARDABLE \"\${CMAKE_CURRENT_SOURCE_DIR}/resource/\${P009_ASSET}\"\n")
+    file(APPEND "${P009_P165_ASSET_RC}"
+      "\"${P009_ASSET}\" PNG DISCARDABLE \"${CMAKE_CURRENT_SOURCE_DIR}/resource/${P009_ASSET}\"\n")
   endforeach()
-  target_sources(AWE64_Gold_Native_P009 PRIVATE "\${P009_P165_ASSET_RC}")
+  target_sources(AWE64_Gold_Native_P009 PRIVATE "${P009_P165_ASSET_RC}")
 endif()
 target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk vstgui_support comdlg32)
 target_include_directories(AWE64_Gold_Native_P009 PRIVATE
