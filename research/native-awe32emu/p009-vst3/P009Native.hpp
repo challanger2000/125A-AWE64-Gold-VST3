@@ -10,12 +10,19 @@
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "Synth.h"
+#include "p165/PresetCatalog.h"
+#include "vstgui/plugin-bindings/vst3editor.h"
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <atomic>
+#include <filesystem>
+#include <mutex>
+#include <string>
 namespace p009 {
 class NativeVst3 final : public Steinberg::Vst::SingleComponentEffect,
-                         public Steinberg::Vst::IMidiMapping {
+                         public Steinberg::Vst::IMidiMapping,
+                         public VSTGUI::VST3EditorDelegate {
 public:
     NativeVst3() {
         midiState_.fill(0xFFFFu);
@@ -48,8 +55,27 @@ public:
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream*) override;
     Steinberg::tresult PLUGIN_API process(
         Steinberg::Vst::ProcessData&) override;
+    VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,
+        const VSTGUI::UIAttributes&, const VSTGUI::IUIDescription*,
+        VSTGUI::VST3Editor*) override;
+    Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
+    Steinberg::tresult PLUGIN_API setParamNormalized(
+        Steinberg::Vst::ParamID,Steinberg::Vst::ParamValue) override;
 private:
     std::unique_ptr<Synth> synth_;
+    // GUI-only preset index: never edited from a real-time callback.
+    AWE125::PresetCatalog guiCatalog_{};
+    AWE125::PresetCatalog unusedFmCatalog_{};
+    std::atomic<std::uint64_t> guiCatalogRevision_{1};
+    std::mutex guiAssetMutex_{};
+    std::string selectedUserSf2_{};
+    std::atomic<Synth*> stagedSynth_{nullptr};
+    std::atomic<Synth*> retiredSynth_{nullptr};
+    bool requestUserSf2NonRealtime(const std::string&);
+    bool buildInstrumentNonRealtime(const std::filesystem::path&,
+                                    std::unique_ptr<Synth>&,std::string&);
+    void cleanStagedAndRetiredNonRealtime() noexcept;
+    void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
     double sampleRate_=44100.;
