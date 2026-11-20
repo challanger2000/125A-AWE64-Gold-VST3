@@ -76,6 +76,7 @@ public:
     Steinberg::uint32 PLUGIN_API getLatencySamples() override;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream*) override;
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream*) override;
+    Steinberg::tresult PLUGIN_API setComponentState(Steinberg::IBStream*) override;
     Steinberg::tresult PLUGIN_API process(
         Steinberg::Vst::ProcessData&) override;
     VSTGUI::CView* createCustomView(VSTGUI::UTF8StringPtr,

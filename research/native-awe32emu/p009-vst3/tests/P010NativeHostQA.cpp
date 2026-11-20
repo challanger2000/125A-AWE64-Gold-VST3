@@ -104,6 +104,66 @@ struct Plugin{
    processing=true;
  }
 };
+// P169: Genuine real Win64 VST3 controller-side component restore,
+// NOT the same interface as IComponent::setState. Verify the source V4
+// stream can be applied ONLY via IEditController::setComponentState;
+// the single-component processor must then report exact MIDI/RPN and
+// program/bank/master state, including a fresh GUI-controller value.
+// Negatives must reject and leave all state bit-exact. This would FAIL
+// if the handler merely returned kResultOk without applying the project.
+void verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin unit(factory,id,host);
+  Saved expected{};
+  expected.program=39u;expected.bank=1u;expected.master=.625f;
+  expected.otherPrograms[0]=17u;expected.otherBanks[0]=1u;
+  expected.midiStates.fill(0xFFFFu);
+  expected.advancedStates.fill(0xFFFFu);
+  expected.advancedStates[2]=0u;
+  expected.advancedStates[3]=0u;
+  expected.advancedStates[4]=12u;
+  expected.parameterModes[0]=1u;
+  const auto send=[&](const Saved& state){
+    MemoryStream stream;int32 written=0;
+    check(stream.write(const_cast<Saved*>(&state),sizeof(state),&written)==kResultOk &&
+          written==sizeof(state) &&
+          stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+          "P169 source V4 controller component state not transportable");
+    return unit.controller->setComponentState(&stream);
+  };
+  check(send(expected)==kResultOk,
+        "P169 actual VST3 controller refused fully valid component state");
+  MemoryStream accepted;
+  check(unit.component->getState(&accepted)==kResultOk &&
+        accepted.getSize()==sizeof(expected) &&
+        std::memcmp(accepted.getData(),&expected,sizeof(expected))==0,
+        "P169 controller reported success but did not apply original MIDI/RPN/project");
+  check(std::abs(unit.controller->getParamNormalized(1000u)-39./127.)<.00001 &&
+        std::abs(unit.controller->getParamNormalized(1002u)-.5)<.00001 &&
+        std::abs(unit.controller->getParamNormalized(1001u)-.625)<.00001,
+        "P169 GUI/controller readback does not match component-only V4 restore");
+  Saved invalid=expected;
+  invalid.magic^=0x00100000u;
+  check(send(invalid)!=kResultOk,
+        "P169 corrupt controller component state was falsely accepted");
+  MemoryStream unaffected;
+  check(unit.component->getState(&unaffected)==kResultOk &&
+        unaffected.getSize()==sizeof(expected) &&
+        std::memcmp(unaffected.getData(),&expected,sizeof(expected))==0,
+        "P169 rejected corrupt project mutated valid prior controller state");
+  // A second identical accepted transfer must not destroy a valid
+  // project, and must preserve the 16ch RPN set on first application.
+  check(send(expected)==kResultOk,
+        "P169 idempotent controller component-state reload failed");
+  MemoryStream again;
+  check(unit.component->getState(&again)==kResultOk &&
+        again.getSize()==sizeof(expected) &&
+        std::memcmp(again.getData(),&expected,sizeof(expected))==0,
+        "P169 duplicate controller restore lost a previous MIDI RPN value");
+  std::puts("P169_ACTUAL_WIN64_VST3_CONTROLLER_SET_COMPONENT_STATE_POSITIVE_NEGATIVE_GUI_MIDI_RECALL_PASS");
+}
+
 // P166: a stopped DAW may save a project immediately after selecting a
 // program/bank/master value, before *any* audio callback or host automation
 // delivery. A green VST3 validator/GUI knob test does not exercise this.
@@ -1887,6 +1947,7 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(factory,cls->ID(),host.get());
   verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());

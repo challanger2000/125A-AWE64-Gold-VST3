@@ -1098,6 +1098,18 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
         n!=static_cast<int32>(ownerPath.size())))return kResultFalse;
     return kResultOk;
 }
+// Steinberg's controller-side IEditController::setComponentState is a
+// distinct VST3 host contract. Our SingleComponentEffect IS both the
+// component and controller. The default EditController implementation
+// returns kNotImplemented even for a correctly serialized 580B V4 / V5
+// project; this caused three independently observed warnings in the actual
+// published 125A Plugin Tester v0.2.10. Delegating to the SAME fully
+// validated state parser guarantees that a controller-only restore updates
+// both UI and real chip at the next audio boundary; corrupt projects still
+// reject atomically, and no fake success code is returned.
+tresult PLUGIN_API NativeVst3::setComponentState(IBStream* stream){
+    return setState(stream);
+}
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
     Saved s{};
