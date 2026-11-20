@@ -406,9 +406,16 @@ void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexce
     selectedParameterMode_=desired.modes;
     guiControls_=desired.gui;
     sendManual_=desired.sendManual;
+    const bool changedFx=fxEdited_ || desired.reverb!=4 ||
+        desired.chorus!=2 || desired.reverb!=reverbPreset_ ||
+        desired.chorus!=chorusPreset_;
     reverbPreset_=desired.reverb;chorusPreset_=desired.chorus;
-    fxEdited_=reverbPreset_!=4||chorusPreset_!=2;
-    fxPending_.store(true,std::memory_order_release);
+    // A truly untouched ROM/SBK SoundFont must remain ORIGINAL PCM:
+    // never overwrite PowerOnInit original-chip FX coefficients merely
+    // because a DAW restored a legacy V4 default project. Only previously
+    // edited or genuinely nondefault FX menus reprogram the registers.
+    fxEdited_=changedFx;
+    if(changedFx)fxPending_.store(true,std::memory_order_release);
     // The original Creative state is authoritative: discard old controller
     // registers first and only then replay this project's exact CC/RPN.
     resetMidiControllersForStateRestore();
@@ -892,6 +899,10 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     // Host save is allowed concurrently with audio callbacks. NEVER read
     // the live non-atomic program/MIDI/RPN arrays here.
     drainRetiredRestoresNonRealtime();
+    // After the chip swap, the old 28-MiB native Synth is no longer
+    // accessed by the render thread. Reclaim on this host SAVE thread so
+    // repeated project switches work even without any GUI editor open.
+    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
     NativeRuntimeRestore stable{};
     const auto request=restoreRequestedSeq_.load(std::memory_order_acquire);
     if(request!=restoreAppliedSeq_.load(std::memory_order_acquire)){
