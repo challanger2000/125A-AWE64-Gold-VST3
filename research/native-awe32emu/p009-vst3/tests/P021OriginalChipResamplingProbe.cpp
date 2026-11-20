@@ -19,7 +19,16 @@
 #include <vector>
 
 namespace {
-constexpr uint32_t kNative=44100,kHostFrames=8192,kReferenceFrames=49152;
+// P022: Compare equal TIME intervals, never equal sample counts.
+// P021 used 8192 output frames at every rate: 1.024 s at 8 kHz but only
+// 85 ms at 96 kHz and 43 ms at 192 kHz. An instrument with an attack
+// longer than this made the 44.1k reference appear falsely 'silent'.
+// 750 ms preserves a comparable audible window for each host clock.
+constexpr uint32_t kNative=44100, kDurationMs=750;
+constexpr uint32_t kReferenceFrames=(kNative*kDurationMs)/1000+4;
+constexpr uint32_t testFrames(uint32_t rate){
+  return (rate*kDurationMs)/1000;
+}
 void require(bool okay,const char* message){
   if(!okay) throw std::runtime_error(message);
 }
@@ -69,11 +78,14 @@ int16_t linear(const std::vector<int16_t>& native,double q,size_t channel){
 }
 void compare(const std::vector<int16_t>& native,
              const std::vector<int16_t>& other,uint32_t rate,bool effects){
+  const uint32_t hostFrames=testFrames(rate);
+  require(other.size()==static_cast<size_t>(hostFrames)*2u,
+          "P022 measured PCM has wrong rate-dependent duration");
   const double ratio=static_cast<double>(kNative)/rate;
   uint64_t changed=0,near=0;
   int maxErr=0;
   double signal=0,errors=0;
-  for(uint32_t i=0;i<kHostFrames;++i){
+  for(uint32_t i=0;i<hostFrames;++i){
     const double pos=ratio*i;
     require(2*(static_cast<size_t>(pos)+1)+1<native.size(),
             "P021 reference too short");
@@ -88,16 +100,27 @@ void compare(const std::vector<int16_t>& native,
       errors+=double(error)*error;
     }
   }
-  require(signal>100000000.,"P021 original chip PCM is silent");
-  const double rms=std::sqrt(errors/(kHostFrames*2.));
+  // Relative RMS threshold is time-invariant. The old absolute sum-energy
+  // limit incorrectly rejected quiet early attacks at fast host rates.
+  const double rmsOriginal=std::sqrt(signal/(hostFrames*2.));
+  const double rmsError=std::sqrt(errors/(hostFrames*2.));
+  std::printf("P022_OWNER_ORIGINAL_CHIP_RATE_WINDOW_%s"
+      " rate=%u duration_ms=%u host_frames=%u stereo_values=%u"
+      " rms_original_lsb=%.8f different=%llu within1lsb=%llu"
+      " max_error_lsb=%d rms_error_lsb=%.8f\n",
+      effects?"FX":"DRY",rate,kDurationMs,hostFrames,hostFrames*2,
+      rmsOriginal,static_cast<unsigned long long>(changed),
+      static_cast<unsigned long long>(near),maxErr,rmsError);
   std::printf("P021_ORIGINAL_BOX86_CHIP_RESAMPLER_"
       "%s rate=%u host_frames=%u stereo_values=%u"
       " different=%llu within1lsb=%llu max_error_lsb=%d rms_error_lsb=%.8f\n",
-      effects?"FX":"DRY",rate,kHostFrames,kHostFrames*2,
+      effects?"FX":"DRY",rate,hostFrames,hostFrames*2,
       static_cast<unsigned long long>(changed),
-      static_cast<unsigned long long>(near),maxErr,rms);
-  require(maxErr<=1 && near==kHostFrames*2,
-      "P021 NON-NATIVE RATE DOES NOT MATCH ORIGINAL EMU8000: SECONDARY CHIP DSP");
+      static_cast<unsigned long long>(near),maxErr,rmsError);
+  require(rmsOriginal>5.0,
+      "P022 reference RMS below 5 int16 LSB over 750 ms; cannot judge chip parity");
+  require(maxErr<=1 && near==static_cast<uint64_t>(hostFrames)*2u,
+      "P022 NON-NATIVE RATE DOES NOT MATCH ORIGINAL 44100 EMU8000 CHIP PCM");
 }
 }
 int main(int argc,char** argv){
@@ -113,10 +136,11 @@ int main(int argc,char** argv){
     const auto native=capture(kNative,rom,gm,sf2,program,effects,
                               kReferenceFrames);
     for(const uint32_t rate:{8000u,48000u,96000u,192000u}){
-       const auto other=capture(rate,rom,gm,sf2,program,effects,kHostFrames);
+       const auto other=capture(rate,rom,gm,sf2,program,effects,testFrames(rate));
        compare(native,other,rate,effects);
     }
   }
+  std::puts("P022_EQUAL_750MS_ALL_RATES_GENUINE_CHIP_PCM_PASS_8_OF_8");
   std::puts("P021_ALL_RATES_GENUINE_86BOX_EMU8000_PCM_FROM_NATIVE_44100_PASS_8_OF_8");
   return 0;
  }catch(const std::exception& e){
