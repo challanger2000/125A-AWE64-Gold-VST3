@@ -7,6 +7,8 @@
 #include "public.sdk/source/vst/hosting/module.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
+#include "public.sdk/source/vst/hosting/parameterchanges.h"
+#include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "public.sdk/source/common/memorystream.h"
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
@@ -36,12 +38,13 @@ void check(bool v,const char* why){
  if(!v){std::fprintf(stderr,"P010_FAIL %s\n",why);throw std::runtime_error(why);}
 }
 struct Saved {
- uint32 magic=0x39303050u,version=2u,program=0u,bank=0u;
+ uint32 magic=0x39303050u,version=3u,program=0u,bank=0u;
  float master=1.f;
  std::array<std::uint8_t,15> otherPrograms{},otherBanks{};
  std::array<std::uint8_t,2> reserved{};
+ std::array<std::uint16_t,16*8> midiStates{};
 };
-static_assert(sizeof(Saved)==52,"P011 multi-channel project state size");
+static_assert(sizeof(Saved)==308,"P012 16-channel MIDI controller project state");
 struct Plugin{
  IPtr<IComponent> component;
  IPtr<IEditController> controller;
@@ -68,6 +71,7 @@ struct Plugin{
  Plugin& operator=(const Plugin&)=delete;
  void start(int prog,int bank,double rate){
    Saved saved{};saved.program=static_cast<uint32>(prog);saved.bank=static_cast<uint32>(bank);
+   saved.midiStates.fill(0xFFFFu);
    // P011: program/bank on the ACTUAL MIDI channel, not merely the global
    // CH1 browser. Run every channel with the requested note's instrument.
    for(unsigned ch=1;ch<16;++ch){
@@ -98,7 +102,7 @@ void verifyP011MultichannelProjectRecall(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host) {
  auto original=Plugin(factory,id,host);
- Saved expected{};
+ Saved expected{};expected.midiStates.fill(0xFFFFu);
  expected.program=7;expected.bank=1;expected.master=.625f;
  for(unsigned channel=1;channel<16;++channel){
      expected.otherPrograms[channel-1]=static_cast<std::uint8_t>(
@@ -120,7 +124,7 @@ void verifyP011MultichannelProjectRecall(
      MemoryStream stream;
      check(p.component->getState(&stream)==kResultOk &&
            stream.getSize()==sizeof(value),
-           "P011 52-byte VST3 state output");
+           "P012 308-byte VST3 state output");
      std::memcpy(&value,stream.getData(),sizeof(value));
      return value;
  };
@@ -154,13 +158,133 @@ void verifyP011MultichannelProjectRecall(
  auto older=Plugin(factory,id,host);
  restore(older,&old,static_cast<int32>(sizeof(old)),true);
  const auto upgraded=snapshot(older);
- check(upgraded.version==2u&&upgraded.program==12u&&
+ check(upgraded.version==3u&&upgraded.program==12u&&
        upgraded.bank==1u&&upgraded.master==.5f,
        "P011 legacy P009 project upgrade failed");
  for(unsigned n=0;n<15;++n)
      check(upgraded.otherPrograms[n]==0u&&upgraded.otherBanks[n]==0u,
            "P011 legacy project invented channel programs");
+ for(const auto value:upgraded.midiStates)
+     check(value==0xFFFFu,"P012 v1 legacy project invented a MIDI CC");
+ // Existing P011 version2 52-byte state also upgrades without
+ // dispatching CC commands not actually recorded by the user.
+ auto v2=out;v2.version=2u;
+ auto prev=Plugin(factory,id,host);
+ restore(prev,&v2,52,true);
+ const auto upgraded2=snapshot(prev);
+ check(upgraded2.version==3u && upgraded2.program==out.program &&
+       upgraded2.bank==out.bank,"P012 version2 patch upgrade");
+ for(const auto value:upgraded2.midiStates)
+     check(value==0xFFFFu,"P012 version2 invented a MIDI CC");
+ // An illegal MIDI value must NOT change any pre-existing channel state.
+ invalid=out;invalid.midiStates[2*8+4]=200u;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P012 invalid sustain value corrupted VST3 project");
+ invalid=out;invalid.midiStates[15*8+7]=20000u;
+ restore(reopened,&invalid,static_cast<int32>(sizeof(invalid)),false);
+ equal=snapshot(reopened);
+ check(std::memcmp(&out,&equal,sizeof(out))==0,
+       "P012 invalid pitchbend value corrupted VST3 project");
+ std::puts("P012_REAL_VST3_16_CHANNEL_CONTROLLER_STATE_V1_V2_V3_BACKWARD_RECALL_PASS");
  std::puts("P011_REAL_VST3_16_CHANNEL_PROJECT_RECALL_CORRUPT_STATE_REJECT_LEGACY_V1_PASS");
+}
+
+void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+    auto p=Plugin(factory,id,host);
+    IMidiMapping* pointer=nullptr;
+    check(p.controller->queryInterface(IMidiMapping::iid,
+        reinterpret_cast<void**>(&pointer))==kResultOk && pointer,
+        "P012 actual VST3 IEditController missing IMidiMapping");
+    const IPtr<IMidiMapping> mapping=owned(pointer);
+    constexpr std::array<CtrlNumber,8> controllers{
+        kCtrlModWheel,kCtrlVolume,kCtrlPan,kCtrlExpression,kCtrlSustainOnOff,
+        kCtrlEff1Depth,kCtrlEff3Depth,kPitchBend
+    };
+    std::set<ParamID> unique;
+    for(int ch=0;ch<16;++ch)
+        for(unsigned i=0;i<8;++i){
+            ParamID idOut=0;
+            check(mapping->getMidiControllerAssignment(0,static_cast<int16>(ch),
+                controllers[i],idOut)==kResultTrue,
+                "P012 actual VST3 one of 128 MIDI channel assignments missing");
+            check(idOut==2000u+static_cast<unsigned>(ch)*8+i,
+                "P012 unexpected MIDI mapping parameter ID");
+            unique.insert(idOut);
+            ParameterInfo info{};
+            bool found=false;
+            for(int j=0;j<p.controller->getParameterCount();++j){
+                if(p.controller->getParameterInfo(j,info)==kResultOk &&
+                   info.id==idOut){found=true;break;}
+            }
+            check(found,"P012 real VST3 MIDI mapping targets unregistered parameter");
+        }
+    check(unique.size()==128u,"P012 MIDI CC parameters have duplicate IDs");
+    ParamID bad=0;
+    check(mapping->getMidiControllerAssignment(1,0,kCtrlModWheel,bad)
+          !=kResultTrue,"P012 rejects nonexistent MIDI bus");
+    check(mapping->getMidiControllerAssignment(0,16,kCtrlModWheel,bad)
+          !=kResultTrue,"P012 rejects invalid MIDI channel");
+    check(mapping->getMidiControllerAssignment(0,0,kCtrlBreath,bad)
+          !=kResultTrue,"P012 rejects unsupported CC");
+
+    p.start(7,0,44100.);
+    ParameterChanges params(8);
+    EventList eventList;
+    std::array<float,1024> l{},r{};
+    float* channels[2]={l.data(),r.data()};
+    AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=channels;
+    ProcessData data{};
+    data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+    data.numSamples=1024;data.numOutputs=1;data.outputs=&output;
+    data.inputEvents=&eventList;data.inputParameterChanges=&params;
+    const auto put=[&](int ch,CtrlNumber cc,int32 offset,ParamValue value){
+        ParamID target=0;int32 idx=0;
+        check(mapping->getMidiControllerAssignment(0,static_cast<int16>(ch),cc,target)
+              ==kResultTrue,"P012 lookup before adding MIDI control point");
+        auto* q=params.addParameterData(target,idx);
+        check(q!=nullptr,"P012 add mapped controller queue");
+        check(q->addPoint(offset,value,idx)==kResultOk,
+              "P012 mapped controller sample point");
+    };
+    // Two nontrivial values of the SAME controller at different sample
+    // offsets and pitchbend on ANOTHER channel in the SAME callback.
+    put(2,kCtrlSustainOnOff,21,1.);
+    put(2,kCtrlSustainOnOff,877,0.);
+    put(15,kPitchBend,511,1.);
+    put(0,kCtrlModWheel,60,.6);
+    check(p.processor->process(data)==kResultOk,
+          "P012 actual VST3 sample-offset MIDI controller processing");
+    MemoryStream state;
+    check(p.component->getState(&state)==kResultOk &&
+          state.getSize()==sizeof(Saved),
+          "P012 controller state getState output size");
+    Saved saved{};
+    std::memcpy(&saved,state.getData(),sizeof(saved));
+    check(saved.midiStates[2*8+4]==0u,
+          "P012 final CC64 value not preserved in project state");
+    check(saved.midiStates[15*8+7]==16383u,
+          "P012 14-bit pitchbend control not preserved");
+    check(saved.midiStates[0*8+0]==76u,
+          "P012 CC1 modulation value not preserved");
+    check(saved.midiStates[1*8+0]==0xFFFFu,
+          "P012 unrelated channel modulation was accidentally modified");
+    auto reopened=Plugin(factory,id,host);
+    MemoryStream savedStream;int32 bytes=0;
+    check(savedStream.write(&saved,sizeof(saved),&bytes)==kResultOk&&
+          bytes==sizeof(saved),"P012 write reopened controller state");
+    check(savedStream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+          "P012 rewind reopened controller state");
+    check(reopened.component->setState(&savedStream)==kResultOk,
+          "P012 MIDI controller state reopening failed");
+    MemoryStream reproduced;
+    check(reopened.component->getState(&reproduced)==kResultOk &&
+          reproduced.getSize()==sizeof(saved) &&
+          std::memcmp(reproduced.getData(),&saved,sizeof(saved))==0,
+          "P012 project lost per-channel CC or pitchbend on reopen");
+    std::puts("P012_REAL_STEINBERG_VST3_IMIDIMAPPING_128_ASSIGNMENTS_SAMPLE_OFFSETS_STATE_RECALL_PASS");
 }
 
 struct Stats {
@@ -267,6 +391,7 @@ int main(int argc,char** argv){
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
+  verifyP012MidiMapping(factory,cls->ID(),host.get());
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
