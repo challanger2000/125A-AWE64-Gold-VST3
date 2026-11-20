@@ -218,13 +218,13 @@ jobs:
         shell: pwsh
         run: |
           $view=Get-Content -Raw -LiteralPath 'research/native-awe32emu/p009-vst3/p165/PresetBrowserView.cpp'
-          if($view -match 'reverbMenu_->setMouseEnabled\\(false\\)' -or
-             $view -match 'chorusMenu_->setMouseEnabled\\(false\\)') {
-            throw 'P165 FX type menus still disabled, host-automation-only tests are insufficient'
+          if($view.Contains('reverbMenu_->setMouseEnabled(false)') -or
+             $view.Contains('chorusMenu_->setMouseEnabled(false)')) {
+            throw 'P165 FX type menus still disabled: bitmap-only PASS is not interactive'
           }
-          if($view -notmatch 'reverbMenu_->setMouseEnabled\\(true\\)' -or
-             $view -notmatch 'chorusMenu_->setMouseEnabled\\(true\\)') {
-            throw 'P165 user FX type input enable not proven'
+          if(-not $view.Contains('reverbMenu_->setMouseEnabled(true)') -or
+             -not $view.Contains('chorusMenu_->setMouseEnabled(true)')) {
+            throw 'P165 user FX type input enable not found'
           }
           Write-Host P165_ORIGINAL_EMU8000_FX_TYPE_GUI_INPUT_SOURCE_GUARD_PASS
       - name: P165 native actual Windows EditorHost real hardware GUI and mouse controls
