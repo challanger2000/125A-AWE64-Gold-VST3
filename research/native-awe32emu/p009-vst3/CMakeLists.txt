@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(P009_AWE32Emu_Native_VST3 VERSION 0.0.1 LANGUAGES C CXX)
+project(P009_AWE32Emu_Native_VST3 VERSION 0.9.0 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "P009 experiment is Windows x64 only")
 endif()
@@ -92,6 +92,15 @@ target_compile_definitions(AWE64_Gold_Native_P009 PRIVATE
 target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk winmm)
 target_compile_features(AWE64_Gold_Native_P009 PRIVATE cxx_std_23)
 smtg_target_configure_version_file(AWE64_Gold_Native_P009)
+# Generated SDK moduleinfo in this toolchain contains trailing commas,
+# which strict JSON DAWs reject although the validator accepts them.
+# Keep the exact Steinberg FUID and factory metadata, with deterministic
+# valid JSON and plugin/factory version consistency. This is packaging only.
+add_custom_command(TARGET AWE64_Gold_Native_P009 POST_BUILD
+   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+       "${CMAKE_CURRENT_SOURCE_DIR}/resource/moduleinfo.strict.json"
+       "$<TARGET_FILE_DIR:AWE64_Gold_Native_P009>/../Resources/moduleinfo.json"
+   COMMENT "Install strict VST3 moduleinfo.json (preserve FUID)")
 
 # P009: standalone concurrency regression uses SAME original C EMU8000 and
 # reconstructed Win95 driver from this plugin, but WITHOUT Steinberg host.

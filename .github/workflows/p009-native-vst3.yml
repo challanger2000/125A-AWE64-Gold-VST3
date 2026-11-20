@@ -227,6 +227,19 @@ jobs:
             throw 'P165 user FX type input enable not found'
           }
           Write-Host P165_ORIGINAL_EMU8000_FX_TYPE_GUI_INPUT_SOURCE_GUARD_PASS
+      - name: Strict VST3 moduleinfo JSON, unique class FUID and factory version
+        shell: pwsh
+        run: |
+          $strict='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/Contents/Resources/moduleinfo.json'
+          if(!(Test-Path -LiteralPath $strict)){throw 'Native moduleinfo.json missing'}
+          $m=Get-Content -LiteralPath $strict -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+          if($m.Name -ne 'AWE64_Gold_Native_P009' -or $m.Version -ne '0.9.0' -or
+             $m.Classes.Count -ne 1 -or $m.Classes[0].Name -ne '125A AWE64 Gold' -or
+             $m.Classes[0].CID -ne '125A8600F0094AEEB64A000000000901' -or
+             $m.Classes[0].Version -ne '0.9.0') {
+            throw 'Native VST3 factory/module metadata mismatches the shipping FUID/name/version'
+          }
+          Write-Host P165_VST3_STRICT_VALID_JSON_FACTORY_FUID_AND_VERSION_PASS
       - name: P165 native actual Windows EditorHost real hardware GUI and mouse controls
         shell: pwsh
         timeout-minutes: 8
