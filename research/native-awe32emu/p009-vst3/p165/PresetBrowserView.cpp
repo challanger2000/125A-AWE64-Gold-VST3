@@ -703,7 +703,14 @@ int PresetBrowserView::GestureIndex(int tag) noexcept {
 }
 void PresetBrowserView::controlBeginEdit(CControl* control) {
     if(!control||!controller_)return;
-    const int index=GestureIndex(control->getTag());
+    // A click on a SEND knob at its initial zero must mean a REAL zero
+    // hardware SEND, even before a drag changes the value. Otherwise
+    // the user would have to move away from 0 and then return to mute.
+    const int tag=control->getTag();
+    if(tag==1110||tag==1111)
+        ChangeParameter(static_cast<Steinberg::Vst::ParamID>(
+            1420+tag-1110),1.);
+    const int index=GestureIndex(tag);
     if(index<0||activeHostGestures_[size_t(index)])return;
     activeHostGestures_[size_t(index)]=true;
     controller_->beginEdit(static_cast<Steinberg::Vst::ParamID>(control->getTag()));
