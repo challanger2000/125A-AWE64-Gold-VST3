@@ -74,6 +74,23 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
     // receives host-owned points at exact offsets and changes audio state.
     if(!std::isfinite(value)||value<0.||value>1.)return kInvalidArgument;
     const auto result=SingleComponentEffect::setParamNormalized(id,value);
+    if(result==kResultOk){
+        if(id==1000u || (id>=1201u&&id<1216u)){
+            const unsigned ch=id==1000u?0u:static_cast<unsigned>(id-1200u);
+            hostProgramEdits_[ch].store(
+                static_cast<int>(std::lround(value*127.)),
+                std::memory_order_release);
+        }else if(id==1002u || (id>=1301u&&id<1316u)){
+            const unsigned ch=id==1002u?0u:static_cast<unsigned>(id-1300u);
+            hostBankEdits_[ch].store(
+                static_cast<int>(std::lround(
+                    value*(ch==0u?2.:1.))),
+                std::memory_order_release);
+        }else if(id==1001u){
+            hostMasterEdit_.store(static_cast<float>(value),
+                                  std::memory_order_release);
+        }
+    }
     if(result==kResultOk && id>=1100u && id<1112u) {
         guiControlMirrors_[id-1100u].store(
             static_cast<std::uint16_t>(std::lround(value*10000.)),
@@ -93,6 +110,51 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
             static_cast<std::uint8_t>(std::lround(value*7.)),
             std::memory_order_release);
     return result;
+}
+ParamValue PLUGIN_API NativeVst3::getParamNormalized(ParamID id){
+    // Same-component VST3 hosts deliver sample-offset parameter changes
+    // directly to process() without necessarily calling setParamNormalized().
+    // The editor MUST show the last actually applied hardware value.
+    if(id==1000u || (id>=1201u&&id<1216u)){
+        const unsigned ch=id==1000u?0u:static_cast<unsigned>(id-1200u);
+        const int pending=hostProgramEdits_[ch].load(std::memory_order_acquire);
+        if(pending>=0)return static_cast<double>(pending)/127.;
+        if(restoreRequestedSeq_.load(std::memory_order_acquire)!=
+           restoreAppliedSeq_.load(std::memory_order_acquire))
+            return SingleComponentEffect::getParamNormalized(id);
+        const auto actual=ch==0u?stateProgramMirror_.load(std::memory_order_acquire):
+                                     stateProgramsMirror_[ch].load(std::memory_order_acquire);
+        return static_cast<double>(actual)/127.;
+    }
+    if(id==1002u || (id>=1301u&&id<1316u)){
+        const unsigned ch=id==1002u?0u:static_cast<unsigned>(id-1300u);
+        const int pending=hostBankEdits_[ch].load(std::memory_order_acquire);
+        const double maxBank=ch==0u?2.:1.;
+        if(pending>=0)return static_cast<double>(pending)/maxBank;
+        if(restoreRequestedSeq_.load(std::memory_order_acquire)!=
+           restoreAppliedSeq_.load(std::memory_order_acquire))
+            return SingleComponentEffect::getParamNormalized(id);
+        const auto actual=ch==0u?stateBankMirror_.load(std::memory_order_acquire):
+                                     stateBanksMirror_[ch].load(std::memory_order_acquire);
+        return static_cast<double>(actual)/maxBank;
+    }
+    if(id==1001u){
+        const float pending=hostMasterEdit_.load(std::memory_order_acquire);
+        if(pending>=0.f)return static_cast<double>(pending);
+        if(restoreRequestedSeq_.load(std::memory_order_acquire)!=
+           restoreAppliedSeq_.load(std::memory_order_acquire))
+            return SingleComponentEffect::getParamNormalized(id);
+        return static_cast<double>(stateMasterMirror_.load(std::memory_order_acquire));
+    }
+    if(id>=1100u&&id<1112u)
+        return static_cast<double>(guiControlMirrors_[id-1100u].load(
+            std::memory_order_acquire))/10000.;
+    if(id==1400u||id==1401u)
+        return static_cast<double>(fxPresetMirrors_[id==1400u?0u:1u].load(
+            std::memory_order_acquire))/7.;
+    if(id==1420u||id==1421u)
+        return sendManualMirrors_[id-1420u].load(std::memory_order_acquire)?1.:0.;
+    return SingleComponentEffect::getParamNormalized(id);
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     if(path.empty()||path.size()>4096)return false;

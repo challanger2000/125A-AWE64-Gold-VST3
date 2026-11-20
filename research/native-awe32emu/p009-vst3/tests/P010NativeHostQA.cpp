@@ -104,6 +104,98 @@ struct Plugin{
    processing=true;
  }
 };
+// P166: a stopped DAW may save a project immediately after selecting a
+// program/bank/master value, before *any* audio callback or host automation
+// delivery. A green VST3 validator/GUI knob test does not exercise this.
+// Additionally, same-component automation reaches process() directly; real
+// controller readback must show what the chip actually received.
+void verifyP166StoppedHostEditsAndAudioReadback(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin p(factory,id,host); // deliberately INACTIVE
+  const auto edit=[&](ParamID param,double normalized){
+    check(p.controller->setParamNormalized(param,normalized)==kResultOk,
+          "P166 stopped-host parameter edit rejected");
+  };
+  edit(1000u,7./127.);edit(1002u,.5);edit(1001u,.3125);
+  edit(1201u,17./127.);edit(1301u,1.);
+  MemoryStream saved;
+  check(p.component->getState(&saved)==kResultOk&&
+        saved.getSize()==sizeof(Saved),
+        "P166 stopped controller edits unexpectedly discarded or changed V4 layout");
+  Saved initial{};
+  std::memcpy(&initial,saved.getData(),sizeof(initial));
+  check(initial.program==7u&&initial.bank==1u&&
+        initial.master==.3125f&&
+        initial.otherPrograms[0]==17u&&initial.otherBanks[0]==1u,
+        "P166 host project save lost program/bank/master when no audio ran");
+  auto reopened=Plugin(factory,id,host);
+  MemoryStream stream;int32 written=0;
+  check(stream.write(&initial,sizeof(initial),&written)==kResultOk &&
+        written==sizeof(initial)&&
+        stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        reopened.component->setState(&stream)==kResultOk,
+        "P166 stopped host project reopen rejected");
+  MemoryStream restored;
+  check(reopened.component->getState(&restored)==kResultOk &&
+        restored.getSize()==sizeof(initial)&&
+        std::memcmp(restored.getData(),&initial,sizeof(initial))==0,
+        "P166 stopped edits not byte-exact after reopen");
+  check(std::abs(reopened.controller->getParamNormalized(1000u)-7./127.)<.001 &&
+        std::abs(reopened.controller->getParamNormalized(1002u)-.5)<.001 &&
+        std::abs(reopened.controller->getParamNormalized(1001u)-.3125)<.001,
+        "P166 controller readback does not reflect freshly restored project");
+  // Start actual native VST3 processing; no ROM is required for the
+  // MIDI/control readback contract. The audio path is intentionally silent.
+  ProcessSetup setup{};setup.processMode=kRealtime;
+  setup.symbolicSampleSize=kSample32;setup.sampleRate=44100.;
+  setup.maxSamplesPerBlock=frames;
+  check(reopened.processor->setupProcessing(setup)==kResultOk &&
+        reopened.component->setActive(true)==kResultOk,
+        "P166 real Windows VST3 setup after stopped edit failed");
+  reopened.active=true;
+  check(reopened.processor->setProcessing(true)==kResultOk,
+        "P166 real Windows VST3 processing after stopped edit failed");
+  reopened.processing=true;
+  std::array<float,frames> left{},right{};
+  float* channels[2]={left.data(),right.data()};
+  AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=channels;
+  ParameterChanges params(8);
+  ProcessData data{};data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+  data.numSamples=frames;data.numOutputs=1;data.outputs=&output;
+  data.inputParameterChanges=&params;
+  const auto add=[&](ParamID param,double normalized){
+    int32 index=0,point=0;
+    auto* queue=params.addParameterData(param,index);
+    check(queue&&queue->addPoint(10,normalized,point)==kResultOk,
+          "P166 host audio-point injection failed");
+  };
+  add(1000u,21./127.);add(1002u,0.);add(1001u,.75);
+  add(1201u,23./127.);add(1301u,0.);
+  add(1100u,.45);add(1400u,6./7.);add(1420u,1.);
+  check(reopened.processor->process(data)==kResultOk,
+        "P166 actual Windows VST3 audio automation rejected");
+  check(std::abs(reopened.controller->getParamNormalized(1000u)-21./127.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1002u))<.001&&
+        std::abs(reopened.controller->getParamNormalized(1001u)-.75)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1201u)-23./127.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1301u))<.001&&
+        std::abs(reopened.controller->getParamNormalized(1100u)-.45)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1400u)-6./7.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1420u)-1.)<.001,
+        "P166 GUI/controller readback is stale after real processor automation");
+  MemoryStream processed;
+  check(reopened.component->getState(&processed)==kResultOk&&
+        processed.getSize()==648u,
+        "P166 combined processor automation and GUI control not V5-serializable");
+  Saved actual{};std::memcpy(&actual,processed.getData(),sizeof(actual));
+  check(actual.program==21u&&actual.bank==0u&&
+        actual.master==.75f&&actual.otherPrograms[0]==23u&&
+        actual.otherBanks[0]==0u,
+        "P166 obsolete controller request overrode later audio automation");
+  std::puts("P166_REAL_WIN64_VST3_STOPPED_HOST_PATCH_PROJECT_RECALL_AND_LIVE_GUI_AUTOMATION_READBACK_PASS");
+}
+
 // Integrated final native owner GUI -> VST3 state regression, real Steinberg
 // Windows host. Works publicly WITHOUT any protected ROM/SBK/SF2 files:
 // no audible claims; proves all 12 P165 control edits, backward-compatible
@@ -1598,6 +1690,7 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
   auditV5DoesNotEraseAdvancedMidiControllers(factory,cls->ID(),host.get());

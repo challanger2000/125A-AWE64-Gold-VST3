@@ -488,6 +488,22 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
         cleanStagedAndRetiredNonRealtime();
         synth_.reset();
         redirectedDrumNotes_.fill(0);
+        // Explicit stopped-transport controller edits are project state,
+        // not merely editor decoration. Use them when rebuilding the chip.
+        for(unsigned ch=0;ch<16u;++ch){
+            const int p=hostProgramEdits_[ch].load(std::memory_order_acquire);
+            const int b=hostBankEdits_[ch].load(std::memory_order_acquire);
+            if(p>=0){
+                if(ch==0)program_=p;
+                else programsByChannel_[ch]=static_cast<std::uint8_t>(p);
+            }
+            if(b>=0){
+                if(ch==0)bank_=b;
+                else banksByChannel_[ch]=static_cast<std::uint8_t>(b);
+            }
+        }
+        const float masterEdit=hostMasterEdit_.load(std::memory_order_acquire);
+        if(masterEdit>=0.f)master_=masterEdit;
         try {
             // Missing PRIVATE assets: an explicitly SILENT prototype.
             // Host scanner/validator can inspect the module safely.
@@ -498,6 +514,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
         }
         if(fxEdited_)fxPending_.store(true,std::memory_order_release);
         active_=true;
+        publishRuntimeSnapshot();
     }else{
         cleanStagedAndRetiredNonRealtime();
         synth_.reset();active_=false;authenticRomLoaded_=false;
@@ -633,6 +650,14 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 }
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
+    // Capture host-side requests at this block boundary. A newly arriving
+    // GUI edit during process() must not be erased by an older audio point.
+    std::array<int,16> programAtBlock{},bankAtBlock{};
+    for(unsigned ch=0;ch<16u;++ch){
+        programAtBlock[ch]=hostProgramEdits_[ch].load(std::memory_order_acquire);
+        bankAtBlock[ch]=hostBankEdits_[ch].load(std::memory_order_acquire);
+    }
+    const float masterAtBlock=hostMasterEdit_.load(std::memory_order_acquire);
     applyStagedInstrumentRealtime();
     applyPendingRestoreRealtime();
     const auto reassert=bankReassertRequested_.exchange(
@@ -799,7 +824,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             int32 off=0;ParamValue val=0.;
             if(q->getPoint(q->getPointCount()-1,off,val)!=kResultOk||
                !finite01(val))continue;
-            if(id==kVolume)master_=static_cast<float>(val);
+            if(id==kVolume){
+                master_=static_cast<float>(val);
+                if(masterAtBlock>=0.f){
+                    float expected=masterAtBlock;
+                    (void)hostMasterEdit_.compare_exchange_strong(
+                        expected,-1.f,std::memory_order_acq_rel);
+                }
+            }
         }
     }
     if(!l||!r||data.numSamples==0){
@@ -857,6 +889,12 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 else programsByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
+                const int pending=programAtBlock[mp.channel];
+                if(pending>=0){
+                    int expected=pending;
+                    (void)hostProgramEdits_[mp.channel].compare_exchange_strong(
+                        expected,-1,std::memory_order_acq_rel);
+                }
             }else if(mp.slot==kPatchBank){
                 if(mp.channel==0)bank_=static_cast<int>(mp.value);
                 else banksByChannel_[mp.channel]=
@@ -870,6 +908,12 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 advancedMidiState_[base]=0xFFFFu;
                 advancedMidiState_[base+1u]=0xFFFFu;
                 changeChannelBankProgram(mp.channel);
+                const int pending=bankAtBlock[mp.channel];
+                if(pending>=0){
+                    int expected=pending;
+                    (void)hostBankEdits_[mp.channel].compare_exchange_strong(
+                        expected,-1,std::memory_order_acq_rel);
+                }
             }else if(mp.slot==kGuiReverbType||mp.slot==kGuiChorusType){
                 if(mp.slot==kGuiReverbType){
                     reverbPreset_=int(mp.value);
@@ -958,6 +1002,23 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
         }
         if(!consistent)return kResultFalse; // never return a torn session
     }
+    // The controller's last edit can precede the first process callback
+    // (stopped transport, inactive project, or host saving immediately).
+    // Keep it ahead of the last published audio snapshot until acknowledged.
+    for(unsigned ch=0;ch<16u;++ch){
+        const int program=hostProgramEdits_[ch].load(std::memory_order_acquire);
+        const int bank=hostBankEdits_[ch].load(std::memory_order_acquire);
+        if(program>=0){
+            stable.programs[ch]=static_cast<std::uint8_t>(program);
+            if(ch==0)stable.program=static_cast<std::uint32_t>(program);
+        }
+        if(bank>=0){
+            stable.banks[ch]=static_cast<std::uint8_t>(bank);
+            if(ch==0)stable.bank=static_cast<std::uint32_t>(bank);
+        }
+    }
+    const float masterEdit=hostMasterEdit_.load(std::memory_order_acquire);
+    if(masterEdit>=0.f)stable.master=masterEdit;
     Saved s{};
     s.program=stable.program;s.bank=stable.bank;s.master=stable.master;
     for(unsigned ch=1;ch<16u;++ch){
@@ -1161,6 +1222,11 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             std::array<std::uint8_t,32>{};
         userChoseSf2_=nextExplicit;
     }
+    // An accepted project restore replaces every pending controller edit.
+    // Invalid/corrupt projects return above WITHOUT changing these flags.
+    for(auto& p:hostProgramEdits_)p.store(-1,std::memory_order_release);
+    for(auto& b:hostBankEdits_)b.store(-1,std::memory_order_release);
+    hostMasterEdit_.store(-1.f,std::memory_order_release);
     for(unsigned i=0;i<desired->gui.size();++i){
         const auto value=s.version==kStateV5?ext.guiControls[i]:0u;
         guiControlMirrors_[i].store(value,std::memory_order_release);

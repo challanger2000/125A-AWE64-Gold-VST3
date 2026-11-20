@@ -47,6 +47,8 @@ public:
         fxPresetMirrors_[1].store(2u);
         for(auto& x:stateMidiMirror_)x.store(0xFFFFu);
         for(auto& x:stateAdvancedMirror_)x.store(0xFFFFu);
+        for(auto& x:hostProgramEdits_)x.store(-1);
+        for(auto& x:hostBankEdits_)x.store(-1);
     }
     ~NativeVst3() override { cleanStagedAndRetiredNonRealtime(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
@@ -82,6 +84,8 @@ public:
     Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString) override;
     Steinberg::tresult PLUGIN_API setParamNormalized(
         Steinberg::Vst::ParamID,Steinberg::Vst::ParamValue) override;
+    Steinberg::Vst::ParamValue PLUGIN_API getParamNormalized(
+        Steinberg::Vst::ParamID) override;
 private:
     std::unique_ptr<Synth> synth_;
     // GUI-only preset index: never edited from a real-time callback.
@@ -96,6 +100,13 @@ private:
     bool userChoseSf2_=false;
     // UI-side atomic mirrors of real audio-thread control states for safe DAW getState.
     std::array<std::atomic<std::uint16_t>,12> guiControlMirrors_{};
+    // A stopped host may request a program/bank/master edit before the
+    // next audio callback. Until the processor acknowledges it, project
+    // saving and GUI readback must retain the *new* host-side choice.
+    // -1 means no pending controller-side change; these atomics never
+    // allocate in the render callback.
+    std::array<std::atomic<int>,16> hostProgramEdits_{},hostBankEdits_{};
+    std::atomic<float> hostMasterEdit_{-1.f};
     std::atomic<Synth*> stagedSynth_{nullptr};
     std::atomic<Synth*> retiredSynth_{nullptr};
     // Bounded POD host/audio state transfers. getState only reads atomic
