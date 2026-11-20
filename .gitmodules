@@ -1,0 +1,3 @@
+[submodule "third_party/86box-awe32"]
+	path = third_party/86box-awe32
+	url = https://github.com/turican0/86Box-AWE32.git

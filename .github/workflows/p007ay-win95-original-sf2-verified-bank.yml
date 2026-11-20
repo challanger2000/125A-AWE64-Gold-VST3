@@ -1,0 +1,38 @@
+name: P007AY original Win95 Creative verified SF2 bank guest relay
+on:
+  push:
+    branches: [test/p007av-original-win95-creative-sf2-audio-e2e-20261119]
+    paths:
+      - "experiments/p007-inprocess-86box/guest/**"
+      - ".github/workflows/p007ay-win95-original-sf2-verified-bank.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-original-creative-relay:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile authentic Win95 PE32 guest with AWEManager descriptor verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S experiments/p007-inprocess-86box/guest -B build/p007ay-guest -G 'Visual Studio 17 2022' -A Win32
+          if($LASTEXITCODE -ne 0){throw 'Win95 guest configure failed'}
+          cmake --build build/p007ay-guest --config Release --target P007_Win95_Original_Creative_Relay --parallel 2
+          if($LASTEXITCODE -ne 0){throw 'Win95 guest compile failed'}
+          $exe='build/p007ay-guest/Release/P007_Win95_Original_Creative_Relay.exe'
+          $d=[IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if([Text.Encoding]::ASCII.GetString($d,0,2) -ne 'MZ'){throw 'Not a Windows PE file'}
+          $pe=[BitConverter]::ToInt32($d,0x3c)
+          if([BitConverter]::ToUInt16($d,$pe+4) -ne 0x14c -or
+             [BitConverter]::ToUInt16($d,$pe+24+48) -ne 4){throw 'Guest not Win95-compatible x86'}
+          Write-Host 'P007AY_ORIGINAL_CREATIVE_BANK1_VERIFICATION_PE32_COMPILED_PASS'
+      - name: Publish Win95 in-guest relay only, never user private disk/ROMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007AY-Creative-VerifiedBank-Win95-Relay-PE32
+          path: build/p007ay-guest/Release/P007_Win95_Original_Creative_Relay.exe
+          if-no-files-found: error
+          retention-days: 7

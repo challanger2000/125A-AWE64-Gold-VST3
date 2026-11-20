@@ -1,0 +1,61 @@
+name: P007 headless original 86Box Linux QA core (offline private Win95, never upload OS)
+on:
+  push:
+    branches: [research/p007-b-headless-boot-20261117]
+    paths:
+      - ".github/workflows/p007-linux-headless-private-qa-core.yml"
+      - "experiments/p007-inprocess-86box/fork/**"
+      - "experiments/p007-inprocess-86box/tools/**"
+      - "experiments/p007-inprocess-86box/include/**"
+permissions:
+  contents: read
+jobs:
+  linux-private-qa-core:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native 86Box build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build cmake gcc g++ pkg-config \
+            libfreetype6-dev libsdl2-dev libpng-dev libsndfile1-dev \
+            libslirp-dev libserialport-dev libfaudio-dev zlib1g-dev libglib2.0-dev \
+            libx11-dev libxext-dev
+      - name: Source-pin original 86Box release and add research-only bridge
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/turican0/86Box-AWE32.git build/p007-original-fork
+          git -C build/p007-original-fork checkout fee1e81977824fd2d5eed4d239589dc30d251dd7
+          test "$(git -C build/p007-original-fork rev-parse HEAD)" = "fee1e81977824fd2d5eed4d239589dc30d251dd7"
+          python3 experiments/p007-inprocess-86box/tools/p007_patch_upstream.py \
+            --fork build/p007-original-fork
+          sha256sum build/p007-original-fork/src/sound/snd_emu8k.c
+      - name: Build in-process Linux QA emulator from the SAME original 86Box source
+        run: |
+          set -euo pipefail
+          cmake -S build/p007-original-fork -B build/p007-linux-qa \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTATIC_BUILD=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DQT=OFF -DOPENAL=OFF -DRTMIDI=OFF -DFLUIDSYNTH=OFF \
+            -DMUNT=OFF -DSOUNDCANVAS=OFF -DDISCORD=OFF \
+            -DDYNAREC=ON -DVNC=OFF
+          cmake --build build/p007-linux-qa --target 86Box --parallel 3
+          find build/p007-linux-qa -type f -name "lib86Box.so*" -ls
+      - name: Verify ELF bridge exports (NO guest image at GitHub)
+        run: |
+          set -euo pipefail
+          core="$(find build/p007-linux-qa -type f -name 'lib86Box.so*' | head -1)"
+          test -f "$core"
+          nm -D "$core" | grep p007_core_guest_boot
+          nm -D "$core" | grep p007_midi_guest_ready
+          nm -D "$core" | grep p007_audio_pull
+          nm -D "$core" | grep p007_trace_get
+          ldd "$core"
+      - name: Package ONLY Linux native QA emulator (NOT a product or private Win95)
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007-Linux-Offline-Private-Win95-QA-Core-Public
+          path: |
+            build/p007-linux-qa/src/lib86Box.so
+          if-no-files-found: error
+          retention-days: 3

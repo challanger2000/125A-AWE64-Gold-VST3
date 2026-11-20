@@ -1,0 +1,195 @@
+name: P007 true in-process original 86Box core DLL
+on:
+  push:
+    branches: [experiment/p007-inprocess-86box, research/p007-b-headless-boot-20261117]
+    paths:
+      - "experiments/p007-inprocess-86box/**"
+      - ".github/workflows/p007-embedded-original-86box.yml"
+permissions:
+  contents: read
+jobs:
+  windows-ucrt64:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Prepare minimal MSYS2 native x64 build
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: UCRT64
+          install: git
+          pacboy: >-
+            ninja:p cmake:p gcc:p python:p pkgconf:p freetype:p SDL2:p
+            zlib:p libpng:p libsndfile:p libslirp:p libserialport:p
+      - uses: actions/checkout@v4
+      - name: Checkout hash-pinned ORIGINAL 86Box AWE32 release sources
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/turican0/86Box-AWE32.git build/p007-original-fork
+          git -C build/p007-original-fork checkout fee1e81977824fd2d5eed4d239589dc30d251dd7
+          test "$(git -C build/p007-original-fork rev-parse HEAD)" = "fee1e81977824fd2d5eed4d239589dc30d251dd7"
+          python experiments/p007-inprocess-86box/tools/p007_patch_upstream.py --fork build/p007-original-fork
+      - name: Configure genuine emulator core as Windows DLL, not EXE
+        run: |
+          set -euo pipefail
+          cmake -S build/p007-original-fork -B build/p007-inprocess-dll \
+            -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DQT=OFF -DSTATIC_BUILD=OFF -DOPENAL=OFF \
+            -DRTMIDI=OFF -DFLUIDSYNTH=OFF -DMUNT=OFF \
+            -DSOUNDCANVAS=OFF -DDISCORD=OFF \
+            -DDYNAREC=ON -DVNC=OFF
+      - name: Prove heapless original mixer PCM ring/format/wrap/overflow
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007AudioRing.c \
+            experiments/p007-inprocess-86box/tests/P007AudioRingTest.c \
+            -o build/P007AudioRingTest.exe
+          build/P007AudioRingTest.exe
+      - name: Verify source-preserving 44.1/48/96-kHz host output and underrun recovery
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007OutputRateTest.cpp \
+            -o build/P007OutputRateTest.exe
+          build/P007OutputRateTest.exe
+      - name: Verify internal MIDI framing and bounded UART queue
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007MidiUart.c \
+            experiments/p007-inprocess-86box/tests/P007MidiUartTest.c \
+            -o build/P007MidiUartTest.exe
+          build/P007MidiUartTest.exe
+      - name: Validate passive ORIGINAL 86Box HDD request counters
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/fork/P007BootTrace.c \
+            experiments/p007-inprocess-86box/tests/P007BootTraceTest.c \
+            -o build/P007BootTraceTest.exe
+          build/P007BootTraceTest.exe
+      - name: Compile unchanged original CPU/machine/EMU8000 modules into DLL
+        run: |
+          set -euo pipefail
+          cmake --build build/p007-inprocess-dll --target 86Box --parallel 3
+          find build/p007-inprocess-dll -iname "*86box*.dll" -type f -print
+      - name: Independently LoadLibrary full original emulator in a Windows process
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror \
+            -Iexperiments/p007-inprocess-86box/include \
+            experiments/p007-inprocess-86box/tests/P007LoadDll.cpp \
+            -o build/P007CoreDllLoader.exe
+          dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
+          if [ -z "$dll" ]; then echo 'P007_NO_INPROCESS_86BOX_DLL'; exit 1; fi
+          build/P007CoreDllLoader.exe "$dll"
+      - name: Verify safe no-profile guest boot gate (no private assets in CI)
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror \
+            experiments/p007-inprocess-86box/tests/P007GuestBootGateTest.cpp \
+            -o build/P007GuestBootGateTest.exe
+          dll="$(find build/p007-inprocess-dll -iname '*86box*.dll' -type f | head -1)"
+          build/P007GuestBootGateTest.exe "$dll"
+      - name: Compile research-only private Win95/Creative end-to-end boot probe
+        run: |
+          set -euo pipefail
+          g++ -std=c++23 -Wall -Wextra -Werror -O2 \
+            -Iexperiments/p007-inprocess-86box/vst3 \
+            experiments/p007-inprocess-86box/tests/P007PrivateBootSmoke.cpp \
+            -o build/P007PrivateBootSmoke.exe
+          build/P007PrivateBootSmoke.exe --selftest
+          # Never download/provision proprietary Win95/Creative/ROM data in CI.
+          echo P007_PRIVATE_BOOT_PROBE_COMPILED_NO_PROPRIETARY_IMAGE_PASS
+      - name: Checkout pinned Steinberg VST3 SDK (MSVC)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git clone --recursive https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk checkout 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          git -C external/vst3sdk submodule update --init --recursive
+      - name: Configure real Windows-x64 P007 VST3 bundle (MSVC)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S experiments/p007-inprocess-86box/vst3 -B build/p007-vst3 -G "Visual Studio 17 2022" -A x64 -DP007_SDK_ROOT="$env:GITHUB_WORKSPACE/external/vst3sdk"
+      - name: Pack core DLLs BEFORE Steinberg's post-build validator
+        run: |
+          set -euo pipefail
+          dest=build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win
+          mkdir -p "$dest"
+          test -f build/p007-inprocess-dll/src/lib86Box.dll
+          cp build/p007-inprocess-dll/src/lib86Box.dll "$dest/125A_AWE_Core.dll"
+          for pass in 1 2 3 4 5; do
+            for dll in "$dest"/*.dll; do
+              for needed in $(objdump -p "$dll" | sed -n 's/^[[:space:]]*DLL Name: //p'); do
+                if test -f "/ucrt64/bin/$needed" && ! test -f "$dest/$needed"; then
+                  cp "/ucrt64/bin/$needed" "$dest/$needed"
+                  echo "P007_COPY_INTERNAL_LIBRARY $needed"
+                fi
+              done
+            done
+          done
+          echo "P007_SINGLE_VST3_FOLDER_ALL_INTERNAL_DLLS_PACKAGED_PASS"
+          ls -lh "$dest"
+      - name: Build actual VST3 with its embedded original 86Box DLL already available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-vst3 --config Release --target AWE64_Gold_P007 --parallel 2
+      - name: Check in-process core load OUTSIDE MSYS2 helper environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dest = (Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/Contents/x86_64-win").Path
+          $env:PATH = "$dest;" + $env:PATH
+          & "build/P007CoreDllLoader.exe" "$dest/125A_AWE_Core.dll"
+          if ($LASTEXITCODE -ne 0) { throw "Original in-process DLL could not load in Windows" }
+      - name: Build genuine Steinberg EditorHost for P165 actual Win32 window QA
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake --build build/p007-vst3 --config Release --target editorhost --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Steinberg EditorHost build failed" }
+      - name: Exercise real P165 GUI pixels, prev/next and master mouse gesture
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = "Stop"
+          $editor=(Get-ChildItem build/p007-vst3 -Filter editorhost.exe -File -Recurse |
+            Where-Object { $_.FullName -match "Release" } |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if (-not $editor) { throw "EditorHost.exe unavailable" }
+          $plugin=(Resolve-Path "build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3").Path
+          python experiments/p007-inprocess-86box/tests/P007P165EditorHostSmoke.py --editorhost "$editor" --plugin "$plugin" --output build/p007s-editorhost-evidence
+          if ($LASTEXITCODE -ne 0) { throw "Real EditorHost P165 pixel/mouse acceptance failed" }
+      - name: Preserve real EditorHost screenshots and input QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007S-P165-Actual-Win32-EditorHost-Screenshots-QA
+          path: build/p007s-editorhost-evidence/**
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Upload experimental no-Win95 in-process emulator DLL
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P007-Original-86Box-InProcess-DLL-Feasibility-Only
+          path: |
+            build/p007-inprocess-dll/**/*.dll
+            build/P007CoreDllLoader.exe
+            build/P007AudioRingTest.exe
+            build/P007MidiUartTest.exe
+            build/p007-vst3/VST3/Release/AWE64_Gold_P007.vst3/**
+          if-no-files-found: error
+          retention-days: 5

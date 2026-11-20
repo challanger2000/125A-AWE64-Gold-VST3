@@ -1,0 +1,24 @@
+name: P003 original Creative VXD static x86 caller research controls
+on:
+  push:
+    branches:
+      - develop/p002-creative-register-oracle
+    paths:
+      - tools/p003_private_vxd_static_callers.py
+      - tests/test_p003_private_vxd_static_callers.py
+      - .github/workflows/p003-vxd-static-callers.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no_proprietary_inputs_static_caller_tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile source-only VXD x86 caller audit
+        run: |
+          python3 -m py_compile tools/p003_private_vxd_static_callers.py
+          python3 -m unittest discover -s tests -p 'test_p003_private_vxd_static_callers.py' -v
+          echo 'P003_VXD_STATIC_CALLER_RESEARCH_TESTS_PASS'
+          echo 'real_win95_vxd=NOT_PRESENT original_emu8000_core_modified=NO'

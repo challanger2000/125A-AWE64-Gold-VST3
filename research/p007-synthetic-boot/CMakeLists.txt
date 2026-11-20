@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.25)
+project(P007_Synthetic_Original_CPU_Boot LANGUAGES CXX)
+add_executable(P007SyntheticCoreBoot P007SyntheticCoreBoot.cpp)
+target_compile_features(P007SyntheticCoreBoot PRIVATE cxx_std_23)
+if(MSVC)
+  target_compile_options(P007SyntheticCoreBoot PRIVATE /W4 /WX /permissive-)
+endif()

@@ -1,0 +1,22 @@
+name: P001 private guest differential gate unit controls
+on:
+  push:
+    branches: [develop/p001-fork-chip-parity]
+    paths:
+      - tools/p001_guest_capture_gate.py
+      - tests/test_p001_guest_capture_gate.py
+      - .github/workflows/p001-guest-gate-unit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gate-unit-contract:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert non-musical reference and guest-log corruption fail closed
+        run: python -m unittest discover -s tests -p test_p001_guest_capture_gate.py -v
+      - name: State evidence boundary
+        run: |
+          echo "Synthetic bad-input/unit checks only: private running Win95 guest NOT booted in this job"
+          echo "See docs/P001-WIN95-GENUINE-CREATIVE-MUSICAL-PCM.md for separately measured private PCM sample equality"

@@ -1,0 +1,22 @@
+name: P003 private-source-free PCM differential controls
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths:
+      - 'tools/p003_owner_vs_prior_native_pcm_diagnostic.py'
+      - 'tests/test_p003_owner_vs_prior_native_pcm_diagnostic.py'
+      - '.github/workflows/p003-keeper-closed-gate.yml'
+  workflow_dispatch:
+jobs:
+  p003-source-only-negative-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test comparison logic using public synthetic PCM and port fixtures
+        run: python3 tests/test_p003_owner_vs_prior_native_pcm_diagnostic.py
+      - name: Explicit private-source boundary
+        run: |
+          echo 'P003 owner originals are NOT stored in GitHub or CI.'
+          echo 'This test is the diagnostic harness regression ONLY.'
+          echo 'Real Win95 vs independently rendered native VST3 PARITY: NOT ESTABLISHED.'

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.25)
+project(P007_PrivatePaths LANGUAGES CXX)
+add_executable(P007PrivatePathsTest ../P007PrivatePathsTest.cpp)
+target_include_directories(P007PrivatePathsTest PRIVATE ../../vst3)
+target_compile_features(P007PrivatePathsTest PRIVATE cxx_std_23)

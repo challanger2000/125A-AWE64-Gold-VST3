@@ -1,0 +1,34 @@
+name: P002 verified Debian 13 deps for calibrated Linux 86Box runtime
+on:
+  push:
+    branches: [develop/p002-creative-register-oracle]
+    paths: ['.github/workflows/p002-linux-86box-trixie-runtime-deps.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  obtain_missing_public_runtime_dependencies:
+    runs-on: ubuntu-22.04
+    container: debian:trixie
+    timeout-minutes: 15
+    steps:
+      - name: Obtain Debian 13 original shared-library packages for real VM boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The pinned fork links librtmidi.so.6, which Debian 13
+          # replaced with librtmidi7. Fetch older ABI *without installing*
+          # from Debian 12 bookworm; use Debian 13 for other two libs.
+          echo 'deb http://deb.debian.org/debian bookworm main' > /etc/apt/sources.list.d/p002-bookworm.list
+          apt-get update -qq
+          mkdir -p /tmp/p002-public-runtime
+          cd /tmp/p002-public-runtime
+          apt-get download libserialport0 libslirp0 librtmidi6
+          for file in *.deb; do dpkg-deb --field "$file" Package Version; done
+          sha256sum *.deb > sha256sums.txt
+          echo 'P002_PUBLIC_DEBIAN13_MISSING_LIBRARIES_DOWNLOADED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P002-PUBLIC-DEBIAN13-86BOX-RUNTIME-DEPS
+          path: /tmp/p002-public-runtime/
+          retention-days: 2
+          if-no-files-found: error
