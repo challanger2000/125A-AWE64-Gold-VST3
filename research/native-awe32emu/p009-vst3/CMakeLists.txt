@@ -72,6 +72,7 @@ target_compile_features(P009RealtimeAllocationProbe PRIVATE cxx_std_17)
 add_executable(P010NativeHostQA
   tests/P010NativeHostQA.cpp
   "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
+  "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
   "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
 target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}")
 target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting)
