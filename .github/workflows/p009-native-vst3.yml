@@ -106,6 +106,22 @@ jobs:
           Remove-Item _p009-two-layer-test.sf2
           if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
           Write-Host P009_RT_WINDOWS_5_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
+      - name: P016 original EMU8000 chip non-silent PUBLIC SF2 PCM recall parity with negative controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P016PublicRecallPCM
+          if($LASTEXITCODE -ne 0){throw 'P016 original-core parity harness compile failed'}
+          $fake='_p016-fake-rom-only.raw'
+          $sf2='_p016-public-two-layer.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2
+          if($LASTEXITCODE -ne 0){throw 'P016 public SF2 fixture generation failed'}
+          & _p009-build/Release/P016PublicRecallPCM.exe $fake $sf2
+          $rc=$LASTEXITCODE
+          Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          if($rc -ne 0){throw "P016 genuine EMU8000 SF2 recall PCM parity failed: $rc"}
+          Write-Host P016_PUBLIC_ORIGINAL_CHIP_SYNTHETIC_SF2_RECALL_PCM_NEGATIVE_CONTROLS_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
         shell: pwsh
         run: |
