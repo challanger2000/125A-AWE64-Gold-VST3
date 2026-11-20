@@ -641,6 +641,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         // A bank/Program change via CC0 may have changed the actual engine
         // while the VST3 bank parameter remained at the same host value.
         bank_=static_cast<int>(reassert);
+        // A newer browser/ROM bank choice supersedes stale MIDI CC0/CC32.
+        // Otherwise a saved V4/V5 project would replay the old CC0 AFTER
+        // the stored host bank and silently restore a DIFFERENT chip bank.
+        advancedMidiState_[0]=0xFFFFu;
+        advancedMidiState_[1]=0xFFFFu;
         changeChannelBankProgram(0u);
     }
     if(fxPending_.exchange(false,std::memory_order_acq_rel)&&synth_){
@@ -843,6 +848,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 if(mp.channel==0)bank_=static_cast<int>(mp.value);
                 else banksByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
+                // Host bank selection (including an unchanged bank value)
+                // is later than any previously recorded raw CC0/CC32.
+                // Erase obsolete overrides instead of reapplying them on
+                // project restore; preserve CC/RPN on OTHER MIDI channels.
+                const auto base=static_cast<std::size_t>(mp.channel)*
+                    kAdvancedCount;
+                advancedMidiState_[base]=0xFFFFu;
+                advancedMidiState_[base+1u]=0xFFFFu;
                 changeChannelBankProgram(mp.channel);
             }else if(mp.slot==kGuiReverbType||mp.slot==kGuiChorusType){
                 if(mp.slot==kGuiReverbType){

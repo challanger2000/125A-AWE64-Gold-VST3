@@ -1221,6 +1221,75 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
 // deliberately saturated host inputs. The public SoundFont used here is
 // *sustained*, not a self-decaying one-shot (which could falsely pass a
 // stuck-note test with no CC120 voice cleanup).
+// F-05 negative control: MIDI CC0 selects bank1 in the actual chip, then
+// a later HOST bank0 edit (including a same-value GUI bank reselection)
+// must defeat old CC0 in both the actual PCM and V4/V5 project state.
+// A false PASS is prevented by a separately audible bank0/bank1 oracle.
+void verifyP165HostBankSupersedesOldCC0(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"77-presets.sf2"); // unlike base SBK's waveform
+   auto replay=Plugin(factory,id,host);replay.start(0,0,44100.);
+   IMidiMapping* raw=nullptr;
+   check(replay.controller->queryInterface(IMidiMapping::iid,
+         reinterpret_cast<void**>(&raw))==kResultOk&&raw,
+         "F05 no actual VST3 MIDI mapping interface");
+   const IPtr<IMidiMapping> mapping=owned(raw);
+   ParamID cc0=0;
+   check(mapping->getMidiControllerAssignment(0,0,kCtrlBankSelectMSB,cc0)
+         ==kResultTrue,"F05 mapped CC0 unavailable in actual VST3");
+   ParameterChanges params(2);
+   std::array<float,frames> l{},r{};
+   float* channels[2]={l.data(),r.data()};
+   AudioBusBuffers output{};
+   output.numChannels=2;output.channelBuffers32=channels;
+   ProcessData pd{};pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
+   pd.numSamples=frames;pd.numOutputs=1;pd.outputs=&output;
+   pd.inputParameterChanges=&params;
+   int32 qIndex=0,point=0;
+   auto* q=params.addParameterData(cc0,qIndex);
+   check(q && q->addPoint(10,1./127.,point)==kResultOk,
+         "F05 original MIDI CC0 bank1 event missing");
+   check(replay.processor->process(pd)==kResultOk,
+         "F05 CC0 original-chip callback rejected");
+   MemoryStream first;
+   check(replay.component->getState(&first)==kResultOk&&
+         first.getSize()==sizeof(Saved),"F05 CC0 state lost");
+   Saved initially{};
+   std::memcpy(&initially,first.getData(),sizeof(initially));
+   check(initially.advancedStates[0]==1u&&initially.bank==0u,
+         "F05 MIDI CC0 override not recorded independently of GUI bank");
+   // An explicit same-bank host edit must win over this prior CC0.
+   params.clearQueue();qIndex=0;point=0;
+   q=params.addParameterData(1002u,qIndex); // host Bank CH1
+   check(q && q->addPoint(0,0.,point)==kResultOk,
+         "F05 actual host same-bank reassert automation missing");
+   check(replay.processor->process(pd)==kResultOk,
+         "F05 actual host bank0 did not execute after CC0");
+   MemoryStream after;
+   check(replay.component->getState(&after)==kResultOk&&
+         after.getSize()==sizeof(Saved),"F05 state after reassert unavailable");
+   Saved selected{};
+   std::memcpy(&selected,after.getData(),sizeof(selected));
+   check(selected.bank==0u&&selected.advancedStates[0]==0xFFFFu&&
+         selected.advancedStates[1]==0xFFFFu,
+         "F05 previous CC0/CC32 would override the ROM bank after reopening");
+   auto reopened=Plugin(factory,id,host);
+   reopened.start(0,0,44100.);
+   p015Restore(reopened,selected);
+   auto reference0=Plugin(factory,id,host);
+   reference0.start(0,0,44100.);
+   auto reference1=Plugin(factory,id,host);
+   reference1.start(0,1,44100.);
+   const auto romPCM=p015Play(reference0,0,60);
+   const auto sf2PCM=p015Play(reference1,0,60);
+   check(romPCM!=sf2PCM,
+         "F05 invalid PCM oracle: bank0 and bank1 fixtures identical");
+   check(p015Play(reopened,0,60)==romPCM,
+         "F05 VST3 project recall replayed stale MIDI CC0 instead of GUI ROM");
+   std::puts("P165_F05_ACTUAL_WINDOWS_VST3_CC0_HOST_BANK_RESELECT_V4_RECALL_PCM_PASS");
+   ownerBank(resources,nullptr);
+}
 void verifyP165HeldNoteOverflowRecovery(
      const VST3::Hosting::PluginFactory& factory,
      const VST3::UID& id,FUnknown* host,const fs::path& resources){
@@ -1250,13 +1319,18 @@ void verifyP165HeldNoteOverflowRecovery(
      Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=12;
      on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
      check(notes.addEvent(on)==kResultOk,"F09 sustained NoteOn fixture");
-     double heldEnergy=0.;
+     double heldEnergy=0.,earlyEnergy=0.;
      for(int block=0;block<6;++block){
        if(block)notes.clear();
        check(p.processor->process(data)==kResultOk,
              "F09 held synthetic SF2 normal audio");
+       if(block==1)earlyEnergy=energy();
        if(block==5)heldEnergy=energy();
      }
+     std::printf("P165_F09_SUSTAIN_ORACLE first=%.9f held=%.9f\n",
+                 earlyEnergy,heldEnergy);
+     check(earlyEnergy>0.001,
+           "F09 test not valid: actual synthetic VST3 produced no initial note");
      check(heldEnergy>0.001,
            "F09 test not valid: synthetic SoundFont did not sustain a note");
      if(eventOverflow){
@@ -1516,6 +1590,7 @@ int main(int argc,char** argv){
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
   if(synthetic){
     ownerBank(resources,nullptr);
+    verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);

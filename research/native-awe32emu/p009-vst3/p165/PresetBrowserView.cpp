@@ -1019,8 +1019,8 @@ void PresetBrowserView::ChooseSf2() {
 void PresetBrowserView::ChooseRom() {
     sf2AutoSelectPending_=false; // explicit ROM request overrides auto-SF2
     // ROM is always mounted. Selecting it changes only original GM bank0.
-    // Pressing ROM when already on bank0 must be a harmless no-op and
-    // must not show an unrelated "bank reselection failed" warning.
+    // Pressing ROM even when the host already displays bank0 must be
+    // forwarded: MIDI CC0 may have switched the real chip meanwhile.
     // A preceding MIDI CC0 can select another *chip* bank even when the
     // VST3 host and this button still display ROM. Route the button through
     // Select(), whose same-bank path explicitly reasserts the actual chip

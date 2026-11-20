@@ -26,9 +26,13 @@ def shdr(name,start,end,loop0,loop1):
 alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
 sustain="--sustain" in sys.argv[2:]
+# A short 768-frame one-shot ends after 17 ms even when a note is HELD.
+# For voice-recovery QA, provide at least one full second of real PCM,
+# so a buggy stuck-note path cannot pass through natural sample exhaustion.
+sample_length=44100 if sustain else 768
 samples=[]
 for kind in range(2):
-    for i in range(768):
+    for i in range(sample_length):
         phase=2*math.pi*(i%256)/256
         v=math.sin(phase) if kind==0 else math.sin(phase)*math.cos(phase)
         # Identical RIFF bank/preset structure with genuinely different PCM
@@ -50,9 +54,11 @@ pdta=(
         gen(15,1000)+gen(16,1000)+(gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)
       ) if wet else ((gen(54,1) if sustain else b"")+gen(53,0)+
                       (gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)))+
-    ck(b"shdr",shdr("SineWave",0,768,64,640)+
-                shdr("HarmonicWave",768,1536,832,1408)+
-                shdr("EOS",1536,1536,1536,1536))
+    ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
+                shdr("HarmonicWave",sample_length,2*sample_length,
+                     sample_length+64,2*sample_length-128)+
+                shdr("EOS",2*sample_length,2*sample_length,
+                     2*sample_length,2*sample_length))
 )
 info=ck(b"ifil",struct.pack("<HH",2,1))+ck(b"INAM",b"P009 Public Two Layer QA\0")
 bank=ls(b"INFO",info)+ls(b"sdta",ck(b"smpl",smpl))+ls(b"pdta",pdta)
