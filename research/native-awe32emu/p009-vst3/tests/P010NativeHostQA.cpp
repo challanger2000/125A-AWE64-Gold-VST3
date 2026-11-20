@@ -1079,7 +1079,7 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::memcpy(project.data()+sizeof(state),&extension,sizeof(extension));
   std::memcpy(project.data()+sizeof(state)+sizeof(extension),
               path.data(),path.size());
-  const auto restore=[&](Plugin& plugin,const std::vector<std::uint8_t>& payload){
+  const auto restore=[&](Plugin& plugin,std::vector<std::uint8_t>& payload){
       MemoryStream stream;int32 bytes=0;
       check(stream.write(payload.data(),static_cast<int32>(payload.size()),
                          &bytes)==kResultOk&&
