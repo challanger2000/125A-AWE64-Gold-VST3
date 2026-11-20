@@ -77,6 +77,8 @@ void privateOriginalMultiSf2DrumSequence(
         using SymbolFn=std::uintptr_t (__cdecl*)();
         using ProbeBeginFn=int (__cdecl*)(unsigned);
         using ProbeStopFn=unsigned (__cdecl*)();
+        using ProbeCopyFn=unsigned (__cdecl*)(
+            p007aj_register_event*,unsigned,unsigned);
         auto getInt=[&](const char* n) {
             return reinterpret_cast<IntFn>(GetProcAddress(core,n));
         };
@@ -99,12 +101,14 @@ void privateOriginalMultiSf2DrumSequence(
             GetProcAddress(core,"p007aj_probe_begin"));
         const auto probeStop=reinterpret_cast<ProbeStopFn>(
             GetProcAddress(core,"p007aj_probe_stop"));
+        const auto probeCopy=reinterpret_cast<ProbeCopyFn>(
+            GetProcAddress(core,"p007aj_probe_copy"));
         require(symbolInit && symbolRun &&
                 symbolInit()!=0u && symbolRun()!=0u &&
                 ready && creativeAck && gmRomStatus &&
                 transferState && bootCount &&
                 publishCount && completeCount && failCount &&
-                probeBegin && probeStop,
+                probeBegin && probeStop && probeCopy,
                 "P007BK_ORIGINAL_CPU_CREATIVE_TRANSFER_GENERATION_OR_CHIP_PROBE_MISSING");
         std::array<float,block> left{},right{};
         float* channels[2]={left.data(),right.data()};
@@ -220,6 +224,51 @@ void privateOriginalMultiSf2DrumSequence(
             tick(1,pitch,&window,midiChannel);
             for(int i=0;i<109;++i)tick(0,0,&window);
             const auto chipEvents=probeStop();
+            // P007BW: Never infer that 76 original register writes prove
+            // a played ROM drum. Owner P007BV had 76 writes for BOTH an
+            // audible ROM melody and a completely silent ROM drum note.
+            // Inspect passive original 86Box IO, keeping the guest/EMU8000
+            // audio/render path absolutely unchanged. The hardware pointer
+            // is 0xE22, register index bits 5..7, voice bits 0..4.
+            std::array<p007aj_register_event,512> regs{};
+            const unsigned copied=probeCopy(
+                regs.data(),0u,static_cast<unsigned>(regs.size()));
+            unsigned ptr=0xffffu,sourceWrites=0u,ccca=0u,psst=0u,csl=0u;
+            unsigned cccaValue=0u,psstValue=0u,cslValue=0u;
+            unsigned voiceMask=0u;
+            std::uint64_t hash=14695981039346656037ull;
+            // Ignore variable guest timing and sample-level noise:
+            // hash only the ORIGINAL EMU8000 port and word sequence.
+            for(unsigned ri=0u;ri<copied;++ri) {
+                const auto& e=regs[ri];
+                hash=(hash^e.port)*1099511628211ull;
+                hash=(hash^e.value)*1099511628211ull;
+                if(e.port==0x0e22u){ptr=e.value;continue;}
+                if(ptr==0xffffu)continue;
+                const unsigned reg=(ptr>>5u)&7u,voice=ptr&31u;
+                const bool isCcca=e.port==0x0a20u && reg==0u;
+                const bool isPsst=e.port==0x0620u && reg==6u;
+                const bool isCsl=e.port==0x0620u && reg==7u;
+                if(isCcca||isPsst||isCsl) {
+                    ++sourceWrites;voiceMask|=1u<<voice;
+                    if(isCcca){++ccca;cccaValue=e.value;}
+                    if(isPsst){++psst;psstValue=e.value;}
+                    if(isCsl){++csl;cslValue=e.value;}
+                }
+            }
+            std::printf("P007BW_ORIGINAL_EMU8000_VOICE_ADDRESS"
+                        " %s input_ch=%d note=%d"
+                        " copied=%u total=%u"
+                        " source_writes=%u voice_mask=0x%08X"
+                        " CCCA_count=%u CCCA_last=0x%04X"
+                        " PSST_count=%u PSST_last=0x%04X"
+                        " CSL_count=%u CSL_last=0x%04X"
+                        " trace_hash=%016llX\\n",
+                        label,midiChannel+1,pitch,copied,chipEvents,
+                        sourceWrites,voiceMask,ccca,cccaValue,
+                        psst,psstValue,csl,cslValue,
+                        static_cast<unsigned long long>(hash));
+            std::fflush(stdout);
             tick(-1,pitch,nullptr,midiChannel);
             for(int i=0;i<18;++i)tick(0,0);
             std::printf("P007BK_ORIGINAL_PCM_NOTE"
