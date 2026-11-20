@@ -23,7 +23,7 @@ set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P009_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 set(NATIVE "${P009_UPSTREAM}/AWE32Emu/src")
 smtg_add_vst3plugin(AWE64_Gold_Native_P009
-    P009Native.hpp P009Native.cpp P009Factory.cpp
+    P009Native.hpp P009Native.cpp P009NativeGui.cpp P009Factory.cpp
     p165/PresetBrowserView.h p165/PresetBrowserView.cpp
     p165/PresetBrowserModel.h p165/PresetCatalog.h p165/IbkBank.h
     "${NATIVE}/Synth.cpp"
