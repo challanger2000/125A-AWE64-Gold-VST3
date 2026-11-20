@@ -42,6 +42,12 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
         [this](){
             // Reclaim the *old* chip's 28 MiB heap outside the audio thread.
             delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+            if(auto* latest=pendingGuiCatalog_.exchange(
+                     nullptr,std::memory_order_acq_rel)){
+                guiCatalog_=std::move(*latest);
+                delete latest;
+                guiCatalogRevision_.fetch_add(1u,std::memory_order_release);
+            }
             return guiCatalogRevision_.load(std::memory_order_acquire);
         },
         [](std::uint16_t bank){return bank<=2u||bank==128u;});
@@ -58,7 +64,13 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
     // Only update host parameter objects on the UI thread. ProcessData
     // receives host-owned points at exact offsets and changes audio state.
     if(!std::isfinite(value)||value<0.||value>1.)return kInvalidArgument;
-    return SingleComponentEffect::setParamNormalized(id,value);
+    const auto result=SingleComponentEffect::setParamNormalized(id,value);
+    if(result==kResultOk && id>=1100u && id<1112u) {
+        guiControlMirrors_[id-1100u].store(
+            static_cast<std::uint16_t>(std::lround(value*10000.)),
+            std::memory_order_release);
+    }
+    return result;
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     if(path.empty()||path.size()>4096)return false;
