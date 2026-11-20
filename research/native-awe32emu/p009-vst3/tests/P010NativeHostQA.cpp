@@ -350,6 +350,53 @@ void verifyP012MidiMapping(const VST3::Hosting::PluginFactory& factory,
     std::puts("P012_REAL_STEINBERG_VST3_IMIDIMAPPING_128_ASSIGNMENTS_SAMPLE_OFFSETS_STATE_RECALL_PASS");
 }
 
+// P014: actual VST3 host automation queue, including multiple patch points
+// in the SAME audio block. This public gate needs no fake or private ROM.
+void verifyP014PatchAutomationState(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+ auto p=Plugin(factory,id,host);p.start(7,0,44100.);
+ ParameterChanges params(8);
+ EventList notes;
+ std::array<float,frames> l{},r{};
+ float* ptrs[2]={l.data(),r.data()};
+ AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptrs;
+ ProcessData data{};
+ data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+ data.numSamples=frames;data.numOutputs=1;data.outputs=&out;
+ data.inputEvents=&notes;data.inputParameterChanges=&params;
+ const auto write=[&](ParamID param,int at,ParamValue value){
+    int32 queue=0,point=0;
+    auto* q=params.addParameterData(param,queue);
+    check(q && q->addPoint(at,value,point)==kResultOk,
+          "P014 host patch automation enqueue");
+ };
+ // Before first note: CH1 program7. Later in SAME block: 3, then 0.
+ // Bank1 and CH2/CH16 are independently automatable at other offsets.
+ write(1000u,311,3./127.);
+ write(1000u,900,0.);
+ write(1002u,880,.5);
+ write(1201u,120,11./127.);
+ write(1201u,870,15./127.);
+ write(1301u,650,1.);
+ write(1215u,490,27./127.);
+ Event e{};e.type=Event::kNoteOnEvent;e.sampleOffset=40;
+ e.noteOn.channel=0;e.noteOn.pitch=60;e.noteOn.velocity=.75f;
+ check(notes.addEvent(e)==kResultOk,"P014 MIDI note with automation");
+ check(p.processor->process(data)==kResultOk,
+       "P014 actual VST3 sample-offset bank/program change");
+ MemoryStream stream;
+ check(p.component->getState(&stream)==kResultOk &&
+       stream.getSize()==sizeof(Saved),"P014 post-block VST3 state");
+ Saved state{};std::memcpy(&state,stream.getData(),sizeof(state));
+ check(state.program==0u&&state.bank==1u,
+       "P014 CH1 multiple program/bank points not applied");
+ check(state.otherPrograms[0]==15u&&state.otherBanks[0]==1u,
+       "P014 CH2 patch automation changed a different channel");
+ check(state.otherPrograms[14]==27u&&state.otherBanks[14]==0u,
+       "P014 CH16 automation lost or leaked bank");
+ std::puts("P014_PUBLIC_REAL_WINDOWS_VST3_TIMED_16_CHANNEL_PATCH_AUTOMATION_STATE_PASS");
+}
+
 struct Stats {
  double rms=0,peak=0;
  unsigned clippedSamples=0;
@@ -448,6 +495,91 @@ Stats render(const VST3::Hosting::PluginFactory& factory,
  std::fflush(stdout);
  return s;
 }
+// P014 private ONLY: original EMU8000 voice starts with the patch in
+// effect at NoteOn (sample 12), NOT the parameter's block-final value.
+// No synthetic tone or code shortcut. Both instances must actually render.
+uint64_t p014TimedOriginalPCM(const VST3::Hosting::PluginFactory& factory,
+       const VST3::UID& id,FUnknown* host,int program,int bank,
+       ParamID automationId,ParamValue target,int automationFrame,
+       bool automate,int noteChannel=0){
+ Plugin p(factory,id,host);p.start(program,bank,44100.);
+ ParameterChanges params(3);
+ EventList notes;
+ std::array<float,frames> l{},r{};
+ float* ptrs[2]={l.data(),r.data()};
+ AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptrs;
+ ProcessData data{};
+ data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+ data.numSamples=frames;data.numOutputs=1;data.outputs=&out;
+ data.inputEvents=&notes;data.inputParameterChanges=&params;
+ uint64_t hash=14695981039346656037ull;
+ double sum=0.;
+ for(int block=0;block<21;++block){
+     notes.clear();params.clearQueue();
+     if(block==0){
+         Event e{};e.type=Event::kNoteOnEvent;e.sampleOffset=12;
+         e.noteOn.channel=noteChannel;e.noteOn.pitch=60;
+         e.noteOn.velocity=100.f/127.f;
+         check(notes.addEvent(e)==kResultOk,"P014 genuine MIDI NoteOn");
+         if(automate){
+             int32 qIndex=0,pIndex=0;
+             auto* q=params.addParameterData(automationId,qIndex);
+             check(q && q->addPoint(automationFrame,target,pIndex)==kResultOk,
+                   "P014 real VST3 host automated patch point");
+         }
+     }
+     if(block==13){
+         Event off{};off.type=Event::kNoteOffEvent;off.sampleOffset=511;
+         off.noteOff.channel=noteChannel;off.noteOff.pitch=60;
+         check(notes.addEvent(off)==kResultOk,"P014 genuine MIDI NoteOff");
+     }
+     check(p.processor->process(data)==kResultOk,
+           "P014 original chip timed patch audio callback");
+     for(int i=0;i<frames;++i){
+         for(float sample:{l[i],r[i]}){
+             check(std::isfinite(sample),"P014 nonfinite original PCM");
+             sum+=static_cast<double>(sample)*sample;
+             uint32 bits=0;std::memcpy(&bits,&sample,sizeof(bits));
+             hash=(hash^bits)*1099511628211ull;
+         }
+     }
+ }
+ check(sum>0.00001,"P014 original chip silent during timed patch test");
+ return hash;
+}
+void verifyP014PrivateTimedPCM(const VST3::Hosting::PluginFactory& factory,
+       const VST3::UID& id,FUnknown* host){
+ // Program 7 is selected when NoteOn begins; the Program 0 command
+ // at frame 800 MUST NOT retroactively change that voice.
+ const auto unchanged=p014TimedOriginalPCM(factory,id,host,
+     7,0,1000u,0.,800,false);
+ const auto later=p014TimedOriginalPCM(factory,id,host,
+     7,0,1000u,0.,800,true);
+ const auto earlier=p014TimedOriginalPCM(factory,id,host,
+     7,0,1000u,0.,0,true);
+ check(later==unchanged,
+       "P014 late ProgramChange retroactively changed an active voice");
+ check(earlier!=unchanged,
+       "P014 program change before NoteOn did not change ORIGINAL PCM");
+ // Same proof for owner SF2 bank1 versus authentic ROM bank0.
+ const auto rom=p014TimedOriginalPCM(factory,id,host,
+     7,0,1002u,.5,800,false);
+ const auto bankLater=p014TimedOriginalPCM(factory,id,host,
+     7,0,1002u,.5,800,true);
+ const auto bankEarlier=p014TimedOriginalPCM(factory,id,host,
+     7,0,1002u,.5,0,true);
+ check(bankLater==rom,
+       "P014 late bank1 automation retroactively changed ROM voice");
+ check(bankEarlier!=rom,
+       "P014 bank1 before NoteOn not audible via original owner SF2");
+ // A CH2 ProgramChange must not modify CH1's already sounding voice.
+ const auto unrelated=p014TimedOriginalPCM(factory,id,host,
+     7,0,1201u,0.,800,true);
+ check(unrelated==rom,
+       "P014 CH2 patch event changed CH1 original ROM PCM");
+ std::puts("P014_PRIVATE_ORIGINAL_EMU8000_SF2_ROM_SAMPLE_OFFSET_PATCH_PCM_PASS");
+}
+
 void wav(const char* path,const Stats& s,int sampleRate=44100){
  check(!s.audio.empty(),"empty real audio WAV");
  std::ofstream f(path,std::ios::binary);
@@ -502,6 +634,7 @@ int main(int argc,char** argv){
   auto host=owned(new HostApplication());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
+  verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
@@ -580,6 +713,7 @@ int main(int argc,char** argv){
   const auto other=render(factory,cls->ID(),host.get(),
              "77SF2_PROGRAM7",44100,0,60,100,7,1,true);
   audible(other,"77 preset SF2");wav("P010-SF2-77-PRESETS.wav",other);
+  verifyP014PrivateTimedPCM(factory,cls->ID(),host.get());
   // Per-channel CC0 should select the *same owner SF2* as the browser's
   // bank1, before the first NoteOn at sample12.
   const auto viaBankCC=render(factory,cls->ID(),host.get(),
