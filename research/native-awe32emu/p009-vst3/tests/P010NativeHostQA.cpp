@@ -139,6 +139,46 @@ void verifyP165GuiV5OwnerAssetState(
  check(bytes[644]==4u&&bytes[645]==0u &&
        bytes[646]==2u&&bytes[647]==0u,
        "P165 original Hall2/Chorus3 FX default modes missing from V5");
+ // REAL original hardware FX menus are VST3-automatable, not decorative.
+ // Test both menu modes and V5 exact recall independently of any private ROM.
+ auto fxUnit=Plugin(factory,id,host);
+ check(fxUnit.controller->setParamNormalized(1400u,5./7.)==kResultOk &&
+       fxUnit.controller->setParamNormalized(1401u,6./7.)==kResultOk,
+       "P165 actual original reverb/chorus TYPE menus not automatable");
+ MemoryStream fxState;
+ check(fxUnit.component->getState(&fxState)==kResultOk &&
+       fxState.getSize()==648u,
+       "P165 real FX-type automation not persisted in DAW state");
+ const auto* fxBytes=reinterpret_cast<const std::uint8_t*>(fxState.getData());
+ check(fxBytes && fxBytes[644]==5u && fxBytes[645]==0u &&
+       fxBytes[646]==6u && fxBytes[647]==0u,
+       "P165 original hardware FX type values wrong after automation");
+ auto fxReopen=Plugin(factory,id,host);
+ MemoryStream fxRestore;int32 fxBytesWritten=0;
+ check(fxRestore.write(fxState.getData(),648,&fxBytesWritten)==kResultOk &&
+       fxBytesWritten==648,"P165 copy hardware FX state");
+ check(fxRestore.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       fxReopen.component->setState(&fxRestore)==kResultOk,
+       "P165 actual hardware FX-mode project recall failed");
+ MemoryStream fxRoundTrip;
+ check(fxReopen.component->getState(&fxRoundTrip)==kResultOk &&
+       fxRoundTrip.getSize()==648u &&
+       std::memcmp(fxRoundTrip.getData(),fxState.getData(),648u)==0,
+       "P165 hardware FX types differ after project reopening");
+ std::vector<std::uint8_t> invalidFx(fxBytes,fxBytes+648u);
+ invalidFx[644]=8u;
+ MemoryStream invalidFxRestore;
+ check(invalidFxRestore.write(invalidFx.data(),648,&fxBytesWritten)==kResultOk,
+       "P165 construct malformed hardware FX mode");
+ check(invalidFxRestore.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       fxReopen.component->setState(&invalidFxRestore)!=kResultOk,
+       "P165 out-of-range original 86Box FX mode wrongly accepted");
+ MemoryStream safeFx;
+ check(fxReopen.component->getState(&safeFx)==kResultOk &&
+       safeFx.getSize()==648u &&
+       std::memcmp(safeFx.getData(),fxState.getData(),648u)==0,
+       "P165 invalid hardware FX mode corrupted the original state");
+ std::puts("P165_REAL_VST3_ORIGINAL_EMU8000_8X_REVERB_CHORUS_TYPE_MENUS_V5_RECALL_PASS");
  auto reopen=Plugin(factory,id,host);
  MemoryStream request;
  int32 n=0;
