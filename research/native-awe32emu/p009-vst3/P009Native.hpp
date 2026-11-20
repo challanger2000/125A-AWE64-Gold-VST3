@@ -85,6 +85,9 @@ private:
     std::array<std::uint8_t,16> programsByChannel_{};
     std::array<std::uint8_t,16> banksByChannel_{};
     float master_=1.f;
+    // Last P175's 12 original EMU8000 hardware performance modifiers.
+    // 0% is exact unmodified P022 PCM; all fields are audio-thread owned.
+    std::array<float,12> guiControls_{};
     // 8 original Creative CC controls per channel; 0xFFFF = untouched.
     // Never send default values unnecessarily (preserve original register PCM).
     std::array<std::uint16_t,16*8> midiState_{};
