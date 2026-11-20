@@ -1043,6 +1043,18 @@ int main(int argc,char** argv){
     const auto s=render(factory,cls->ID(),host.get(),
          "ORIGINAL_SF2_RATE_TEST",rate,0,60,100,7,1);
     audible(s,"VST3 multi-rate resampler");
+    // P021 NEGATIVE CONTROL: P017/P018/P020 played the secondary,
+    // *approximate* synth DSP for 48/96k, not genuine 86Box EMU8000!
+    // Assert the new actual Windows VST3 no longer returns those known,
+    // stable (but false-core) original-bank PCM hashes. This is a
+    // regression check, not a full external hardware PCM reference.
+    const std::uint64_t oldFalseCoreHash=(rate==48000)?
+        0x48B50DC86A2BC325ULL:0x7E939E3BECD86B25ULL;
+    check(s.hash!=oldFalseCoreHash,
+       "P021 48/96k VST3 still plays SECONDARY approximate DSP, NOT 86Box");
+    std::printf("P021_PRIVATE_REAL_VST3_NON_NATIVE_ORIGINAL_CHIP_AUDIO"
+                "_NOT_APPROXIMATE_DSP_PASS hz=%d hash=%016llX\n",
+            rate,static_cast<unsigned long long>(s.hash));
   }
   ownerBank(resources,nullptr);
   const auto romAfter=render(factory,cls->ID(),host.get(),
