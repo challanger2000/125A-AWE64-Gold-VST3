@@ -1,0 +1,182 @@
+name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
+on:
+  push:
+    branches: [research/awe32emu-native-isolated-20261120]
+    paths:
+      - ".github/workflows/p009-native-vst3.yml"
+      - "research/native-awe32emu/p009-vst3/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  p009-native:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact AWE32Emu reconstructed driver/core SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git init _p009-upstream
+          git -C _p009-upstream remote add origin https://github.com/turican0/AWE32Emu.git
+          git -C _p009-upstream fetch --depth 1 origin 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          if($LASTEXITCODE -ne 0){throw 'upstream fetch error'}
+          git -C _p009-upstream checkout --detach FETCH_HEAD
+          $s=(git -C _p009-upstream rev-parse HEAD).Trim()
+          if($s -ne '17b0578fe59909dfaa784b5531d6d1a3a80729ce'){throw 'wrong upstream SHA'}
+      - name: Apply instance-local EMU8000 clock to pinned upstream checkout
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/apply_per_instance.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'original EMU8000 pin or clock patch mismatch'}
+          Write-Host P009_NO_PROCESS_GLOBAL_WAVETABLE_CLOCK_PASS
+      - name: Apply reviewed bounded memory/RT SoundFont patch (fail on upstream drift)
+        shell: pwsh
+        run: |
+          git -C _p009-upstream apply --check "$env:GITHUB_WORKSPACE/research/native-awe32emu/p009-vst3/rt_safe.patch"
+          if($LASTEXITCODE -ne 0){throw 'RT source patch does not match pinned upstream'}
+          git -C _p009-upstream apply "$env:GITHUB_WORKSPACE/research/native-awe32emu/p009-vst3/rt_safe.patch"
+          if($LASTEXITCODE -ne 0){throw 'RT source patch application failed'}
+          Write-Host P009_BOUNDED_ORIGINAL_EMU8000_RT_SOURCE_PATCH_APPLIED_PASS
+      - name: P019 permit diagnostic shorter chip windows ONLY in standalone probes
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p019_latency_window_probe.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P019 original pinned chip header window-override mismatch'}
+          Write-Host P019_DEFAULT_WINDOW_REMAINS_ORIGINAL_980_FRAMES_PASS
+      - name: Exact Steinberg VST3 SDK source
+        shell: pwsh
+        run: |
+          git clone --recursive --depth 1 --branch v3.8.1_build_84 https://github.com/steinbergmedia/vst3sdk.git _p009-sdk
+          if($LASTEXITCODE -ne 0){throw 'Steinberg SDK fetch failed'}
+      - name: Build genuine native Windows x64 VST3 instrument
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S research/native-awe32emu/p009-vst3 -B _p009-build -G "Visual Studio 17 2022" -A x64 -DP009_SDK_ROOT="$env:GITHUB_WORKSPACE/_p009-sdk" -DP009_UPSTREAM="$env:GITHUB_WORKSPACE/_p009-upstream"
+          if($LASTEXITCODE -ne 0){throw 'configure error'}
+          cmake --build _p009-build --config Release --parallel 4 --target AWE64_Gold_Native_P009
+          if($LASTEXITCODE -ne 0){throw 'native VST3 compilation failed'}
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          if(!(Test-Path $bundle)){throw "bundle missing"}
+          $dll=Get-ChildItem -Path $bundle -Filter '*.vst3' -Recurse -File
+          if(!$dll){throw 'actual VST3 DLL missing'}
+          Write-Host P009_NATIVE_AWE32EMU_REAL_VST3_BUILT_NO_VM_PASS
+      - name: Run Steinberg validator against VST3 without private ROM
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target validator
+          if($LASTEXITCODE -ne 0){throw 'Steinberg validator build error'}
+          $v=Get-ChildItem -Path _p009-build -Filter validator.exe -Recurse -File | Where-Object {$_.FullName -match 'Release'} | Select-Object -First 1
+          if(!$v){throw 'validator.exe not found'}
+          $b=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          $log='_p009-validator.log'
+          & $v.FullName $b *> $log
+          $rc=$LASTEXITCODE
+          Get-Content $log | Select-Object -Last 25
+          if($rc -ne 0){throw "Steinberg validator exited with $rc"}
+          if(!(Select-String -Path $log -Pattern 'Result: +47 tests passed, 0 tests failed' -Quiet)){throw '47/47 validator summary missing'}
+          Write-Host P009_REAL_STEINBERG_47_OF_47_VALIDATOR_WITH_NO_ROM_AUDIO_PASS
+      - name: Two simultaneous same-process native synths AND DAW thread migration (synthetic test ROM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P009NativeInstanceProbe
+          if($LASTEXITCODE -ne 0){throw 'native parallel-instance harness build failed'}
+          $fake='_p009-fake-rom-only.raw'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          for($i=0;$i -lt 4;$i++){
+            & _p009-build/Release/P009NativeInstanceProbe.exe $fake
+            if($LASTEXITCODE -ne 0){throw "PCM race at simultaneous run $i"}
+          }
+          Remove-Item $fake
+          Write-Host P009_WINDOWS_4X_PARALLEL_AND_DAW_WORKER_MIGRATION_PASS_NO_PRIVATE_ROM
+      - name: Audio/MIDI callback HEAP = ZERO at 8/44.1/48/96/192k incl 2-layer SF2 and 2 parallel synths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P009RealtimeAllocationProbe
+          if($LASTEXITCODE -ne 0){throw 'RT alloc probe build failed'}
+          $fake='_p009-fake-rom-rt-only.raw'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          & _p009-build/Release/P009RealtimeAllocationProbe.exe $fake
+          $rc=$LASTEXITCODE
+          if($rc -ne 0){throw 'RT fallback-MIDI C++ allocation test failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py _p009-two-layer-test.sf2
+          if($LASTEXITCODE -ne 0){throw 'generated SF2 failed'}
+          & _p009-build/Release/P009RealtimeAllocationProbe.exe $fake _p009-two-layer-test.sf2
+          $rc=$LASTEXITCODE
+          Remove-Item $fake
+          Remove-Item _p009-two-layer-test.sf2
+          if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
+          Write-Host P009_RT_WINDOWS_5_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
+      - name: P016 original EMU8000 chip non-silent PUBLIC SF2 PCM recall parity with negative controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P016PublicRecallPCM
+          if($LASTEXITCODE -ne 0){throw 'P016 original-core parity harness compile failed'}
+          $fake='_p016-fake-rom-only.raw'
+          $sf2='_p016-public-two-layer.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2
+          if($LASTEXITCODE -ne 0){throw 'P016 public SF2 fixture generation failed'}
+          & _p009-build/Release/P016PublicRecallPCM.exe $fake $sf2 *> _p016-public-recall-pcm.log
+          $rc=$LASTEXITCODE
+          Get-Content _p016-public-recall-pcm.log
+          Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          if($rc -ne 0){throw "P016 genuine EMU8000 SF2 recall PCM parity failed: $rc"}
+          $cases=@(Select-String -Path _p016-public-recall-pcm.log -Pattern '^P016_PUBLIC_REAL_EMU8000_SF2_RECALL_PCM_PARITY_PASS')
+          if($cases.Count -ne 6){throw "P016 needs six comparisons; got $($cases.Count)"}
+          Write-Host P016_PUBLIC_ORIGINAL_CHIP_SYNTHETIC_SF2_RECALL_PCM_NEGATIVE_CONTROLS_PASS
+      - name: P019 compare real chip dry and FX PCM at 980 128 64 sample windows (experiment)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P019Probe980 P019Probe128 P019Probe64
+          if($LASTEXITCODE -ne 0){throw 'P019 chip window probes compilation failed'}
+          $fake='_p019-fake-rom-only.raw'
+          $sf2='_p019-public-two-layer.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake), (New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2
+          if($LASTEXITCODE -ne 0){throw 'P019 synthetic SF2 construction failed'}
+          foreach($mode in @('dry','fx')){
+            foreach($window in @(980,128,64)){
+              $exe="_p009-build/Release/P019Probe$window.exe"
+              $output="_p019-$mode-$window.pcm"
+              & $exe $fake $sf2 $mode $output
+              if($LASTEXITCODE -ne 0){throw "P019 original-chip PCM probe failed: mode=$mode window=$window"}
+            }
+          }
+          python research/native-awe32emu/p009-vst3/tests/p019_compare_pcm.py _p019-dry-980.pcm _p019-dry-128.pcm _p019-dry-64.pcm _p019-fx-980.pcm _p019-fx-128.pcm _p019-fx-64.pcm _p019-latency-report.json _p019-latency-report.txt
+          if($LASTEXITCODE -ne 0){throw 'P019 original chip PCM comparison failed'}
+          Get-Content _p019-latency-report.txt
+          $lines=@(Select-String -Path _p019-latency-report.txt -Pattern '^P019_(DRY|FX)_WINDOW(128|64)_PCM=')
+          if($lines.Count -ne 4){throw 'P019 four shortened-window comparison results missing'}
+          Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          Write-Host P019_EXPERIMENT_ONLY_PRODUCTION_STAYS_980_FRAMES_PASS
+      - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P010NativeHostQA
+          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 host compile failed'}
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          & _p009-build/Release/P010NativeHostQA.exe $bundle --public
+          if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
+          Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
+      - name: Archive evidence only, not unsigned unlicensed binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: P010-OWNER-ONLY-EXPERIMENTAL-NATIVE-VST3-HOST
+          path: |
+            _p009-validator.log
+            _p016-public-recall-pcm.log
+            _p019-latency-report.json
+            _p019-latency-report.txt
+            _p009-build/Release/P010NativeHostQA.exe
+            _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
+          if-no-files-found: error
+          retention-days: 1
