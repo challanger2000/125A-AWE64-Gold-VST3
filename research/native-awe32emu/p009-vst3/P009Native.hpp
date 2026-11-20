@@ -69,6 +69,7 @@ private:
     bool active_=false,authenticRomLoaded_=false;
     void applyMidiController(unsigned channel,unsigned slot,std::uint16_t raw) noexcept;
     void replayMidiState() noexcept;
+    void resetMidiControllersForStateRestore() noexcept;
     void applyAdvancedController(unsigned channel,unsigned slot,
                                  std::uint16_t value) noexcept;
     void changeBankProgram() noexcept;
