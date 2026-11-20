@@ -260,6 +260,12 @@ void privateOriginalMultiSf2DrumSequence(
         require(p007::original_audio_proof::restoredAfterAlternate(
                     audioA,audioB,again),
                 "P007BM_VINTAGE_RETURN_PCM_NOT_CONSISTENT_WITH_FIRST_VINTAGE");
+        std::printf("P007BN_ABA_SPECTRAL_SHAPE_DISTANCES"
+                    " vintage_to_77=%.8f vintage_to_return=%.8f\n",
+                    p007::original_audio_proof::spectralShapeDistance(
+                        audioA,audioB),
+                    p007::original_audio_proof::spectralShapeDistance(
+                        audioA,again));
         std::puts("P007BM_VINTAGE_RETURN_MATCHES_FIRST_VINTAGE_PCM_PASS");
         std::fflush(stdout);
         require(publishCount()==3u && completeCount()==3u &&
