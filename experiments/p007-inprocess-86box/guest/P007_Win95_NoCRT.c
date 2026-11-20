@@ -178,6 +178,46 @@ typedef char p007_creative_abi_assert[
 static HMODULE s_creative_sf2_dll=0;
 static P007_CREATIVE_MANAGER s_creative_manager=0;
 static DWORD s_creative_handle=0u;
+static int s_creative_user_bank_loaded=0;
+
+/* P007BS: Create an ORIGINAL Creative manager handle even with NO user SF2.
+ * A bare 1-MiB EMU8000 sample ROM is not a bank-128 Standard kit mapping. */
+static int p007_open_original_creative_manager(void){
+ LONG rc;
+ if(s_creative_manager && s_creative_handle)return 1;
+ s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
+ if(!s_creative_sf2_dll){
+   log_line("P007BS_ORIGINAL_AWEMAN32_NOT_FOUND\r\n");return 0;
+ }
+ s_creative_manager=(P007_CREATIVE_MANAGER)
+     GetProcAddress(s_creative_sf2_dll,"AWEManager");
+ if(!s_creative_manager){
+   log_line("P007BS_ORIGINAL_AWEMANAGER_NOT_FOUND\r\n");
+   FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return 0;
+ }
+ rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
+ if(rc!=0||s_creative_handle==0u){
+   log_line("P007BS_ORIGINAL_AWE_OPEN_FAILED\r\n");
+   s_creative_manager=0;
+   FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return 0;
+ }
+ return 1;
+}
+/* Official Creative 1996 AWE API: AWE_SELECT_SYN_BANK=203,
+ * GM synth index 0 = SYNTHGM.SBK, installed in Win95 SYSTEM folder.
+ * Select before the WinMM stream and any user-bank load, without any
+ * emulated/replacement host synth or alteration to the EMU8000 core. */
+static int p007_select_original_gm_synthbank(void){
+ LONG rc;
+ if(!p007_open_original_creative_manager())return 0;
+ rc=s_creative_manager(s_creative_handle,203u,0u,0);
+ if(rc!=0){
+   log_line("P007BS_ORIGINAL_GM_SYNTHBANK_SELECT_FAILED\r\n");
+   return 0;
+ }
+ log_line("P007BS_ORIGINAL_GM_SYNTHBANK_SELECTED\r\n");
+ return 1;
+}
 static int p007_load_original_creative_sf2_path(const char *path){
  /* Source is always a REAL file in the live Win95 guest filesystem. */
  if(!path || !*path)return -1;
@@ -199,30 +239,12 @@ static int p007_load_original_creative_sf2_path(const char *path){
     log_line("P007_GUEST_SF2_INVALID_FILE\r\n");return -1;
  }
  CloseHandle(file);
- if(!s_creative_manager) {
-    s_creative_sf2_dll=LoadLibraryA("AWEMAN32.DLL");
-    if(!s_creative_sf2_dll) {
-       log_line("P007_GUEST_SF2_ORIGINAL_AWEMAN32_MISSING\r\n");
-       return -1;
-    }
-    s_creative_manager=(P007_CREATIVE_MANAGER)
-        GetProcAddress(s_creative_sf2_dll,"AWEManager");
-    if(!s_creative_manager) {
-       log_line("P007_GUEST_SF2_ORIGINAL_AWEMANAGER_MISSING\r\n");
-       FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
-    }
-    rc=s_creative_manager(0u,101u,(LPARAM)&s_creative_handle,0);
-    if(rc!=0 || s_creative_handle==0u) {
-       log_line("P007_GUEST_SF2_ORIGINAL_AWE_OPEN_FAILED\r\n");
-       s_creative_manager=0;
-       FreeLibrary(s_creative_sf2_dll);s_creative_sf2_dll=0;return -1;
-    }
- } else {
-    /* OFFICIAL Creative Windows 1996 AWE_API.H: BASE_CONFIG=200,
-     * AWE_CLEAR_USER_BANK=205. Release only user bank1, never ROM.
-     * Single 32-bit AWEMAN32 handle stays open for all new bank loads. */
+ if(!p007_open_original_creative_manager())return -1;
+ if(s_creative_user_bank_loaded) {
+    /* Creative AWE_CLEAR_USER_BANK=205, bank1 ONLY; never touch GM bank0 */
     rc=s_creative_manager(s_creative_handle,205u,1u,0);
     if(rc!=0)log_line("P007_LIVE_SF2_CREATIVE_CLEAR_BANK1_FAILED\r\n");
+    s_creative_user_bank_loaded=0;
  }
  clear(filename,sizeof(filename));
  (void)lstrcpyA(filename,path);
@@ -273,6 +295,7 @@ static int p007_load_original_creative_sf2_path(const char *path){
        log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_BANK1_DESCRIPTOR_EMPTY\r\n");
     }
  }
+ s_creative_user_bank_loaded=1;
  log_line("P007_GUEST_SF2_ORIGINAL_CREATIVE_API_LOADED\r\n");
  return 1;
 }
@@ -352,6 +375,12 @@ __declspec(noreturn) void __cdecl P007GuestMain(void){
   * the user bank BEFORE opening the WinMM synthesizer stream. Previously
   * midiOutOpen happened first and could retain an older bank map.
   * AWEManager's state is kept open for the entire guest relay lifetime. */
+ /* P007BS: actually install original GM Synthesizer Bank 0 first.
+  * The private Win95 HDD has real SYNTHGM.SBK with Standard kit bank128.
+  * Bank0 must be selected through ORIGINAL AWEMAN32, not by
+  * merely sending bank 0 MIDI to a possibly uninitialized synth bank. */
+ if(!p007_select_original_gm_synthbank())
+   log_line("P007BS_GM_ROM_PERCUSSION_BANK_NOT_CONFIRMED\r\n");
  sf2_result=p007_load_original_creative_sf2_path("D:\\P007FONT.SF2");
  if(!select_original(&synth))ExitProcess(2);
  /* First request Win95 VCOMM port ownership. If that original driver
