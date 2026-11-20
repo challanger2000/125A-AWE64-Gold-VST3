@@ -397,10 +397,12 @@ private:
 };
 // Preserve the exact owner's P165 faceplate and all original live knobs.
 std::string BankLabel(uint16_t id) {
-    if(id==128)return "ROM Drums (CH 10)";
-    if(id==129)return "SF2 Drum Kits (CH 10)";
-    if(id==1)return "SF2 User Bank 1";
-    if(id==0)return "Original ROM Bank 0";
+    // A/B is a BROWSER distinction (not a requirement to set MIDI CH10):
+    // instruments and drums remain selectable while 16 MIDI channels work.
+    if(id==128)return "ROM Bank B - Drums";
+    if(id==129)return "SF2 Bank B - Drums";
+    if(id==1)return "SF2 Bank A - Instrumente";
+    if(id==0)return "ROM Bank A - Instrumente";
     return "Bank "+std::to_string(id);
 }
 std::string DisplayName(const std::string& path) {

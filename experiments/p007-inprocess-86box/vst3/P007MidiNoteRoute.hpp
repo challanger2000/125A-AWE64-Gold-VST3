@@ -9,7 +9,10 @@
 
 namespace p007 {
 class MidiNoteRoute final {
-    // Bit 0 = original melodic host channel, bit 1 = Creative drum ch10.
+    // Bit 0 = unchanged incoming host channel, bit 1 = browser
+    // audition on CH1 redirected to original Creative drum channel 10.
+    // Do NOT redirect all other 15 channels when the browser shows a kit:
+    // genuine multitimbral MIDI 1..16 must remain available.
     std::array<std::uint8_t,16u*128u> active_{};
     static constexpr unsigned key(unsigned channel,unsigned pitch) noexcept {
         return channel*128u+pitch;
@@ -23,9 +26,13 @@ public:
     // Precondition: channel <16 and pitch <128; caller validates VST3 input.
     [[nodiscard]] std::uint8_t noteOn(unsigned channel,unsigned pitch,
                                      bool drums) noexcept {
+        // Browser audition uses the typical DAW/keyboard channel 1.
+        // Standard MIDI channel 10 works ALWAYS, with no user action.
+        // Channels 2..9 and 11..16 remain independently addressable.
+        const bool audition=drums&&channel==0u;
         active_[key(channel,pitch)]|=
-            static_cast<std::uint8_t>(drums?2u:1u);
-        return static_cast<std::uint8_t>(drums?9u:channel);
+            static_cast<std::uint8_t>(audition?2u:1u);
+        return static_cast<std::uint8_t>(audition?9u:channel);
     }
     [[nodiscard]] Release noteOff(unsigned channel,unsigned pitch,
                                   bool drumsNow) noexcept {
@@ -35,7 +42,7 @@ public:
         // An untracked NoteOff may still need to release a real guest voice
         // (e.g. when resuming a project): retain the old best-effort path.
         if(flags==0u)
-            return {static_cast<std::uint8_t>(drumsNow?9u:channel),0u,1u};
+            return {static_cast<std::uint8_t>(drumsNow&&channel==0u?9u:channel),0u,1u};
         // Incoming channel 10 and routed drum channel 10 coincide; do not
         // duplicate release packets and overwhelm the 16550 UART.
         if(flags==3u && channel!=9u)

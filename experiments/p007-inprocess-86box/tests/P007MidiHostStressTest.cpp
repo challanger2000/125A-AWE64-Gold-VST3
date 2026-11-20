@@ -162,18 +162,30 @@ int main(){
     auto rel=routes.noteOff(0u,60u,true);
     check(rel.count==1u&&rel.first==0u,
           "melodic NoteOff incorrectly switched to drum ch10");
-    check(routes.noteOn(1u,36u,true)==9u,
-          "SF2 drum NoteOn did not reach Creative ch10");
-    rel=routes.noteOff(1u,36u,false);
+    // Default DAW CH1 auditions the selected SF2/ROM drum browser kit
+    // without the user having to choose MIDI channel 10.
+    check(routes.noteOn(0u,36u,true)==9u,
+          "SF2 drum browser audition did not reach original CH10");
+    rel=routes.noteOff(0u,36u,false);
     check(rel.count==1u&&rel.first==9u,
-          "SF2 drum NoteOff incorrectly switched to melodic channel");
-    check(routes.noteOn(4u,48u,false)==4u,
-          "independent melodic source changed");
-    check(routes.noteOn(4u,48u,true)==9u,
-          "second overlapping routed pitch dropped");
-    rel=routes.noteOff(4u,48u,false);
-    check(rel.count==2u&&rel.first==4u&&rel.second==9u,
-          "overlapping melodic+drum pitch needs TWO original guest releases");
+          "drum browser audition lost original NoteOff on bank change");
+    // The other 15 channels are *not* swallowed or remapped merely
+    // because the user selected a drum kit on the P165 browser.
+    for(unsigned channel=1u;channel<16u;++channel){
+        const auto target=routes.noteOn(channel,48u,true);
+        check(target==channel,
+              "drum browser stole an independent MIDI channel");
+        const auto release=routes.noteOff(channel,48u,false);
+        check(release.count==1u&&release.first==channel,
+              "multitimbral MIDI channel changed on bank release");
+    }
+    check(routes.noteOn(0u,48u,false)==0u,
+          "independent channel1 melodic source changed");
+    check(routes.noteOn(0u,48u,true)==9u,
+          "second overlapping CH1 pitch routed to wrong drum channel");
+    rel=routes.noteOff(0u,48u,false);
+    check(rel.count==2u&&rel.first==0u&&rel.second==9u,
+          "overlapping melodic+drum channel1 pitch needs TWO guest releases");
     check(routes.noteOn(9u,42u,false)==9u,
           "original Creative ch10 altered");
     check(routes.noteOn(9u,42u,true)==9u,
@@ -183,8 +195,11 @@ int main(){
           "duplicate ch10 NoteOff would overflow guest UART");
     routes.reset();
     rel=routes.noteOff(3u,64u,true);
+    check(rel.count==1u&&rel.first==3u,
+          "post-guest-reset release misrouted independent CH4");
+    rel=routes.noteOff(0u,64u,true);
     check(rel.count==1u&&rel.first==9u,
-          "post-guest-reset best-effort release lost");
+          "post-guest-reset CH1 browser drum release not restored");
     // P007BQ real browser callback helper: selecting the SAME program/bank
     // twice must not depend on whether the host forwards identical points.
     std::atomic<bool> browserResend{false};
@@ -221,6 +236,7 @@ int main(){
     for(unsigned k=0u;k<4u;++k)(void)reselectPacer.tick(sendReselect);
     check(reselectPacer.committed()&&reselectPackets==6u,
           "Same-bank reselect did not actually queue three Creative packets");
+    std::puts("P007BR_GM_16_INDEPENDENT_MIDI_CHANNELS_WITH_AUTOMATIC_DRUM_AUDITION_PASS");
     std::puts("P007BQ_P165_BROWSER_ROM_SF2_CH10_SAME_BANK_RESELECT_REAL_PACER_PASS");
     std::puts("P007BP_HOST_NOTEON_OFF_ORIGINAL_CHANNEL_OWNERSHIP_ACROSS_BANKS_PASS");
     std::puts("P007BO_HOST_INT_MAX_ITERATOR_BOUNDS_AND_ORIGINAL_MIDI_PANIC_PASS");

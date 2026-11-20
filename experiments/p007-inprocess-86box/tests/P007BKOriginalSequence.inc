@@ -200,7 +200,8 @@ void privateOriginalMultiSf2DrumSequence(
             std::puts(marker);std::fflush(stdout);
         };
         auto playVoice=[&](const char* label,std::uint8_t bank,
-                           unsigned program,int pitch) {
+                           unsigned program,int pitch,
+                           bool strictAudio=true) {
             require(plugin.controller->setParamNormalized(bankId,
                     double(bank)/127.)==kResultOk &&
                     plugin.controller->setParamNormalized(programId,
@@ -225,12 +226,36 @@ void privateOriginalMultiSf2DrumSequence(
                 window.rms(),window.peak,window.roughness(),
                 chipEvents,bootCount());
             std::fflush(stdout);
-            require(bootCount()==1u &&
-                    p007::original_audio_proof::accept(baseline,window) &&
-                    chipEvents>0u,
+            // A diagnostic-only probe may record near-silent original
+            // ROM drums without aborting the entire real SF2 A/B/A run.
+            // Never mark it PASS just because registers were written.
+            const bool audible=p007::original_audio_proof::accept(baseline,window);
+            std::printf("P007BR_AUDIO_DIAGNOSTIC %s audible=%d"
+                        " baseline_rms=%.9f\n",
+                        label,audible?1:0,baseline.rms());
+            std::fflush(stdout);
+            require(bootCount()==1u && chipEvents>0u &&
+                    (!strictAudio||audible),
                     "P007BK_ORIGINAL_CREATIVE_MIDI_EMU8000_PCM_NOT_PROVEN");
             return window;
         };
+        // P007BR: genuine original GM Standard preset exists in installed
+        // private SYNTHGM.SBK; establish whether it sounds BEFORE any user
+        // SF2 reload. No synthetic fallback or silent-ROM false positive.
+        const auto romDrumBefore=playVoice(
+            "GM_ROM_STANDARD_CH10_BEFORE_ANY_SF2",126u,0u,36,false);
+        const auto romSnareBefore=playVoice(
+            "GM_ROM_SNARE_CH10_BEFORE_ANY_SF2",126u,0u,38,false);
+        std::printf("P007BR_ORIGINAL_ROM_DRUM_PRE_SF2"
+                    " bass_rms=%.9f snare_rms=%.9f"
+                    " bass_audible=%d snare_audible=%d"
+                    " cold_boots=%u\n",
+                    romDrumBefore.rms(),romSnareBefore.rms(),
+                    p007::original_audio_proof::accept(baseline,romDrumBefore)?1:0,
+                    p007::original_audio_proof::accept(baseline,romSnareBefore)?1:0,
+                    bootCount());
+        std::fflush(stdout);
+
         // Genuine, audibly distinct multi-SF2 hot reloading in ONE guest:
         // owner Vintage Dreams (136 programs), alternate 77-preset bank,
         // then Vintage Dreams again to prove repeatability and fresh ACK.
@@ -284,7 +309,26 @@ void privateOriginalMultiSf2DrumSequence(
         require(p007::original_audio_proof::distinguishBanks(audioA,romMelodic),
             "P007BK_ORIGINAL_ROM_SOUND_NOT_DISTINCT_FROM_SF2");
         // Browser lane 126 selects the original Creative GM-ROM drumkit.
-        const auto romDrum=playVoice("GM_ROM_STANDARD_CH10",126u,0u,36);
+        const auto romDrum=playVoice(
+            "GM_ROM_STANDARD_CH10",126u,0u,36,false);
+        const auto romSnare=playVoice(
+            "GM_ROM_SNARE_CH10_AFTER_SF2",126u,0u,38,false);
+        const bool romKickAudible=p007::original_audio_proof::accept(
+            baseline,romDrum);
+        const bool romSnareAudible=p007::original_audio_proof::accept(
+            baseline,romSnare);
+        std::printf("P007BR_ORIGINAL_ROM_DRUM_BEFORE_AFTER_SF2"
+                    " bass_before_rms=%.9f bass_after_rms=%.9f"
+                    " snare_before_rms=%.9f snare_after_rms=%.9f"
+                    " bass_after_audible=%d snare_after_audible=%d\n",
+                    romDrumBefore.rms(),romDrum.rms(),
+                    romSnareBefore.rms(),romSnare.rms(),
+                    romKickAudible?1:0,romSnareAudible?1:0);
+        std::fflush(stdout);
+        // Genuine GM kick AND snare must both be audible. A register-write
+        // counter alone does not prove ROM drum audio (P007BQ failure).
+        require(romKickAudible&&romSnareAudible,
+                "P007BR_ORIGINAL_GM_ROM_KICK_OR_SNARE_SILENT");
         require(p007::original_audio_proof::distinguishBanks(
                      sf2Drum,romDrum),
                 "P007BK_SF2_AND_ROM_DRUM_PCM_INCONCLUSIVE_OR_SAME_KIT");
