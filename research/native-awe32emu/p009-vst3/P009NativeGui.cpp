@@ -2,11 +2,13 @@
 // Only the backend is adapted: this is the real native 86Box EMU8000 Synth.
 // Preserve the P168 LCD x=370 and approved alpha=186 control panel literally.
 #include "P009Native.hpp"
+#include "P009AssetFingerprint.hpp"
 #include "p165/PresetBrowserView.h"
 #include "p165/PresetBrowserModel.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <utility>
 
@@ -73,6 +75,8 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     // including 28 MiB RAM upload, preallocated 64-frame source FIFO and FX.
     // Neither audio render thread nor the old Synth is touched.
     const auto selected=std::filesystem::u8path(path);
+    std::array<std::uint8_t,32> fingerprint{};
+    if(!sha256FileNonRealtime(selected,fingerprint))return false;
     std::unique_ptr<Synth> ready;
     if(!buildInstrumentNonRealtime(selected,ready,err))return false;
     // Staging queue is single-slot; superseded *unconsumed* candidate can
@@ -86,6 +90,8 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     guiCatalog_=std::move(nextCatalog);
     { std::lock_guard<std::mutex> guard(guiAssetMutex_);
       selectedUserSf2_=path;
+      selectedUserSha256_=fingerprint;
+      userChoseSf2_=true;
     }
     guiCatalogRevision_.fetch_add(1u,std::memory_order_release);
     return true;
