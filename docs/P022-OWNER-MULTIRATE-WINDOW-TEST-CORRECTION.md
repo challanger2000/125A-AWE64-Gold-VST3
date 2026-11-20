@@ -39,4 +39,25 @@ Further [run 44801114810](https://github.com/challanger2000/125A-AWE64-Gold-VST3
 
 The owner has not yet executed P022. A private one-click ZIP was created with only the rebuilt standalone Windows probe and SHA256-verified owner ROM, Creative SBK and original 77-preset SF2. No VST3 binary changed in P022; owner is **not** asked to retest all 77 presets or project recall.
 
-**Status: P021 private combined test remains FAIL; P022 public corrected test PASS; P022 private corrected original-ROM test PENDING.**
+**Status as of final private P022 acceptance: P021 initial combined test FAILED because of a faulty probe; P022 corrected public CI PASS and corrected owner-ROM/SBK/SF2 test PASS. The successful VST3 host evidence from P021 is retained.**
+
+## P022 owner's actual private Windows original-asset test: PASS (20 Nov 2026)
+
+The owner executed the revised, small private P022 test package on Windows, returned its complete `P022-ERGEBNIS.txt`, and the results explicitly report:
+
+- `P022_PRIVATE_ORIGINAL_CHIP_EQUAL_DURATION_8_OF_8_PASS`
+- `P022_P021_VST3_HOST_REMAINS_PREVIOUSLY_PASSED_NO_RETEST`
+- `P022_TEST_EXITCODE=0`
+- For DRY and FX, all 8k/48k/96k/192k 750ms test windows have **zero differing stereo int16 PCM values** versus the independently resampled original 44.1k 86Box EMU8000 signal, `max_error_lsb=0`, `rms_error_lsb=0`.
+
+| Rate | Stereo PCM values in each DRY/FX comparison | DRY original RMS (int16 LSB) | FX original RMS (int16 LSB) | Different samples |
+| --- | ---: | ---: | ---: | ---: |
+| 8 kHz | 12,000 | 3804.35796051 | 4129.89398877 | 0 |
+| 48 kHz | 72,000 | 3804.34801148 | 4129.88917793 | 0 |
+| 96 kHz | 144,000 | 3804.34399160 | 4129.88500069 | 0 |
+| 192 kHz | 288,000 | 3804.34174897 | 4129.88355511 | 0 |
+
+**P022 corrected private resampling parity is accepted for the tested original user-bank program and 750ms DRY/FX windows.** The previously failed P021 combined BAT shall **not** be relabeled a PASS; rather, the initially failed private sub-test was corrected and verified separately, whereas its original private Windows VST3 host test already passed.
+
+Still open for a release: actual Win95 Creative/vintage physical AWE64 hardware-vs-native register/PCM parity; exact MIDI event timing and interpolation/lookahead at 8/48/96/192k; stress and polyphony combinations beyond tested set; bank/SF2 file identity persisted through DAW project reopen; plugin packaging/licensing and final real Studio Pro QA. Preserve owner assets privately; no change to P007.
+
