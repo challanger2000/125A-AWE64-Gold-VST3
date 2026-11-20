@@ -278,6 +278,66 @@ jobs:
           python research/native-awe32emu/p009-vst3/tests/P165NativeEditorHostQA.py --editorhost $editor --plugin $plugin --output _p165-real-editor-evidence
           if($LASTEXITCODE -ne 0){throw 'P165 actual native P007BW photographed 12-knob editor FAILED'}
           Write-Host P165_NATIVE_ORIGINAL_P007BW_REAL_EDITORHOST_FULL_UI_INTERACTIVE_PASS
+      - name: 125A Plugin Tester published v0.2.10 actual Win64 VST3 (synthetic assets)
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference='Stop'
+          # Published owner-approved version and exact GitHub release SHA;
+          # never execute latest-main or unknown unverified QA binaries.
+          $url='https://github.com/challanger2000/125A-Plugin-Tester-Final/releases/download/v0.2.10/125A_Plugin_Tester_v0.2.10_Windows_x64_FINAL.zip'
+          $archive=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-v0210.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+             'e5b152fa5b05140f5dfc883c7dd736f572ca50c13b78d90be7505ec6e13e83af'){
+            throw 'published 125A Plugin Tester v0.2.10 release SHA mismatch'
+          }
+          $root=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-v0210'
+          Expand-Archive -LiteralPath $archive -DestinationPath $root -Force
+          $tester=Get-ChildItem -Path $root -Recurse -File -Filter '125A_Plugin_Tester.exe' |
+            Select-Object -First 1
+          if(!$tester){throw 'published 125A Plugin Tester launcher missing'}
+          $plugin=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          $resource=Join-Path $plugin 'Contents/Resources/P009-Private'
+          New-Item -ItemType Directory -Force -Path $resource | Out-Null
+          $rom=Join-Path $resource 'awe32.raw'
+          $sbk=Join-Path $resource 'SYNTHGM.SBK'
+          $sf2=Join-Path $resource 'user.sf2'
+          $log=Join-Path $env:GITHUB_WORKSPACE '_p009-published-tester-v0210.log'
+          try {
+            # Test only with publicly generated synthetic data. Never stage
+            # real owner Creative ROM/SBK/SF2 in a GitHub Actions artifact.
+            [IO.File]::WriteAllBytes($rom,(New-Object byte[] 1048576))
+            python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sbk --wet
+            if($LASTEXITCODE -ne 0){throw 'synthetic base bank generation failed'}
+            python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2 --expressive
+            if($LASTEXITCODE -ne 0){throw 'synthetic user SF2 generation failed'}
+            Push-Location -LiteralPath $tester.Directory.FullName
+            try {
+              & $tester.FullName $plugin *> $log
+              $rc=$LASTEXITCODE
+            } finally {Pop-Location}
+            if(Test-Path $log){Get-Content -LiteralPath $log | Select-Object -Last 100}
+            # Exit zero alone is not enough: retain the genuine 125A report.
+            $evidence=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-evidence'
+            New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+            Copy-Item -LiteralPath $log -Destination $evidence -Force
+            $reports=@(
+              Get-ChildItem -Path $tester.Directory.FullName -Recurse -File |
+                Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'}
+              Get-ChildItem -Path (Split-Path -Parent $plugin) -File |
+                Where-Object {$_.Name -like '*_125A_*' -and $_.Extension -in '.txt','.json'}
+            )
+            foreach($item in $reports){
+              Copy-Item -LiteralPath $item.FullName -Destination $evidence -Force
+              Write-Host "125A_TESTER_REPORT $($item.Name)"
+            }
+            if($reports.Count -eq 0){throw '125A Plugin Tester produced no QA sidecar reports'}
+            if($rc -ne 0){throw "125A Plugin Tester v0.2.10 reported failure: exit $rc"}
+            Write-Host P168_REAL_WIN64_VST3_125A_PUBLISHED_TESTER_V0210_COMPLETED_EXIT_ZERO
+          } finally {
+            Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
+          }
       - name: Archive evidence only, not unsigned unlicensed binary
         uses: actions/upload-artifact@v4
         with:
@@ -289,6 +349,7 @@ jobs:
             _p019-latency-report.txt
             _p021-original-chip-multirate.log
             _p165-real-editor-evidence/**
+            _p009-tester-evidence/**
             _p009-build/Release/P021OriginalChipResamplingProbe.exe
             _p009-build/Release/P019Probe980.exe
             _p009-build/Release/P019Probe128.exe
