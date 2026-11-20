@@ -73,6 +73,11 @@ jobs:
           set -euo pipefail
           g++ -std=c++20 -O2 -Wall -Wextra -Werror experiments/p007-inprocess-86box/tests/P007MidiHostStressTest.cpp -o build/P007MidiHostStressTest.exe
           build/P007MidiHostStressTest.exe
+      - name: P007BU original Creative GM CH10 Standard kit CC0-only bank pacer (with negative controls)
+        run: |
+          set -euo pipefail
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -Iexperiments/p007-inprocess-86box/vst3 experiments/p007-inprocess-86box/tests/P007BankProgramPacerTest.cpp -o build/P007BankProgramPacerTest.exe
+          build/P007BankProgramPacerTest.exe
       - name: P007AW synthetic SF2-versus-ROM waveform fingerprint adversarial controls
         run: |
           set -euo pipefail
