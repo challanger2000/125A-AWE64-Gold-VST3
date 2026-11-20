@@ -120,7 +120,7 @@ void assertCase(unsigned rate,unsigned channel,
         throw std::runtime_error("NEGATIVE CONTROL FAILED: stale CC7 ignored");
     std::printf("P016_PUBLIC_REAL_EMU8000_SF2_RECALL_PCM_PARITY_PASS"
                 " rate=%u ch=%u fresh=%016llX reused=%016llX"
-                " bad-no-reset=%016llX energy=%.1f\\n",
+                " bad-no-reset=%016llX energy=%.1f\n",
                 rate,channel+1,
                 static_cast<unsigned long long>(a.hash),
                 static_cast<unsigned long long>(b.hash),
@@ -129,7 +129,7 @@ void assertCase(unsigned rate,unsigned channel,
 }
 int main(int argc,char** argv){
     if(argc!=3){
-        std::fprintf(stderr,"Usage: P016PublicRecallPCM <fake-ROM> <PUBLIC-generated-SF2>\\n");
+        std::fprintf(stderr,"Usage: P016PublicRecallPCM <fake-ROM> <PUBLIC-generated-SF2>\n");
         return 2;
     }
     try{
@@ -141,7 +141,7 @@ int main(int argc,char** argv){
         std::puts("P016_NOT_ORIGINAL_CREATIVE_ROM_OR_WIN95_REFERENCE");
         return 0;
     }catch(const std::exception& e){
-        std::fprintf(stderr,"P016_EMU8000_RECALL_PCM_FAIL %s\\n",e.what());
+        std::fprintf(stderr,"P016_EMU8000_RECALL_PCM_FAIL %s\n",e.what());
         return 1;
     }
 }
