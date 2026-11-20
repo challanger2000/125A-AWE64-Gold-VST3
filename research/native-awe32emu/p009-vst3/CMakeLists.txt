@@ -92,3 +92,21 @@ target_compile_definitions(P016PublicRecallPCM PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(P016PublicRecallPCM PRIVATE winmm)
 target_compile_features(P016PublicRecallPCM PRIVATE cxx_std_17)
+
+# P019: diagnostic ONLY. The VST3 above always retains the pinned 980-frame
+# chip clock window. Three separate standalone original-chip probes compare
+# PCM after latency alignment; a short test window is NEVER shipped.
+foreach(P019_WINDOW IN ITEMS 980 128 64)
+  add_executable(P019Probe${P019_WINDOW}
+     tests/P019ChipLatencyProbe.cpp
+     "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+     "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+     "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+  target_include_directories(P019Probe${P019_WINDOW} PRIVATE
+     "${NATIVE}" "${NATIVE}/86box/include")
+  target_compile_definitions(P019Probe${P019_WINDOW} PRIVATE
+     AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+     P019_EMU_BLOCK_FRAMES=${P019_WINDOW})
+  target_link_libraries(P019Probe${P019_WINDOW} PRIVATE winmm)
+  target_compile_features(P019Probe${P019_WINDOW} PRIVATE cxx_std_17)
+endforeach()
