@@ -214,6 +214,19 @@ jobs:
           & _p009-build/Release/P010NativeHostQA.exe $bundle --public
           if($LASTEXITCODE -ne 0){throw 'P010 actual VST3 without ROM should be silent'}
           Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
+      - name: Original EMU8000 VST3 FX type UI is enabled, not a visual-only fake
+        shell: pwsh
+        run: |
+          $view=Get-Content -Raw -LiteralPath 'research/native-awe32emu/p009-vst3/p165/PresetBrowserView.cpp'
+          if($view -match 'reverbMenu_->setMouseEnabled\\(false\\)' -or
+             $view -match 'chorusMenu_->setMouseEnabled\\(false\\)') {
+            throw 'P165 FX type menus still disabled, host-automation-only tests are insufficient'
+          }
+          if($view -notmatch 'reverbMenu_->setMouseEnabled\\(true\\)' -or
+             $view -notmatch 'chorusMenu_->setMouseEnabled\\(true\\)') {
+            throw 'P165 user FX type input enable not proven'
+          }
+          Write-Host P165_ORIGINAL_EMU8000_FX_TYPE_GUI_INPUT_SOURCE_GUARD_PASS
       - name: P165 native actual Windows EditorHost real hardware GUI and mouse controls
         shell: pwsh
         timeout-minutes: 8

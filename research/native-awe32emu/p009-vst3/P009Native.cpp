@@ -253,7 +253,10 @@ tresult PLUGIN_API NativeVst3::initialize(FUnknown* context){
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::terminate(){
-    synth_.reset();active_=false;
+    // Host has stopped processing before calling terminate(): even if SF2
+    // selection was staged while inactive, do not leak its chip RAM.
+    cleanStagedAndRetiredNonRealtime();
+    synth_.reset();active_=false;authenticRomLoaded_=false;
     return SingleComponentEffect::terminate();
 }
 tresult PLUGIN_API NativeVst3::setupProcessing(ProcessSetup& setup){
@@ -532,6 +535,14 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
     applyStagedInstrumentRealtime();
+    const auto reassert=bankReassertRequested_.exchange(
+        0xFFu,std::memory_order_acq_rel);
+    if(reassert<=2u){
+        // A bank/Program change via CC0 may have changed the actual engine
+        // while the VST3 bank parameter remained at the same host value.
+        bank_=static_cast<int>(reassert);
+        changeChannelBankProgram(0u);
+    }
     if(fxPending_.exchange(false,std::memory_order_acq_rel)&&synth_){
         applyOriginalEmu8000Reverb(*synth_,unsigned(reverbPreset_));
         applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
@@ -908,7 +919,10 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(s.version>=kStateV3)midiState_=s.midiStates;
     advancedMidiState_.fill(0xFFFFu);
     selectedParameterMode_.fill(0u);
-    if(s.version==kStateV4){
+    // V5 retains the COMPLETE V4 580-byte prefix, including all
+    // advanced MIDI RPN/NRPN selectors, data entry and mode state.
+    // Missing >= originally erased pitch-bend range on a GUI-only edit.
+    if(s.version>=kStateV4){
         advancedMidiState_=s.advancedStates;
         selectedParameterMode_=s.parameterModes;
     }

@@ -211,6 +211,63 @@ void verifyP165GuiV5OwnerAssetState(
        "P165 missing owner file must leave prior original ROM/GUI state intact");
  std::puts("P165_REAL_VST3_GUI_12_CONTROLS_V5_PROJECT_REOPEN_SHA_FAIL_CLOSED_PASS");
 }
+// Independent adversarial V5 contract: V4 MIDI RPN/NRPN state MUST be
+// preserved when ANY P165 knob forces V5 serialization. Existing tests
+// exercise V4 advanced state OR V5 GUI controls, but never their conjunction.
+// No protected ROM or SoundFont assets are needed to observe the failure.
+void auditV5DoesNotEraseAdvancedMidiControllers(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host) {
+ auto source=Plugin(factory,id,host);
+ Saved state{};
+ state.midiStates.fill(0xFFFFu);
+ state.advancedStates.fill(0xFFFFu);
+ state.program=7u;state.bank=1u;
+ state.advancedStates[2]=0u; // CH1 RPN MSB
+ state.advancedStates[3]=0u; // CH1 RPN LSB
+ state.advancedStates[4]=12u; // CH1 Data Entry MSB => bend range12
+ state.parameterModes[0]=1u; // RPN mode
+ MemoryStream oldState;int32 n=0;
+ check(oldState.write(&state,static_cast<int32>(sizeof(state)),&n)==kResultOk &&
+       n==static_cast<int32>(sizeof(state)) &&
+       oldState.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "AUDIT V4 initial RPN fixture invalid");
+ check(source.component->setState(&oldState)==kResultOk,
+       "AUDIT V4 accepted RPN fixture must roundtrip before GUI editing");
+ MemoryStream control;check(source.component->getState(&control)==kResultOk &&
+       control.getSize()==sizeof(Saved) &&
+       std::memcmp(control.getData(),&state,sizeof(state))==0,
+       "AUDIT positive control: V4 CH1 RPN state does not roundtrip");
+ check(source.controller->setParamNormalized(1100u,.375)==kResultOk,
+       "AUDIT initial P165 AMP attack gesture rejected");
+ MemoryStream saved;
+ check(source.component->getState(&saved)==kResultOk && saved.getSize()==648u,
+       "AUDIT V5 with P165 plus CH1 RPN needs 648-byte project state");
+ auto dest=Plugin(factory,id,host);
+ MemoryStream incoming;
+ check(incoming.write(saved.getData(),static_cast<int32>(saved.getSize()),&n)==kResultOk &&
+       incoming.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       dest.component->setState(&incoming)==kResultOk,
+       "AUDIT V5 restore must accept valid original ROM+RPN metadata");
+ MemoryStream actual;
+ check(dest.component->getState(&actual)==kResultOk &&
+       actual.getSize()==saved.getSize(),"AUDIT restored V5 state missing");
+ const bool identical=std::memcmp(
+       actual.getData(),saved.getData(),saved.getSize())==0;
+ if(!identical){
+   const auto* expected=reinterpret_cast<const std::uint8_t*>(saved.getData());
+   const auto* got=reinterpret_cast<const std::uint8_t*>(actual.getData());
+   unsigned first=0;
+   while(first<saved.getSize()&&expected[first]==got[first])++first;
+   std::fprintf(stderr,
+     "AUDIT_NEGATIVE_V5_RPN_RECALL_LOSS first_differing_byte=%u"
+     " input=%u restored=%u\n",first,
+     first<saved.getSize()?unsigned(expected[first]):0,
+     first<saved.getSize()?unsigned(got[first]):0);
+ }
+ check(identical,"P165 V5 lost advanced MIDI RPN/NRPN controller state after GUI gesture");
+ std::puts("AUDIT_V5_GUI_AND_RPN_INDEPENDENT_PROJECT_RECALL_PASS");
+}
 void verifyP011MultichannelProjectRecall(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host) {
@@ -1005,6 +1062,7 @@ int main(int argc,char** argv){
   auto host=owned(new HostApplication());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
+  auditV5DoesNotEraseAdvancedMidiControllers(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());

@@ -79,6 +79,9 @@ private:
     std::array<std::atomic<std::uint16_t>,12> guiControlMirrors_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     std::atomic<Synth*> retiredSynth_{nullptr};
+    // GUI repeated bank selection after MIDI CC0: the actual chip must
+    // receive a bank/program reassert, not only a boolean "ack".
+    std::atomic<std::uint8_t> bankReassertRequested_{0xFFu};
     bool requestUserSf2NonRealtime(const std::string&);
     bool buildInstrumentNonRealtime(const std::filesystem::path&,
                                     std::unique_ptr<Synth>&,std::string&);

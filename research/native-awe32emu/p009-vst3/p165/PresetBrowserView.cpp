@@ -550,11 +550,12 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
         chorusMenu_->addEntry(label);
     reverbMenu_->setValue(4.f);
     chorusMenu_->setValue(2.f);
-    // These historical FX TYPE selectors do NOT have a Creative Win95
-    // SysEx bridge / registered VST3 parameter yet. Do not present
-    // interactive controls that silently do nothing to the actual chip.
-    reverbMenu_->setMouseEnabled(false);
-    chorusMenu_->setMouseEnabled(false);
+    // Native original EMU8000 INIT/HWCF type selection is implemented
+    // via VST3 IDs 1400/1401 and sample-offset-accurate chip register writes.
+    // Keep the real P007BW graphics, but DO NOT inherit Win95 placeholder
+    // input disabling: the user must be able to change either menu.
+    reverbMenu_->setMouseEnabled(true);
+    chorusMenu_->setMouseEnabled(true);
     AddToCurrentPage(reverbMenu_);
     AddToCurrentPage(chorusMenu_);
 
@@ -581,12 +582,8 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     AddKnob(8,563,464,"CUTOFF");
     AddKnob(9,687,464,"RESONANCE");
     reset_=MakeButton({808,513,960,549},kReset,"MOD RESET");
-    // P007AA: twelve approved original P165 knobs now have real hosted
-    // Creative NRPN automation/Win95 UART commands and versioned recall.
-    // Original-audio response is a SEPARATE private-gast acceptance gate.
-    // Original Creative SysEx FX-variant messages remain unavailable.
-    if(reverbMenu_)reverbMenu_->setMouseEnabled(false);
-    if(chorusMenu_)chorusMenu_->setMouseEnabled(false);
+    // Native EMU8000 control-to-register paths replace the old Win95
+    // guest-SysEx placeholder. No secondary VST3 DSP is substituted.
 
 
     // BROWSER: no permanent 400px sidebar. It uses the available width,

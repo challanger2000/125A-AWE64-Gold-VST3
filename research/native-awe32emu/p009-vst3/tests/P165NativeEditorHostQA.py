@@ -422,6 +422,18 @@ def main():
         synth=snap(hwnd,a.output/"07-RETURN-COMPLETE-SYNTH.bmp")
         check(diff_pixels(selected,synth,(45,342,764,626))>600,
               "Original P165 SYNTH tab returns to all 12 existing knobs",records)
+        # Type selectors must accept actual input (not only display gold pixels).
+        # A separate VST3 host-state test proves the 1400/1401 parameters.
+        click(hwnd,100,449)  # REVERB TYPE
+        time.sleep(.35)
+        click(hwnd,100,449)  # select/dismiss depending on VSTGUI popup mode
+        check(process.poll() is None,
+              "P165 Reverb TYPE GUI mouse interaction did not crash EditorHost",records)
+        click(hwnd,265,449)  # CHORUS TYPE
+        time.sleep(.35)
+        click(hwnd,265,449)
+        check(process.poll() is None,
+              "P165 Chorus TYPE GUI mouse interaction did not crash EditorHost",records)
         check(process.poll() is None,"Real full P165 EditorHost survives live interaction",records)
         print("P165_NATIVE_ACTUAL_NATIVE_ORIGINAL_P165_FULL_12_KNOBS_ROM_SF2_FX_EDITORHOST_PASS",
               flush=True)

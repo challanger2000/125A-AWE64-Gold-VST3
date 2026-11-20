@@ -50,7 +50,15 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
             }
             return guiCatalogRevision_.load(std::memory_order_acquire);
         },
-        [](std::uint16_t bank){return bank<=2u||bank==128u;});
+        [this](std::uint16_t bank){
+            if(bank>2u && bank!=128u)return false;
+            const auto target=static_cast<std::uint8_t>(
+                bank==128u?2u:bank);
+            // Process thread consumes at the beginning of next sample block.
+            // GUI must NEVER directly call synth_->ControlChange().
+            bankReassertRequested_.store(target,std::memory_order_release);
+            return true;
+        });
 }
 IPlugView* PLUGIN_API NativeVst3::createView(FIDString name) {
     if(name && std::strcmp(name,ViewType::kEditor)==0){
