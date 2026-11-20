@@ -53,3 +53,17 @@ target_compile_definitions(P009NativeInstanceProbe PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(P009NativeInstanceProbe PRIVATE winmm)
 target_compile_features(P009NativeInstanceProbe PRIVATE cxx_std_17)
+
+# P009RT: linked against the EXACT same chip/driver sources as the VST3.
+# Private original assets are supplied only for local offline QA.
+add_executable(P009RealtimeAllocationProbe
+   tests/P009RealtimeAllocationProbe.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P009RealtimeAllocationProbe PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P009RealtimeAllocationProbe PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(P009RealtimeAllocationProbe PRIVATE winmm)
+target_compile_features(P009RealtimeAllocationProbe PRIVATE cxx_std_17)
