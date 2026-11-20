@@ -142,6 +142,19 @@ void verifyP165GuiV5OwnerAssetState(
  check(bytes[644]==4u&&bytes[645]==1u &&
        bytes[646]==2u&&bytes[647]==1u,
        "P165 V5 must persist two explicit SEND hardware modes with FX types");
+ auto zeroSendProject=Plugin(factory,id,host);
+ check(zeroSendProject.controller->setParamNormalized(1110u,0.)==kResultOk &&
+       zeroSendProject.controller->setParamNormalized(1111u,0.)==kResultOk,
+       "P165 explicit 0% SEND is not an addressable VST3 parameter");
+ MemoryStream zeroState;
+ check(zeroSendProject.component->getState(&zeroState)==kResultOk &&
+       zeroState.getSize()==648u,
+       "P165 manual 0% needs V5 explicit SEND-mode state, not V4 DEFAULT");
+ auto* z=reinterpret_cast<const std::uint8_t*>(zeroState.getData());
+ check(z && z[644]==4u && z[645]==1u &&
+       z[646]==2u && z[647]==1u &&
+       z[612]==0u && z[614]==0u,
+       "P165 V5 zero SEND register override missing despite manual mode");
  // REAL original hardware FX menus are VST3-automatable, not decorative.
  // Test both menu modes and V5 exact recall independently of any private ROM.
  auto fxUnit=Plugin(factory,id,host);
@@ -1203,6 +1216,84 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
   ownerBank(resources,nullptr);
 }
+// In the exact native EMU8000 instrument: 0% SEND means zero ORIGINAL
+// hardware reverb/chorus register after an explicit human/host edit.
+// Untouched "DEFAULT" sends MUST preserve the original SoundFont PCM.
+// The public --wet SoundFont has real send generators; the chip/FX
+// conversion is real and no mock DSP or owner ROM enters the public build.
+void verifyP165RealChipFxSendAndPresetPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  const auto pcm=[&](bool manual,double send,int rev,int chorus){
+    Plugin p(factory,id,host);p.start(0,1,44100.);
+    EventList events;
+    ParameterChanges params(10);
+    std::array<float,frames> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=frames;
+    data.numOutputs=1;data.outputs=&out;
+    data.inputEvents=&events;data.inputParameterChanges=&params;
+    std::uint64_t hash=14695981039346656037ull;
+    double energy=0.;
+    for(int block=0;block<66;++block){
+      events.clear();params.clearQueue();
+      if(block==0){
+        auto add=[&](ParamID id,ParamValue value){
+            int32 idx=0,point=0;
+            auto* queue=params.addParameterData(id,idx);
+            check(queue && queue->addPoint(0,value,point)==kResultOk,
+                  "P165 real chip FX SEND automation queue not accepted");
+        };
+        if(manual){
+           add(1420u,1.);add(1421u,1.);
+           add(1110u,send);add(1111u,send);
+        }
+        if(rev>=0)add(1400u,static_cast<double>(rev)/7.);
+        if(chorus>=0)add(1401u,static_cast<double>(chorus)/7.);
+        Event note{};note.type=Event::kNoteOnEvent;note.busIndex=0;
+        note.sampleOffset=12;note.noteOn.channel=0;
+        note.noteOn.pitch=60;note.noteOn.velocity=100.f/127.f;
+        check(events.addEvent(note)==kResultOk,
+              "P165 original chip FX NoteOn generator failed");
+      }
+      if(block==26){
+        Event off{};off.type=Event::kNoteOffEvent;off.busIndex=0;
+        off.sampleOffset=400;off.noteOff.channel=0;off.noteOff.pitch=60;
+        check(events.addEvent(off)==kResultOk,
+              "P165 original chip FX NoteOff generator failed");
+      }
+      check(p.processor->process(data)==kResultOk,
+            "P165 actual ORIGINAL 86Box chip/FX VST3 process failed");
+      for(unsigned i=0;i<frames;++i){
+         for(float v:{left[i],right[i]}){
+           check(std::isfinite(v),"P165 original chip FX PCM not finite");
+           energy+=double(v)*double(v);
+           std::uint32_t bits=0;std::memcpy(&bits,&v,4u);
+           hash=(hash^bits)*1099511628211ull;
+         }
+      }
+    }
+    check(energy>0.001,"P165 synthetic wet 86Box original chip produced silence");
+    return hash;
+  };
+  const auto original=pcm(false,0.,-1,-1);
+  const auto sendsZero=pcm(true,0.,-1,-1);
+  const auto sendsHundred=pcm(true,1.,-1,-1);
+  const auto differentTypes=pcm(false,0.,7,7);
+  check(original!=sendsZero,
+        "P165 explicit 0% SEND produced original wet PCM: hardware sends not zero");
+  check(sendsZero!=sendsHundred,
+        "P165 explicit 0 and 100% original chip send values have no real PCM effect");
+  check(original!=differentTypes,
+        "P165 reverb/chorus type selectors changed parameters but not real chip PCM");
+  std::puts("P165_ACTUAL_ORIGINAL_EMU8000_VST3_DEFAULT_VS_ZERO_VS_100_SEND_PCM_PASS");
+  std::puts("P165_ACTUAL_ORIGINAL_EMU8000_VST3_CHORUS_REVERB_TYPES_CHANGE_PCM_PASS");
+  ownerBank(resources,nullptr);
+}
+
 }
 int main(int argc,char** argv){
  try{
@@ -1247,6 +1338,7 @@ int main(int argc,char** argv){
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
   if(synthetic){
     ownerBank(resources,nullptr);
+    verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");

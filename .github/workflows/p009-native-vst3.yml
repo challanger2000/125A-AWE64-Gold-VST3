@@ -222,11 +222,11 @@ jobs:
           $dir=Join-Path $bundle 'Contents/Resources/P009-Private'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           [IO.File]::WriteAllBytes((Join-Path $dir 'awe32.raw'),(New-Object byte[] 1048576))
-          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'SYNTHGM.SBK')
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'SYNTHGM.SBK') --wet
           if($LASTEXITCODE -ne 0){throw 'synthetic original Creative base-bank fixture failed'}
-          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'vintage.sf2')
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'vintage.sf2') --wet
           if($LASTEXITCODE -ne 0){throw 'synthetic selected Vintage SoundFont fixture failed'}
-          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir '77-presets.sf2') --alternate
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir '77-presets.sf2') --alternate --wet
           if($LASTEXITCODE -ne 0){throw 'synthetic deliberately different alternate SF2 fixture failed'}
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic
           $rc=$LASTEXITCODE
