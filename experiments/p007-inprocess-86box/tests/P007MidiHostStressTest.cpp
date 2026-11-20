@@ -6,6 +6,7 @@
 #include "../vst3/P007BankProgramPacer.hpp"
 #include "../vst3/P007HostInputBudget.hpp"
 #include "../vst3/P007MidiDelivery.hpp"
+#include "../vst3/P007MidiNoteRoute.hpp"
 #include <climits>
 #include <atomic>
 #include <cstdint>
@@ -151,6 +152,39 @@ int main(){
           "panic sequence did not finish");
     check(notes.submit(0x90u,60u,88u,[](auto,auto,auto){return 1;}),
           "fresh NoteOn was not rearmed after recovery");
+    // P007BP: the note-off keeps its ORIGINAL Creative channel even
+    // if the browser switches to ROM/SF2 drum mode while a key is held.
+    // The old code mapped it from the current bank and left stuck notes.
+    p007::MidiNoteRoute routes;
+    check(routes.noteOn(0u,60u,false)==0u,
+          "melodic original channel changed on NoteOn");
+    auto rel=routes.noteOff(0u,60u,true);
+    check(rel.count==1u&&rel.first==0u,
+          "melodic NoteOff incorrectly switched to drum ch10");
+    check(routes.noteOn(1u,36u,true)==9u,
+          "SF2 drum NoteOn did not reach Creative ch10");
+    rel=routes.noteOff(1u,36u,false);
+    check(rel.count==1u&&rel.first==9u,
+          "SF2 drum NoteOff incorrectly switched to melodic channel");
+    check(routes.noteOn(4u,48u,false)==4u,
+          "independent melodic source changed");
+    check(routes.noteOn(4u,48u,true)==9u,
+          "second overlapping routed pitch dropped");
+    rel=routes.noteOff(4u,48u,false);
+    check(rel.count==2u&&rel.first==4u&&rel.second==9u,
+          "overlapping melodic+drum pitch needs TWO original guest releases");
+    check(routes.noteOn(9u,42u,false)==9u,
+          "original Creative ch10 altered");
+    check(routes.noteOn(9u,42u,true)==9u,
+          "drum channel10 altered on duplicate");
+    rel=routes.noteOff(9u,42u,true);
+    check(rel.count==1u&&rel.first==9u,
+          "duplicate ch10 NoteOff would overflow guest UART");
+    routes.reset();
+    rel=routes.noteOff(3u,64u,true);
+    check(rel.count==1u&&rel.first==9u,
+          "post-guest-reset best-effort release lost");
+    std::puts("P007BP_HOST_NOTEON_OFF_ORIGINAL_CHANNEL_OWNERSHIP_ACROSS_BANKS_PASS");
     std::puts("P007BO_HOST_INT_MAX_ITERATOR_BOUNDS_AND_ORIGINAL_MIDI_PANIC_PASS");
     std::puts("P007BA_ORIGINAL_16550_FIFO_BACKPRESSURE_128_PACKET_LOSSLESS_UNIT_PASS");
     std::puts("P007BA_DUPLICATE_HOST_BANK_PROGRAM_AUTOMATION_NO_STARVATION_UNIT_PASS");

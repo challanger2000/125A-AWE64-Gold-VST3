@@ -9,6 +9,7 @@
 #include "P007CreativeNrpn.hpp"
 #include "P007CreativeNrpnPacer.hpp"
 #include "P007MidiDelivery.hpp"
+#include "P007MidiNoteRoute.hpp"
 #include "P007BankProgramPacer.hpp"
 #include "p165/PresetCatalog.h"
 #include "vstgui/plugin-bindings/vst3editor.h"
@@ -122,6 +123,7 @@ class Plugin final : public Steinberg::Vst::SingleComponentEffect,
     BankProgramPacer bankProgramPacer_{}; // P007AZ original Creative bank/patch pacing
     creative_nrpn::FramePace bankFramePace_{}; // >=20ms per short MIDI message
     MidiDelivery midiDelivery_{}; // audio-thread only; retries rejected UART note packets
+    MidiNoteRoute midiNoteRoute_{}; // original MIDI channel for each held host note
     mutable std::mutex sf2StateMutex_{}; // non-RT state/UI lifecycle only
     std::string selectedSf2Path_{}; // UTF-8; selected for the NEXT activation
     std::string activeSf2Path_{}; // user selection at the last successful activation

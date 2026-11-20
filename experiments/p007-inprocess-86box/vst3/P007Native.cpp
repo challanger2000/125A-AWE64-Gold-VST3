@@ -419,6 +419,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         creativeResetRequested_.store(false,std::memory_order_release);
         for(unsigned i=0;i<creative_nrpn::count;++i)
             if(creative_nrpn::shouldTransmit(
@@ -435,6 +436,7 @@ tresult PLUGIN_API Plugin::setActive(TBool on) {
         creativeFramePace_.reset();
         creativeGuestWasReady_=false;
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
     }
     return SingleComponentEffect::setActive(on);
 }
@@ -753,14 +755,17 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         const int32 reported=data.inputParameterChanges->getParameterCount();
         const int32 n=host_budget::safeCount(
             reported,host_budget::maxParameterQueues);
-        if(host_budget::invalidCount(reported,host_budget::maxParameterQueues))
+        if(host_budget::invalidCount(reported,host_budget::maxParameterQueues)) {
             midiDelivery_.requestRecovery();
+            midiNoteRoute_.reset();
+        }
         for(int32 i=0;i<n;++i){
             auto* queue=data.inputParameterChanges->getParameterData(i);
             if(!queue)continue;
             const int32 points=queue->getPointCount();
             if(host_budget::invalidCount(points,host_budget::maxPointsPerQueue)){
                 midiDelivery_.requestRecovery();
+                midiNoteRoute_.reset();
                 continue;
             }
             if(points<1)continue;
@@ -806,6 +811,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         // frames from a previous original-Creative session.
         outputRate_.reset();
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         sentInitialProgram_=false;
         bankProgramPacer_.reset();
         bankFramePace_.reset();
@@ -813,6 +819,7 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         creativeGuestWasReady_=false;
     }else if(!creativeGuestWasReady_) {
         midiDelivery_.reset();
+        midiNoteRoute_.reset();
         creativePacer_.reset();
         creativeFramePace_.reset();
         bankProgramPacer_.reset();
@@ -936,8 +943,10 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
         const int32 reported=data.inputEvents->getEventCount();
         const int32 n=host_budget::safeCount(
             reported,host_budget::maxEventDescriptors);
-        if(host_budget::invalidCount(reported,host_budget::maxEventDescriptors))
+        if(host_budget::invalidCount(reported,host_budget::maxEventDescriptors)) {
             midiDelivery_.requestRecovery();
+            midiNoteRoute_.reset();
+        }
         for(int32 i=0;i<n;++i) {
             Event event{};
             if(data.inputEvents->getEvent(i,event)!=kResultOk)continue;
@@ -946,32 +955,56 @@ tresult PLUGIN_API Plugin::process(ProcessData& data) {
             const auto at=midi_offset::place(
                 event.sampleOffset,data.numSamples,rendered);
             renderTo(at);
+            // Channel mapping is captured at NoteOn, NOT recomputed
+            // from the potentially changed browser bank at NoteOff.
+            // VST3 zero-velocity NoteOn is a RELEASE, not a new voice.
+            const bool drums=midiBank_.load(std::memory_order_acquire)>=126u;
+            const auto send=[this](std::uint8_t status,std::uint8_t pitch,
+                                   std::uint8_t velocity) noexcept {
+                (void)midiDelivery_.submit(status,pitch,velocity,
+                    [this](std::uint8_t st,std::uint8_t d1,
+                           std::uint8_t d2) noexcept {
+                        return bankProgramPacer_.committed()
+                            ?core_.midi(st,d1,d2):0;
+                    });
+            };
+            const auto release=[this,&send,drums](
+                unsigned channel,unsigned pitch,std::uint8_t velocity) noexcept {
+                const auto route=midiNoteRoute_.noteOff(channel,pitch,drums);
+                send(static_cast<std::uint8_t>(0x80u|route.first),
+                     static_cast<std::uint8_t>(pitch),velocity);
+                if(route.count==2u)
+                    send(static_cast<std::uint8_t>(0x80u|route.second),
+                         static_cast<std::uint8_t>(pitch),velocity);
+            };
             if(event.type==Event::kNoteOnEvent) {
                 const auto& e=event.noteOn;
-                if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x90|(
-                            midiBank_.load(std::memory_order_acquire)>=126u
-                            ?9:e.channel)),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
-                        [this](std::uint8_t status,std::uint8_t d1,
-                               std::uint8_t d2) noexcept {
-                            return bankProgramPacer_.committed()
-                                ?core_.midi(status,d1,d2):0;
-                        });
+                if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128) {
+                    if(!std::isfinite(e.velocity)) {
+                        // Malformed host NoteOn cannot create phantom audio.
+                        midiDelivery_.requestRecovery();
+                        midiNoteRoute_.reset();
+                    } else if(e.velocity<=0.f) {
+                        release(static_cast<unsigned>(e.channel),
+                                static_cast<unsigned>(e.pitch),0u);
+                    } else {
+                        const auto routed=midiNoteRoute_.noteOn(
+                            static_cast<unsigned>(e.channel),
+                            static_cast<unsigned>(e.pitch),drums);
+                        // Tiny but positive VST3 velocity must not be
+                        // truncated to MIDI 0 (=NoteOff).
+                        const auto v=std::max<std::uint8_t>(
+                            1u,midiVelocity(e.velocity));
+                        send(static_cast<std::uint8_t>(0x90u|routed),
+                             static_cast<std::uint8_t>(e.pitch),v);
+                    }
+                }
             } else {
                 const auto& e=event.noteOff;
                 if(e.channel>=0&&e.channel<16&&e.pitch>=0&&e.pitch<128)
-                    (void)midiDelivery_.submit(
-                        static_cast<std::uint8_t>(0x80|(
-                            midiBank_.load(std::memory_order_acquire)>=126u
-                            ?9:e.channel)),
-                        static_cast<std::uint8_t>(e.pitch),midiVelocity(e.velocity),
-                        [this](std::uint8_t status,std::uint8_t d1,
-                               std::uint8_t d2) noexcept {
-                            return bankProgramPacer_.committed()
-                                ?core_.midi(status,d1,d2):0;
-                        });
+                    release(static_cast<unsigned>(e.channel),
+                            static_cast<unsigned>(e.pitch),
+                            midiVelocity(e.velocity));
             }
         }
     }
