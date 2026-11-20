@@ -162,6 +162,12 @@ jobs:
           $lines=@(Select-String -Path _p019-latency-report.txt -Pattern '^P019_(DRY|FX)_WINDOW(128|64)_PCM=')
           if($lines.Count -ne 4){throw 'P019 four shortened-window comparison results missing'}
           Remove-Item $fake,$sf2 -ErrorAction SilentlyContinue
+          $tokens=$null
+          $parseErrors=$null
+          $script=Join-Path $env:GITHUB_WORKSPACE 'research/native-awe32emu/p009-vst3/tests/RUN-P019-OWNER.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors) | Out-Null
+          if($parseErrors.Count -gt 0){throw "P019 owner offline launcher PowerShell syntax error: $parseErrors"}
+          Write-Host P019_PRIVATE_OWNER_WINDOWS_SCRIPT_SYNTAX_PASS
           Write-Host P019_EXPERIMENT_ONLY_PRODUCTION_STAYS_980_FRAMES_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
         shell: pwsh
