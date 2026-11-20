@@ -814,6 +814,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         if(next>pos){render(l+pos,r+pos,next-pos);pos=next;}
         // Controllers at the very same sample precede NoteOn, preserving
         // sustain/modulation/velocity timing without changing chip DSP.
+        // SEND mode commands win over SEND value automation at the same
+        // sample, independent of a DAW's parameter queue enumeration.
+        // In particular RESET (manual -> original) must never be undone
+        // because a simultaneous zero SEND knob gesture ran later.
+        std::array<int,2> sendModeAtFrame{{-1,-1}};
         while(midiPos<numMidiPoints &&
               midiPoints[midiPos].sampleOffset==next){
             const auto& mp=midiPoints[midiPos++];
@@ -848,9 +853,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             }else if(mp.slot>=kGuiSendManualSlotBase &&
                      mp.slot<kGuiSendManualSlotBase+2u){
                 const auto i=static_cast<unsigned>(mp.slot-kGuiSendManualSlotBase);
-                sendManual_[i]=mp.value!=0u;
-                sendManualMirrors_[i].store(sendManual_[i],std::memory_order_release);
-                if(synth_)synth_->SetGuiSendManual(int(i),sendManual_[i]);
+                sendModeAtFrame[i]=int(mp.value);
             }else if(mp.slot>=kGuiControlSlotBase &&
                      mp.slot<kGuiControlSlotBase+guiControls_.size()){
                 const auto index=static_cast<unsigned>(
@@ -870,6 +873,12 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 }
             }
         }
+        for(unsigned i=0;i<2u;++i)
+            if(sendModeAtFrame[i]>=0){
+                sendManual_[i]=sendModeAtFrame[i]!=0;
+                sendManualMirrors_[i].store(sendManual_[i],std::memory_order_release);
+                if(synth_)synth_->SetGuiSendManual(int(i),sendManual_[i]);
+            }
         while(notePos<num && events[notePos].sampleOffset==next)
             dispatch(events[notePos++]);
     }

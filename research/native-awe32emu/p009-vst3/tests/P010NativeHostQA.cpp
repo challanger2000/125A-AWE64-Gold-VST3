@@ -153,7 +153,8 @@ void verifyP165GuiV5OwnerAssetState(
  auto* z=reinterpret_cast<const std::uint8_t*>(zeroState.getData());
  check(z && z[644]==4u && z[645]==1u &&
        z[646]==2u && z[647]==1u &&
-       z[612]==0u && z[614]==0u,
+       z[608]==0u && z[609]==0u &&
+       z[610]==0u && z[611]==0u,
        "P165 V5 zero SEND register override missing despite manual mode");
  // REAL original hardware FX menus are VST3-automatable, not decorative.
  // Test both menu modes and V5 exact recall independently of any private ROM.
@@ -1225,7 +1226,8 @@ void verifyP165RealChipFxSendAndPresetPCM(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host,const fs::path& resources){
   ownerBank(resources,"vintage.sf2");
-  const auto pcm=[&](bool manual,double send,int rev,int chorus){
+  const auto pcm=[&](bool manual,double send,int rev,int chorus,
+                     bool resetToOriginal=false){
     Plugin p(factory,id,host);p.start(0,1,44100.);
     EventList events;
     ParameterChanges params(10);
@@ -1250,6 +1252,12 @@ void verifyP165RealChipFxSendAndPresetPCM(
         if(manual){
            add(1420u,1.);add(1421u,1.);
            add(1110u,send);add(1111u,send);
+        }
+        if(resetToOriginal){
+           // DELIBERATELY supply mode-before-knob at same sample to
+           // adversarially challenge host queue enumeration order.
+           add(1420u,0.);add(1421u,0.);
+           add(1110u,0.);add(1111u,0.);
         }
         if(rev>=0)add(1400u,static_cast<double>(rev)/7.);
         if(chorus>=0)add(1401u,static_cast<double>(chorus)/7.);
@@ -1282,11 +1290,14 @@ void verifyP165RealChipFxSendAndPresetPCM(
   const auto original=pcm(false,0.,-1,-1);
   const auto sendsZero=pcm(true,0.,-1,-1);
   const auto sendsHundred=pcm(true,1.,-1,-1);
+  const auto backToOriginal=pcm(false,0.,-1,-1,true);
   const auto differentTypes=pcm(false,0.,7,7);
   check(original!=sendsZero,
         "P165 explicit 0% SEND produced original wet PCM: hardware sends not zero");
   check(sendsZero!=sendsHundred,
         "P165 explicit 0 and 100% original chip send values have no real PCM effect");
+  check(original==backToOriginal,
+        "P165 SEND RESET did not recover exact original SF2/Creative PCM after mode-before-value host events");
   check(original!=differentTypes,
         "P165 reverb/chorus type selectors changed parameters but not real chip PCM");
   std::puts("P165_ACTUAL_ORIGINAL_EMU8000_VST3_DEFAULT_VS_ZERO_VS_100_SEND_PCM_PASS");
