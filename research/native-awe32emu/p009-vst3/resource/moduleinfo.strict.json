@@ -1,0 +1,31 @@
+{
+  "Name": "AWE64_Gold_Native_P009",
+  "Version": "0.9.0",
+  "Factory Info": {
+    "Vendor": "125A Audio",
+    "URL": "https://github.com/challanger2000/125A-AWE64-Gold-VST3",
+    "E-Mail": "",
+    "Flags": {
+      "Unicode": true,
+      "Classes Discardable": false,
+      "Component Non Discardable": false
+    }
+  },
+  "Classes": [
+    {
+      "CID": "125A8600F0094AEEB64A000000000901",
+      "Category": "Audio Module Class",
+      "Name": "125A AWE64 Gold",
+      "Vendor": "125A Audio",
+      "Version": "0.9.0",
+      "SDKVersion": "VST 3.8.1",
+      "Sub Categories": [
+        "Instrument",
+        "Synth"
+      ],
+      "Class Flags": 0,
+      "Cardinality": 2147483647,
+      "Snapshots": []
+    }
+  ]
+}

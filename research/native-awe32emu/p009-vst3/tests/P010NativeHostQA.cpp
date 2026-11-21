@@ -3,7 +3,6 @@
 // --public with NO private files expects SILENCE, not a claimed audio pass.
 // --private with original ROM + Creative SBK + owner SF2s tests REAL AUDIO.
 #define NOMINMAX
-#include <windows.h>
 #include "public.sdk/source/vst/hosting/module.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
@@ -13,11 +12,14 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+#include "P009AssetFingerprint.hpp"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <atomic>
+#include <thread>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -101,6 +103,477 @@ struct Plugin{
    processing=true;
  }
 };
+void verifyZeroFrameParameterFlush(const VST3::Hosting::PluginFactory& factory,
+                                   const VST3::UID& id,FUnknown* host){
+  Plugin plugin(factory,id,host);
+  plugin.start(0,0,44100.);
+  const auto mapping=FUnknownPtr<IMidiMapping>(plugin.controller);
+  check(bool(mapping),"flush: MIDI mapping unavailable");
+  ParamID sustain=0,bankMsb=0;
+  check(mapping->getMidiControllerAssignment(0,15,kCtrlSustainOnOff,sustain)==kResultTrue &&
+        mapping->getMidiControllerAssignment(0,14,kCtrlBankSelectMSB,bankMsb)==kResultTrue,
+        "flush: channel-local MIDI parameter mapping missing");
+  ParameterChanges changes(5);
+  AudioBusBuffers output{}; // SDK parameter flush: zero channels, no sample buffers
+  ProcessData data{};
+  data.numOutputs=1;
+  data.outputs=&output;
+  data.inputParameterChanges=&changes;
+  const auto add=[&](ParamID param,int32 frame,double value){
+    int32 queueIndex=0,pointIndex=0;
+    auto* queue=changes.addParameterData(param,queueIndex);
+    check(queue && queue->addPoint(frame,value,pointIndex)==kResultOk,
+          "flush: cannot enqueue parameter point");
+  };
+  add(1001u,0,.25);  // master
+  add(1202u,0,39./127.); // MIDI channel 3 program
+  add(1108u,0,.5);  // filter cutoff
+  add(sustain,0,1.);
+  add(bankMsb,0,1./127.);
+  check(plugin.processor->process(data)==kResultOk,"flush: valid callback rejected");
+  const auto save=[](Plugin& unit){
+    MemoryStream stream;
+    check(unit.component->getState(&stream)==kResultOk,"flush: project save failed");
+    const auto* bytes=reinterpret_cast<const std::uint8_t*>(stream.getData());
+    check(bytes && stream.getSize()>=sizeof(Saved),"flush: missing saved project");
+    return std::vector<std::uint8_t>(bytes,bytes+stream.getSize());
+  };
+  const auto accepted=save(plugin);
+  Saved header{};
+  std::memcpy(&header,accepted.data(),sizeof(header));
+  check(header.master==.25f && header.otherPrograms[1]==39 &&
+        header.midiStates[15*8+4]==127 && header.midiStates[14*8+4]==0xFFFFu &&
+        header.advancedStates[14*8]==1 && header.advancedStates[15*8]==0xFFFFu,
+        "flush: accepted master, program or channel-local MIDI did not reach project state");
+  check(plugin.controller->getParamNormalized(1108u)==.5 &&
+        plugin.controller->getParamNormalized(1001u)==.25,
+        "flush: controller readback differs from accepted controls");
+  changes.clearQueue();
+  add(1001u,1,.75); // outside the legal flush position
+  add(1108u,0,1.25); // invalid normalized value
+  check(plugin.processor->process(data)==kResultOk && save(plugin)==accepted,
+        "flush: rejected points changed the accepted project");
+  Plugin reopened(factory,id,host);
+  MemoryStream state;
+  int32 written=0;
+  check(state.write(const_cast<std::uint8_t*>(accepted.data()),
+                    static_cast<int32>(accepted.size()),&written)==kResultOk &&
+        written==static_cast<int32>(accepted.size()) &&
+        state.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        reopened.controller->setComponentState(&state)==kResultOk &&
+        save(reopened)==accepted &&
+        reopened.controller->getParamNormalized(1108u)==.5,
+        "flush: fresh controller/processor lost flushed project state");
+  std::puts("AWE64_ZERO_FRAME_PARAMETER_FLUSH_STATE_RECALL_PASS");
+}
+
+// P169: Genuine real Win64 VST3 controller-side component restore,
+// NOT the same interface as IComponent::setState. Verify the source V4
+// stream can be applied ONLY via IEditController::setComponentState;
+// the single-component processor must then report exact MIDI/RPN and
+// program/bank/master state, including a fresh GUI-controller value.
+// Negatives must reject and leave all state bit-exact. This would FAIL
+// if the handler merely returned kResultOk without applying the project.
+void verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin unit(factory,id,host);
+  Saved expected{};
+  expected.program=39u;expected.bank=1u;expected.master=.625f;
+  expected.otherPrograms[0]=17u;expected.otherBanks[0]=1u;
+  expected.midiStates.fill(0xFFFFu);
+  expected.advancedStates.fill(0xFFFFu);
+  expected.advancedStates[2]=0u;
+  expected.advancedStates[3]=0u;
+  expected.advancedStates[4]=12u;
+  expected.parameterModes[0]=1u;
+  const auto send=[&](const Saved& state){
+    MemoryStream stream;int32 written=0;
+    check(stream.write(const_cast<Saved*>(&state),sizeof(state),&written)==kResultOk &&
+          written==sizeof(state) &&
+          stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+          "P169 source V4 controller component state not transportable");
+    return unit.controller->setComponentState(&stream);
+  };
+  check(send(expected)==kResultOk,
+        "P169 actual VST3 controller refused fully valid component state");
+  MemoryStream accepted;
+  check(unit.component->getState(&accepted)==kResultOk &&
+        accepted.getSize()==sizeof(expected) &&
+        std::memcmp(accepted.getData(),&expected,sizeof(expected))==0,
+        "P169 controller reported success but did not apply original MIDI/RPN/project");
+  check(std::abs(unit.controller->getParamNormalized(1000u)-39./127.)<.00001 &&
+        std::abs(unit.controller->getParamNormalized(1002u)-.5)<.00001 &&
+        std::abs(unit.controller->getParamNormalized(1001u)-.625)<.00001,
+        "P169 GUI/controller readback does not match component-only V4 restore");
+  Saved invalid=expected;
+  invalid.magic^=0x00100000u;
+  check(send(invalid)!=kResultOk,
+        "P169 corrupt controller component state was falsely accepted");
+  MemoryStream unaffected;
+  check(unit.component->getState(&unaffected)==kResultOk &&
+        unaffected.getSize()==sizeof(expected) &&
+        std::memcmp(unaffected.getData(),&expected,sizeof(expected))==0,
+        "P169 rejected corrupt project mutated valid prior controller state");
+  // A second identical accepted transfer must not destroy a valid
+  // project, and must preserve the 16ch RPN set on first application.
+  check(send(expected)==kResultOk,
+        "P169 idempotent controller component-state reload failed");
+  MemoryStream again;
+  check(unit.component->getState(&again)==kResultOk &&
+        again.getSize()==sizeof(expected) &&
+        std::memcmp(again.getData(),&expected,sizeof(expected))==0,
+        "P169 duplicate controller restore lost a previous MIDI RPN value");
+  std::puts("P169_ACTUAL_WIN64_VST3_CONTROLLER_SET_COMPONENT_STATE_POSITIVE_NEGATIVE_GUI_MIDI_RECALL_PASS");
+}
+
+// P166: a stopped DAW may save a project immediately after selecting a
+// program/bank/master value, before *any* audio callback or host automation
+// delivery. A green VST3 validator/GUI knob test does not exercise this.
+// Additionally, same-component automation reaches process() directly; real
+// controller readback must show what the chip actually received.
+void verifyP166StoppedHostEditsAndAudioReadback(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin p(factory,id,host); // deliberately INACTIVE
+  const auto edit=[&](ParamID param,double normalized){
+    check(p.controller->setParamNormalized(param,normalized)==kResultOk,
+          "P166 stopped-host parameter edit rejected");
+  };
+  edit(1000u,7./127.);edit(1002u,.5);edit(1001u,.3125);
+  edit(1201u,17./127.);edit(1301u,1.);
+  MemoryStream saved;
+  check(p.component->getState(&saved)==kResultOk&&
+        saved.getSize()==sizeof(Saved),
+        "P166 stopped controller edits unexpectedly discarded or changed V4 layout");
+  Saved initial{};
+  std::memcpy(&initial,saved.getData(),sizeof(initial));
+  check(initial.program==7u&&initial.bank==1u&&
+        initial.master==.3125f&&
+        initial.otherPrograms[0]==17u&&initial.otherBanks[0]==1u,
+        "P166 host project save lost program/bank/master when no audio ran");
+  auto reopened=Plugin(factory,id,host);
+  MemoryStream stream;int32 written=0;
+  check(stream.write(&initial,sizeof(initial),&written)==kResultOk &&
+        written==sizeof(initial)&&
+        stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        reopened.component->setState(&stream)==kResultOk,
+        "P166 stopped host project reopen rejected");
+  MemoryStream restored;
+  check(reopened.component->getState(&restored)==kResultOk &&
+        restored.getSize()==sizeof(initial)&&
+        std::memcmp(restored.getData(),&initial,sizeof(initial))==0,
+        "P166 stopped edits not byte-exact after reopen");
+  check(std::abs(reopened.controller->getParamNormalized(1000u)-7./127.)<.001 &&
+        std::abs(reopened.controller->getParamNormalized(1002u)-.5)<.001 &&
+        std::abs(reopened.controller->getParamNormalized(1001u)-.3125)<.001,
+        "P166 controller readback does not reflect freshly restored project");
+  // Start actual native VST3 processing; no ROM is required for the
+  // MIDI/control readback contract. The audio path is intentionally silent.
+  ProcessSetup setup{};setup.processMode=kRealtime;
+  setup.symbolicSampleSize=kSample32;setup.sampleRate=44100.;
+  setup.maxSamplesPerBlock=frames;
+  check(reopened.processor->setupProcessing(setup)==kResultOk &&
+        reopened.component->setActive(true)==kResultOk,
+        "P166 real Windows VST3 setup after stopped edit failed");
+  reopened.active=true;
+  check(reopened.processor->setProcessing(true)==kResultOk,
+        "P166 real Windows VST3 processing after stopped edit failed");
+  reopened.processing=true;
+  std::array<float,frames> left{},right{};
+  float* channels[2]={left.data(),right.data()};
+  AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=channels;
+  ParameterChanges params(8);
+  ProcessData data{};data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+  data.numSamples=frames;data.numOutputs=1;data.outputs=&output;
+  data.inputParameterChanges=&params;
+  const auto add=[&](ParamID param,double normalized){
+    int32 index=0,point=0;
+    auto* queue=params.addParameterData(param,index);
+    check(queue&&queue->addPoint(10,normalized,point)==kResultOk,
+          "P166 host audio-point injection failed");
+  };
+  add(1000u,21./127.);add(1002u,0.);add(1001u,.75);
+  add(1201u,23./127.);add(1301u,0.);
+  add(1100u,.45);add(1400u,6./7.);add(1420u,1.);
+  check(reopened.processor->process(data)==kResultOk,
+        "P166 actual Windows VST3 audio automation rejected");
+  check(std::abs(reopened.controller->getParamNormalized(1000u)-21./127.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1002u))<.001&&
+        std::abs(reopened.controller->getParamNormalized(1001u)-.75)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1201u)-23./127.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1301u))<.001&&
+        std::abs(reopened.controller->getParamNormalized(1100u)-.45)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1400u)-6./7.)<.001&&
+        std::abs(reopened.controller->getParamNormalized(1420u)-1.)<.001,
+        "P166 GUI/controller readback is stale after real processor automation");
+  MemoryStream processed;
+  check(reopened.component->getState(&processed)==kResultOk&&
+        processed.getSize()==648u,
+        "P166 combined processor automation and GUI control not V5-serializable");
+  Saved actual{};std::memcpy(&actual,processed.getData(),sizeof(actual));
+  check(actual.program==21u&&actual.bank==0u&&
+        actual.master==.75f&&actual.otherPrograms[0]==23u&&
+        actual.otherBanks[0]==0u,
+        "P166 obsolete controller request overrode later audio automation");
+  std::puts("P166_REAL_WIN64_VST3_STOPPED_HOST_PATCH_PROJECT_RECALL_AND_LIVE_GUI_AUTOMATION_READBACK_PASS");
+}
+
+// Integrated final native owner GUI -> VST3 state regression, real Steinberg
+// Windows host. Works publicly WITHOUT any protected ROM/SBK/SF2 files:
+// no audible claims; proves all 12 P165 control edits, backward-compatible
+// V4 bytes and full V5 roundtrip/corruption rejection.
+void verifyP165GuiV5OwnerAssetState(
+   const VST3::Hosting::PluginFactory& factory,
+   const VST3::UID& id,FUnknown* host){
+ auto unit=Plugin(factory,id,host);
+ MemoryStream initial;
+ check(unit.component->getState(&initial)==kResultOk &&
+       initial.getSize()==sizeof(Saved),
+       "P165 unedited host project must preserve exact V4 580-byte format");
+ auto* original=reinterpret_cast<const std::uint8_t*>(initial.getData());
+ check(original && std::memcmp(original+4,"\004\000\000\000",4)==0,
+       "P165 unedited project must use v4, not fake new format");
+ // GUI gestures must be real host automation parameter IDs as in P007BW.
+ for(unsigned i=0;i<12;++i){
+    const auto norm=double(i+1)/20.;
+    check(unit.controller->setParamNormalized(1100u+i,norm)==kResultOk,
+          "P165 actual host GUI control could not be set");
+ }
+ MemoryStream v5;
+ check(unit.component->getState(&v5)==kResultOk &&
+       v5.getSize()==648u,"P165 12 GUI edits did not persist in V5 648-byte owner state");
+ const auto* bytes=reinterpret_cast<const std::uint8_t*>(v5.getData());
+ check(bytes && bytes[4]==5u&&bytes[5]==0u&&bytes[6]==0u&&bytes[7]==0u,
+       "P165 GUI control state must be exact V5 header");
+ // Verify extension 64B magic, empty path and all 12 quantized basis points.
+ check(bytes[580]==0x50&&bytes[581]==0x41&&bytes[582]==0x53&&bytes[583]==0x35,
+       "P165 V5 state exact PAS5 extension marker");
+ for(unsigned i=0;i<12;++i){
+    unsigned v=unsigned(bytes[588+i*2])|unsigned(bytes[589+i*2])<<8;
+    check(v==static_cast<unsigned>((i+1)*500),
+          "P165 control parameter did not roundtrip exactly");
+ }
+ check(bytes[644]==4u&&bytes[645]==1u &&
+       bytes[646]==2u&&bytes[647]==1u,
+       "P165 V5 must persist two explicit SEND hardware modes with FX types");
+ auto zeroSendProject=Plugin(factory,id,host);
+ check(zeroSendProject.controller->setParamNormalized(1110u,0.)==kResultOk &&
+       zeroSendProject.controller->setParamNormalized(1111u,0.)==kResultOk,
+       "P165 explicit 0% SEND is not an addressable VST3 parameter");
+ MemoryStream zeroState;
+ check(zeroSendProject.component->getState(&zeroState)==kResultOk &&
+       zeroState.getSize()==648u,
+       "P165 manual 0% needs V5 explicit SEND-mode state, not V4 DEFAULT");
+ auto* z=reinterpret_cast<const std::uint8_t*>(zeroState.getData());
+ check(z && z[644]==4u && z[645]==1u &&
+       z[646]==2u && z[647]==1u &&
+       z[608]==0u && z[609]==0u &&
+       z[610]==0u && z[611]==0u,
+       "P165 V5 zero SEND register override missing despite manual mode");
+ // REAL original hardware FX menus are VST3-automatable, not decorative.
+ // Test both menu modes and V5 exact recall independently of any private ROM.
+ auto fxUnit=Plugin(factory,id,host);
+ check(fxUnit.controller->setParamNormalized(1400u,5./7.)==kResultOk &&
+       fxUnit.controller->setParamNormalized(1401u,6./7.)==kResultOk,
+       "P165 actual original reverb/chorus TYPE menus not automatable");
+ MemoryStream fxState;
+ check(fxUnit.component->getState(&fxState)==kResultOk &&
+       fxState.getSize()==648u,
+       "P165 real FX-type automation not persisted in DAW state");
+ const auto* fxBytes=reinterpret_cast<const std::uint8_t*>(fxState.getData());
+ check(fxBytes && fxBytes[644]==5u && fxBytes[645]==0u &&
+       fxBytes[646]==6u && fxBytes[647]==0u,
+       "P165 original hardware FX type values wrong after automation");
+ auto fxReopen=Plugin(factory,id,host);
+ MemoryStream fxRestore;int32 fxBytesWritten=0;
+ check(fxRestore.write(fxState.getData(),648,&fxBytesWritten)==kResultOk &&
+       fxBytesWritten==648,"P165 copy hardware FX state");
+ check(fxRestore.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       fxReopen.component->setState(&fxRestore)==kResultOk,
+       "P165 actual hardware FX-mode project recall failed");
+ MemoryStream fxRoundTrip;
+ check(fxReopen.component->getState(&fxRoundTrip)==kResultOk &&
+       fxRoundTrip.getSize()==648u &&
+       std::memcmp(fxRoundTrip.getData(),fxState.getData(),648u)==0,
+       "P165 hardware FX types differ after project reopening");
+ std::vector<std::uint8_t> invalidFx(fxBytes,fxBytes+648u);
+ invalidFx[644]=8u;
+ MemoryStream invalidFxRestore;
+ check(invalidFxRestore.write(invalidFx.data(),648,&fxBytesWritten)==kResultOk,
+       "P165 construct malformed hardware FX mode");
+ check(invalidFxRestore.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       fxReopen.component->setState(&invalidFxRestore)!=kResultOk,
+       "P165 out-of-range original 86Box FX mode wrongly accepted");
+ MemoryStream safeFx;
+ check(fxReopen.component->getState(&safeFx)==kResultOk &&
+       safeFx.getSize()==648u &&
+       std::memcmp(safeFx.getData(),fxState.getData(),648u)==0,
+       "P165 invalid hardware FX mode corrupted the original state");
+ std::puts("P165_REAL_VST3_ORIGINAL_EMU8000_8X_REVERB_CHORUS_TYPE_MENUS_V5_RECALL_PASS");
+ auto reopen=Plugin(factory,id,host);
+ MemoryStream request;
+ int32 n=0;
+ check(request.write(v5.getData(),static_cast<int32>(v5.getSize()),&n)==kResultOk,
+       "P165 prepare valid V5 state");
+ check(request.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "P165 rewind valid V5 state");
+ check(reopen.component->setState(&request)==kResultOk,
+       "P165 host cannot restore all 12 GUI settings");
+ MemoryStream roundtrip;
+ check(reopen.component->getState(&roundtrip)==kResultOk &&
+       roundtrip.getSize()==v5.getSize()&&
+       std::memcmp(roundtrip.getData(),v5.getData(),v5.getSize())==0,
+       "P165 12 controls V5 state differs after real host reopen");
+ // An external SoundFont path with an invalid/missing SHA MUST fail without
+ // changing any existing instrument, GUI, controller, or sound identity.
+ auto corrupt=std::vector<std::uint8_t>(bytes,bytes+v5.getSize());
+ corrupt[584]=10u; // 10-byte invalid path length; no appended path data
+ MemoryStream invalid;
+ check(invalid.write(corrupt.data(),static_cast<int32>(corrupt.size()),&n)==kResultOk,
+       "P165 construct invalid owner SF2 state");
+ check(invalid.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "P165 rewind invalid SF2 state");
+ check(reopen.component->setState(&invalid)!=kResultOk,
+       "P165 missing owner SF2 must not silently select an unrelated file");
+ MemoryStream unaffected;
+ check(reopen.component->getState(&unaffected)==kResultOk &&
+       unaffected.getSize()==v5.getSize() &&
+       std::memcmp(unaffected.getData(),v5.getData(),v5.getSize())==0,
+       "P165 missing owner file must leave prior original ROM/GUI state intact");
+ std::puts("P165_REAL_VST3_GUI_12_CONTROLS_V5_PROJECT_REOPEN_SHA_FAIL_CLOSED_PASS");
+}
+// Independent adversarial V5 contract: V4 MIDI RPN/NRPN state MUST be
+// preserved when ANY P165 knob forces V5 serialization. Existing tests
+// exercise V4 advanced state OR V5 GUI controls, but never their conjunction.
+// No protected ROM or SoundFont assets are needed to observe the failure.
+void auditV5DoesNotEraseAdvancedMidiControllers(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host) {
+ auto source=Plugin(factory,id,host);
+ Saved state{};
+ state.midiStates.fill(0xFFFFu);
+ state.advancedStates.fill(0xFFFFu);
+ state.program=7u;state.bank=1u;
+ state.advancedStates[2]=0u; // CH1 RPN MSB
+ state.advancedStates[3]=0u; // CH1 RPN LSB
+ state.advancedStates[4]=12u; // CH1 Data Entry MSB => bend range12
+ state.parameterModes[0]=1u; // RPN mode
+ MemoryStream oldState;int32 n=0;
+ check(oldState.write(&state,static_cast<int32>(sizeof(state)),&n)==kResultOk &&
+       n==static_cast<int32>(sizeof(state)) &&
+       oldState.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+       "AUDIT V4 initial RPN fixture invalid");
+ check(source.component->setState(&oldState)==kResultOk,
+       "AUDIT V4 accepted RPN fixture must roundtrip before GUI editing");
+ MemoryStream control;check(source.component->getState(&control)==kResultOk &&
+       control.getSize()==sizeof(Saved) &&
+       std::memcmp(control.getData(),&state,sizeof(state))==0,
+       "AUDIT positive control: V4 CH1 RPN state does not roundtrip");
+ check(source.controller->setParamNormalized(1100u,.375)==kResultOk,
+       "AUDIT initial P165 AMP attack gesture rejected");
+ MemoryStream saved;
+ check(source.component->getState(&saved)==kResultOk && saved.getSize()==648u,
+       "AUDIT V5 with P165 plus CH1 RPN needs 648-byte project state");
+ auto dest=Plugin(factory,id,host);
+ MemoryStream incoming;
+ check(incoming.write(saved.getData(),static_cast<int32>(saved.getSize()),&n)==kResultOk &&
+       incoming.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+       dest.component->setState(&incoming)==kResultOk,
+       "AUDIT V5 restore must accept valid original ROM+RPN metadata");
+ MemoryStream actual;
+ check(dest.component->getState(&actual)==kResultOk &&
+       actual.getSize()==saved.getSize(),"AUDIT restored V5 state missing");
+ const bool identical=std::memcmp(
+       actual.getData(),saved.getData(),saved.getSize())==0;
+ if(!identical){
+   const auto* expected=reinterpret_cast<const std::uint8_t*>(saved.getData());
+   const auto* got=reinterpret_cast<const std::uint8_t*>(actual.getData());
+   unsigned first=0;
+   while(first<saved.getSize()&&expected[first]==got[first])++first;
+   std::fprintf(stderr,
+     "AUDIT_NEGATIVE_V5_RPN_RECALL_LOSS first_differing_byte=%u"
+     " input=%u restored=%u\n",first,
+     first<saved.getSize()?unsigned(expected[first]):0,
+     first<saved.getSize()?unsigned(got[first]):0);
+ }
+ check(identical,"P165 V5 lost advanced MIDI RPN/NRPN controller state after GUI gesture");
+ std::puts("AUDIT_V5_GUI_AND_RPN_INDEPENDENT_PROJECT_RECALL_PASS");
+}
+// ADVERSE actual Win64 VST3 same-instance concurrency challenge.
+// One real processor audio thread calls process at 128 frames continuously;
+// the DAW host thread alternates full MIDI/RPN V4 projects while invoking
+// getState concurrently. Output must be A or B, never a torn hybrid.
+// A public ROM-less instrument is intentional: tests the *host/runtime
+// ownership and serialization* without claiming any original PCM fidelity.
+void verifyP165ConcurrentHostStateWithLiveProcess(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin plugin(factory,id,host);
+  plugin.start(0,0,48000.);
+  Saved a{},b{};
+  a.program=7u;a.bank=1u;a.master=.375f;
+  b.program=91u;b.bank=0u;b.master=.8125f;
+  a.midiStates.fill(0xFFFFu);b.midiStates.fill(0xFFFFu);
+  a.advancedStates.fill(0xFFFFu);b.advancedStates.fill(0xFFFFu);
+  a.advancedStates[2]=0u;a.advancedStates[3]=0u;
+  a.advancedStates[4]=12u;a.parameterModes[0]=1u;
+  b.advancedStates[2]=0u;b.advancedStates[3]=0u;
+  b.advancedStates[4]=2u;b.parameterModes[0]=1u;
+  for(unsigned i=0;i<15u;++i){
+    a.otherPrograms[i]=static_cast<std::uint8_t>((i*7u)%128u);
+    b.otherPrograms[i]=static_cast<std::uint8_t>((i*11u+9u)%128u);
+    a.otherBanks[i]=static_cast<std::uint8_t>(i%2u);
+    b.otherBanks[i]=static_cast<std::uint8_t>((i+1u)%2u);
+  }
+  std::atomic<bool> keepAudio{true},audioOk{true};
+  std::atomic<unsigned> audioBlocks{0};
+  std::thread audio([&](){
+    std::array<float,128> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
+    ProcessData pd{};
+    pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
+    pd.numSamples=128;pd.numOutputs=1;pd.outputs=&out;
+    while(keepAudio.load(std::memory_order_acquire) ||
+          audioBlocks.load(std::memory_order_relaxed)<5000u){
+        if(plugin.processor->process(pd)!=kResultOk){
+            audioOk.store(false,std::memory_order_release);
+            break;
+        }
+        audioBlocks.fetch_add(1u,std::memory_order_relaxed);
+    }
+  });
+  auto pass=true;
+  for(int trial=0;trial<400 && pass;++trial){
+    auto& expected=trial%2?b:a;
+    MemoryStream source;
+    int32 bytes=0;
+    if(source.write(&expected,sizeof(expected),&bytes)!=kResultOk ||
+       bytes!=sizeof(expected) ||
+       source.seek(0,IBStream::kIBSeekSet,nullptr)!=kResultOk ||
+       plugin.component->setState(&source)!=kResultOk){
+       pass=false;break;
+    }
+    MemoryStream saved;
+    if(plugin.component->getState(&saved)!=kResultOk ||
+       saved.getSize()!=sizeof(expected)){
+       pass=false;break;
+    }
+    const bool matchesA=std::memcmp(saved.getData(),&a,sizeof(a))==0;
+    const bool matchesB=std::memcmp(saved.getData(),&b,sizeof(b))==0;
+    if(!matchesA&&!matchesB){pass=false;break;}
+  }
+  keepAudio.store(false,std::memory_order_release);
+  audio.join();
+  check(pass,"P165 concurrent getState/setState returned corrupted/torn MIDI/RPN project");
+  check(audioOk.load(std::memory_order_acquire),
+        "P165 native audio thread failed concurrent full 16-channel host-state restore");
+  check(audioBlocks.load(std::memory_order_acquire)>=5000u,
+        "P165 same-instance audio-thread scheduler stress was not executed");
+  std::puts("P165_REAL_WIN64_VST3_SAME_INSTANCE_5000_BLOCKS_400_PROJECT_STATES_LOCKFREE_AUDIO_PASS");
+}
+
 void verifyP011MultichannelProjectRecall(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host) {
@@ -867,13 +1340,845 @@ void ownerBank(const fs::path& folder,const char* name){
  fs::copy_file(folder/name,dest,fs::copy_options::overwrite_existing,ec);
  if(ec)throw std::runtime_error("owner SF2 hot replacement failed "+ec.message());
 }
+// True private real-asset POSITIVE V5 file identity + original-chip PCM
+// across project reopen. NOT a copy-back of bundle-local user.sf2.
+void verifyP165PrivateExternalSf2V5OriginalPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources,
+    int program=7) {
+  const auto vintage=resources/"vintage.sf2";
+  const auto user77=resources/"77-presets.sf2";
+  check(fs::is_regular_file(vintage)&&fs::is_regular_file(user77),
+        "P165 actual original owner SF2 positive test assets missing");
+  // First obtain an independent source PCM fingerprint from a genuine
+  // ORIGINAL Creative chip with bundle-local vintage SF2, as V4 always did.
+  ownerBank(resources,"vintage.sf2");
+  auto oldProject=Plugin(factory,id,host);
+  oldProject.start(program,1,44100.);
+  const auto originalPCM=p015Play(oldProject,0,60);
+  // Now intentionally alter the default bank on disk to DIFFERENT SF2.
+  // Independent negative control: the wrong bank must produce a different
+  // real 86Box chip waveform, or our positive V5 test could pass vacuously.
+  ownerBank(resources,"77-presets.sf2");
+  auto wrongBank=Plugin(factory,id,host);
+  wrongBank.start(program,1,44100.);
+  check(p015Play(wrongBank,0,60)!=originalPCM,
+        "P165 owner A/B fixture has identical original chip PCM");
+  std::array<std::uint8_t,32> digest{};
+  check(p009::sha256FileNonRealtime(vintage,digest),
+        "P165 cannot hash real original owner SoundFont");
+  const auto utf8=vintage.u8string();
+  const std::string path(utf8.begin(),utf8.end());
+  struct Extension {
+     std::uint32_t magic=0x35534150u,bytes=0u;
+     std::array<std::uint16_t,12> controls{};
+     std::array<std::uint8_t,32> sha{};
+     std::array<std::uint16_t,2> fx{{4u,2u}};
+  };
+  static_assert(sizeof(Extension)==68u);
+  Saved state{};
+  state.version=5u;state.program=static_cast<uint32_t>(program);state.bank=1u;
+  state.midiStates.fill(0xFFFFu);
+  state.advancedStates.fill(0xFFFFu);
+  Extension extension{};
+  extension.bytes=static_cast<std::uint32_t>(path.size());
+  extension.sha=digest;
+  check(!path.empty()&&path.size()<4096u,"P165 owner SF2 path invalid");
+  std::vector<std::uint8_t> project(sizeof(state)+sizeof(extension)+path.size());
+  std::memcpy(project.data(),&state,sizeof(state));
+  std::memcpy(project.data()+sizeof(state),&extension,sizeof(extension));
+  std::memcpy(project.data()+sizeof(state)+sizeof(extension),
+              path.data(),path.size());
+  const auto restore=[&](Plugin& plugin,std::vector<std::uint8_t>& payload){
+      MemoryStream stream;int32 bytes=0;
+      check(stream.write(payload.data(),static_cast<int32>(payload.size()),
+                         &bytes)==kResultOk&&
+            bytes==static_cast<int32>(payload.size()),
+            "P165 private owner V5 state write");
+      check(stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+            "P165 private owner V5 state rewind");
+      return plugin.component->setState(&stream);
+  };
+  auto reopen=Plugin(factory,id,host);
+  reopen.start(program,1,44100.);
+  check(restore(reopen,project)==kResultOk,
+        "P165 positive owner V5 external SF2 SHA restore failed");
+  MemoryStream stored;
+  check(reopen.component->getState(&stored)==kResultOk &&
+        stored.getSize()==project.size()&&
+        std::memcmp(stored.getData(),project.data(),project.size())==0,
+        "P165 selected real SF2 file identity not preserved bit-exact");
+  const auto actualPCM=p015Play(reopen,0,60);
+  check(actualPCM==originalPCM,
+        "P165 private V5 reopened original chip PCM differs from selected SF2");
+  // Independent fresh host instance (project reopens after DAW restart).
+  auto fresh=Plugin(factory,id,host);
+  fresh.start(program,1,44100.);
+  check(restore(fresh,project)==kResultOk,
+        "P165 fresh project did not load owner SF2 by full path");
+  check(p015Play(fresh,0,60)==originalPCM,
+        "P165 fresh project PCM wrong bank despite SHA-positive SF2 path");
+  // Negative control: a changed real file identity must FAIL WITHOUT
+  // destroying the loaded original instrument or V5 project content.
+  auto invalid=project;
+  invalid[sizeof(state)+8u+24u]^=0x55u;
+  check(restore(reopen,invalid)!=kResultOk,
+        "P165 corrupted owner SF2 SHA was incorrectly accepted");
+  MemoryStream unchanged;
+  check(reopen.component->getState(&unchanged)==kResultOk &&
+        unchanged.getSize()==project.size() &&
+        std::memcmp(unchanged.getData(),project.data(),project.size())==0,
+        "P165 rejected changed SF2 corrupted the current project state");
+  std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
+  ownerBank(resources,nullptr);
+}
+void verifyTailAndBlockPartitions(const VST3::Hosting::PluginFactory& factory,
+                                  const VST3::UID& id,FUnknown* host,
+                                  const fs::path& resources){
+  ownerBank(resources,"expressive.sf2");
+  for(const int rate:{44100,48000,96000}){
+    const int onset=23,release=rate*8/5+127,end=release+rate/4;
+    const auto renderTimeline=[&](Plugin& plugin,bool irregular,bool playNote,
+                                  Plugin* peer=nullptr){
+      std::vector<float> pcm;
+      pcm.reserve(2*end);
+      std::array<float,frames> left{},right{},peerLeft{},peerRight{};
+      float* channels[2]={left.data(),right.data()};
+      float* peerChannels[2]={peerLeft.data(),peerRight.data()};
+      AudioBusBuffers output{},peerOutput{};
+      output.numChannels=peerOutput.numChannels=2;
+      output.channelBuffers32=channels;
+      peerOutput.channelBuffers32=peerChannels;
+      EventList events,peerEvents;
+      ProcessData data{},peerData{};
+      data.numOutputs=peerData.numOutputs=1;
+      data.outputs=&output;
+      data.inputEvents=&events;
+      peerData.outputs=&peerOutput;
+      peerData.inputEvents=&peerEvents;
+      double peerEnergy=0.;
+      constexpr std::array<int,8> sizes{{1,17,63,64,65,127,257,511}};
+      for(int position=0,block=0;position<end;++block){
+        const int count=std::min(end-position,
+                                 irregular?sizes[block%sizes.size()]:frames);
+        events.clear();
+        for(const bool on:{true,false}){
+          const int time=on?onset:release;
+          if(!playNote || time<position || time>=position+count)continue;
+          Event event{};
+          event.sampleOffset=time-position;
+          if(on){
+            event.type=Event::kNoteOnEvent;
+            event.noteOn.pitch=60;event.noteOn.velocity=100.f/127.f;
+          }else{
+            event.type=Event::kNoteOffEvent;event.noteOff.pitch=60;
+          }
+          check(events.addEvent(event)==kResultOk,"tail: could not enqueue note");
+        }
+        if(peer){
+          peerEvents.clear();
+          if(block==0){
+            Event event{};
+            event.type=Event::kNoteOnEvent;
+            event.noteOn.pitch=72;event.noteOn.velocity=1.f;
+            check(peerEvents.addEvent(event)==kResultOk,"tail: peer note missing");
+          }
+          peerData.numSamples=count;
+          check(peer->processor->process(peerData)==kResultOk,"tail: peer callback failed");
+          for(int i=0;i<count;++i)
+            peerEnergy+=double(peerLeft[i])*peerLeft[i]+double(peerRight[i])*peerRight[i];
+        }
+        data.numSamples=count;
+        check(plugin.processor->process(data)==kResultOk,"tail: callback failed");
+        for(int i=0;i<count;++i){
+          check(std::isfinite(left[i]) && std::isfinite(right[i]),"tail: nonfinite PCM");
+          pcm.push_back(left[i]);pcm.push_back(right[i]);
+        }
+        position+=count;
+      }
+      if(peer)check(peerEnergy>0.,"tail: isolation control never played");
+      return pcm;
+    };
+    Plugin fixed(factory,id,host),variable(factory,id,host),peer(factory,id,host);
+    fixed.start(0,1,rate);
+    variable.start(0,1,rate);
+    peer.start(0,1,rate==48000?44100:48000);
+    const auto expected=renderTimeline(fixed,false,true);
+    const auto actual=renderTimeline(variable,true,true,&peer);
+    const auto tailPeak=[&](const std::vector<float>& pcm){
+      float peak=0.f;
+      for(int i=2*(release+rate/10);i<2*end;++i)
+        peak=std::max(peak,std::abs(pcm[i]));
+      return peak;
+    };
+    Plugin silent(factory,id,host);
+    silent.start(0,1,rate);
+    const auto tail=tailPeak(expected);
+    const auto idle=tailPeak(renderTimeline(silent,false,false));
+    const auto reported=fixed.processor->getTailSamples();
+    std::printf("AWE64_TAIL rate=%d postReleasePeak=%.9f noNotePeak=%.9f reported=%u\n",
+                rate,tail,idle,reported);
+    check(tail>1.f/32768.f && idle==0.f,"tail: post-release audio oracle is invalid");
+    check(reported==kInfiniteTail,"tail: host limit may cut off original release/FX");
+    const auto mismatch=std::mismatch(expected.begin(),expected.end(),actual.begin());
+    if(mismatch.first!=expected.end())
+      std::fprintf(stderr,"AWE64_BLOCK_MISMATCH rate=%d frame=%td channel=%td expected=%.9f actual=%.9f\n",
+                   rate,(mismatch.first-expected.begin())/2,(mismatch.first-expected.begin())%2,
+                   *mismatch.first,*mismatch.second);
+    check(mismatch.first==expected.end(),"tail: partition or another instance changed stereo PCM");
+  }
+  ownerBank(resources,nullptr);
+  std::puts("AWE64_TAIL_VARIABLE_BLOCKS_MULTI_INSTANCE_PCM_PASS");
+}
+
+void verifyDrumReleaseAfterBankChange(const VST3::Hosting::PluginFactory& factory,
+                                      const VST3::UID& id,FUnknown* host,
+                                      const fs::path& resources){
+  ownerBank(resources,"drums.sf2");
+  enum class Release { explicitOff, zeroVelocity, none };
+  const auto render=[&](Release release){
+    Plugin plugin(factory,id,host);
+    plugin.start(0,2,44100.); // browser drum lane redirects CH1 to CH10
+    std::array<float,frames> left{},right{};
+    float* channels[2]={left.data(),right.data()};
+    AudioBusBuffers output{};
+    output.numChannels=2;
+    output.channelBuffers32=channels;
+    EventList events;
+    ParameterChanges changes(1);
+    ProcessData data{};
+    data.numSamples=frames;
+    data.numOutputs=1;
+    data.outputs=&output;
+    data.inputEvents=&events;
+    data.inputParameterChanges=&changes;
+    std::vector<float> pcm;
+    for(int block=0;block<100;++block){
+      events.clear();
+      changes.clearQueue();
+      if(block==0){
+        Event event{};
+        event.type=Event::kNoteOnEvent;
+        event.noteOn.pitch=60;event.noteOn.velocity=1.f;
+        check(events.addEvent(event)==kResultOk,"drum release: missing note");
+      }
+      if(block==64){
+        int32 queue=0,point=0;
+        auto* bank=changes.addParameterData(1002u,queue);
+        check(bank && bank->addPoint(1,0.,point)==kResultOk,
+              "drum release: missing change to melodic bank");
+      }
+      if(block==70 && release!=Release::none){
+        Event event{};
+        event.sampleOffset=15;
+        if(release==Release::explicitOff){
+          event.type=Event::kNoteOffEvent;
+          event.noteOff.pitch=60;
+        }else{
+          event.type=Event::kNoteOnEvent;
+          event.noteOn.pitch=60;event.noteOn.velocity=0.f;
+        }
+        check(events.addEvent(event)==kResultOk,"drum release: missing release");
+      }
+      check(plugin.processor->process(data)==kResultOk,"drum release: callback failed");
+      for(int i=0;i<frames;++i){
+        check(std::isfinite(left[i]) && std::isfinite(right[i]),
+              "drum release: nonfinite PCM");
+        pcm.push_back(left[i]);pcm.push_back(right[i]);
+      }
+    }
+    return pcm;
+  };
+  const auto explicitOff=render(Release::explicitOff);
+  const auto zeroVelocity=render(Release::zeroVelocity);
+  const auto held=render(Release::none);
+  check(explicitOff!=held,"drum release: explicit NoteOff did not change held PCM");
+  check(zeroVelocity==explicitOff,
+        "drum release: zero-velocity NoteOn lost the original drum route");
+  ownerBank(resources,nullptr);
+  std::puts("AWE64_ZERO_VELOCITY_RELEASE_ORIGINAL_DRUM_ROUTE_PCM_PASS");
+}
+
+// P168 adversarial original-chip per-knob audio contract: every one of
+// the 10 non-FX faceplate controls must change REAL rendered EMU8000 PCM on
+// a deliberately expressive SoundFont. A stored V5 project must produce
+// exactly the same audio in a completely fresh actual Windows VST3 instance.
+// Using a default fast-envelope one-shot for this test would falsely treat
+// an inaudible-but-correct envelope knob as broken.
+void verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+    ownerBank(resources,"expressive.sf2");
+    struct Extension {
+        std::uint32_t magic=0x35534150u,bytes=0u;
+        std::array<std::uint16_t,12> controls{};
+        std::array<std::uint8_t,32> sha{};
+        std::array<std::uint16_t,2> fx{{4u,2u}};
+    };
+    static_assert(sizeof(Extension)==68u);
+    struct AudioResult {
+        std::uint64_t hash=14695981039346656037ull;
+        double energy=0.;
+        std::vector<std::uint8_t> state;
+    };
+    const auto play=[&](int knob,const std::vector<std::uint8_t>* project){
+        Plugin p(factory,id,host);
+        p.start(0,1,44100.);
+        if(project){
+            MemoryStream read;int32 written=0;
+            check(read.write(const_cast<std::uint8_t*>(project->data()),
+                         static_cast<int32>(project->size()),&written)==kResultOk &&
+                  written==static_cast<int32>(project->size()) &&
+                  read.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+                  p.component->setState(&read)==kResultOk,
+                  "P168 V5 faceplate project reload rejected in real VST3");
+        }
+        std::array<float,frames> left{},right{};
+        float* channels[2]={left.data(),right.data()};
+        AudioBusBuffers output{};
+        output.numChannels=2;output.channelBuffers32=channels;
+        EventList events;
+        ParameterChanges params(1);
+        ProcessData pd{};pd.processMode=kRealtime;
+        pd.symbolicSampleSize=kSample32;pd.numSamples=frames;
+        pd.numOutputs=1;pd.outputs=&output;
+        pd.inputEvents=&events;pd.inputParameterChanges=&params;
+        AudioResult result{};
+        // Hold for >1s to reach the deliberately long envelopes; then
+        // release and measure the real original-chip tail for both AMP and
+        // FILTER release controls. No fake DSP or synthetic PCM substitution.
+        for(int block=0;block<112;++block){
+            events.clear();params.clearQueue();
+            if(block==0){
+                if(knob>=0){
+                    int32 qi=0,pi=0;
+                    auto* q=params.addParameterData(1100u+knob,qi);
+                    check(q&&q->addPoint(0,1.,pi)==kResultOk,
+                          "P168 actual VST3 host faceplate automation absent");
+                }
+                Event on{};on.type=Event::kNoteOnEvent;
+                on.sampleOffset=12;on.noteOn.channel=0;
+                on.noteOn.pitch=60;on.noteOn.velocity=100.f/127.f;
+                check(events.addEvent(on)==kResultOk,"P168 genuine NoteOn missing");
+            }
+            if(block==68){
+                Event off{};off.type=Event::kNoteOffEvent;
+                off.sampleOffset=511;off.noteOff.channel=0;off.noteOff.pitch=60;
+                check(events.addEvent(off)==kResultOk,"P168 genuine NoteOff missing");
+            }
+            check(p.processor->process(pd)==kResultOk,
+                  "P168 actual original-chip MIDI+hardware GUI process failed");
+            for(int i=0;i<frames;++i){
+                for(float sample:{left[i],right[i]}){
+                    check(std::isfinite(sample),"P168 original chip produced nonfinite PCM");
+                    result.energy+=double(sample)*double(sample);
+                    std::uint32_t bits=0;std::memcpy(&bits,&sample,sizeof(bits));
+                    result.hash=(result.hash^bits)*1099511628211ull;
+                }
+            }
+        }
+        MemoryStream state;
+        check(p.component->getState(&state)==kResultOk,
+              "P168 actual VST3 project state unavailable after audio");
+        const auto* bytes=reinterpret_cast<const std::uint8_t*>(state.getData());
+        check(bytes!=nullptr && state.getSize()>0,
+              "P168 host returned empty project state after real PCM");
+        result.state.assign(bytes,bytes+state.getSize());
+        return result;
+    };
+    const auto baseline=play(-1,nullptr);
+    check(baseline.energy>0.01,
+          "P168 invalid adversarial control oracle: no expressive original PCM");
+    for(int knob=0;knob<10;++knob){
+        const auto edited=play(knob,nullptr);
+        check(edited.energy>0.001,
+              "P168 edited native SoundFont was accidentally muted");
+        check(edited.hash!=baseline.hash,
+              "P168 hardware faceplate knob changed state but not original-chip audio");
+        check(edited.state.size()==648u,
+              "P168 genuine faceplate control not serialized as V5 state");
+        // std::vector<uint8_t> has no contractual alignment for Extension.
+        // Decode the wire format via memcpy, never an unaligned cast.
+        Extension ext{};
+        std::memcpy(&ext,edited.state.data()+sizeof(Saved),sizeof(ext));
+        check(ext.magic==0x35534150u && ext.controls[knob]==10000u,
+              "P168 sound-producing control missing from saved project");
+        const auto recalled=play(-1,&edited.state);
+        check(recalled.hash==edited.hash &&
+              std::abs(recalled.energy-edited.energy)<1e-7,
+              "P168 reloaded V5 hardware control produces DIFFERENT genuine PCM");
+        check(recalled.hash!=baseline.hash,
+              "P168 negative control: audio reverted to unedited SoundFont after recall");
+        std::printf("P168_REAL_86BOX_GUI_KNOB_PCM_ORIGINAL_REOPEN_PASS control=%d base=%016llX changed=%016llX rms2=%.7f\n",
+              knob,static_cast<unsigned long long>(baseline.hash),
+              static_cast<unsigned long long>(edited.hash),edited.energy);
+    }
+    std::puts("P168_ACTUAL_WINDOWS_VST3_TEN_HARDWARE_KNOBS_AUDIBLE_V5_SAVE_REOPEN_PCM_PASS");
+    ownerBank(resources,nullptr);
+}
+
+// P167: two genuinely independent original 86Box chip instances start
+// with the same sustained sample and note. Master is *post-chip* linear
+// output scaling, so an independent reference waveform predicts the exact
+// piecewise PCM of two host parameter points inside ONE audio callback.
+// A broken block-global "last master point" implementation fails the
+// early, middle and final PCM windows even though final state would pass.
+void verifyP167TimedMasterOriginalPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"sustain.sf2");
+  Plugin ref(factory,id,host);ref.start(0,1,44100.);
+  Plugin stepped(factory,id,host);stepped.start(0,1,44100.);
+  EventList notes1,notes2;
+  Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=0;
+  on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
+  check(notes1.addEvent(on)==kResultOk && notes2.addEvent(on)==kResultOk,
+        "P167 original-chip master independent NoteOn fixture");
+  ParameterChanges master(1);int32 queue=0,index=0;
+  auto* points=master.addParameterData(1001u,queue);
+  check(points&&points->addPoint(192,.25,index)==kResultOk&&
+        points->addPoint(700,.75,index)==kResultOk,
+        "P167 actual Steinberg host cannot enqueue two timed master points");
+  std::array<float,frames> baseL{},baseR{},stepL{},stepR{};
+  float* b[2]={baseL.data(),baseR.data()};
+  float* s[2]={stepL.data(),stepR.data()};
+  AudioBusBuffers out1{},out2{};
+  out1.numChannels=out2.numChannels=2;
+  out1.channelBuffers32=b;out2.channelBuffers32=s;
+  ProcessData d1{},d2{};
+  d1.processMode=d2.processMode=kRealtime;
+  d1.symbolicSampleSize=d2.symbolicSampleSize=kSample32;
+  d1.numSamples=d2.numSamples=frames;
+  d1.numOutputs=d2.numOutputs=1;d1.outputs=&out1;d2.outputs=&out2;
+  d1.inputEvents=&notes1;
+  d2.inputEvents=&notes2;d2.inputParameterChanges=&master;
+  check(ref.processor->process(d1)==kResultOk &&
+        stepped.processor->process(d2)==kResultOk,
+        "P167 real Windows 86Box VST3 dual chip master automation callback");
+  std::array<double,3> referenceEnergy{},sampleDifference{};
+  for(int i=0;i<frames;++i){
+     const int window=i<192?0:i<700?1:2;
+     const double gain=window==0?1.:window==1?.25:.75;
+     const double base=double(baseL[i])*baseL[i]+double(baseR[i])*baseR[i];
+     referenceEnergy[window]+=base;
+     const double dL=double(stepL[i])-double(baseL[i])*gain;
+     const double dR=double(stepR[i])-double(baseR[i])*gain;
+     sampleDifference[window]+=dL*dL+dR*dR;
+     check(std::abs(dL)<1e-6&&std::abs(dR)<1e-6,
+           "P167 sample-offset master output not piecewise original-chip PCM");
+  }
+  for(int i=0;i<3;++i)
+     check(referenceEnergy[i]>.001,
+           "P167 invalid timing oracle: no original chip audio in a PCM window");
+  // Negative control: a last-point (.75) applied to the ENTIRE block
+  // would produce a different early/middle PCM. A fake silence PASS fails.
+  double wrongLastPoint=0.;
+  for(int i=0;i<700;++i){
+    const double errL=double(stepL[i])-double(baseL[i])*.75;
+    const double errR=double(stepR[i])-double(baseR[i])*.75;
+    wrongLastPoint+=errL*errL+errR*errR;
+  }
+  check(wrongLastPoint>.001,
+        "P167 negative control did not catch last-point block-global master");
+  MemoryStream saved;
+  check(stepped.component->getState(&saved)==kResultOk &&
+        saved.getSize()==sizeof(Saved),
+        "P167 master timing unexpectedly changed V4 saved-state layout");
+  Saved finalState{};
+  std::memcpy(&finalState,saved.getData(),sizeof(finalState));
+  check(finalState.master==.75f &&
+        std::abs(stepped.controller->getParamNormalized(1001u)-.75)<.0001,
+        "P167 final master state/controller did not agree with last sample point");
+  std::printf("P167_ORIGINAL_86BOX_MASTER_PCM_WINDOWS energy=%.6f/%.6f/%.6f error=%.10f/%.10f/%.10f wrongLastPoint=%.6f\n",
+      referenceEnergy[0],referenceEnergy[1],referenceEnergy[2],
+      sampleDifference[0],sampleDifference[1],sampleDifference[2],wrongLastPoint);
+  std::puts("P167_ACTUAL_WINDOWS_VST3_SAMPLE_ACCURATE_MASTER_AUTOMATION_ORIGINAL_PCM_PASS");
+  ownerBank(resources,nullptr);
+}
+
+// F-09: Run the genuinely loaded Win64 original-chip VST3 with two
+// deliberately saturated host inputs. The public SoundFont used here is
+// *sustained*, not a self-decaying one-shot (which could falsely pass a
+// stuck-note test with no CC120 voice cleanup).
+// F-05 negative control: MIDI CC0 selects bank1 in the actual chip, then
+// a later HOST bank0 edit (including a same-value GUI bank reselection)
+// must defeat old CC0 in both the actual PCM and V4/V5 project state.
+// A false PASS is prevented by a separately audible bank0/bank1 oracle.
+void verifyP165HostBankSupersedesOldCC0(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"77-presets.sf2"); // unlike base SBK's waveform
+   auto replay=Plugin(factory,id,host);replay.start(0,0,44100.);
+   IMidiMapping* raw=nullptr;
+   check(replay.controller->queryInterface(IMidiMapping::iid,
+         reinterpret_cast<void**>(&raw))==kResultOk&&raw,
+         "F05 no actual VST3 MIDI mapping interface");
+   const IPtr<IMidiMapping> mapping=owned(raw);
+   ParamID cc0=0;
+   check(mapping->getMidiControllerAssignment(0,0,kCtrlBankSelectMSB,cc0)
+         ==kResultTrue,"F05 mapped CC0 unavailable in actual VST3");
+   ParameterChanges params(2);
+   std::array<float,frames> l{},r{};
+   float* channels[2]={l.data(),r.data()};
+   AudioBusBuffers output{};
+   output.numChannels=2;output.channelBuffers32=channels;
+   ProcessData pd{};pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
+   pd.numSamples=frames;pd.numOutputs=1;pd.outputs=&output;
+   pd.inputParameterChanges=&params;
+   int32 qIndex=0,point=0;
+   auto* q=params.addParameterData(cc0,qIndex);
+   check(q && q->addPoint(10,1./127.,point)==kResultOk,
+         "F05 original MIDI CC0 bank1 event missing");
+   check(replay.processor->process(pd)==kResultOk,
+         "F05 CC0 original-chip callback rejected");
+   MemoryStream first;
+   check(replay.component->getState(&first)==kResultOk&&
+         first.getSize()==sizeof(Saved),"F05 CC0 state lost");
+   Saved initially{};
+   std::memcpy(&initially,first.getData(),sizeof(initially));
+   check(initially.advancedStates[0]==1u&&initially.bank==1u&&
+         replay.controller->getParamNormalized(1002u)==.5,
+         "F05 MIDI CC0 bank1 not reflected in controller and engine state");
+   // An explicit same-bank host edit must win over this prior CC0.
+   params.clearQueue();qIndex=0;point=0;
+   q=params.addParameterData(1002u,qIndex); // host Bank CH1
+   check(q && q->addPoint(0,0.,point)==kResultOk,
+         "F05 actual host same-bank reassert automation missing");
+   check(replay.processor->process(pd)==kResultOk,
+         "F05 actual host bank0 did not execute after CC0");
+   MemoryStream after;
+   check(replay.component->getState(&after)==kResultOk&&
+         after.getSize()==sizeof(Saved),"F05 state after reassert unavailable");
+   Saved selected{};
+   std::memcpy(&selected,after.getData(),sizeof(selected));
+   check(selected.bank==0u&&selected.advancedStates[0]==0xFFFFu&&
+         selected.advancedStates[1]==0xFFFFu,
+         "F05 previous CC0/CC32 would override the ROM bank after reopening");
+   auto reopened=Plugin(factory,id,host);
+   reopened.start(0,0,44100.);
+   p015Restore(reopened,selected);
+   auto reference0=Plugin(factory,id,host);
+   reference0.start(0,0,44100.);
+   auto reference1=Plugin(factory,id,host);
+   reference1.start(0,1,44100.);
+   const auto romPCM=p015Play(reference0,0,60);
+   const auto sf2PCM=p015Play(reference1,0,60);
+   check(romPCM!=sf2PCM,
+         "F05 invalid PCM oracle: bank0 and bank1 fixtures identical");
+   check(p015Play(reopened,0,60)==romPCM,
+         "F05 VST3 project recall replayed stale MIDI CC0 instead of GUI ROM");
+   std::puts("P165_F05_ACTUAL_WINDOWS_VST3_CC0_HOST_BANK_RESELECT_V4_RECALL_PCM_PASS");
+   ownerBank(resources,nullptr);
+}
+void verifyP165HeldNoteOverflowRecovery(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"sustain.sf2");
+   for(const bool eventOverflow:{true,false}){
+     Plugin p(factory,id,host);
+     p.start(0,1,44100.);
+     // Steinberg's *example host* EventList defaults to maxSize=50.
+     // We deliberately need 513 genuine ABI events to challenge the
+     // actual plugin limit of 512. Preallocate on the HOST/test thread.
+     EventList notes(514);
+     ParameterChanges params(4);
+     std::array<float,frames> left{},right{};
+     float* channels[2]={left.data(),right.data()};
+     AudioBusBuffers output{};
+     output.numChannels=2;output.channelBuffers32=channels;
+     ProcessData data{};
+     data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+     data.numSamples=frames;data.numOutputs=1;data.outputs=&output;
+     data.inputEvents=&notes;data.inputParameterChanges=&params;
+     const auto energy=[&](){
+       double sum=0.;
+       for(int i=0;i<frames;++i)
+         for(float sample:{left[i],right[i]}){
+           check(std::isfinite(sample),"F09 original chip nonfinite PCM");
+           sum+=double(sample)*double(sample);
+         }
+       return sum;
+     };
+     Event on{};on.type=Event::kNoteOnEvent;on.sampleOffset=12;
+     on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
+     check(notes.addEvent(on)==kResultOk,"F09 sustained NoteOn fixture");
+     // The original Creative/SF2 instrument sends some signal to hardware
+     // FX by default. CC120 must stop the voice, but must NOT artificially
+     // clear a legitimately ringing reverb/chorus tail. Disable both
+     // hardware sends *before* this note to make post-CC120 PCM a valid
+     // sustained-VOICE (not FX-tail) oracle. This is genuine 86Box chip DSP.
+     for(const auto [id,value]:std::array<std::pair<ParamID,ParamValue>,4>{{
+          {1420u,1.},{1421u,1.},{1110u,0.},{1111u,0.}}}){
+       int32 idx=0,point=0;
+       auto* queue=params.addParameterData(id,idx);
+       check(queue && queue->addPoint(0,value,point)==kResultOk,
+             "F09 original chip hardware sends could not be set DRY");
+     }
+     double heldEnergy=0.,earlyEnergy=0.;
+     for(int block=0;block<6;++block){
+       if(block){notes.clear();params.clearQueue();}
+       check(p.processor->process(data)==kResultOk,
+             "F09 held synthetic SF2 normal audio");
+       if(block==1)earlyEnergy=energy();
+       if(block==5)heldEnergy=energy();
+     }
+     std::printf("P165_F09_SUSTAIN_ORACLE first=%.9f held=%.9f\n",
+                 earlyEnergy,heldEnergy);
+     check(earlyEnergy>0.001,
+           "F09 test not valid: actual synthetic VST3 produced no initial note");
+     check(heldEnergy>0.001,
+           "F09 test not valid: synthetic SoundFont did not sustain a note");
+     if(eventOverflow){
+       // No matching CH1 NoteOff is present. This must not leave the
+       // original EMU8000 voice held once the VST3 input is rejected.
+       for(int i=0;i<513;++i){
+         Event off{};off.type=Event::kNoteOffEvent;
+         off.sampleOffset=0;off.noteOff.channel=15;
+         off.noteOff.pitch=i%128;
+         check(notes.addEvent(off)==kResultOk,
+               "F09 actual host cannot enqueue >512 MIDI events");
+       }
+     }else{
+       int32 qIndex=0,point=0;
+       auto* q=params.addParameterData(2000u,qIndex); // CH1 CC1
+       check(q!=nullptr,"F09 actual host CC queue missing");
+       for(int i=0;i<513;++i)
+         check(q->addPoint(i%frames,double(i%127)/127.,point)==kResultOk,
+               "F09 actual host cannot enqueue >512 CC points");
+     }
+     left.fill(-1.f);right.fill(1.f);
+     check(p.processor->process(data)==kResultFalse,
+           "F09 input saturation must be explicit fail-closed");
+     for(int i=0;i<frames;++i)
+       check(left[i]==0.f&&right[i]==0.f,
+             "F09 rejected block leaked original chip audio");
+     check(output.silenceFlags==3u,
+           "F09 rejected block did not advertise actual zero output");
+     notes.clear();params.clearQueue();
+     double after=0.;
+     for(int block=0;block<8;++block){
+       output.silenceFlags=0;
+       check(p.processor->process(data)==kResultOk,
+             "F09 original synth stuck in overload failure state");
+       if(block==7)after=energy();
+     }
+     std::printf("P165_F09_VOICE_EXTINCTION path=%s held=%.9f after=%.9f ratio=%.9f\n",
+                 eventOverflow?"events":"CC",heldEnergy,after,
+                 heldEnergy>0.?after/heldEnergy:0.);
+     check(after<heldEnergy*0.001,
+           "F09 dry original chip voice survived rejected NoteOff block");
+     // The safety event must kill the old note, NOT permanently mute the
+     // device. A fresh legitimate NoteOn must still play.
+     check(notes.addEvent(on)==kResultOk,
+           "F09 post-recovery legitimate NoteOn enqueue");
+     double retrigger=0.;
+     for(int block=0;block<4;++block){
+       if(block)notes.clear();
+       check(p.processor->process(data)==kResultOk,
+             "F09 post-recovery original chip callback failed");
+       if(block==3)retrigger=energy();
+     }
+     check(retrigger>heldEnergy*0.01,
+           "F09 overflow recovery permanently muted new original-chip notes");
+   }
+   std::puts("P165_F09_ACTUAL_WINDOWS_VST3_SUSTAINED_VOICE_EVENT_AND_CC_OVERFLOW_RECOVERY_PCM_PASS");
+   ownerBank(resources,nullptr);
+}
+
+// F-07: Interleave multiple full original-chip SoundFont swaps with
+// stopped audio and normal audio, and close the *actual VST3 instance*
+// while a 28 MiB replacement has not yet reached an audio callback.
+// Each restored V5 file identity and SHA must remain exact. This is a
+// lifecycle stress contract, NOT a sanitizer or proof of every host race.
+void verifyP165InterruptedAssetLifecycle(
+     const VST3::Hosting::PluginFactory& factory,
+     const VST3::UID& id,FUnknown* host,const fs::path& resources){
+   ownerBank(resources,"vintage.sf2");
+   struct Extension {
+     std::uint32_t magic=0x35534150u,bytes=0u;
+     std::array<std::uint16_t,12> controls{};
+     std::array<std::uint8_t,32> sha{};
+     std::array<std::uint16_t,2> fx{{4u,2u}};
+   };
+   static_assert(sizeof(Extension)==68u);
+   const auto projectFor=[&](const fs::path& sf2){
+     std::array<std::uint8_t,32> digest{};
+     check(p009::sha256FileNonRealtime(sf2,digest),
+           "F07 interrupted asset has no verifiable SF2 SHA");
+     const auto utf8=sf2.u8string();
+     const std::string path(utf8.begin(),utf8.end());
+     Saved state{};state.version=5u;state.bank=1u;
+     state.midiStates.fill(0xFFFFu);
+     state.advancedStates.fill(0xFFFFu);
+     Extension ext{};ext.sha=digest;
+     ext.bytes=static_cast<std::uint32_t>(path.size());
+     std::vector<std::uint8_t> payload(sizeof(state)+sizeof(ext)+path.size());
+     std::memcpy(payload.data(),&state,sizeof(state));
+     std::memcpy(payload.data()+sizeof(state),&ext,sizeof(ext));
+     std::memcpy(payload.data()+sizeof(state)+sizeof(ext),path.data(),path.size());
+     return payload;
+   };
+   const auto a=projectFor(resources/"vintage.sf2");
+   const auto b=projectFor(resources/"77-presets.sf2");
+   for(int cycle=0;cycle<6;++cycle){
+     Plugin p(factory,id,host);p.start(0,1,44100.);
+     for(int swap=0;swap<3;++swap){
+       const auto& target=(swap&1)?b:a;
+       MemoryStream stream;int32 written=0;
+       check(stream.write(const_cast<std::uint8_t*>(target.data()),
+                 static_cast<int32>(target.size()),&written)==kResultOk &&
+             written==static_cast<int32>(target.size()) &&
+             stream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+             p.component->setState(&stream)==kResultOk,
+             "F07 actual VST3 interrupted 28 MiB asset swap rejected");
+       MemoryStream saved;
+       check(p.component->getState(&saved)==kResultOk &&
+             saved.getSize()==target.size() &&
+             std::memcmp(saved.getData(),target.data(),target.size())==0,
+             "F07 queued asset swap corrupted serialized SHA/path");
+       if(cycle%2==0 && swap==1){
+         std::array<float,frames> l{},r{};
+         float* lr[2]={l.data(),r.data()};
+         AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=lr;
+         ProcessData data{};data.processMode=kRealtime;
+         data.symbolicSampleSize=kSample32;data.numSamples=frames;
+         data.numOutputs=1;data.outputs=&out;
+         check(p.processor->process(data)==kResultOk,
+               "F07 staged synth could not transition at audio boundary");
+       }
+     }
+     // Deliberately no final process(): odd cycles die with the newest
+     // replacement staged; even cycles have an older chip retired.
+     // Plugin destructor performs normal processing-stop/deactivation/
+     // termination; each must release unused synths outside audio.
+   }
+   std::puts("P165_F07_ACTUAL_WINDOWS_VST3_INTERRUPTED_SF2_SWAP_CLOSE_REOPEN_STATE_PASS");
+   ownerBank(resources,nullptr);
+}
+
+// In the exact native EMU8000 instrument: 0% SEND means zero ORIGINAL
+// hardware reverb/chorus register after an explicit human/host edit.
+// Untouched "DEFAULT" sends MUST preserve the original SoundFont PCM.
+// The public --wet SoundFont has real send generators; the chip/FX
+// conversion is real and no mock DSP or owner ROM enters the public build.
+void verifyP165RealChipFxSendAndPresetPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  const auto pcm=[&](bool manual,double send,int rev,int chorus,
+                     bool resetToOriginal=false){
+    Plugin p(factory,id,host);p.start(0,1,44100.);
+    EventList events;
+    ParameterChanges params(10);
+    std::array<float,frames> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=frames;
+    data.numOutputs=1;data.outputs=&out;
+    data.inputEvents=&events;data.inputParameterChanges=&params;
+    std::uint64_t hash=14695981039346656037ull;
+    double energy=0.;
+    for(int block=0;block<66;++block){
+      events.clear();params.clearQueue();
+      if(block==0){
+        auto add=[&](ParamID id,ParamValue value){
+            int32 idx=0,point=0;
+            auto* queue=params.addParameterData(id,idx);
+            check(queue && queue->addPoint(0,value,point)==kResultOk,
+                  "P165 real chip FX SEND automation queue not accepted");
+        };
+        if(manual){
+           add(1420u,1.);add(1421u,1.);
+           add(1110u,send);add(1111u,send);
+        }
+        if(resetToOriginal){
+           // DELIBERATELY supply mode-before-knob at same sample to
+           // adversarially challenge host queue enumeration order.
+           add(1420u,0.);add(1421u,0.);
+           add(1110u,0.);add(1111u,0.);
+        }
+        if(rev>=0)add(1400u,static_cast<double>(rev)/7.);
+        if(chorus>=0)add(1401u,static_cast<double>(chorus)/7.);
+        Event note{};note.type=Event::kNoteOnEvent;note.busIndex=0;
+        note.sampleOffset=12;note.noteOn.channel=0;
+        note.noteOn.pitch=60;note.noteOn.velocity=100.f/127.f;
+        check(events.addEvent(note)==kResultOk,
+              "P165 original chip FX NoteOn generator failed");
+      }
+      if(block==26){
+        Event off{};off.type=Event::kNoteOffEvent;off.busIndex=0;
+        off.sampleOffset=400;off.noteOff.channel=0;off.noteOff.pitch=60;
+        check(events.addEvent(off)==kResultOk,
+              "P165 original chip FX NoteOff generator failed");
+      }
+      check(p.processor->process(data)==kResultOk,
+            "P165 actual ORIGINAL 86Box chip/FX VST3 process failed");
+      for(unsigned i=0;i<frames;++i){
+         for(float v:{left[i],right[i]}){
+           check(std::isfinite(v),"P165 original chip FX PCM not finite");
+           energy+=double(v)*double(v);
+           std::uint32_t bits=0;std::memcpy(&bits,&v,4u);
+           hash=(hash^bits)*1099511628211ull;
+         }
+      }
+    }
+    check(energy>0.001,"P165 synthetic wet 86Box original chip produced silence");
+    return hash;
+  };
+  const auto original=pcm(false,0.,-1,-1);
+  const auto sendsZero=pcm(true,0.,-1,-1);
+  const auto sendsHundred=pcm(true,1.,-1,-1);
+  const auto backToOriginal=pcm(false,0.,-1,-1,true);
+  const auto differentTypes=pcm(false,0.,7,7);
+  check(original!=sendsZero,
+        "P165 explicit 0% SEND produced original wet PCM: hardware sends not zero");
+  check(sendsZero!=sendsHundred,
+        "P165 explicit 0 and 100% original chip send values have no real PCM effect");
+  check(original==backToOriginal,
+        "P165 SEND RESET did not recover exact original SF2/Creative PCM after mode-before-value host events");
+  check(original!=differentTypes,
+        "P165 reverb/chorus type selectors changed parameters but not real chip PCM");
+  std::puts("P165_ACTUAL_ORIGINAL_EMU8000_VST3_DEFAULT_VS_ZERO_VS_100_SEND_PCM_PASS");
+  std::puts("P165_ACTUAL_ORIGINAL_EMU8000_VST3_CHORUS_REVERB_TYPES_CHANGE_PCM_PASS");
+  ownerBank(resources,nullptr);
+}
+
+}
+// Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
+// sample PCM must fail where pre-P171 silently truncated the upload.
+void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  check(fs::is_regular_file(resources/"oversized.sf2") &&
+        fs::file_size(resources/"oversized.sf2")>28u*1024u*1024u,
+        "P171 oversized SF2 fixture missing");
+  ownerBank(resources,"vintage.sf2");
+  const auto prior=render(factory,id,host,"P171_NORMAL_BEFORE",
+                          44100,0,60,100,0,1);
+  audible(prior,"P171 normal SoundFont before rejection");
+  ownerBank(resources,"oversized.sf2");
+  const auto refused=render(factory,id,host,"P171_TOO_BIG",
+                            44100,0,60,100,0,1);
+  check(refused.rms==0.&&refused.peak==0.,
+        "P171 overlimit SF2 silently uploaded truncated samples");
+  ownerBank(resources,"vintage.sf2");
+  const auto restored=render(factory,id,host,"P171_NORMAL_AFTER",
+                             44100,0,60,100,0,1);
+  audible(restored,"P171 valid SoundFont recovered");
+  check(prior.hash==restored.hash,
+        "P171 oversized SF2 mutated subsequent original chip PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P171_28MIB_HARDWARE_RAM_REJECTION_AND_RECOVERY_PASS");
 }
 int main(int argc,char** argv){
  try{
+  std::setvbuf(stdout,nullptr,_IONBF,0);
   check(argc==3&&(std::strcmp(argv[2],"--public")==0||
-      std::strcmp(argv[2],"--private")==0),
-      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private");
+      std::strcmp(argv[2],"--private")==0||
+      std::strcmp(argv[2],"--synthetic")==0),
+      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic");
   const bool priv=std::strcmp(argv[2],"--private")==0;
+  const bool synthetic=std::strcmp(argv[2],"--synthetic")==0;
   const fs::path bundle=fs::absolute(argv[1]);
   check(fs::is_directory(bundle),"actual native VST3 bundle missing");
   const auto resources=bundle/"Contents"/"Resources"/"P009-Private";
@@ -881,6 +2186,12 @@ int main(int argc,char** argv){
     for(const char* file:{"awe32.raw","SYNTHGM.SBK","77-presets.sf2","vintage.sf2"})
       check(fs::is_regular_file(resources/file),"original ROM/SBK/2 owner SF2 missing");
     check(fs::file_size(resources/"awe32.raw")==1048576u,"ROM must be genuine 1MiB");
+  }else if(synthetic){
+    for(const char* file:{"awe32.raw","SYNTHGM.SBK","77-presets.sf2","vintage.sf2"})
+      check(fs::is_regular_file(resources/file),
+            "public P165 original-chip VST3 synthetic A/B SF2 fixture missing");
+    check(fs::file_size(resources/"awe32.raw")==1048576u,
+          "public fake ROM must be exactly 1MiB");
   }else check(!fs::exists(resources/"awe32.raw"),
               "public QA must NEVER use a real owner's licensed ROM");
   std::string err;
@@ -893,11 +2204,33 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  verifyZeroFrameParameterFlush(factory,cls->ID(),host.get());
+  verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(factory,cls->ID(),host.get());
+  verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
+  verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
+  auditV5DoesNotEraseAdvancedMidiControllers(factory,cls->ID(),host.get());
+  verifyP165ConcurrentHostStateWithLiveProcess(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
   verifyP014PatchAutomationState(factory,cls->ID(),host.get());
   verifyP015PublicActiveRestore(factory,cls->ID(),host.get());
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
+  if(synthetic){
+    ownerBank(resources,nullptr);
+    verifyTailAndBlockPartitions(factory,cls->ID(),host.get(),resources);
+    verifyDrumReleaseAfterBankChange(factory,cls->ID(),host.get(),resources);
+    verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
+    verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(factory,cls->ID(),host.get(),resources);
+    verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
+    verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
+    verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
+    verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
+    verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
+    verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
+                                              resources,0);
+    std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
+    return 0;
+  }
   if(!priv){
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
@@ -972,6 +2305,7 @@ int main(int argc,char** argv){
   const auto first=render(factory,cls->ID(),host.get(),
              "VINTAGE_FIRST",44100,0,60,100,7,1,true);
   audible(first,"Vintage Dreams initial");wav("P010-SF2-VINTAGE-FIRST.wav",first);
+  verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),resources);
   ownerBank(resources,"77-presets.sf2");
   const auto other=render(factory,cls->ID(),host.get(),
              "77SF2_PROGRAM7",44100,0,60,100,7,1,true);

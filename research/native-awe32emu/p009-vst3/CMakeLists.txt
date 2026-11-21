@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(P009_AWE32Emu_Native_VST3 VERSION 0.0.1 LANGUAGES C CXX)
+project(P009_AWE32Emu_Native_VST3 VERSION 0.9.0 LANGUAGES C CXX)
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "P009 experiment is Windows x64 only")
 endif()
@@ -18,12 +18,14 @@ set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES ON CACHE BOOL "" FORCE)
 # these as compile errors. Execute validator separately, capture and verify
 # its true exit status and exact test summary.
 set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "" FORCE)
-set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
+set(SMTG_ENABLE_VSTGUI_SUPPORT ON CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${P009_SDK_ROOT}" "${CMAKE_BINARY_DIR}/vst3sdk")
 set(NATIVE "${P009_UPSTREAM}/AWE32Emu/src")
 smtg_add_vst3plugin(AWE64_Gold_Native_P009
-    P009Native.hpp P009Native.cpp P009Factory.cpp
+    P009Native.hpp P009Native.cpp P009NativeGui.cpp P009AssetFingerprint.hpp P009CreativeFx.hpp P009Factory.cpp
+    p165/PresetBrowserView.h p165/PresetBrowserView.cpp
+    p165/PresetBrowserModel.h p165/PresetCatalog.h p165/IbkBank.h
     "${NATIVE}/Synth.cpp"
     "${NATIVE}/SoundFont.cpp"
     "${NATIVE}/Emu8000.cpp"
@@ -32,6 +34,47 @@ smtg_add_vst3plugin(AWE64_Gold_Native_P009
     "${NATIVE}/86box/snd_emu8k.c"
     "${P009_SDK_ROOT}/public.sdk/source/vst/vstsinglecomponenteffect.cpp"
     "${P009_SDK_ROOT}/public.sdk/source/main/dllmain.cpp")
+# The last complete original Win95 P007BW owner GUI (not stale P007Z).
+# Preserve the P168 LCD x=370 inset and 73% knob-island shading.
+# Faceplate is PUBLIC user artwork, never the private Creative ROM.
+set(P009_P165_FACEPLATE "${CMAKE_CURRENT_SOURCE_DIR}/resource/125A_P165_Original_Faceplate_1000x708.png")
+if(NOT EXISTS "${P009_P165_FACEPLATE}")
+  file(DOWNLOAD
+    "https://raw.githubusercontent.com/challanger2000/125A-AWE-Synthesizer/8e8315c2ecab9f4a8bdbd415c1b7af5a8485a3c1/src/vst3/resource/125A_P165_Original_Faceplate_1000x708.png"
+    "${P009_P165_FACEPLATE}" STATUS P009_P165_DL TLS_VERIFY ON TIMEOUT 90)
+  list(GET P009_P165_DL 0 P009_P165_DL_STATUS)
+  if(NOT P009_P165_DL_STATUS EQUAL 0)
+    message(FATAL_ERROR "Original approved P165 GUI asset missing: ${P009_P165_DL}")
+  endif()
+endif()
+execute_process(COMMAND git hash-object "${P009_P165_FACEPLATE}"
+  OUTPUT_VARIABLE P009_P165_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE P009_P165_RC)
+if(NOT P009_P165_RC EQUAL 0 OR
+   NOT P009_P165_SHA STREQUAL "7e57ef8e0c90d84fa4c951bea7815b0233762ca7")
+  message(FATAL_ERROR "Owner P165 faceplate Git blob SHA mismatch")
+endif()
+smtg_target_add_plugin_resources(AWE64_Gold_Native_P009 RESOURCES
+  resource/p007_p165.uidesc
+  resource/125A_P165_Original_Faceplate_1000x708.png
+  resource/125A_Button_Atlas_Hardware_Normal_Pressed.png
+  resource/125A_Knob_Standard_33frames_58px.png
+  resource/125A_Knob_Master_33frames_134px.png)
+# Hardware sprites use exact Windows PNG resource names.
+if(WIN32)
+  set(P009_P165_ASSET_RC "${CMAKE_CURRENT_BINARY_DIR}/p009_p165_assets.rc")
+  file(WRITE "${P009_P165_ASSET_RC}" "")
+  foreach(P009_ASSET IN ITEMS
+    "125A_P165_Original_Faceplate_1000x708.png"
+    "125A_Button_Atlas_Hardware_Normal_Pressed.png"
+    "125A_Knob_Standard_33frames_58px.png"
+    "125A_Knob_Master_33frames_134px.png")
+    file(APPEND "${P009_P165_ASSET_RC}"
+      "\"${P009_ASSET}\" PNG DISCARDABLE \"${CMAKE_CURRENT_SOURCE_DIR}/resource/${P009_ASSET}\"\n")
+  endforeach()
+  target_sources(AWE64_Gold_Native_P009 PRIVATE "${P009_P165_ASSET_RC}")
+endif()
+target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk vstgui_support comdlg32 bcrypt)
 target_include_directories(AWE64_Gold_Native_P009 PRIVATE
    "${P009_SDK_ROOT}" "${NATIVE}" "${NATIVE}/86box/include")
 # P020: only the native research VST3 adopts the 64-frame chip window.
@@ -47,8 +90,17 @@ target_compile_definitions(AWE64_Gold_Native_P009 PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
    P019_EMU_BLOCK_FRAMES=64)
 target_link_libraries(AWE64_Gold_Native_P009 PRIVATE sdk winmm)
-target_compile_features(AWE64_Gold_Native_P009 PRIVATE cxx_std_17)
+target_compile_features(AWE64_Gold_Native_P009 PRIVATE cxx_std_23)
 smtg_target_configure_version_file(AWE64_Gold_Native_P009)
+# Generated SDK moduleinfo in this toolchain contains trailing commas,
+# which strict JSON DAWs reject although the validator accepts them.
+# Keep the exact Steinberg FUID and factory metadata, with deterministic
+# valid JSON and plugin/factory version consistency. This is packaging only.
+add_custom_command(TARGET AWE64_Gold_Native_P009 POST_BUILD
+   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+       "${CMAKE_CURRENT_SOURCE_DIR}/resource/moduleinfo.strict.json"
+       "$<TARGET_FILE_DIR:AWE64_Gold_Native_P009>/../Resources/moduleinfo.json"
+   COMMENT "Install strict VST3 moduleinfo.json (preserve FUID)")
 
 # P009: standalone concurrency regression uses SAME original C EMU8000 and
 # reconstructed Win95 driver from this plugin, but WITHOUT Steinberg host.
@@ -86,8 +138,8 @@ add_executable(P010NativeHostQA
   "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/module_win32.cpp"
   "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
   "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
-target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}")
-target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting)
+target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting bcrypt)
 target_compile_features(P010NativeHostQA PRIVATE cxx_std_17)
  
 # P016: PUBLIC two-layer SF2 -> exact same pinned Creative Win95 driver and
