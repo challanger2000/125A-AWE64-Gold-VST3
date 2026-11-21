@@ -251,7 +251,18 @@ public:
     // CF: 'phdr' is an SF2 preset table (38 bytes/entry), final record EOP.
     bool LoadSoundFont(const std::string& path,std::string& error) {
         namespace fs=std::filesystem;
-        std::ifstream in(fs::u8path(path),std::ios::binary);
+        // GUI file-picker strings are untrusted. std::filesystem::u8path
+        // may THROW on invalid Windows UTF-8 before the outer GUI handler.
+        // Preserve the previous catalog and return a plain error instead.
+        if(path.empty()||path.find('\0')!=std::string::npos) {
+            error="Preset catalog: invalid SoundFont path";return false;
+        }
+        std::ifstream in;
+        try {in.open(fs::u8path(path),std::ios::binary);}
+        catch(const std::exception&){
+            error="Preset catalog: invalid UTF-8 or inaccessible path";
+            return false;
+        }
         if(!in) {error="Preset catalog: cannot open SF2";return false;}
         in.seekg(0,std::ios::end);
         const auto end=in.tellg();

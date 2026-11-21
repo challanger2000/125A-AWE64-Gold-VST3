@@ -261,7 +261,10 @@ jobs:
           & _p009-build/Release/P173BrowserContract.exe $dir *> _p173-browser-contract.log
           $browserRc=$LASTEXITCODE
           Get-Content _p173-browser-contract.log
-          if($browserRc -ne 0){throw "P173 drum-bank browser/source contract failed: $browserRc"}
+          if($browserRc -ne 0){throw "P173/P180/P183 browser source contract failed: $browserRc"}
+          if(!(Select-String -Path _p173-browser-contract.log -SimpleMatch -Pattern 'P183_SF2_GUI_CATALOG_UTF8_NUL_EXCEPTION_FAIL_CLOSED_PASS' -Quiet)){
+            throw 'P183 Win64 malformed GUI SoundFont input test missing'
+          }
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic *> _p009-host-synthetic.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
@@ -568,6 +571,9 @@ jobs:
             _p009-build/Release/P019Probe64.exe
             _p009-build/Release/P019ComparePCM.exe
             _p009-build/Release/P010NativeHostQA.exe
+            research/native-awe32emu/p009-vst3/packaging/INSTALLIEREN.ps1
+            research/native-awe32emu/p009-vst3/packaging/INSTALLIEREN.bat
+            research/native-awe32emu/p009-vst3/packaging/P182-Windows-Installer-QA.ps1
             _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
           retention-days: 1

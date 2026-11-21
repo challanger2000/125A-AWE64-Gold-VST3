@@ -102,6 +102,39 @@ void verifyP180Sparse77RealBrowserContract(const fs::path& resources){
   std::puts("P180_SPARSE_77_PUBLIC_BROWSER_NO_PHANTOM_PREV_NEXT_ROM_PASS");
 }
 
+// P183 GUI file picker: invalid UTF-8/NUL must return a normal failure
+// without changing a previously loaded real 77-preset browser catalog.
+void verifyP183InvalidSf2Paths(const fs::path& resources){
+  AWE125::PresetCatalog browser;
+  auto u=(resources/"sparse77.sf2").u8string();
+  std::string error;
+  check(browser.LoadSoundFont(std::string(u.begin(),u.end()),error) &&
+        browser.Entries().size()==77u,"P183 positive catalog preload failed");
+  const auto previous=browser.Entries();
+  for(const std::string bad:{
+      std::string("\xF0\x28\x8C\x28",4),
+      std::string("\xED\xA0\x80",3),
+      std::string("\xC0\xAF",2),
+      std::string("\xFF\xFE",2),
+      std::string("valid.sf2\0trailing",18),
+      std::string(4097,'X'),
+      std::string("P183-does-not-exist.sf2")}){
+    bool threw=false,accepted=false;
+    try{accepted=browser.LoadSoundFont(bad,error);}
+    catch(...){threw=true;}
+    check(!threw && !accepted && !error.empty(),
+          "P183 invalid SF2 path propagated an exception or was accepted");
+    check(previous.size()==browser.Entries().size(),
+          "P183 invalid SF2 discarded previously accepted user bank");
+    for(std::size_t i=0;i<previous.size();++i){
+      const auto& a=previous[i],&b=browser.Entries()[i];
+      check(a.bank==b.bank && a.program==b.program && a.name==b.name,
+            "P183 bad path corrupted existing sparse SF2 preset identity");
+    }
+  }
+  std::puts("P183_SF2_GUI_CATALOG_UTF8_NUL_EXCEPTION_FAIL_CLOSED_PASS");
+}
+
 int main(int argc,char** argv){
   if(argc!=2) {
     std::fprintf(stderr,"Usage: P173BrowserContract <synthetic-SF2-directory>\n");
@@ -110,6 +143,7 @@ int main(int argc,char** argv){
   try {
     verifyP173DrumBrowserSource(fs::u8path(argv[1]));
     verifyP180Sparse77RealBrowserContract(fs::u8path(argv[1]));
+    verifyP183InvalidSf2Paths(fs::u8path(argv[1]));
     return 0;
   }catch(const std::exception& e){
     std::fprintf(stderr,"P173_BROWSER_ERROR %s\n",e.what());
