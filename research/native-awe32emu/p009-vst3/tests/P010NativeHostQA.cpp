@@ -2751,6 +2751,11 @@ void verifyP177CorruptV5StreamFailClosed(
     }catch(...){
       threw=true;
     }
+    if(threw)
+      std::fprintf(stderr,
+        "P177_UNCAUGHT_VST3_EXCEPTION badBytes=%llu pathFirst=%02X\n",
+        static_cast<unsigned long long>(bad.size()),
+        bad.size()>sizeof(Saved)+68u?unsigned(bad[sizeof(Saved)+68u]):0u);
     check(!threw,
           "P177 V5 restore threw across Steinberg plugin ABI (DAW crash risk)");
     check(!accepted,
