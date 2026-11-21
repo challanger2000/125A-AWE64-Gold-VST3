@@ -2016,11 +2016,11 @@ void verifyP173DrumBrowserSource(const fs::path& resources){
   check(!catalog.Find(129u,0u) && catalog.Entries().size()==129u,
         "P173 native browser fabricated an additional drum bank/presets");
   const auto label=AWE125::PresetBrowserModel::CurrentLabel(
-      0,catalog,128u,0u);
+      0,catalog,catalog,128u,0u);
   check(label.find("PublicTwoLayers")!=std::string::npos,
         "P173 actual selected SF2 drum kit not shown");
   const auto missing=AWE125::PresetBrowserModel::CurrentLabel(
-      0,catalog,1u,127u);
+      0,catalog,catalog,1u,127u);
   check(missing.find("GM fallback candidate: Gunshot")!=std::string::npos &&
         missing.find("Nicht") == std::string::npos,
         "P173 sparse user-bank fallback still misleading/non-English");
