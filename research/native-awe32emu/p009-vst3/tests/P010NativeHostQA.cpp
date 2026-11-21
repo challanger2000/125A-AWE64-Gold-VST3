@@ -3036,6 +3036,55 @@ void verifyP179PacedAudibleHostSaves(
   std::puts("P179_PACED_ACTUAL_WIN64_VST3_500_OF_500_LIVE_V5_SAVES_PASS");
 }
 
+
+// P180: Public 77-program soundbank with the EXACT sparse topology of the
+// owner's 77-preset bank, but with independently synthesized uncopyrighted
+// audio, must map SF2, MIDI and fresh V5 recall to the same original chip.
+// This does NOT upload or claim to test the owner's private SoundFont in CI.
+void verifyP180Sparse77OriginalChipSelection(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"sparse77.sf2");
+  std::set<std::uint64_t> distinct;
+  for(const int program:{0,7,62,64,77}){
+    Plugin unit(factory,id,host);
+    unit.start(program,1,44100.);
+    const auto hash=p015Play(unit,0,60);
+    check(distinct.insert(hash).second,
+          "P180 two different sparse user SF2 presets made the SAME chip PCM");
+    std::printf("P180_SPARSE_77_ORIGINAL_CHIP program=%d PCM=%016llX\n",
+          program,static_cast<unsigned long long>(hash));
+  }
+  // State restore of the upper sparse program must select EXACTLY the
+  // same chip patch as a fresh bank-1 MIDI ProgramChange, not just restore
+  // its browser label or the correct SHA/path.
+  const auto statePath=resources/"sparse77.sf2";
+  auto v5=p174V5State(statePath);
+  Saved saved{};
+  std::memcpy(&saved,v5.data(),sizeof(saved));
+  saved.program=77u;
+  std::memcpy(v5.data(),&saved,sizeof(saved));
+  ownerBank(resources,"vintage.sf2");
+  Plugin reopened(factory,id,host);
+  reopened.start(0,1,44100.);
+  check(p174ApplyV5(reopened,v5)==kResultOk,
+        "P180 external 77-preset SF2 V5 recall rejected");
+  check(p174Saved(reopened)==v5,
+        "P180 upper owner preset's V5 identity/program not preserved");
+  const auto reopenPcm=p015Play(reopened,0,60);
+  ownerBank(resources,"sparse77.sf2");
+  Plugin direct(factory,id,host);
+  direct.start(77,1,44100.);
+  const auto directPcm=p015Play(direct,0,60);
+  std::printf("P180_SPARSE_77_V5_PROGRAM77 recalled=%016llX direct=%016llX\n",
+       static_cast<unsigned long long>(reopenPcm),
+       static_cast<unsigned long long>(directPcm));
+  check(reopenPcm==directPcm,
+        "P180 SF2 V5 restore and MIDI program77 differ on REAL 86Box chip");
+  ownerBank(resources,nullptr);
+  std::puts("P180_ACTUAL_WIN64_VST3_SPARSE_77_PROGRAM_MAPPING_PCM_V5_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -3125,6 +3174,7 @@ int main(int argc,char** argv){
     verifyP177CorruptV5StreamFailClosed(factory,cls->ID(),host.get(),resources);
     verifyP178ConcurrentOwnerSF2StateTransaction(factory,cls->ID(),host.get(),resources);
     verifyP179PacedAudibleHostSaves(factory,cls->ID(),host.get(),resources);
+    verifyP180Sparse77OriginalChipSelection(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
