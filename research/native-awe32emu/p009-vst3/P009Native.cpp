@@ -785,6 +785,12 @@ void NativeVst3::changeChannelBankProgram(unsigned ch) noexcept{
             synth_->ControlChange(9u,32u,0u);
             synth_->ProgramChange(9u,programsByChannel_[9]);
         }
+        if(bank_!=2 && browserPanOverrideActive_){
+            const auto direct=midiState_[9u*kMappedCount+2u];
+            synth_->ControlChange(9u,10u,
+                static_cast<std::uint8_t>(direct==0xFFFFu?64u:direct));
+            browserPanOverrideActive_=false;
+        }
     }
 }
 void NativeVst3::changeBankProgram() noexcept{
@@ -799,11 +805,20 @@ void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
     if(channel>=16||slot>=kMappedCount)return;
     midiState_[channel*kMappedCount+slot]=raw;
     if(!synth_)return;
+    // Browser CH1 Drum audition is physically voiced by the CH10 chip.
+    // Pan must reach that same physical channel or the visible/MIDI
+    // CH1 audition pan is inaudible (independent Codex X05).
+    // The independent CH10 logical pan is restored on its next note.
+    const bool routedBrowserPan=channel==0u && bank_==2 &&
+                                slot==2u;
+    const auto target=static_cast<std::uint8_t>(
+        routedBrowserPan?9u:channel);
+    if(routedBrowserPan)browserPanOverrideActive_=true;
     if(slot==kMappedCount-1){
-        synth_->PitchBend(static_cast<std::uint8_t>(channel),
+        synth_->PitchBend(target,
                           static_cast<std::int16_t>(static_cast<int>(raw)-8192));
     }else{
-        synth_->ControlChange(static_cast<std::uint8_t>(channel),
+        synth_->ControlChange(target,
                               static_cast<std::uint8_t>(kMappedControllers[slot]),
                               static_cast<std::uint8_t>(raw));
     }
@@ -812,6 +827,14 @@ void NativeVst3::applyAdvancedController(unsigned channel,
                                          unsigned slot,std::uint16_t value) noexcept{
     if(channel>=16||slot>=kAdvancedCount||value>127u)return;
     const auto base=channel*kAdvancedCount;
+    // Leaving NRPN deselects BOTH RPN selectors in the actual Creative
+    // hardware. The historical saved MSB/LSB 0/0 must NOT allow a later
+    // lone RPN-LSB=0 or RPN-MSB=0 to masquerade as full RPN0/0.
+    // Preserve effective bend range separately, and mark the unsupplied
+    // selector as NULL/127 until it is really received.
+    if((slot==2u||slot==3u) &&
+       selectedParameterMode_[channel]==2u)
+        advancedMidiState_[base+(slot==2u?3u:2u)]=127u;
     const bool isDataEntry=slot==4u||slot==5u;
     const bool selectedBendRpn=selectedParameterMode_[channel]==1u &&
         advancedMidiState_[base+2u]==0u &&
@@ -919,6 +942,20 @@ void NativeVst3::dispatch(const Event& event) noexcept{
             if(route==9u){
                 synth_->ProgramChange(9u,static_cast<std::uint8_t>(
                     drums?program_:programsByChannel_[9]));
+                if(drums){
+                    const auto browserPan=midiState_[2u];
+                    if(browserPan!=0xFFFFu){
+                        synth_->ControlChange(9u,10u,
+                            static_cast<std::uint8_t>(browserPan));
+                        browserPanOverrideActive_=true;
+                    }
+                }else if(browserPanOverrideActive_){
+                    const auto direct=midiState_[9u*kMappedCount+2u];
+                    synth_->ControlChange(9u,10u,
+                        static_cast<std::uint8_t>(
+                            direct==0xFFFFu?64u:direct));
+                    browserPanOverrideActive_=false;
+                }
             }
             ActiveRoutedNote* freeSlot=nullptr;
             for(auto& entry:activeRoutedNotes_){

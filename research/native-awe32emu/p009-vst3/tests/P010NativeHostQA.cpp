@@ -4064,9 +4064,9 @@ void verifyP187LegacyUnownedDataEntryDoesNotRetuneBend(
   legacy.midiStates.fill(0xFFFFu);
   legacy.advancedStates.fill(0xFFFFu);
   legacy.midiStates[7]=16383u;
-  legacy.advancedStates[2]=127u;
-  legacy.advancedStates[3]=127u;
-  legacy.advancedStates[4]=5u; // stale, NOT valid effective RPN
+  legacy.advancedStates[2]=0u;
+  legacy.advancedStates[3]=1u; // RPN 0/1, not pitch-bend range 0/0 (Codex X02)
+  legacy.advancedStates[4]=5u; // historical Data Entry ignored by bend hardware
   legacy.parameterModes[0]=1u;
   Saved defaultRange=legacy;
   defaultRange.advancedStates[4]=0xFFFFu;
@@ -4085,7 +4085,7 @@ void verifyP187LegacyUnownedDataEntryDoesNotRetuneBend(
   check(correct!=bad,
         "P187 legacy original-chip pitch range 2/5 independent oracle invalid");
   check(got==correct,
-        "P187 legacy NRPN/RPN-null unowned data entry changed restored bend");
+        "P187 historical RPN 0/1 data entry illegally retuned pitch bend");
   ownerBank(resources,nullptr);
   std::puts("P187_LEGACY_V4_UNOWNED_DATA_ENTRY_BEND_DEFAULT_PCM_PASS");
 }
@@ -4144,6 +4144,222 @@ void verifyP187LateExplicitNoteOffNeverKillsNewNoteId(
         "P187 delayed NoteOff ID100 muted another held ID101");
   ownerBank(resources,nullptr);
   std::puts("P187_DELAYED_EXPLICIT_NOTEID_NEVER_MUTES_ANOTHER_VOICE_PASS");
+}
+
+
+// P187 Codex X01: after valid bend12, NRPN selection deactivates *both*
+// hardware RPN selectors. A lone new RPN LSB=0 plus DataEntry=5 must
+// never re-enable the old historical MSB=0 or alter effective bend12.
+void verifyP187PartialRpnAfterNrpnNeverRetunesBend(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Plugin live(factory,id,host);live.start(0,1,44100.);
+  IMidiMapping* raw=nullptr;
+  check(live.controller->queryInterface(IMidiMapping::iid,
+        reinterpret_cast<void**>(&raw))==kResultOk&&raw,
+        "P187 partial-RPN actual VST3 IMidiMapping missing");
+  const IPtr<IMidiMapping> mapping=owned(raw);
+  const auto send=[&](CtrlNumber cc,int value){
+    ParamID mapped=0;
+    check(mapping->getMidiControllerAssignment(0,0,cc,mapped)==kResultTrue,
+          "P187 partial RPN controller mapping missing");
+    ParameterChanges changes(1);
+    int32 q=0,p=0;
+    auto* item=changes.addParameterData(mapped,q);
+    const double norm=cc==kPitchBend?double(value)/16383.:
+                                          double(value)/127.;
+    check(item&&item->addPoint(0,norm,p)==kResultOk,
+          "P187 actual mapped RPN controller queue missing");
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=0;
+    data.inputParameterChanges=&changes;
+    check(live.processor->process(data)==kResultOk,
+          "P187 actual RPN/NRPN controller event refused");
+  };
+  send(kCtrlRPNSelectMSB,0);send(kCtrlRPNSelectLSB,0);
+  send(kCtrlDataEntryMSB,12);
+  send(kCtrlNRPNSelectMSB,1);send(kCtrlNRPNSelectLSB,2);
+  send(kCtrlRPNSelectLSB,0); // only ONE new selector half
+  send(kCtrlDataEntryMSB,5); // unsupported new partial RPN
+  send(kPitchBend,16383);
+  MemoryStream saved;
+  check(live.component->getState(&saved)==kResultOk &&
+        saved.getSize()==sizeof(Saved),
+        "P187 partial RPN saved state must remain legacy V4-size");
+  Saved result{};std::memcpy(&result,saved.getData(),sizeof(result));
+  check(result.advancedStates[4]==12u &&
+        result.advancedStates[2]==127u &&
+        result.advancedStates[3]==0u &&
+        result.parameterModes[0]==1u,
+        "P187 partial RPN reused historical 0/0 to overwrite true range12");
+  Saved reference=result;
+  reference.advancedStates[2]=0u;
+  reference.advancedStates[3]=0u;
+  Saved wrong=reference;wrong.advancedStates[4]=5u;
+  Plugin reopened(factory,id,host),bend12(factory,id,host),bend5(factory,id,host);
+  reopened.start(0,1,44100.);bend12.start(0,1,44100.);
+  bend5.start(0,1,44100.);
+  p015Restore(reopened,result);
+  p015Restore(bend12,reference);
+  p015Restore(bend5,wrong);
+  const auto pcm12=p015Play(bend12,0,60);
+  const auto pcm5=p015Play(bend5,0,60);
+  check(pcm12!=pcm5,"P187 partial RPN range12/5 actual PCM oracle invalid");
+  check(p015Play(reopened,0,60)==pcm12 &&
+        p015Play(live,0,60)==pcm12,
+        "P187 partial RPN DataEntry changed original chip live or recalled bend");
+  ownerBank(resources,nullptr);
+  std::puts("P187_PARTIAL_RPN_AFTER_NRPN_LIVE_AND_RECALL_BEND12_PCM_PASS");
+}
+
+// P187 Codex X05: CH1 drum-browser audition physically renders CH10.
+// MIDI pan on CH1 must reach that physical channel; compare two genuinely
+// different pan values to separately controlled CH10 hardware references.
+void verifyP187BrowserDrumPanFollowsPhysicalCH10(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"multi-drums.sf2");
+  const auto renderWithPan=[&](bool browser,int pan){
+    Plugin unit(factory,id,host);
+    unit.start(5,browser?2:0,44100.);
+    const unsigned ch=browser?0u:9u;
+    ParameterChanges changes(1);
+    int32 qi=0,pi=0;
+    auto* q=changes.addParameterData(2000u+ch*8u+2u,qi);
+    check(q && q->addPoint(0,double(pan)/127.,pi)==kResultOk,
+          "P187 browser CH1 or direct CH10 pan point missing");
+    EventList events;
+    std::array<float,1024> l{},r{};
+    float* audio[2]={l.data(),r.data()};
+    AudioBusBuffers output{};output.numChannels=2;
+    output.channelBuffers32=audio;
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=1024;
+    data.numOutputs=1;data.outputs=&output;
+    data.inputEvents=&events;data.inputParameterChanges=&changes;
+    std::uint64_t hash=14695981039346656037ull;
+    double energy=0.;
+    for(int block=0;block<30;++block){
+      events.clear();
+      if(block==0){
+        Event on{};on.type=Event::kNoteOnEvent;
+        on.sampleOffset=12;on.noteOn.channel=static_cast<int16>(ch);
+        on.noteOn.pitch=60;on.noteOn.noteId=501;
+        on.noteOn.velocity=.90f;
+        check(events.addEvent(on)==kResultOk,
+              "P187 direct CH10/browser real drum NoteOn rejected");
+      }else if(block==12){
+        Event off{};off.type=Event::kNoteOffEvent;
+        off.sampleOffset=12;off.noteOff.channel=static_cast<int16>(ch);
+        off.noteOff.pitch=60;off.noteOff.noteId=501;
+        check(events.addEvent(off)==kResultOk,
+              "P187 direct CH10/browser real drum NoteOff rejected");
+      }
+      check(unit.processor->process(data)==kResultOk,
+            "P187 actual stereo original-chip drum pan render rejected");
+      changes.clearQueue(); // one controller point at block zero only
+      for(int i=0;i<1024;++i)
+        for(float v:{l[i],r[i]}){
+          check(std::isfinite(v),"P187 nonfinite drum pan PCM");
+          energy+=double(v)*v;
+          std::uint32_t bits=0;std::memcpy(&bits,&v,sizeof(bits));
+          hash=(hash^bits)*1099511628211ull;
+        }
+    }
+    check(energy>.001,"P187 pan positive fixture was not audible");
+    return hash;
+  };
+  const auto browserLeft=renderWithPan(true,0);
+  const auto browserRight=renderWithPan(true,127);
+  const auto directLeft=renderWithPan(false,0);
+  const auto directRight=renderWithPan(false,127);
+  check(directLeft!=directRight,
+        "P187 genuine CH10 pan0/127 hardware oracle is not discriminating");
+  check(browserLeft!=browserRight &&
+        browserLeft==directLeft && browserRight==directRight,
+        "P187 CH1 browser MIDI pan did not control physical CH10 audio");
+  ownerBank(resources,nullptr);
+  std::puts("P187_CH1_BROWSER_PAN0_PAN127_MATCHES_DIRECT_CH10_PCM_PASS");
+}
+
+// P187 Codex X06: SHA-verified active setState must upload precisely
+// those same checked bytes, even if an independent Windows thread tries
+// repeatedly to replace the filename while the 28MiB SF2 chip loads.
+// Accepted A must play A and save SHA(A); rejected attempts must leave
+// the previous B VST3 state/audio unchanged.
+void verifyP187ActiveSf2LoadPinPreventsIdentitySplit(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  const auto selected=resources/"p187-racing-owner.sf2";
+  ownerBank(resources,"vintage.sf2");
+  Plugin a(factory,id,host);a.start(0,1,44100.);
+  const auto expectedA=p015Play(a,0,60);
+  ownerBank(resources,"77-presets.sf2");
+  Plugin b(factory,id,host);b.start(0,1,44100.);
+  const auto expectedB=p015Play(b,0,60);
+  check(expectedA!=expectedB,
+        "P187 two distinct loaded SoundFonts produced identical PCM");
+  fs::copy_file(resources/"vintage.sf2",selected,
+                fs::copy_options::overwrite_existing);
+  const auto signedA=p174V5State(selected);
+  unsigned accepted=0,rejected=0,blocked=0,writerAttempts=0;
+  try{
+    for(int round=0;round<6;++round){
+      fs::copy_file(resources/"vintage.sf2",selected,
+                    fs::copy_options::overwrite_existing);
+      Plugin unit(factory,id,host);unit.start(0,1,44100.);
+      const auto oldState=p174Saved(unit);
+      std::atomic<bool> start{false},done{false};
+      std::atomic<unsigned> attempts{0},denied{0};
+      std::thread writer([&](){
+        while(!start.load(std::memory_order_acquire))
+          std::this_thread::yield();
+        while(!done.load(std::memory_order_acquire)){
+          for(const auto& src:{resources/"77-presets.sf2",
+                               resources/"vintage.sf2"}){
+            attempts.fetch_add(1u,std::memory_order_relaxed);
+            try {
+              fs::copy_file(src,selected,
+                            fs::copy_options::overwrite_existing);
+            } catch(const fs::filesystem_error&){
+              denied.fetch_add(1u,std::memory_order_relaxed);
+            }
+            if(done.load(std::memory_order_acquire))break;
+          }
+        }
+      });
+      start.store(true,std::memory_order_release);
+      const auto result=p174ApplyV5(unit,signedA);
+      done.store(true,std::memory_order_release);
+      writer.join();
+      writerAttempts+=attempts.load();
+      blocked+=denied.load();
+      const auto stored=p174Saved(unit);
+      if(result==kResultOk){
+        ++accepted;
+        check(stored==signedA,
+              "P187 accepted active load saved a different SF2 SHA/path");
+        check(p015Play(unit,0,60)==expectedA,
+              "P187 active SHA(A) accepted but audible PCM is swapped SF2 B");
+        check(p174Saved(unit)==signedA,
+              "P187 chip playback changed the accepted explicit SHA(A)");
+      }else{
+        ++rejected;
+        check(stored==oldState,
+              "P187 rejected concurrent SF2 swap mutated previous valid session");
+        check(p015Play(unit,0,60)==expectedB,
+              "P187 failed active SF2 restore mutated previous chip PCM");
+      }
+    }
+  }catch(...){fs::remove(selected);ownerBank(resources,nullptr);throw;}
+  fs::remove(selected);
+  ownerBank(resources,nullptr);
+  std::printf("P187_SF2_ACTIVE_RECALL_RACE accepted=%u rejected=%u writer_attempts=%u locked=%u\n",
+              accepted,rejected,writerAttempts,blocked);
+  check(accepted+rejected==6u && writerAttempts>0u && blocked>0u,
+        "P187 external SF2 change/lock race was not actually exercised");
+  std::puts("P187_PINNED_OWNER_SHA_MATCHES_ACTIVE_SF2_CHIP_PCM_PASS");
 }
 
 int main(int argc,char** argv){
@@ -4207,6 +4423,9 @@ int main(int argc,char** argv){
     verifyP187SoundingControllerEchoWholeGeneration(factory,cls->ID(),host.get(),resources);
     verifyP187LegacyUnownedDataEntryDoesNotRetuneBend(factory,cls->ID(),host.get(),resources);
     verifyP187LateExplicitNoteOffNeverKillsNewNoteId(factory,cls->ID(),host.get(),resources);
+    verifyP187PartialRpnAfterNrpnNeverRetunesBend(factory,cls->ID(),host.get(),resources);
+    verifyP187BrowserDrumPanFollowsPhysicalCH10(factory,cls->ID(),host.get(),resources);
+    verifyP187ActiveSf2LoadPinPreventsIdentitySplit(factory,cls->ID(),host.get(),resources);
     verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
     verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);

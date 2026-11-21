@@ -31,6 +31,53 @@ The true legacy intent of an old project with no effective-range evidence is unk
 - A **pinned Windows file handle** opened with `GENERIC_READ` and `FILE_SHARE_READ` now spans the whole non-RT SHA → SoundFont parse → 28MiB original-chip bank upload → final SHA transaction. No other writer/rename can replace the file while it is being accepted. Explicit V5 project restore, fresh activation and GUI SF2 loading use this mechanism and reject a mismatch without publishing a wrong bank/SHA pair. Never lock a file on the audio thread.
 - Existing positive legacy tests and the P186 exact source PCM oracles remain required, including A01–A05 / N01–N07 where accessible.
 
+## Further cases recovered from the full P186 independent report
+
+After reading the complete owner-supplied P186 independent audit report
+(`Eingefügter Text(20261121-210354).txt`), three previously under-specified
+failures were added to the P187 regression and implementation matrix:
+
+- **Codex X01, partially reselected RPN:** A genuine RPN 0/0 Data Entry=12
+  is followed by NRPN1/2. A new RPN LSB=0 without a new RPN MSB must not
+  interpret the old historical MSB=0 as active; an ensuing Data Entry=5
+  must not change bend12, live or in saved PCM. The MIDI state now
+  explicitly marks the selector's *other half* as 127/NULL on the first
+  RPN re-selection after NRPN. Adds real mapped VST3 CC + original-chip
+  live/reopen range12-versus-range5 PCM comparison.
+- **Codex X02, historical P185 V4 bytes:** Independent historical source
+  showed RPN 0/1 and Data Entry=5 had **no** effect on bend range.
+  A new P187 regression feeds that exact *semantic configuration* through
+  a freshly loaded V4 state, expects real 2-semitone chip PCM, and
+  compares against a deliberately wrong full RPN0/0 range5 reference.
+  The actual 580-byte historical `legacy-p185.v4` binary was not supplied
+  as file bytes, so exact archival-byte equality remains NOT VERIFIED.
+- **Codex X05, CH1 browser pan physically CH10:** Standard VST3-mapped
+  CH1 Pan CC10 now targets physical CH10 while CH1 is in drum-browser bank2.
+  Physical CH10's own independent Pan is reapplied when native CH10 starts
+  its next NoteOn or CH1 exits the drum bank. Adds actual Kit5 stereo PCM
+  at Pan0 versus Pan127, with separate direct-CH10 pan references.
+  Whether other CH10 controller parameters should inherit CH1's entire
+  browser state remains NOT VERIFIED.
+- **Codex X06, active owner SHA split:** A Windows file-handle read pin
+  covers the full non-realtime SHA → sample-bank parsing/upload, including
+  the second SHA before commit. New regression uses a genuinely concurrent
+  writer attempting to replace a valid target SF2 with different valid
+  content in the middle of an active V5 project restore. Accepted sessions
+  must save SHA(A) and play PCM(A); rejected sessions must retain previous
+  valid SHA/PCM and recover. Whether the test reaches the exact Codex
+  interleaving with the original scripts remains NOT VERIFIED.
+
+**OPEN NO-GO: Codex X07 — abrupt installer process death between moving
+the previous canonical VST3 to backup and publishing the new staged
+directory.** Existing per-destination mutual exclusion does not establish
+crash-atomic availability. Windows may retain an intact backup and stage
+while the canonical plugin directory is temporarily or indefinitely absent.
+This remains **FAIL/NOT VERIFIED for automatic immediate post-crash
+recovery**, and a successful re-run installer is not a substitute for the
+independent X07 negative control. Do not call the installer crash-safe
+until a robust versioned/transactional Windows design plus kill-point
+recovery is verified.
+
 ## Evidence boundary / release gate
 
 P187 source is NOT a release and remains **NO-GO until exact-commit Win64 build, P187 targeted independent source-semantics tests, original independent N08/P186 adversarial re-audit, original Creative licensed media + hardware and actual Fender Studio Pro/ASIO acceptance**.

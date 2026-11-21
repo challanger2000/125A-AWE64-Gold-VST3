@@ -263,10 +263,14 @@ private:
         for(auto& n:activeRoutedNotes_)n.active=false;
         routeHeldCounts_.fill(0u);
         redirectedDrumNotes_.fill(0u);
+        browserPanOverrideActive_=false;
     }
     // CH1 browser drum mode borrows the physical CH10 voice lane.
     // Restore CH10's independent programmed kit when CH1 leaves drums.
     bool browserDrumOverrideActive_=false; // owned by audio/lifecycle thread
+    // A CH1 drum-browser pan edit targets physical CH10. Restore the
+    // independent CH10 pan once its next native note/kit is selected.
+    bool browserPanOverrideActive_=false;
     double sampleRate_=44100.;
     int program_=0,bank_=0;
     // CH2-16 independent Win95 Creative MIDI preset/bank states.

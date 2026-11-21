@@ -296,7 +296,10 @@ jobs:
               'P186_LIVE_ORIGINAL_CHIP_SOUNDING_AUTOMATION_STATE_FRESH_AND_ATOMIC_PASS',
               'P187_ORIGINAL_CHIP_SOUNDING_CONTROLLER_ECHO_N08_ATOMIC_FRESH_PASS',
               'P187_LEGACY_V4_UNOWNED_DATA_ENTRY_BEND_DEFAULT_PCM_PASS',
-              'P187_DELAYED_EXPLICIT_NOTEID_NEVER_MUTES_ANOTHER_VOICE_PASS'
+              'P187_DELAYED_EXPLICIT_NOTEID_NEVER_MUTES_ANOTHER_VOICE_PASS',
+              'P187_PARTIAL_RPN_AFTER_NRPN_LIVE_AND_RECALL_BEND12_PCM_PASS',
+              'P187_CH1_BROWSER_PAN0_PAN127_MATCHES_DIRECT_CH10_PCM_PASS',
+              'P187_PINNED_OWNER_SHA_MATCHES_ACTIVE_SF2_CHIP_PCM_PASS'
             )){
               if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
                 throw "P174 missing critical actual Windows VST3 positive+negative gate: $gate"
