@@ -102,6 +102,40 @@ void verifyP180Sparse77RealBrowserContract(const fs::path& resources){
   std::puts("P180_SPARSE_77_PUBLIC_BROWSER_NO_PHANTOM_PREV_NEXT_ROM_PASS");
 }
 
+
+// P183 real eight-program percussion bank (0..7). This tests the actual
+// browser catalog and Prev/Next independently of the DSP and proprietary
+// user's eight Vintage Dreams drum-kit programs.
+void verifyP183EightOriginalChipDrumKitEntries(const fs::path& resources){
+  AWE125::PresetCatalog source,catalog;
+  std::string error;
+  const auto path=(resources/"drumkits8.sf2").u8string();
+  check(source.LoadSoundFont(std::string(path.begin(),path.end()),error),
+        "P183 original synthetic 8-kit SoundFont phdr invalid");
+  check(source.Entries().size()==8u &&
+        source.Find(128u,0u) && source.Find(128u,7u) &&
+        !source.Find(128u,8u),
+        "P183 source kit0..7 absent or fabricated extra kit8");
+  catalog.SetOriginalCreativeMidiNumbers();
+  check(catalog.AppendCreativeMelodicUserOneFromSource(source)==8u &&
+        catalog.Entries().size()==136u &&
+        AWE125::PresetBrowserModel::PreferredImportedBank(catalog)==128,
+        "P183 actual Creative drums + ROM catalog count incorrect");
+  for(unsigned prog=0;prog<8;++prog){
+    const auto* kit=catalog.Find(128u,static_cast<std::uint8_t>(prog));
+    check(kit && kit->fromUserSf2 && kit->drums,
+          "P183 real bank128 kit lost SF2 origin/number");
+    const int prev=prog==0?7:static_cast<int>(prog)-1;
+    const int next=prog==7?0:static_cast<int>(prog)+1;
+    check(AWE125::PresetBrowserModel::Neighbor(
+        0,catalog,catalog,128u,static_cast<std::uint8_t>(prog),-1)==prev &&
+          AWE125::PresetBrowserModel::Neighbor(
+        0,catalog,catalog,128u,static_cast<std::uint8_t>(prog),+1)==next,
+        "P183 drum kit Next/Previous skip or wrong wrap");
+  }
+  std::puts("P183_EIGHT_SF2_DRUM_KITS_BANK128_BROWSER_PROGRAM_PREV_NEXT_PASS");
+}
+
 int main(int argc,char** argv){
   if(argc!=2) {
     std::fprintf(stderr,"Usage: P173BrowserContract <synthetic-SF2-directory>\n");
@@ -110,6 +144,7 @@ int main(int argc,char** argv){
   try {
     verifyP173DrumBrowserSource(fs::u8path(argv[1]));
     verifyP180Sparse77RealBrowserContract(fs::u8path(argv[1]));
+    verifyP183EightOriginalChipDrumKitEntries(fs::u8path(argv[1]));
     return 0;
   }catch(const std::exception& e){
     std::fprintf(stderr,"P173_BROWSER_ERROR %s\n",e.what());

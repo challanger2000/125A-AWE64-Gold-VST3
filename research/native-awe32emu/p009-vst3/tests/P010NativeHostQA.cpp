@@ -3170,6 +3170,95 @@ void verifyP181PrivateMultirateOriginalChipMatrix(
             "_THREE_RATES_VELOCITY_KEY_RANGES_SPARSE_RECALL_PASS");
 }
 
+
+// P183: A bank-128 program-select gesture on the CH1 drum browser must
+// select the corresponding *physical MIDI CH10* Creative drum kit BEFORE
+// the next redirected NoteOn. The prior code only sent ProgramChange on
+// CH1 even though NoteOn was routed to CH10; the GUI could say kit7 while
+// the actual original EMU8000 still played kit0. Verify chip PCM, not label.
+void verifyP183LiveDrumKitProgramSelection(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources,
+    const char* source){
+  ownerBank(resources,source);
+  std::set<std::uint64_t> pcm;
+  for(int prog=0;prog<8;++prog){
+    Plugin direct(factory,id,host);
+    direct.start(prog,2,44100.);
+    const auto sound=p015Play(direct,0,36);
+    check(pcm.insert(sound).second,
+          "P183 source 8 physical original-chip kits do not have distinct PCM");
+  }
+  Plugin initial(factory,id,host);initial.start(0,2,44100.);
+  const auto kit0=p015Play(initial,0,36);
+  Plugin expected(factory,id,host);expected.start(7,2,44100.);
+  const auto kit7=p015Play(expected,0,36);
+  check(kit0!=kit7,
+        "P183 original-chip drumkit0/7 reference audio not distinguishable");
+  Plugin changed(factory,id,host);changed.start(0,2,44100.);
+  EventList notes;
+  ParameterChanges changes(1);
+  std::array<float,frames> l{},r{};
+  float* ptr[2]={l.data(),r.data()};
+  AudioBusBuffers output{};output.numChannels=2;output.channelBuffers32=ptr;
+  ProcessData data{};data.processMode=kRealtime;
+  data.symbolicSampleSize=kSample32;data.numSamples=frames;
+  data.numOutputs=1;data.outputs=&output;data.inputEvents=&notes;
+  data.inputParameterChanges=&changes;
+  std::uint64_t played=14695981039346656037ull;
+  double power=0;
+  for(int block=0;block<29;++block){
+    notes.clear();
+    changes.clearQueue();
+    if(block==0){
+      int32 idx=0,pos=0;
+      auto* program=changes.addParameterData(1000u,idx);
+      check(program && program->addPoint(0,7./127.,pos)==kResultOk,
+            "P183 GUI CH1 drumkit program7 host gesture not submitted");
+    }
+    if(block==0||block==12){
+      Event e{};e.busIndex=0;e.sampleOffset=block?511:12;
+      if(block==0){
+        e.type=Event::kNoteOnEvent;
+        e.noteOn.channel=0;e.noteOn.pitch=36;
+        e.noteOn.velocity=100.f/127.f;
+      }else{
+        e.type=Event::kNoteOffEvent;
+        e.noteOff.channel=0;e.noteOff.pitch=36;
+      }
+      check(notes.addEvent(e)==kResultOk,
+            "P183 host could not enqueue CH1 drum audition event");
+    }
+    check(changed.processor->process(data)==kResultOk,
+          "P183 real original-chip CH1 drum browser event callback failed");
+    for(int k=0;k<frames;++k){
+      for(const float value:{l[k],r[k]}){
+        check(std::isfinite(value),"P183 real chip produced nonfinite kit PCM");
+        power+=static_cast<double>(value)*value;
+        std::uint32_t bits=0;std::memcpy(&bits,&value,sizeof(bits));
+        played=(played^bits)*1099511628211ull;
+      }
+    }
+  }
+  check(power>0.00001,"P183 8-kit CH1 audio silent, invalid comparator");
+  MemoryStream state;
+  check(changed.component->getState(&state)==kResultOk &&
+        state.getSize()>=sizeof(Saved),
+        "P183 selected drum kit7 host state save failed");
+  Saved saved{};
+  std::memcpy(&saved,state.getData(),sizeof(saved));
+  check(saved.program==7u && saved.bank==2u,
+        "P183 browser did not persist selected CH1 drumkit7");
+  std::printf("P183_REAL_CHIP_SF2_8KIT_CHANGED live=%016llX kit0=%016llX kit7=%016llX\n",
+     static_cast<unsigned long long>(played),
+     static_cast<unsigned long long>(kit0),
+     static_cast<unsigned long long>(kit7));
+  check(played==kit7,
+        "P183 GUI displayed drumkit7 but original CH10 still played an OLD kit");
+  ownerBank(resources,nullptr);
+  std::puts("P183_ACTUAL_WIN64_VST3_EIGHT_SF2_DRUMKIT_BROWSER_CH10_PCM_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -3260,6 +3349,7 @@ int main(int argc,char** argv){
     verifyP178ConcurrentOwnerSF2StateTransaction(factory,cls->ID(),host.get(),resources);
     verifyP179PacedAudibleHostSaves(factory,cls->ID(),host.get(),resources);
     verifyP180Sparse77OriginalChipSelection(factory,cls->ID(),host.get(),resources);
+    verifyP183LiveDrumKitProgramSelection(factory,cls->ID(),host.get(),resources,"drumkits8.sf2");
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
