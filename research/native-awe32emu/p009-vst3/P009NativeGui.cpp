@@ -174,6 +174,10 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     };
     if(path.empty()||path.size()>4096)
         return reject("Invalid SoundFont path.");
+    // Keep the GUI's SF2 identity/catalog/chip staging and any concurrent
+    // non-RT VST3 project snapshot in the same transaction generation.
+    // The real-time process thread NEVER acquires this mutex.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // A candidate must be a *real* complete SoundFont with valid 'phdr':
     // never fabricate 128 presets from an owner's 77-entry sparse bank.
     std::string err;

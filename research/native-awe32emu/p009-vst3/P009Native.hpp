@@ -97,6 +97,11 @@ private:
     AWE125::PresetCatalog unusedFmCatalog_{};
     std::atomic<std::uint64_t> guiCatalogRevision_{1};
     std::mutex guiAssetMutex_{};
+    // Host/non-RT transaction gate: a saved V5 owner SHA/path and the
+    // corresponding program/master/FX snapshot must come from ONE accepted
+    // project generation, even with independent host save/restore threads.
+    // Never acquired by process() or any original-chip callback.
+    std::mutex hostSessionMutex_{};
     std::string selectedUserSf2_{};
     // GUI-thread-visible last load error; guarded by guiAssetMutex_.
     std::string lastSf2LoadError_{};

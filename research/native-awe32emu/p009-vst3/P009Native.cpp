@@ -1116,6 +1116,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     if(!stream)return kResultFalse;
+    // Serialize only NON-real-time host save/restore and external file
+    // commit. The audio callback remains lock-free, using atomic mirrors.
+    // Without this guard getState can join B's SHA/path with A's program
+    // or master during a concurrent two-thread DAW snapshot.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // Host save is allowed concurrently with audio callbacks. NEVER read
     // the live non-atomic program/MIDI/RPN arrays here.
     drainRetiredRestoresNonRealtime();
@@ -1233,6 +1238,10 @@ tresult PLUGIN_API NativeVst3::setComponentState(IBStream* stream){
 }
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
+    // VST3 host state transactions are NON-RT. Serialize with getState()
+    // and GUI bank imports from initial parse through final publication,
+    // so nobody can observe a split old-MIDI/new-SF2 project identity.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     Saved s{};
     // Compatible with existing owner P009 v1 (20B), P011 v2 (52B).
     int32 n=0;
