@@ -3085,6 +3085,91 @@ void verifyP180Sparse77OriginalChipSelection(
   std::puts("P180_ACTUAL_WIN64_VST3_SPARSE_77_PROGRAM_MAPPING_PCM_V5_PASS");
 }
 
+
+// P181 owner-private release gate. Invoked ONLY by --private against the
+// ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
+// All effects, polyphony and sample rate conversion are the original core;
+// never replace it with a synthetic SF2 oracle or upload real owner media.
+void verifyP181PrivateMultirateOriginalChipMatrix(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  unsigned matrix=0,clips=0,rateTransitions=0,alternateNotes=0;
+  const auto originalRom=resources/"awe32.raw";
+  check(fs::file_size(originalRom)==1048576u,
+        "P181 authentic owner 1-MiB Creative ROM is missing");
+  for(const int rate:{44100,48000,96000}){
+    ownerBank(resources,"77-presets.sf2");
+    for(const int program:{7,33,54,77}){
+      std::array<std::uint64_t,3> velocityHashes{};
+      int idx=0;
+      for(const int velocity:{40,80,100}){
+        const auto result=render(factory,id,host,
+          "P181_OWNER_MULTIRATE_MELODIC",rate,0,60,velocity,program,1);
+        audible(result,"P181 owner SF2 velocity mapped original 86Box chip");
+        velocityHashes[idx++]=result.hash;
+        clips+=result.clippedSamples;
+        ++matrix;
+      }
+      check(velocityHashes[0]!=velocityHashes[1] &&
+            velocityHashes[1]!=velocityHashes[2],
+            "P181 owner real SF2 velocity 40/80/100 failed to change chip PCM");
+    }
+    for(const int note:{48,72}){
+      const auto result=render(factory,id,host,
+          "P181_OWNER_KEY_RANGES",rate,0,note,100,7,1);
+      audible(result,"P181 owner real SF2 alternate note pitch/range");
+      ++alternateNotes;
+    }
+    const auto p62=render(factory,id,host,
+         "P181_OWNER_PRESET62",rate,0,60,100,62,1);
+    const auto p64=render(factory,id,host,
+         "P181_OWNER_PRESET64",rate,0,60,100,64,1);
+    audible(p62,"P181 real SF2 MIDI program 62");
+    audible(p64,"P181 real SF2 MIDI program 64");
+    check(p62.hash!=p64.hash,
+          "P181 real owner SoundFont program gap shifted 62 vs 64");
+    const auto missing63=render(factory,id,host,
+         "P181_OWNER_HOLE63",rate,0,60,100,63,1);
+    const auto rom63=render(factory,id,host,
+         "P181_ROM_FALLBACK63",rate,0,60,100,63,0);
+    check(missing63.hash==rom63.hash,
+          "P181 missing real owner preset63 did not map to authentic ROM");
+    ownerBank(resources,"vintage.sf2");
+    const auto vintage=render(factory,id,host,
+         "P181_OWNER_VINTAGE",rate,0,60,100,7,1);
+    audible(vintage,"P181 private Vintage Dreams original chip PCM");
+    ownerBank(resources,"77-presets.sf2");
+    const auto returned=render(factory,id,host,
+         "P181_OWNER_RESTORED",rate,0,60,100,7,1);
+    audible(returned,"P181 owner original sound after A-B-A");
+    const auto direct=render(factory,id,host,
+         "P181_OWNER_DIRECT",rate,0,60,100,7,1);
+    check(direct.hash==returned.hash && vintage.hash!=returned.hash,
+          "P181 original SF2 A-B-A did not recover exact chip audio");
+    ownerBank(resources,nullptr);
+    const auto kick=render(factory,id,host,
+         "P181_OWNER_ROM_DRUM_AFTER_SF2",rate,9,36,100,0,0);
+    const auto melodic=render(factory,id,host,
+         "P181_OWNER_ROM_MELODY_AFTER_SF2",rate,0,60,100,7,0);
+    audible(kick,"P181 authentic original ROM kick after bank swap");
+    audible(melodic,"P181 original ROM patch after bank swap");
+    ++rateTransitions;
+    std::printf("P181_OWNER_RATE_PASS hz=%d bank_7=%016llX vintage=%016llX"
+                " rom_kick=%016llX\n",
+       rate,static_cast<unsigned long long>(returned.hash),
+       static_cast<unsigned long long>(vintage.hash),
+       static_cast<unsigned long long>(kick.hash));
+  }
+  check(matrix==36u && alternateNotes==6u && rateTransitions==3u,
+        "P181 private multi-rate test skipped original-media matrix cases");
+  std::printf("P181_PRIVATE_ORIGINAL_WINDOWS_VST3_MATRIX"
+              " velocity_renders=%u alternate_notes=%u rates=%u"
+              " PCM16_extrema=%u\n",
+       matrix,alternateNotes,rateTransitions,clips);
+  std::puts("P181_PRIVATE_EXACT_WIN64_VST3_ORIGINAL_ROM_SBK_SF2"
+            "_THREE_RATES_VELOCITY_KEY_RANGES_SPARSE_RECALL_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -3344,6 +3429,7 @@ int main(int argc,char** argv){
         "ORIGINAL_ROM_KICK_AFTER_ABA",44100,9,36,100,0,0);
   audible(romAfter,"ROM kick after user A/B/A");
   check(kick.hash==romAfter.hash,"ROM kick changed after two SF2 swaps");
+  verifyP181PrivateMultirateOriginalChipMatrix(factory,cls->ID(),host.get(),resources);
   std::puts("P010_PRIVATE_ACTUAL_WIN64_VST3_ORIGINAL_ROM_SBK_TWO_SF2_77_PRESETS_ABA_PASS");
   return 0;
  }catch(const std::exception& e){
