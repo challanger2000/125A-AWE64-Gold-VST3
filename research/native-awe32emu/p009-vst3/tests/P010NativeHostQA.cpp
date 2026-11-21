@@ -2936,6 +2936,106 @@ void verifyP178ConcurrentOwnerSF2StateTransaction(
   std::puts("P178_ACTUAL_WIN64_VST3_CONCURRENT_EXTERNAL_SF2_STATE_AUDIO_TRANSACTION_PASS");
 }
 
+
+// P179: Unlike P178's deliberately unpaced adversarial 3-thread
+// throughput test, this is a NORMAL DAW-cadence save test with a real
+// sounding, looping ORIGINAL EMU8000 hardware voice and a constant
+// external SF2. The host must reliably save 500/500 valid V5 states
+// during live audio processing without requiring any GUI or transport stop.
+void verifyP179PacedAudibleHostSaves(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"voice32.sf2");
+  Plugin unit(factory,id,host);unit.start(0,1,44100.);
+  const auto expected=p174V5State(resources/"voice32.sf2");
+  check(p174ApplyV5(unit,expected)==kResultOk,
+        "P179 genuine SF2 bank could not become active before playback");
+  constexpr int blockFrames=128;
+  constexpr int totalBlocks=700;
+  constexpr int saveCount=500;
+  std::atomic<int> doneBlocks{0};
+  std::atomic<bool> audioOk{true};
+  double audioEnergy=0.,finalEnergy=0.,maxCallbackMs=0.;
+  std::thread realAudio([&](){
+    std::array<float,128> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ptr;
+    EventList notes(2);
+    ProcessData data{};
+    data.processMode=kRealtime;data.symbolicSampleSize=kSample32;
+    data.numSamples=blockFrames;data.numOutputs=1;
+    data.outputs=&bus;data.inputEvents=&notes;
+    const auto start=std::chrono::steady_clock::now();
+    for(int block=0;block<totalBlocks;++block){
+      const auto offsetNs=static_cast<long long>(
+           (static_cast<std::uint64_t>(block)*blockFrames*
+            1000000000ull)/44100ull);
+      std::this_thread::sleep_until(start+std::chrono::nanoseconds(offsetNs));
+      notes.clear();
+      if(block==0){
+        Event note{};
+        note.type=Event::kNoteOnEvent;note.busIndex=0;note.sampleOffset=12;
+        note.noteOn.channel=0;note.noteOn.pitch=60;note.noteOn.velocity=.80f;
+        if(notes.addEvent(note)!=kResultOk){
+          audioOk.store(false,std::memory_order_release);break;
+        }
+      }
+      const auto tick=std::chrono::steady_clock::now();
+      if(unit.processor->process(data)!=kResultOk){
+        audioOk.store(false,std::memory_order_release);break;
+      }
+      const auto tock=std::chrono::steady_clock::now();
+      maxCallbackMs=std::max(maxCallbackMs,
+         std::chrono::duration<double,std::milli>(tock-tick).count());
+      for(int i=0;i<blockFrames;++i){
+        if(!std::isfinite(left[i])||!std::isfinite(right[i])){
+          audioOk.store(false,std::memory_order_release);break;
+        }
+        const double power=double(left[i])*left[i]+double(right[i])*right[i];
+        audioEnergy+=power;
+        if(block>=650)finalEnergy+=power;
+      }
+      if(!audioOk.load(std::memory_order_acquire))break;
+      doneBlocks.fetch_add(1,std::memory_order_release);
+    }
+  });
+  // Guarantee that the saver actually overlaps an already sounding chip.
+  for(int spins=0;spins<500000 && doneBlocks.load(std::memory_order_acquire)<8;
+      ++spins)std::this_thread::yield();
+  const int blocksBeforeSaves=doneBlocks.load(std::memory_order_acquire);
+  int failedSaves=0,wrongStates=0,thrown=0;
+  for(int i=0;i<saveCount;++i){
+    try{
+      MemoryStream mem;
+      if(unit.component->getState(&mem)!=kResultOk){
+        ++failedSaves;
+      }else{
+        const auto size=static_cast<std::size_t>(mem.getSize());
+        const auto* bytes=reinterpret_cast<const std::uint8_t*>(mem.getData());
+        if(!bytes||size!=expected.size()||
+           std::memcmp(bytes,expected.data(),size)!=0)
+          ++wrongStates;
+      }
+    }catch(...){++thrown;}
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  const int blocksAfterSaves=doneBlocks.load(std::memory_order_acquire);
+  realAudio.join();
+  std::printf("P179_PACED_AUDIBLE_V5_SAVES saves=%d failed=%d torn=%d thrown=%d blocks=%d blocksBefore=%d blocksAfter=%d energy=%.8f finalEnergy=%.8f maxCallbackMs=%.4f\n",
+     saveCount,failedSaves,wrongStates,thrown,
+     doneBlocks.load(std::memory_order_acquire),
+     blocksBeforeSaves,blocksAfterSaves,audioEnergy,finalEnergy,maxCallbackMs);
+  check(audioOk.load(std::memory_order_acquire) &&
+        doneBlocks.load(std::memory_order_acquire)==totalBlocks &&
+        blocksBeforeSaves>=8 && blocksAfterSaves>blocksBeforeSaves+50 &&
+        audioEnergy>0.001 && finalEnergy>0.00001,
+        "P179 test did not continuously play a live original-chip voice");
+  check(failedSaves==0 && wrongStates==0 && thrown==0,
+        "P179 ordinary live 1-voice DAW playback lost valid V5 host saves");
+  ownerBank(resources,nullptr);
+  std::puts("P179_PACED_ACTUAL_WIN64_VST3_500_OF_500_LIVE_V5_SAVES_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -3024,6 +3124,7 @@ int main(int argc,char** argv){
     verifyP176RapidSf2SwitchForwardProgress(factory,cls->ID(),host.get(),resources);
     verifyP177CorruptV5StreamFailClosed(factory,cls->ID(),host.get(),resources);
     verifyP178ConcurrentOwnerSF2StateTransaction(factory,cls->ID(),host.get(),resources);
+    verifyP179PacedAudibleHostSaves(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");

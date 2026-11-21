@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -271,6 +271,7 @@ jobs:
               'P176_ACTUAL_WIN64_VST3_RAPID_DOUBLE_SF2_SWAP_WITHOUT_GUI_GETSTATE_PCM_PASS',
               'P177_ACTUAL_WIN64_VST3_FULL_V5_TRUNCATION_UTF8_SHA_FX_FAIL_CLOSED_PASS',
               'P178_ACTUAL_WIN64_VST3_CONCURRENT_EXTERNAL_SF2_STATE_AUDIO_TRANSACTION_PASS',
+              'P179_PACED_ACTUAL_WIN64_VST3_500_OF_500_LIVE_V5_SAVES_PASS',
               'P173_ACTUAL_WINDOWS_VST3_ORIGINAL_CHIP_LIVE_SF2_FADE_9X_PCM_PASS'
             )){
               if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
