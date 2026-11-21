@@ -324,6 +324,11 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
+          # The stock Steinberg host quits on either view close. Test-only
+          # modification enables one-of-two view close/reopen without ever
+          # changing the compiled shipping VST3 or its original EMU8000 DSP.
+          python research/native-awe32emu/p009-vst3/tests/P184PatchEditorHostLifecycle.py _p009-sdk
+          if($LASTEXITCODE -ne 0){throw 'P184 pinned Steinberg EditorHost test hook failed'}
           cmake --build _p009-build --config Release --parallel 3 --target editorhost
           if($LASTEXITCODE -ne 0){throw 'P165 actual Steinberg editorhost compile failed'}
           $editor=(Get-ChildItem _p009-build -Filter editorhost.exe -Recurse -File |
@@ -526,6 +531,18 @@ jobs:
             Write-Host "::error title=P010 multiple editors regression::Exit ${rc}. $last"
             throw "Steinberg EditorHost two-view test failed: $rc"
           }
+          $env:P184_EDITOR_REOPEN='1'
+          try {
+            python research/native-awe32emu/p009-vst3/tests/P184NativeEditorLifecycleQA.py --editorhost $editor --plugin $plugin --output _p184-editor-lifecycle-evidence *> _p184-editor-lifecycle.log
+            $p184rc=$LASTEXITCODE
+            Get-Content _p184-editor-lifecycle.log
+            if($p184rc -ne 0){throw "P184 real native editor lifecycle test failed: $p184rc"}
+            if(!(Select-String -Path _p184-editor-lifecycle.log -SimpleMatch -Pattern 'P184_ACTUAL_WINDOWS_EDITOR_CLOSE_REOPEN_PEER_SURVIVAL_PASS' -Quiet)){
+              throw 'P184 missing real two-editor close/reopen output'
+            }
+          } finally {
+            Remove-Item Env:P184_EDITOR_REOPEN -ErrorAction SilentlyContinue
+          }
       - name: P182 native Win64 transactional installer + SHA256 + backup negative control
         shell: pwsh
         timeout-minutes: 7
@@ -543,7 +560,9 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _p184-editor-lifecycle.log
             _awe64-peer-editor-evidence/**
+            _p184-editor-lifecycle-evidence/**
             _p009-tester-evidence/**
             _p009-tester-v033-evidence/**
           if-no-files-found: warn
@@ -557,7 +576,9 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _p184-editor-lifecycle.log
             _awe64-peer-editor-evidence/**
+            _p184-editor-lifecycle-evidence/**
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt
