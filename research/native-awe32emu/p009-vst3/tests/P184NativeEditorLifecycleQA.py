@@ -65,10 +65,14 @@ def run(editor, plugin, out, records):
             if process.poll() is not None:
                 raise RuntimeError("P184 host died when first of two editors closed")
             new_windows=get_editors(process.pid)
-            if len(new_windows)==2 and b in new_windows:
+            # A still appears in the initial two-window set before
+            # PostMessage(WM_CLOSE) is delivered. Require its disappearance
+            # before accepting the replacement; merely seeing two windows
+            # produced the false-positive reported by Codex.
+            if len(new_windows)==2 and b in new_windows and a not in new_windows:
                 break
             time.sleep(.2)
-        check(len(new_windows)==2 and b in new_windows,
+        check(len(new_windows)==2 and b in new_windows and a not in new_windows,
               "P184 original peer survived and a new editor reopened",records)
         c=next(hwnd for hwnd in new_windows if hwnd!=b)
         check(bool(u.GetWindow(c,5)),

@@ -402,55 +402,74 @@ void NativeVst3::publishRuntimeSnapshot() noexcept {
     // Check exact atomic snapshots first; only publish when something
     // ACTUALLY changed. No heap, mutex, I/O or unbounded work on process().
     bool unchanged=
-        stateProgramMirror_.load(std::memory_order_relaxed)==
+        stateProgramMirror_.load(std::memory_order_seq_cst)==
             static_cast<std::uint32_t>(program_) &&
-        stateBankMirror_.load(std::memory_order_relaxed)==
+        stateBankMirror_.load(std::memory_order_seq_cst)==
             static_cast<std::uint32_t>(bank_) &&
-        stateMasterMirror_.load(std::memory_order_relaxed)==master_;
+        stateMasterMirror_.load(std::memory_order_seq_cst)==master_;
     if(unchanged){
         for(unsigned ch=0;ch<16u && unchanged;++ch){
             unchanged=
-                stateProgramsMirror_[ch].load(std::memory_order_relaxed)==
+                stateProgramsMirror_[ch].load(std::memory_order_seq_cst)==
                     (ch?programsByChannel_[ch]:
                         static_cast<std::uint8_t>(program_)) &&
-                stateBanksMirror_[ch].load(std::memory_order_relaxed)==
+                stateBanksMirror_[ch].load(std::memory_order_seq_cst)==
                     (ch?banksByChannel_[ch]:
                         static_cast<std::uint8_t>(bank_)) &&
-                stateModesMirror_[ch].load(std::memory_order_relaxed)==
+                stateModesMirror_[ch].load(std::memory_order_seq_cst)==
                     selectedParameterMode_[ch];
         }
     }
     if(unchanged){
         for(unsigned i=0;i<midiState_.size() && unchanged;++i){
             unchanged=
-                stateMidiMirror_[i].load(std::memory_order_relaxed)==
+                stateMidiMirror_[i].load(std::memory_order_seq_cst)==
                     midiState_[i] &&
-                stateAdvancedMirror_[i].load(std::memory_order_relaxed)==
+                stateAdvancedMirror_[i].load(std::memory_order_seq_cst)==
                     advancedMidiState_[i];
         }
+    }
+    if(unchanged){
+        for(unsigned i=0;i<guiControls_.size()&&unchanged;++i)
+            unchanged=stateGuiMirrors_[i].load(std::memory_order_seq_cst)==
+                static_cast<std::uint16_t>(std::lround(
+                    std::clamp(guiControls_[i],0.f,1.f)*10000.f));
+        for(unsigned i=0;i<2u&&unchanged;++i)
+            unchanged=stateFxMirrors_[i].load(std::memory_order_seq_cst)==
+                    static_cast<std::uint8_t>(i?chorusPreset_:reverbPreset_) &&
+                stateSendMirrors_[i].load(std::memory_order_seq_cst)==sendManual_[i];
     }
     if(unchanged)return;
     // Only the audio thread mutates state while active. Host lifecycle
     // publishes only after processing stops; all shared mirrors are ATOMIC.
-    stateMirrorEpoch_.fetch_add(1,std::memory_order_acq_rel); // odd
-    stateProgramMirror_.store(static_cast<std::uint32_t>(program_),std::memory_order_relaxed);
-    stateBankMirror_.store(static_cast<std::uint32_t>(bank_),std::memory_order_relaxed);
-    stateMasterMirror_.store(master_,std::memory_order_relaxed);
+    stateMirrorEpoch_.fetch_add(1,std::memory_order_seq_cst); // odd
+    stateProgramMirror_.store(static_cast<std::uint32_t>(program_),std::memory_order_seq_cst);
+    stateBankMirror_.store(static_cast<std::uint32_t>(bank_),std::memory_order_seq_cst);
+    stateMasterMirror_.store(master_,std::memory_order_seq_cst);
     for(unsigned ch=0;ch<16u;++ch){
         stateProgramsMirror_[ch].store(
             ch?programsByChannel_[ch]:static_cast<std::uint8_t>(program_),
-            std::memory_order_relaxed);
+            std::memory_order_seq_cst);
         stateBanksMirror_[ch].store(
             ch?banksByChannel_[ch]:static_cast<std::uint8_t>(bank_),
-            std::memory_order_relaxed);
+            std::memory_order_seq_cst);
         stateModesMirror_[ch].store(selectedParameterMode_[ch],
-                                   std::memory_order_relaxed);
+                                   std::memory_order_seq_cst);
     }
     for(unsigned i=0;i<midiState_.size();++i){
-        stateMidiMirror_[i].store(midiState_[i],std::memory_order_relaxed);
-        stateAdvancedMirror_[i].store(advancedMidiState_[i],std::memory_order_relaxed);
+        stateMidiMirror_[i].store(midiState_[i],std::memory_order_seq_cst);
+        stateAdvancedMirror_[i].store(advancedMidiState_[i],std::memory_order_seq_cst);
     }
-    stateMirrorEpoch_.fetch_add(1,std::memory_order_release); // even
+    for(unsigned i=0;i<guiControls_.size();++i)
+        stateGuiMirrors_[i].store(static_cast<std::uint16_t>(std::lround(
+            std::clamp(guiControls_[i],0.f,1.f)*10000.f)),
+            std::memory_order_seq_cst);
+    for(unsigned i=0;i<2u;++i){
+        stateFxMirrors_[i].store(static_cast<std::uint8_t>(
+            i?chorusPreset_:reverbPreset_),std::memory_order_seq_cst);
+        stateSendMirrors_[i].store(sendManual_[i],std::memory_order_seq_cst);
+    }
+    stateMirrorEpoch_.fetch_add(1,std::memory_order_seq_cst); // even
 }
 void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexcept {
     // Executed at process() boundary (or by the stopped host before active).
@@ -611,6 +630,23 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
         }
         const float masterEdit=hostMasterEdit_.load(std::memory_order_acquire);
         if(masterEdit>=0.f)master_=masterEdit;
+        for(unsigned i=0;i<guiControls_.size();++i){
+            const int pending=hostGuiEdits_[i].load(std::memory_order_acquire);
+            if(pending>=0){
+                guiControls_[i]=float(pending)/10000.f;
+                if(i>=10u)sendManual_[i-10u]=true;
+            }
+        }
+        for(unsigned i=0;i<2u;++i){
+            const int pendingFx=hostFxEdits_[i].load(std::memory_order_acquire);
+            if(pendingFx>=0){
+                if(i==0)reverbPreset_=pendingFx;
+                else chorusPreset_=pendingFx;
+                fxEdited_=true;
+            }
+            const int pendingMode=hostSendEdits_[i].load(std::memory_order_acquire);
+            if(pendingMode>=0)sendManual_[i]=pendingMode!=0;
+        }
         try {
             // Missing PRIVATE assets: an explicitly SILENT prototype.
             // Host scanner/validator can inspect the module safely.
@@ -646,9 +682,21 @@ void NativeVst3::changeChannelBankProgram(unsigned ch) noexcept{
     synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
     synth_->ProgramChange(static_cast<std::uint8_t>(ch),
                           static_cast<std::uint8_t>(chosenProgram));
+    if(ch==0u && bank_==2){
+        // CH1's browser drum lane actually sounds through hardware CH10.
+        // Selecting Program 5 on CH1 without setting CH10 previously played
+        // Kit 0 despite the browser displaying Kit 5.
+        synth_->ControlChange(9u,0u,0u);
+        synth_->ControlChange(9u,32u,0u);
+        synth_->ProgramChange(9u,static_cast<std::uint8_t>(chosenProgram));
+    }
 }
 void NativeVst3::changeBankProgram() noexcept{
     for(unsigned ch=0;ch<16;++ch)changeChannelBankProgram(ch);
+    // The ordinary CH10 state is applied during the loop. Reassert the
+    // browser's redirected CH1 kit last so a fresh/stopped restore cannot
+    // silently replace it with the default CH10 Kit 0.
+    if(bank_==2)changeChannelBankProgram(0u);
 }
 void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
                                      std::uint16_t raw) noexcept{
@@ -694,11 +742,9 @@ void NativeVst3::resetMidiControllersForStateRestore() noexcept{
 void NativeVst3::replayMidiState() noexcept{
     if(!synth_)return;
     for(unsigned ch=0;ch<16;++ch){
-        // CC bank state first. Then melodic CCs, RPN selection + data entry.
-        for(unsigned slot=0;slot<2;++slot){
-            const auto v=advancedMidiState_[ch*kAdvancedCount+slot];
-            if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
-        }
+        // The restored per-channel bank fields are authoritative and have
+        // ALREADY sent CC0/CC32 in changeBankProgram(). Raw older CC0/32
+        // is history, not a newer event: replaying it overwrote saved ROM.
         for(unsigned slot=0;slot<kMappedCount;++slot){
             const auto v=midiState_[ch*kMappedCount+slot];
             if(v!=0xFFFFu)applyMidiController(ch,slot,v);
@@ -710,11 +756,25 @@ void NativeVst3::replayMidiState() noexcept{
                 if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
             }
         }else if(mode==2){
+            // NRPN selection intentionally deselects the hardware RPN,
+            // but its most recently SET pitch range must survive project
+            // reopening. Reapply the stored RPN data before restoring the
+            // final NRPN selector. The old code replayed ONLY NRPN, leaving
+            // the reset Creative bend range at the default two semitones.
+            const auto base=ch*kAdvancedCount;
+            if(advancedMidiState_[base+2u]==0u &&
+               advancedMidiState_[base+3u]==0u &&
+               advancedMidiState_[base+4u]!=0xFFFFu) {
+                for(unsigned slot=2;slot<=5;++slot){
+                    const auto v=advancedMidiState_[base+slot];
+                    if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
+                }
+            }
             for(unsigned slot=6;slot<=7;++slot){
-                const auto v=advancedMidiState_[ch*kAdvancedCount+slot];
+                const auto v=advancedMidiState_[base+slot];
                 if(v!=0xFFFFu)applyAdvancedController(ch,slot,v);
             }
-            // No synthetic NRPN data-entry action; actual driver ignores it.
+            // Unsupported NRPN data-entry is not applied to chip registers.
         }
     }
 }
@@ -813,6 +873,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         bankAtBlock[ch]=hostBankEdits_[ch].load(std::memory_order_acquire);
     }
     const float masterAtBlock=hostMasterEdit_.load(std::memory_order_acquire);
+    std::array<int,12> guiAtBlock{};
+    std::array<int,2> fxAtBlock{},sendAtBlock{};
+    for(unsigned i=0;i<guiAtBlock.size();++i)
+        guiAtBlock[i]=hostGuiEdits_[i].load(std::memory_order_acquire);
+    for(unsigned i=0;i<2u;++i){
+        fxAtBlock[i]=hostFxEdits_[i].load(std::memory_order_acquire);
+        sendAtBlock[i]=hostSendEdits_[i].load(std::memory_order_acquire);
+    }
     applyStagedInstrumentRealtime();
     // Never apply a newer project's MIDI state to a previous SoundFont
     // while a prior 15-ms fade still blocks its staged chip candidate.
@@ -1111,10 +1179,21 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     if(synth_)applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
                 }
                 fxEdited_=true;
+                const unsigned i=mp.slot==kGuiReverbType?0u:1u;
+                if(fxAtBlock[i]>=0){
+                    int expected=fxAtBlock[i];
+                    (void)hostFxEdits_[i].compare_exchange_strong(
+                        expected,-1,std::memory_order_acq_rel);
+                }
             }else if(mp.slot>=kGuiSendManualSlotBase &&
                      mp.slot<kGuiSendManualSlotBase+2u){
                 const auto i=static_cast<unsigned>(mp.slot-kGuiSendManualSlotBase);
                 sendModeAtFrame[i]=int(mp.value);
+                if(sendAtBlock[i]>=0){
+                    int expected=sendAtBlock[i];
+                    (void)hostSendEdits_[i].compare_exchange_strong(
+                        expected,-1,std::memory_order_acq_rel);
+                }
             }else if(mp.slot>=kGuiControlSlotBase &&
                      mp.slot<kGuiControlSlotBase+guiControls_.size()){
                 const auto index=static_cast<unsigned>(
@@ -1125,6 +1204,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     std::memory_order_release);
                 if(synth_)synth_->SetGuiControl(
                     static_cast<int>(index),guiControls_[index]);
+                if(guiAtBlock[index]>=0){
+                    int expected=guiAtBlock[index];
+                    (void)hostGuiEdits_[index].compare_exchange_strong(
+                        expected,-1,std::memory_order_acq_rel);
+                }
                 if(index>=10u){
                     // A real performed send gesture (including an explicit
                     // 0%) switches to absolute hardware send operation.
@@ -1172,21 +1256,29 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     }else{
         bool consistent=false;
         for(int attempt=0;attempt<128 && !consistent;++attempt){
-            const auto before=stateMirrorEpoch_.load(std::memory_order_acquire);
+            const auto before=stateMirrorEpoch_.load(std::memory_order_seq_cst);
             if(before&1u)continue;
-            stable.program=stateProgramMirror_.load(std::memory_order_relaxed);
-            stable.bank=stateBankMirror_.load(std::memory_order_relaxed);
-            stable.master=stateMasterMirror_.load(std::memory_order_relaxed);
+            stable.program=stateProgramMirror_.load(std::memory_order_seq_cst);
+            stable.bank=stateBankMirror_.load(std::memory_order_seq_cst);
+            stable.master=stateMasterMirror_.load(std::memory_order_seq_cst);
             for(unsigned ch=0;ch<16u;++ch){
-                stable.programs[ch]=stateProgramsMirror_[ch].load(std::memory_order_relaxed);
-                stable.banks[ch]=stateBanksMirror_[ch].load(std::memory_order_relaxed);
-                stable.modes[ch]=stateModesMirror_[ch].load(std::memory_order_relaxed);
+                stable.programs[ch]=stateProgramsMirror_[ch].load(std::memory_order_seq_cst);
+                stable.banks[ch]=stateBanksMirror_[ch].load(std::memory_order_seq_cst);
+                stable.modes[ch]=stateModesMirror_[ch].load(std::memory_order_seq_cst);
             }
             for(unsigned i=0;i<stable.midi.size();++i){
-                stable.midi[i]=stateMidiMirror_[i].load(std::memory_order_relaxed);
-                stable.advanced[i]=stateAdvancedMirror_[i].load(std::memory_order_relaxed);
+                stable.midi[i]=stateMidiMirror_[i].load(std::memory_order_seq_cst);
+                stable.advanced[i]=stateAdvancedMirror_[i].load(std::memory_order_seq_cst);
             }
-            const auto after=stateMirrorEpoch_.load(std::memory_order_acquire);
+            for(unsigned i=0;i<stable.gui.size();++i)
+                stable.gui[i]=float(stateGuiMirrors_[i].load(
+                    std::memory_order_seq_cst))/10000.f;
+            stable.reverb=stateFxMirrors_[0].load(std::memory_order_seq_cst);
+            stable.chorus=stateFxMirrors_[1].load(std::memory_order_seq_cst);
+            for(unsigned i=0;i<2u;++i)
+                stable.sendManual[i]=stateSendMirrors_[i].load(
+                    std::memory_order_seq_cst);
+            const auto after=stateMirrorEpoch_.load(std::memory_order_seq_cst);
             consistent=(before==after && !(after&1u));
         }
         if(!consistent)return kResultFalse; // never return a torn session
@@ -1208,6 +1300,19 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     }
     const float masterEdit=hostMasterEdit_.load(std::memory_order_acquire);
     if(masterEdit>=0.f)stable.master=masterEdit;
+    for(unsigned i=0;i<stable.gui.size();++i){
+        const int pending=hostGuiEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)stable.gui[i]=float(pending)/10000.f;
+    }
+    for(unsigned i=0;i<2u;++i){
+        const int pendingFx=hostFxEdits_[i].load(std::memory_order_acquire);
+        const int pendingMode=hostSendEdits_[i].load(std::memory_order_acquire);
+        if(pendingFx>=0){
+            if(i==0)stable.reverb=pendingFx;
+            else stable.chorus=pendingFx;
+        }
+        if(pendingMode>=0)stable.sendManual[i]=pendingMode!=0;
+    }
     Saved s{};
     s.program=stable.program;s.bank=stable.bank;s.master=stable.master;
     for(unsigned ch=1;ch<16u;++ch){
@@ -1228,18 +1333,17 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
             extended.assetSha256=selectedUserSha256_;
         }
     }
-    // V5 extension high bit encodes independent manual-mode overrides;
-    // low three bits remain the actual original EMU8000 FX type. Old V5
-    // files without the flag retain their exact unmodified SF2 defaults.
-    extended.effectModes[0]=fxPresetMirrors_[0].load(std::memory_order_acquire)|
-        (sendManualMirrors_[0].load(std::memory_order_acquire)?0x0100u:0u);
-    extended.effectModes[1]=fxPresetMirrors_[1].load(std::memory_order_acquire)|
-        (sendManualMirrors_[1].load(std::memory_order_acquire)?0x0100u:0u);
-    bool changed=explicitOwner||extended.effectModes[0]!=4u||
-                                  extended.effectModes[1]!=2u;
-    for(unsigned i=0;i<guiControls_.size();++i){
-        extended.guiControls[i]=guiControlMirrors_[i].load(
-            std::memory_order_acquire);
+    // V5 bit 0x0200 means mode is explicit even with a nonzero saved
+    // SEND control. 0x0100 remains the separate manual-mode bit.
+    extended.effectModes[0]=static_cast<std::uint16_t>(stable.reverb)|
+        0x0200u|(stable.sendManual[0]?0x0100u:0u);
+    extended.effectModes[1]=static_cast<std::uint16_t>(stable.chorus)|
+        0x0200u|(stable.sendManual[1]?0x0100u:0u);
+    bool changed=explicitOwner||stable.reverb!=4||stable.chorus!=2||
+        stable.sendManual[0]||stable.sendManual[1];
+    for(unsigned i=0;i<stable.gui.size();++i){
+        extended.guiControls[i]=static_cast<std::uint16_t>(std::lround(
+            std::clamp(stable.gui[i],0.f,1.f)*10000.f));
         if(extended.guiControls[i]>0)changed=true;
     }
     if(changed){
@@ -1335,7 +1439,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         for(const auto control:ext.guiControls)
             if(control>10000u)return kResultFalse;
         for(const auto effect:ext.effectModes)
-            if((effect&~0x0107u)!=0u)return kResultFalse;
+            if((effect&~0x0307u)!=0u)return kResultFalse;
         if(ext.pathBytes){
             requestedPath.resize(ext.pathBytes);
             if(stream->read(requestedPath.data(),
@@ -1415,8 +1519,10 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     desired->chorus=s.version==kStateV5?int(ext.effectModes[1]&7u):2;
     if(s.version==kStateV5)
         for(unsigned i=0;i<2u;++i)
-            desired->sendManual[i]=(ext.effectModes[i]&0x0100u)!=0u ||
-                ext.guiControls[10u+i]>0u; // pre-override V5 compatibility
+            desired->sendManual[i]=(ext.effectModes[i]&0x0200u)!=0u?
+                ((ext.effectModes[i]&0x0100u)!=0u):
+                ((ext.effectModes[i]&0x0100u)!=0u ||
+                 ext.guiControls[10u+i]>0u); // genuine pre-override V5
     // Host owner SHA/path, MIDI/master/FX and the prepared instrument are
     // committed as one non-RT transaction. getState() is allowed to save
     // the previous *valid* A state during an expensive B preparation, but
@@ -1448,6 +1554,9 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     for(auto& p:hostProgramEdits_)p.store(-1,std::memory_order_release);
     for(auto& b:hostBankEdits_)b.store(-1,std::memory_order_release);
     hostMasterEdit_.store(-1.f,std::memory_order_release);
+    for(auto& g:hostGuiEdits_)g.store(-1,std::memory_order_release);
+    for(auto& f:hostFxEdits_)f.store(-1,std::memory_order_release);
+    for(auto& m:hostSendEdits_)m.store(-1,std::memory_order_release);
     for(unsigned i=0;i<desired->gui.size();++i){
         const auto value=s.version==kStateV5?ext.guiControls[i]:0u;
         guiControlMirrors_[i].store(value,std::memory_order_release);

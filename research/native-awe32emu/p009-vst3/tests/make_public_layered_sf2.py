@@ -136,6 +136,29 @@ if "--single" in sys.argv[2:]:
                          2*sample_length,2*sample_length))
     )
 
+# P185 independent ORIGINAL-chip drum-kit oracle: two valid program
+# headers for Kits 0 and 5, each with its own instrument and dissimilar
+# sample PCM. Previous public fixtures remain byte-for-byte unchanged.
+if "--drum-kits" in sys.argv[2:]:
+    if bank_number != 128:
+        raise SystemExit("--drum-kits also requires --drums")
+    pdta=(
+        ck(b"phdr",phdr("Kit0Sine",0,128,0)+phdr("Kit5Harmonics",5,128,1)+
+                      phdr("EOP",0,0,2))+
+        ck(b"pbag",bag(0)+bag(1)+bag(2))+
+        ck(b"pmod",bytes(10))+
+        ck(b"pgen",gen(41,0)+gen(41,1)+gen(0,0))+
+        ck(b"inst",inst("Kit0",0)+inst("Kit5",1)+inst("EOI",2))+
+        ck(b"ibag",bag(0)+bag(2)+bag(4))+
+        ck(b"imod",bytes(10))+
+        ck(b"igen",gen(37,0)+gen(53,0)+gen(37,0)+gen(53,1)+gen(0,0))+
+        ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
+                    shdr("HarmonicWave",sample_length,2*sample_length,
+                         sample_length+64,2*sample_length-128)+
+                    shdr("EOS",2*sample_length,2*sample_length,
+                         2*sample_length,2*sample_length))
+    )
+
 info=ck(b"ifil",struct.pack("<HH",2,1))+ck(b"INAM",b"P009 Public Two Layer QA\0")
 bank=ls(b"INFO",info)+ls(b"sdta",ck(b"smpl",smpl))+ls(b"pdta",pdta)
 data=ck(b"RIFF",b"sfbk"+bank)

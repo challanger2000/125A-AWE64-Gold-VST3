@@ -49,6 +49,11 @@ public:
         for(auto& x:stateAdvancedMirror_)x.store(0xFFFFu);
         for(auto& x:hostProgramEdits_)x.store(-1);
         for(auto& x:hostBankEdits_)x.store(-1);
+        for(auto& x:hostGuiEdits_)x.store(-1);
+        for(auto& x:hostFxEdits_)x.store(-1);
+        for(auto& x:hostSendEdits_)x.store(-1);
+        stateFxMirrors_[0].store(4u);
+        stateFxMirrors_[1].store(2u);
     }
     ~NativeVst3() override { cleanStagedAndRetiredNonRealtime(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
@@ -116,6 +121,10 @@ private:
     // allocate in the render callback.
     std::array<std::atomic<int>,16> hostProgramEdits_{},hostBankEdits_{};
     std::atomic<float> hostMasterEdit_{-1.f};
+    // Unacknowledged stopped-transport editor changes, never merged with
+    // unrelated audio generations. -1 means the RT epoch is authoritative.
+    std::array<std::atomic<int>,12> hostGuiEdits_{};
+    std::array<std::atomic<int>,2> hostFxEdits_{},hostSendEdits_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     // Two bounded old-chip slots prevent a pending bank from stalling if
     // it was requested during the previous 15-ms fade. Only the audio
@@ -148,6 +157,11 @@ private:
         stateBanksMirror_{},stateModesMirror_{};
     std::array<std::atomic<std::uint16_t>,16*8> stateMidiMirror_{},
         stateAdvancedMirror_{};
+    // Include ALL audible GUI/FX/SEND state in the SAME audio snapshot
+    // generation; independent GUI mirrors would tear during automation.
+    std::array<std::atomic<std::uint16_t>,12> stateGuiMirrors_{};
+    std::array<std::atomic<std::uint8_t>,2> stateFxMirrors_{};
+    std::array<std::atomic<bool>,2> stateSendMirrors_{};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
     void publishRuntimeSnapshot() noexcept;

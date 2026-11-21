@@ -357,8 +357,8 @@ void verifyP165GuiV5OwnerAssetState(
     check(v==static_cast<unsigned>((i+1)*500),
           "P165 control parameter did not roundtrip exactly");
  }
- check(bytes[644]==4u&&bytes[645]==1u &&
-       bytes[646]==2u&&bytes[647]==1u,
+ check(bytes[644]==4u&&bytes[645]==3u &&
+       bytes[646]==2u&&bytes[647]==3u,
        "P165 V5 must persist two explicit SEND hardware modes with FX types");
  auto zeroSendProject=Plugin(factory,id,host);
  check(zeroSendProject.controller->setParamNormalized(1110u,0.)==kResultOk &&
@@ -369,8 +369,8 @@ void verifyP165GuiV5OwnerAssetState(
        zeroState.getSize()==648u,
        "P165 manual 0% needs V5 explicit SEND-mode state, not V4 DEFAULT");
  auto* z=reinterpret_cast<const std::uint8_t*>(zeroState.getData());
- check(z && z[644]==4u && z[645]==1u &&
-       z[646]==2u && z[647]==1u &&
+ check(z && z[644]==4u && z[645]==3u &&
+       z[646]==2u && z[647]==3u &&
        z[608]==0u && z[609]==0u &&
        z[610]==0u && z[611]==0u,
        "P165 V5 zero SEND register override missing despite manual mode");
@@ -385,8 +385,8 @@ void verifyP165GuiV5OwnerAssetState(
        fxState.getSize()==648u,
        "P165 real FX-type automation not persisted in DAW state");
  const auto* fxBytes=reinterpret_cast<const std::uint8_t*>(fxState.getData());
- check(fxBytes && fxBytes[644]==5u && fxBytes[645]==0u &&
-       fxBytes[646]==6u && fxBytes[647]==0u,
+ check(fxBytes && fxBytes[644]==5u && fxBytes[645]==2u &&
+       fxBytes[646]==6u && fxBytes[647]==2u,
        "P165 original hardware FX type values wrong after automation");
  auto fxReopen=Plugin(factory,id,host);
  MemoryStream fxRestore;int32 fxBytesWritten=0;
@@ -3195,6 +3195,226 @@ void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
   ownerBank(resources,nullptr);
   std::puts("P171_28MIB_HARDWARE_RAM_REJECTION_AND_RECOVERY_PASS");
 }
+
+// P185 / independent Codex NO-GO regressions. These tests exercise the
+// actual compiled Steinberg VST3, not a fake GUI or a standalone DSP clone.
+void verifyP185OriginalModeWithNonzeroSavedSend(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin first(factory,id,host);
+  check(first.controller->setParamNormalized(1110u,.625)==kResultOk &&
+        first.controller->setParamNormalized(1420u,0.)==kResultOk,
+        "P185 cannot set SEND>0 then explicit ORIGINAL mode");
+  MemoryStream stored;
+  check(first.component->getState(&stored)==kResultOk &&
+        stored.getSize()==648u,"P185 ORIGINAL mode V5 not serialized");
+  const auto* raw=reinterpret_cast<const std::uint8_t*>(stored.getData());
+  check(raw && raw[608]==0x6A && raw[609]==0x18 &&
+        raw[644]==4u && raw[645]==2u,
+        "P185 saved ORIGINAL send mode conflated with positive SEND knob");
+  Plugin recalled(factory,id,host);
+  MemoryStream source;
+  int32 written=0;
+  check(source.write(stored.getData(),648,&written)==kResultOk &&
+        written==648 && source.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        recalled.component->setState(&source)==kResultOk,
+        "P185 ORIGINAL positive-SEND project could not be recalled");
+  MemoryStream again;
+  check(recalled.component->getState(&again)==kResultOk &&
+        again.getSize()==648u &&
+        std::memcmp(again.getData(),stored.getData(),648u)==0 &&
+        recalled.controller->getParamNormalized(1420u)==0.,
+        "P185 recalled ORIGINAL silently became MANUAL");
+  // An older V5 file lacks the new 0x0200 explicit-mode marker. It must
+  // still use the documented legacy fallback instead of losing its SEND.
+  std::vector<std::uint8_t> legacy(raw,raw+648u);
+  legacy[645]=0u; // legacy mode-unmarked V5, positive control value
+  MemoryStream oldStream;
+  check(oldStream.write(legacy.data(),648,&written)==kResultOk &&
+        oldStream.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        recalled.component->setState(&oldStream)==kResultOk &&
+        recalled.controller->getParamNormalized(1420u)==1.,
+        "P185 old V5 positive SEND no longer recalls its legacy MANUAL mode");
+  std::puts("P185_V5_POSITIVE_SEND_EXPLICIT_ORIGINAL_AND_LEGACY_COMPAT_PASS");
+}
+
+void verifyP185PitchRangeSurvivesNRPN(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Saved rpn{};rpn.version=4u;rpn.bank=1u;
+  rpn.midiStates.fill(0xFFFFu);
+  rpn.advancedStates.fill(0xFFFFu);
+  rpn.midiStates[7]=16383u; // actual CH1 pitch bend +8191
+  rpn.advancedStates[2]=0u;rpn.advancedStates[3]=0u;
+  rpn.advancedStates[4]=12u;rpn.parameterModes[0]=1u;
+  Saved nrpn=rpn;
+  nrpn.advancedStates[6]=1u;nrpn.advancedStates[7]=2u;
+  nrpn.parameterModes[0]=2u; // most recently selected NRPN
+  Saved defaultRange=nrpn;
+  defaultRange.advancedStates[4]=0xFFFFu; // no retained RPN range
+  Plugin a(factory,id,host),b(factory,id,host),control(factory,id,host);
+  a.start(0,1,44100.);b.start(0,1,44100.);
+  control.start(0,1,44100.);
+  p015Restore(a,rpn);
+  p015Restore(b,nrpn);
+  p015Restore(control,defaultRange);
+  const auto withRpn=p015Play(a,0,60);
+  const auto afterNrpn=p015Play(b,0,60);
+  const auto defaultPcm=p015Play(control,0,60);
+  check(withRpn!=defaultPcm,
+        "P185 RPN pitch range oracle invalid: 12 and default sound equal");
+  check(afterNrpn==withRpn,
+        "P185 selecting NRPN lost the original 12-semitone bend range PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P185_REAL_CHIP_RPN12_NRPN_RESELECT_V4_RECALL_PCM_PASS");
+}
+
+void verifyP185StoppedROMBankRestoresAgainstOldCC0(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"77-presets.sf2");
+  Saved state{};state.version=4u;state.bank=0u;state.program=0u;
+  state.midiStates.fill(0xFFFFu);
+  state.advancedStates.fill(0xFFFFu);
+  state.advancedStates[0]=1u; // earlier MIDI CC0 selected SF2
+  Plugin restored(factory,id,host);
+  restored.start(0,1,44100.);
+  check(restored.processor->setProcessing(false)==kResultOk &&
+        restored.component->setActive(false)==kResultOk,
+        "P185 stopped-transport host teardown failed");
+  restored.processing=false;restored.active=false;
+  p015Restore(restored,state); // while inactive; must defeat historic CC0
+  check(restored.component->setActive(true)==kResultOk &&
+        restored.processor->setProcessing(true)==kResultOk,
+        "P185 stopped-transport host reactivation failed");
+  restored.active=true;restored.processing=true;
+  MemoryStream after;
+  check(restored.component->getState(&after)==kResultOk &&
+        after.getSize()==sizeof(Saved),"P185 stopped ROM bank state lost");
+  Saved got{};std::memcpy(&got,after.getData(),sizeof(got));
+  check(got.bank==0u && got.advancedStates[0]==1u,
+        "P185 old CC0 overrode the saved ROM bank at activation");
+  Plugin rom(factory,id,host),sf2(factory,id,host);
+  rom.start(0,0,44100.);sf2.start(0,1,44100.);
+  const auto want=p015Play(rom,0,60);
+  const auto wrong=p015Play(sf2,0,60);
+  check(want!=wrong,"P185 ROM vs SF2 PCM fixtures not independent");
+  check(p015Play(restored,0,60)==want,
+        "P185 STOP/START reloaded stale MIDI SF2 bank instead of ROM PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P185_REAL_CHIP_STOPPED_ROM_BANK_STALE_CC0_RECALL_PCM_PASS");
+}
+
+void verifyP185BrowserDrumKitActuallyChangesPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"multi-drums.sf2");
+  const auto kit0=render(factory,id,host,
+      "P185_BROWSER_DRUMKIT0",44100,0,60,100,0,2);
+  const auto kit5=render(factory,id,host,
+      "P185_BROWSER_DRUMKIT5",44100,0,60,100,5,2);
+  const auto ch10kit5=render(factory,id,host,
+      "P185_REAL_CH10_DRUMKIT5",44100,9,60,100,5,0);
+  check(kit0.rms>0.0001 && kit5.rms>0.0001,
+        "P185 original-chip two different drum-kit PCM fixtures are silent");
+  check(kit0.hash!=kit5.hash,
+        "P185 browser selected Kit 5 but rendered the same PCM as Kit 0");
+  check(ch10kit5.hash==kit5.hash,
+        "P185 CH1 browser kit must select the actual CH10 drum program");
+  Plugin recalled(factory,id,host),direct(factory,id,host);
+  recalled.start(0,0,44100.);direct.start(5,2,44100.);
+  Saved s{};s.version=4u;s.program=5u;s.bank=2u;
+  s.midiStates.fill(0xFFFFu);s.advancedStates.fill(0xFFFFu);
+  p015Restore(recalled,s);
+  check(p015Play(recalled,0,60)==p015Play(direct,0,60),
+        "P185 browser drum Kit 5 not reproduced by reopened VST3 project");
+  ownerBank(resources,nullptr);
+  std::puts("P185_ORIGINAL_CHIP_BROWSER_KIT0_KIT5_CH10_PCM_V4_RECALL_PASS");
+}
+
+void verifyP185CoherentGUIAndMidiAutomationSaves(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host){
+  Plugin plugin(factory,id,host);plugin.start(0,0,44100.);
+  std::atomic<bool> stop{false},worked{true};
+  std::atomic<uint64_t> saved{0},torn{0},rejected{0},blocks{0};
+  // Each process() atomically changes a complete MIDI/GUI/FX tuple.
+  // An independently timed host getState must see exactly one generation.
+  const auto apply=[&](bool b)->bool{
+    ParameterChanges points(7);
+    const auto put=[&](ParamID id,double value)->bool{
+      int32 qi=0,pi=0;
+      auto* q=points.addParameterData(id,qi);
+      return q && q->addPoint(0,value,pi)==kResultOk;
+    };
+    if(!put(1000u,b?20./127.:10./127.)||
+       !put(1002u,b?.5:0.)||
+       !put(1001u,b?.875:.375)||
+       !put(1100u,b?.75:.25)||
+       !put(1400u,b?6./7.:5./7.)||
+       !put(1420u,b?0.:1.))return false;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=0;
+    pd.inputParameterChanges=&points;
+    return plugin.processor->process(pd)==kResultOk;
+  };
+  const auto save=[&](){
+    MemoryStream state;
+    check(plugin.component->getState(&state)==kResultOk,
+          "P185 cannot produce an actual valid VST3 state");
+    const auto* ptr=reinterpret_cast<const std::uint8_t*>(state.getData());
+    check(ptr && state.getSize()==648u,"P185 expected genuine V5 automation state");
+    return std::vector<std::uint8_t>(ptr,ptr+state.getSize());
+  };
+  check(apply(false),"P185 initial automation state A rejected");
+  const auto A=save();
+  check(apply(true),"P185 initial automation state B rejected");
+  const auto B=save();
+  check(A!=B && A[645]==3u && B[645]==2u,
+        "P185 independent A/B FX mode and send-mode oracle was not exercised");
+  check(apply(false),"P185 restore automation state A rejected");
+  std::thread audio([&](){
+    for(int i=0;i<20000;++i){
+      if(!apply((i&1)!=0)){
+        worked.store(false,std::memory_order_release);break;
+      }
+      blocks.fetch_add(1,std::memory_order_relaxed);
+      if((i&15)==0)std::this_thread::yield();
+    }
+    stop.store(true,std::memory_order_release);
+  });
+  std::thread snapshots([&](){
+    while(!stop.load(std::memory_order_acquire)){
+      MemoryStream ms;
+      if(plugin.component->getState(&ms)!=kResultOk){
+        rejected.fetch_add(1,std::memory_order_relaxed);
+      }else{
+        const auto* raw=reinterpret_cast<const std::uint8_t*>(ms.getData());
+        const auto size=static_cast<std::size_t>(ms.getSize());
+        bool matchA=size==A.size() && raw &&
+            std::memcmp(raw,A.data(),size)==0;
+        bool matchB=size==B.size() && raw &&
+            std::memcmp(raw,B.data(),size)==0;
+        if(!matchA&&!matchB)torn.fetch_add(1,std::memory_order_relaxed);
+        saved.fetch_add(1,std::memory_order_relaxed);
+      }
+    }
+  });
+  audio.join();snapshots.join();
+  std::printf("P185_CONCURRENT_AUDIO_GUI_FX_MIDI_AUTOMATION_SAVES"
+              " successful=%llu mixed=%llu rejected=%llu callbacks=%llu\n",
+       static_cast<unsigned long long>(saved.load()),
+       static_cast<unsigned long long>(torn.load()),
+       static_cast<unsigned long long>(rejected.load()),
+       static_cast<unsigned long long>(blocks.load()));
+  check(worked.load() && blocks.load()==20000u && saved.load()>=100u,
+        "P185 independent audio/save concurrency oracle was not exercised");
+  check(torn.load()==0u && rejected.load()==0u,
+        "P185 host saved an impossible mixed MIDI/GUI/FX generation");
+  std::puts("P185_REAL_WIN64_VST3_ATOMIC_GUI_FX_MIDI_AUTOMATION_SAVE_PASS");
+}
+
 int main(int argc,char** argv){
  try{
   std::setvbuf(stdout,nullptr,_IONBF,0);
@@ -3234,6 +3454,8 @@ int main(int argc,char** argv){
   verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
   verifyP165GuiV5OwnerAssetState(factory,cls->ID(),host.get());
+  verifyP185OriginalModeWithNonzeroSavedSend(factory,cls->ID(),host.get());
+  verifyP185CoherentGUIAndMidiAutomationSaves(factory,cls->ID(),host.get());
   auditV5DoesNotEraseAdvancedMidiControllers(factory,cls->ID(),host.get());
   verifyP165ConcurrentHostStateWithLiveProcess(factory,cls->ID(),host.get());
   verifyP012MidiMapping(factory,cls->ID(),host.get());
@@ -3244,6 +3466,9 @@ int main(int argc,char** argv){
     ownerBank(resources,nullptr);
     verifyTailAndBlockPartitions(factory,cls->ID(),host.get(),resources);
     verifyDrumReleaseAfterBankChange(factory,cls->ID(),host.get(),resources);
+    verifyP185BrowserDrumKitActuallyChangesPCM(factory,cls->ID(),host.get(),resources);
+    verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
+    verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(factory,cls->ID(),host.get(),resources);
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
