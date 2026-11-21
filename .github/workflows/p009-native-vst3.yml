@@ -388,7 +388,7 @@ jobs:
             throw 'P170 incorrect 0.3.3 development tester source SHA'
           }
           $manifest=Get-Content -Raw -LiteralPath '_p009-tester-v033-source/CMakeLists.txt'
-          if($manifest -notmatch 'project\\(PluginTester125A VERSION 0\\.3\\.3 LANGUAGES CXX\\)'){
+          if(-not $manifest.Contains('project(PluginTester125A VERSION 0.3.3 LANGUAGES CXX)')){
             throw 'P170 source is not exact v0.3.3 tester CMake version'
           }
           # Reuse same exact Steinberg SDK already fetched for the native
