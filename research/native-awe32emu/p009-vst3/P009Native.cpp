@@ -395,9 +395,43 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     return true;
 }
 void NativeVst3::publishRuntimeSnapshot() noexcept {
-    // Only process() publishes while active. Host setState publishes only
-    // while inactive; all members are ATOMIC so even a racing getState sees
-    // either a coherent version or safely retries.
+    // The chip can render thousands of unchanged 64-frame callbacks while
+    // another host thread is saving a VST3 project. Publishing the *same*
+    // 16-channel MIDI/project state every time needlessly toggles the
+    // sequence lock and made getState FAIL after 128 retries under load.
+    // Check exact atomic snapshots first; only publish when something
+    // ACTUALLY changed. No heap, mutex, I/O or unbounded work on process().
+    bool unchanged=
+        stateProgramMirror_.load(std::memory_order_relaxed)==
+            static_cast<std::uint32_t>(program_) &&
+        stateBankMirror_.load(std::memory_order_relaxed)==
+            static_cast<std::uint32_t>(bank_) &&
+        stateMasterMirror_.load(std::memory_order_relaxed)==master_;
+    if(unchanged){
+        for(unsigned ch=0;ch<16u && unchanged;++ch){
+            unchanged=
+                stateProgramsMirror_[ch].load(std::memory_order_relaxed)==
+                    (ch?programsByChannel_[ch]:
+                        static_cast<std::uint8_t>(program_)) &&
+                stateBanksMirror_[ch].load(std::memory_order_relaxed)==
+                    (ch?banksByChannel_[ch]:
+                        static_cast<std::uint8_t>(bank_)) &&
+                stateModesMirror_[ch].load(std::memory_order_relaxed)==
+                    selectedParameterMode_[ch];
+        }
+    }
+    if(unchanged){
+        for(unsigned i=0;i<midiState_.size() && unchanged;++i){
+            unchanged=
+                stateMidiMirror_[i].load(std::memory_order_relaxed)==
+                    midiState_[i] &&
+                stateAdvancedMirror_[i].load(std::memory_order_relaxed)==
+                    advancedMidiState_[i];
+        }
+    }
+    if(unchanged)return;
+    // Only the audio thread mutates state while active. Host lifecycle
+    // publishes only after processing stops; all shared mirrors are ATOMIC.
     stateMirrorEpoch_.fetch_add(1,std::memory_order_acq_rel); // odd
     stateProgramMirror_.store(static_cast<std::uint32_t>(program_),std::memory_order_relaxed);
     stateBankMirror_.store(static_cast<std::uint32_t>(bank_),std::memory_order_relaxed);
