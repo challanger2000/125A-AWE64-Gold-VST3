@@ -396,14 +396,10 @@ private:
     CCoord lastX_=0.,lastY_=0.;
 };
 // Preserve the exact owner's P165 faceplate and all original live knobs.
-std::string BankLabel(uint16_t id) {
-    // A/B is a BROWSER distinction (not a requirement to set MIDI CH10):
-    // instruments and drums remain selectable while 16 MIDI channels work.
-    if(id==128)return "ROM Bank B - Drums";
-    if(id==129)return "SF2 Bank B - Drums";
-    if(id==1)return "SF2 Bank A - Instruments";
-    if(id==0)return "ROM Bank A - Instruments";
-    return "Bank "+std::to_string(id);
+std::string BankLabel(uint16_t id,const PresetCatalog& catalog) {
+    // Bank 128 is the shared original Creative drum lane. Its content may
+    // come from ROM, a newly loaded SF2 kit, or both (distinct programs).
+    return PresetBrowserModel::BankLabel(id,catalog);
 }
 std::string DisplayName(const std::string& path) {
     if(path.empty())return "No SoundFont selected";
@@ -786,7 +782,7 @@ void PresetBrowserView::RebuildActiveMenus() {
     activeBankMenu_->removeAllEntry();
     if(activeBanks_.empty())activeBankMenu_->addEntry("No bank loaded");
     else for(const auto bank:activeBanks_)
-        activeBankMenu_->addEntry(BankLabel(bank).c_str());
+        activeBankMenu_->addEntry(BankLabel(bank,sf_).c_str());
 
     activePrograms_=PresetBrowserModel::Programs(sf_.Entries(),bank_);
     programMenu_->removeAllEntry();
@@ -818,7 +814,7 @@ void PresetBrowserView::RebuildBanks() {
     bankMenu_->addEntry("All Banks");
     bool exists=false;
     for(const auto id:filterBanks_) {
-        bankMenu_->addEntry(BankLabel(id).c_str());
+        bankMenu_->addEntry(BankLabel(id,sf_).c_str());
         if(int(id)==bankFilter_)exists=true;
     }
     if(!exists)bankFilter_=-1;
@@ -860,18 +856,17 @@ void PresetBrowserView::Sync(bool force) {
             bankFilter_=-1;
             searchText_.clear();
             search_->setText("");
-            // The Creative guest *and* its Source SoundFont phdr index
-            // must agree that user Bank 1 exists BEFORE editing the DAW
-            // bank parameter. Otherwise bank_=1 with a ROM-only bank
-            // menu causes the observed "Bank 0 / No presets" contradiction.
+            // Select only an actually imported user-bank program.
+            // Drum-only SF2 must select real CH10/bank128 instead of
+            // waiting forever for a nonexistent melodic bank1.
             if(sf2AutoSelectPending_) {
-                const auto presets=PresetBrowserModel::Programs(
-                    sf_.Entries(),1u);
-                if(!presets.empty()) {
-                    sf2AutoSelectPending_=false;
+                const int imported=PresetBrowserModel::PreferredImportedBank(sf_);
+                if(imported>=0) {
+                    const auto bank=static_cast<std::uint16_t>(imported);
                     const auto preferred=PresetBrowserModel::ChooseExistingProgram(
-                        sf_.Entries(),1u,program_);
-                    Select(1u,preferred);
+                        sf_.Entries(),bank,program_);
+                    sf2AutoSelectPending_=false;
+                    Select(bank,preferred);
                 }
             }
         }

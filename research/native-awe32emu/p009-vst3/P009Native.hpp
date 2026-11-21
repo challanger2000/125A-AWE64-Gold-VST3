@@ -49,6 +49,14 @@ public:
         for(auto& x:stateAdvancedMirror_)x.store(0xFFFFu);
         for(auto& x:hostProgramEdits_)x.store(-1);
         for(auto& x:hostBankEdits_)x.store(-1);
+        for(auto& x:hostGuiEdits_)x.store(-1);
+        for(auto& x:hostFxEdits_)x.store(-1);
+        for(auto& x:hostSendEdits_)x.store(-1);
+        stateFxMirrors_[0].store(4u);
+        stateFxMirrors_[1].store(2u);
+        // The initial saveable chip state has no MIDI controllers set.
+        stableSnapshots_[0].data.midi.fill(0xFFFFu);
+        stableSnapshots_[0].data.advanced.fill(0xFFFFu);
     }
     ~NativeVst3() override { cleanStagedAndRetiredNonRealtime(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
@@ -97,6 +105,11 @@ private:
     AWE125::PresetCatalog unusedFmCatalog_{};
     std::atomic<std::uint64_t> guiCatalogRevision_{1};
     std::mutex guiAssetMutex_{};
+    // Host/non-RT transaction gate: a saved V5 owner SHA/path and the
+    // corresponding program/master/FX snapshot must come from ONE accepted
+    // project generation, even with independent host save/restore threads.
+    // Never acquired by process() or any original-chip callback.
+    std::mutex hostSessionMutex_{};
     std::string selectedUserSf2_{};
     // GUI-thread-visible last load error; guarded by guiAssetMutex_.
     std::string lastSf2LoadError_{};
@@ -111,8 +124,27 @@ private:
     // allocate in the render callback.
     std::array<std::atomic<int>,16> hostProgramEdits_{},hostBankEdits_{};
     std::atomic<float> hostMasterEdit_{-1.f};
+    // Unacknowledged stopped-transport editor changes, never merged with
+    // unrelated audio generations. -1 means the RT epoch is authoritative.
+    std::array<std::atomic<int>,12> hostGuiEdits_{};
+    std::array<std::atomic<int>,2> hostFxEdits_{},hostSendEdits_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
+    // Two bounded old-chip slots prevent a pending bank from stalling if
+    // it was requested during the previous 15-ms fade. Only the audio
+    // thread publishes detached Synths; only host/UI deletes their heaps.
     std::atomic<Synth*> retiredSynth_{nullptr};
+    std::atomic<Synth*> retiredSynthSpare_{nullptr};
+    // For a bounded 15-ms SF2 transition the previous REAL EMU8000 chip
+    // continues rendering while its output fades to the newly loaded chip.
+    // Both synths stay audio-thread-owned. Retire only after the last fade
+    // sample, then reclaim the 28 MiB former chip off the realtime thread.
+    std::unique_ptr<Synth> fadingSynth_;
+    std::array<std::int16_t,2048> fadingPcm_{};
+    std::uint32_t fadeTotalSamples_=0;
+    std::uint32_t fadeRemainingSamples_=0;
+    // Audio-thread-only evidence of the outgoing chip actually producing
+    // PCM. A silent project restore must NOT attenuate its first new note.
+    bool synthHadAudiblePcm_=false;
     // Bounded POD host/audio state transfers. getState only reads atomic
     // snapshots, never audio-thread-owned arrays or a mutable Synth.
     std::atomic<NativeRuntimeRestore*> pendingRestore_{nullptr};
@@ -128,6 +160,22 @@ private:
         stateBanksMirror_{},stateModesMirror_{};
     std::array<std::atomic<std::uint16_t>,16*8> stateMidiMirror_{},
         stateAdvancedMirror_{};
+    // Include ALL audible GUI/FX/SEND state in the SAME audio snapshot
+    // generation; independent GUI mirrors would tear during automation.
+    std::array<std::atomic<std::uint16_t>,12> stateGuiMirrors_{};
+    std::array<std::atomic<std::uint8_t>,2> stateFxMirrors_{};
+    std::array<std::atomic<bool>,2> stateSendMirrors_{};
+    // Immutable read-pinned snapshots. Writer (audio OR stopped lifecycle)
+    // only modifies a NONpublished, UNpinned slot. Host saves pin a slot
+    // with one CAS, then memcpy a complete generation with no RT locking.
+    // Four slots make fast zero-sample automation bursts saveable without
+    // waiting for the 512 individual controller/GUI atomic mirror loads.
+    struct StateSnapshotSlot {
+        std::atomic<int> pins{0}; // -1 = single RT writer, >=0 host readers
+        NativeRuntimeRestore data{};
+    };
+    std::array<StateSnapshotSlot,4> stableSnapshots_{};
+    std::atomic<unsigned> publishedSnapshot_{0u};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
     void publishRuntimeSnapshot() noexcept;
@@ -139,9 +187,30 @@ private:
     bool buildInstrumentNonRealtime(const std::filesystem::path&,
                                     std::unique_ptr<Synth>&,std::string&);
     void cleanStagedAndRetiredNonRealtime() noexcept;
+    void drainRetiredSynthsNonRealtime() noexcept;
+    bool retireSynthRealtime(std::unique_ptr<Synth>&) noexcept;
     void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
+    // VST3 noteId is not a chip address: track immutable original routing
+    // across bank changes and matching overlapping NoteOn/NoteOff. Releasing
+    // an already redirected note based on the NEW bank strands chip voices.
+    // All slots and reference counts are preallocated, zero-heap in process.
+    struct ActiveRoutedNote {
+        Steinberg::int32 noteId=-1;
+        std::uint8_t source=0, key=0, route=0;
+        bool active=false;
+    };
+    std::array<ActiveRoutedNote,512> activeRoutedNotes_{};
+    std::array<std::uint16_t,16*128> routeHeldCounts_{};
+    void clearRoutedNotes() noexcept {
+        for(auto& n:activeRoutedNotes_)n.active=false;
+        routeHeldCounts_.fill(0u);
+        redirectedDrumNotes_.fill(0u);
+    }
+    // CH1 browser drum mode borrows the physical CH10 voice lane.
+    // Restore CH10's independent programmed kit when CH1 leaves drums.
+    bool browserDrumOverrideActive_=false; // owned by audio/lifecycle thread
     double sampleRate_=44100.;
     int program_=0,bank_=0;
     // CH2-16 independent Win95 Creative MIDI preset/bank states.
