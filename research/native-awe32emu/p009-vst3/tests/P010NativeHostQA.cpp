@@ -2625,6 +2625,85 @@ void verifyP174SixtyActiveValidInvalidLoads(
   std::puts("P174_ACTUAL_WINDOWS_VST3_SIXTY_ACCEPT_REJECT_AUDIO_RECALL_HEAP_BOUNDED_PASS");
 }
 
+
+// P176: A new V5 SF2 can arrive while a prior 15-ms fade is still
+// rendering.  The real host is NOT obliged to call getState(), open GUI,
+// or perform any other non-realtime action after the final setState().
+// In particular the previous one-slot retiredSynth_ must not make the
+// second staged asset wait forever after the first fade completes.
+void verifyP176RapidSf2SwitchForwardProgress(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  const auto sustain=p174V5State(resources/"sustain.sf2");
+  const auto latest=p174V5State(resources/"77-presets.sf2");
+  Plugin active(factory,id,host);
+  active.start(0,1,44100.);
+  std::array<float,frames> left{},right{};
+  float* outPtrs[2]={left.data(),right.data()};
+  AudioBusBuffers out{};
+  out.numChannels=2;out.channelBuffers32=outPtrs;
+  EventList events(8);
+  ProcessData data{};data.processMode=kRealtime;
+  data.symbolicSampleSize=kSample32;data.numSamples=64;
+  data.numOutputs=1;data.outputs=&out;data.inputEvents=&events;
+  Event e{};e.type=Event::kNoteOnEvent;
+  e.noteOn.channel=0;e.noteOn.pitch=60;e.noteOn.velocity=1.f;
+  check(events.addEvent(e)==kResultOk,
+        "P176 original-chip audible pre-fade note unavailable");
+  double initial=0.;
+  for(int i=0;i<24;++i){
+    if(i)events.clear();
+    check(active.processor->process(data)==kResultOk,
+          "P176 original chip pre-fade playback callback failed");
+    for(int n=0;n<64;++n)
+      initial+=double(left[n])*left[n]+double(right[n])*right[n];
+  }
+  check(initial>0.001,
+        "P176 test fixture had no audible outgoing original-chip note");
+  check(p174ApplyV5(active,sustain)==kResultOk,
+        "P176 first external SF2 project restore rejected");
+  // Begin actual 15-ms A->B audible fading. ONLY a 64-sample block
+  // elapsed, so the first engine is still rendering.
+  check(active.processor->process(data)==kResultOk,
+        "P176 first audible bank fade failed");
+  check(p174ApplyV5(active,latest)==kResultOk,
+        "P176 second quick external SF2 project restore rejected");
+  // No getState(), createView(), GUI idle, setState(), or other
+  // non-realtime callback is permitted after the second state restore.
+  // A DAW can simply keep rendering until the next note arrives.
+  for(int i=0;i<60;++i){
+    check(active.processor->process(data)==kResultOk,
+          "P176 original chip continued-audio callback failed");
+    for(int n=0;n<64;++n)
+      check(std::isfinite(left[n])&&std::isfinite(right[n]),
+            "P176 rapid SF2 swap generated nonfinite audio");
+  }
+  // Distinct ORIGINAL-chip fixture controls. The exact selected C bank
+  // must be audible without an editor or project-save callback.
+  ownerBank(resources,"77-presets.sf2");
+  Plugin expected(factory,id,host);expected.start(0,1,44100.);
+  const auto wanted=p015Play(expected,0,60);
+  ownerBank(resources,"sustain.sf2");
+  Plugin wrong(factory,id,host);wrong.start(0,1,44100.);
+  const auto unwanted=p015Play(wrong,0,60);
+  check(wanted!=unwanted,
+        "P176 source SoundFonts have indistinguishable chip PCM");
+  const auto actual=p015Play(active,0,60);
+  std::printf("P176_RAPID_SF2_AUDIO target=%016llX latest=%016llX obsolete=%016llX\n",
+     static_cast<unsigned long long>(actual),
+     static_cast<unsigned long long>(wanted),
+     static_cast<unsigned long long>(unwanted));
+  check(actual==wanted,
+        "P176 second SF2 never became active without host GUI/getState callback");
+  // A host snapshot after audio is now safe, but it must not be needed
+  // to make the second instrument audible. Exact V5 identity retained.
+  check(p174Saved(active)==latest,
+        "P176 two rapid V5 loads lost final original-bank file identity");
+  ownerBank(resources,nullptr);
+  std::puts("P176_ACTUAL_WIN64_VST3_RAPID_DOUBLE_SF2_SWAP_WITHOUT_GUI_GETSTATE_PCM_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -2710,6 +2789,7 @@ int main(int argc,char** argv){
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
     verifyP175ThirtyTwoOriginalChipVoicesAndSustain(factory,cls->ID(),host.get(),resources);
+    verifyP176RapidSf2SwitchForwardProgress(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
