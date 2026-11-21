@@ -1004,9 +1004,9 @@ void PresetBrowserView::ChooseSf2() {
     path.pop_back();
     if(!sf2LoadRequest_||!sf2LoadRequest_(path)) {
         MessageBoxW(GetForegroundWindow(),
-            L"Die SF2 konnte nicht geprueft werden. Nur vollstaendige "
-            L"SoundFont-2-Dateien bis 28 MiB werden akzeptiert.",
-            L"125A AWE64 Gold: SF2 abgelehnt",MB_OK|MB_ICONWARNING);
+            L"SoundFont could not be loaded. Check its format and the "
+            L"28 MiB total sample RAM limit. The existing bank is unchanged.",
+            L"125A AWE64 Gold: SoundFont rejected",MB_OK|MB_ICONWARNING);
         return;
     }
     // The VST3 owner queued a genuine Win95/Creative SoundFont load.

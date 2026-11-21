@@ -31,7 +31,12 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
             return std::string("ORIGINAL EMU8000 | USER SOUNDFONT READY");
         },
         [this](){
-            return std::string("32 ORIGINAL EMU8000 VOICES | 44.1k CHIP | 28 MiB RAM");
+            const double used=double(activeRamWords_.load(
+                std::memory_order_acquire))/524288.;
+            char status[96]{};
+            std::snprintf(status,sizeof(status),
+                "Sample RAM: %.1f / 28.0 MiB",used);
+            return std::string(status);
         },
         [](const std::string&){return false;}, // no fake hot-swap ROM
         [this](const std::string& path){return requestUserSf2NonRealtime(path);},

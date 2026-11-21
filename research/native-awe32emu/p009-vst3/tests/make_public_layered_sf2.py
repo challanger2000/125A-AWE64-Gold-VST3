@@ -67,6 +67,9 @@ for kind in range(2):
         # so a wrong-bank fallback MUST change the original chip's audio.
         samples.append(int((3400 if alternate else 11000)*v))
 smpl=struct.pack("<%dh"%len(samples),*samples)
+if "--oversized" in sys.argv[2:]:
+    # Valid sample header, but the actual PCM exceeds hardware capacity.
+    smpl+=bytes(28*1024*1024)
 # Both instrument zones are active simultaneously, MIDI velocity 1..127.
 pdta=(
     ck(b"phdr",phdr("PublicTwoLayers",0,bank_number,0)+phdr("EOP",0,0,1))+

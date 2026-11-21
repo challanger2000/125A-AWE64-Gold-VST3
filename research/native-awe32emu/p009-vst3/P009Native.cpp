@@ -323,10 +323,21 @@ bool NativeVst3::buildInstrumentNonRealtime(const std::filesystem::path& selecte
         }
         if(!candidate->LoadBank(bytes(selected),error,false,1))return false;
     }
+    // Validate actual aggregate original-chip sample DRAM before copying.
+    // Reserve, SBK, SF2 and sample guard words are all included.
+    const auto needed=candidate->Core().DramSize();
+    const auto limit=candidate->Core().ChipRamWords();
+    if(needed>limit){
+        char message[160]{};
+        std::snprintf(message,sizeof(message),
+            "Insufficient sample RAM: required %.2f MiB; maximum %.2f MiB.",
+            double(needed)/524288.,double(limit)/524288.);
+        error=message;
+        return false; // Current instrument stays valid; no partial upload.
+    }
     if(auto* ram=candidate->Core().ChipRam()){
-        const auto n=std::min(candidate->Core().DramSize(),
-                              candidate->Core().ChipRamWords());
-        std::memcpy(ram,candidate->Core().DramData(),n*sizeof(std::int16_t));
+        std::memcpy(ram,candidate->Core().DramData(),
+                    needed*sizeof(std::int16_t));
     } else {error="EMU8000 original 28 MiB memory not mapped";return false;}
     candidate->Core().PowerOnInit();
     if(!candidate->PrepareRealtime(1024u)){
@@ -349,6 +360,7 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     std::string error;
     if(!buildInstrumentNonRealtime(sf2,candidate,error))return false;
     synth_=std::move(candidate);
+    activeRamWords_.store(synth_->Core().DramSize(),std::memory_order_release);
     authenticRomLoaded_=true;
     // CH1..16 and original Creative mapped CC state are restored in exactly
     // the previous order; no previous-bank fallback and no fake preset.
@@ -472,6 +484,7 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
     if(auto* incoming=stagedSynth_.exchange(nullptr,std::memory_order_acq_rel)){
         retiredSynth_.store(synth_.release(),std::memory_order_release);
         synth_.reset(incoming);
+        activeRamWords_.store(synth_->Core().DramSize(),std::memory_order_release);
         authenticRomLoaded_=true;
         redirectedDrumNotes_.fill(0);
         changeBankProgram();
@@ -527,6 +540,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
     }else{
         cleanStagedAndRetiredNonRealtime();
         synth_.reset();active_=false;authenticRomLoaded_=false;
+        activeRamWords_.store(0u,std::memory_order_release);
         redirectedDrumNotes_.fill(0);
     }
     return SingleComponentEffect::setActive(on);

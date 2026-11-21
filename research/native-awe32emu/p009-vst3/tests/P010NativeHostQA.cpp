@@ -2144,6 +2144,31 @@ void verifyP165RealChipFxSendAndPresetPCM(
 }
 
 }
+// Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
+// sample PCM must fail where pre-P171 silently truncated the upload.
+void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  check(fs::is_regular_file(resources/"oversized.sf2") &&
+        fs::file_size(resources/"oversized.sf2")>28u*1024u*1024u,
+        "P171 oversized SF2 fixture missing");
+  ownerBank(resources,"vintage.sf2");
+  const auto prior=render(factory,id,host,"P171_NORMAL_BEFORE",
+                          44100,0,60,100,0,1);
+  audible(prior,"P171 normal SoundFont before rejection");
+  ownerBank(resources,"oversized.sf2");
+  const auto refused=render(factory,id,host,"P171_TOO_BIG",
+                            44100,0,60,100,0,1);
+  check(refused.rms==0.&&refused.peak==0.,
+        "P171 overlimit SF2 silently uploaded truncated samples");
+  ownerBank(resources,"vintage.sf2");
+  const auto restored=render(factory,id,host,"P171_NORMAL_AFTER",
+                             44100,0,60,100,0,1);
+  audible(restored,"P171 valid SoundFont recovered");
+  check(prior.hash==restored.hash,
+        "P171 oversized SF2 mutated subsequent original chip PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P171_28MIB_HARDWARE_RAM_REJECTION_AND_RECOVERY_PASS");
+}
 int main(int argc,char** argv){
  try{
   std::setvbuf(stdout,nullptr,_IONBF,0);
@@ -2199,6 +2224,7 @@ int main(int argc,char** argv){
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
+    verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");

@@ -165,6 +165,8 @@ private:
     // NRPN is selector-only: upstream Creative driver has no NRPN synthesis.
     std::array<std::uint16_t,16*8> advancedMidiState_{};
     std::array<std::uint8_t,16> selectedParameterMode_{};
+    // Committed hardware sample-RAM occupancy, in 16-bit words.
+    std::atomic<std::uint64_t> activeRamWords_{0};
     std::atomic<bool> active_{false},authenticRomLoaded_{false};
     void applyMidiController(unsigned channel,unsigned slot,std::uint16_t raw) noexcept;
     void replayMidiState() noexcept;

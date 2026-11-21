@@ -241,10 +241,12 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'synthetic genuinely expressive original-chip SF2 fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'drums.sf2') --expressive --drums
           if($LASTEXITCODE -ne 0){throw 'synthetic sustained drum bank fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'oversized.sf2') --oversized
+          if($LASTEXITCODE -ne 0){throw 'P171 oversized SF2 generator failed'}
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic *> _p009-host-synthetic.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
-          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
           if($rc -ne 0){
             $last=Get-Content _p009-host-synthetic.log -Tail 1
             Write-Host "::error title=P010 synthetic host regression::Exit ${rc}. $last"
