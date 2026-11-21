@@ -2332,9 +2332,9 @@ std::vector<std::uint8_t> p174Saved(Plugin& plugin){
   MemoryStream mem;
   check(plugin.component->getState(&mem)==kResultOk,
         "P174 native VST3 state save rejected");
-  const auto* b=static_cast<const std::uint8_t*>(mem.getData());
+  const auto* b=reinterpret_cast<const std::uint8_t*>(mem.getData());
   check(b && mem.getSize()>0,"P174 empty VST3 project save");
-  return {b,b+mem.getSize()};
+  return std::vector<std::uint8_t>(b,b+mem.getSize());
 }
 void verifyP174OneWordPhysicalRamBoundary(
     const VST3::Hosting::PluginFactory& factory,
