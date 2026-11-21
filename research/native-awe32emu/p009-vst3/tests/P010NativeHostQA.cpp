@@ -2999,9 +2999,19 @@ void verifyP179PacedAudibleHostSaves(
       doneBlocks.fetch_add(1,std::memory_order_release);
     }
   });
-  // Guarantee that the saver actually overlaps an already sounding chip.
-  for(int spins=0;spins<500000 && doneBlocks.load(std::memory_order_acquire)<8;
-      ++spins)std::this_thread::yield();
+  // Guarantee real original-chip audio BEFORE the first host save, while
+  // respecting the genuinely paced 128-frame/44.1k callback cadence.
+  // The old 500000 x yield() loop could exhaust in 7 blocks on a fast
+  // Windows host: all 700 audio blocks, positive PCM and 500/500 saves
+  // were valid, but the test alone failed its arbitrary >=8 start gate.
+  // Do not reduce that gate; synchronize against the audible block count
+  // with a bounded HOST-side wait instead. No waits in plugin process().
+  const auto readyBy=std::chrono::steady_clock::now()+
+                      std::chrono::seconds(2);
+  while(doneBlocks.load(std::memory_order_acquire)<8 &&
+        audioOk.load(std::memory_order_acquire) &&
+        std::chrono::steady_clock::now()<readyBy)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   const int blocksBeforeSaves=doneBlocks.load(std::memory_order_acquire);
   int failedSaves=0,wrongStates=0,thrown=0;
   for(int i=0;i<saveCount;++i){

@@ -35,3 +35,22 @@ The source/CI is deliberately red until this exact negative is demonstrated on t
 - Independent Codex original X07 exact counterexample, original N08 and X01–X06 unchanged scripts, open-source license and remaining code review.
 - Private Creative ROM + SYNTHGM.SBK + owner 77-SF2, real hardware and Fender Studio Pro/ASIO acceptance.
 - **No end-user install package or release.** PR #46 stays DRAFT/NO-GO until the independent audit clears the applicable contracts.
+
+## Exact integration-run P179 test-harness timing failure and correction
+
+The exact P188 code was promoted to integration PR #46 after its feature-branch full Windows CI [#44953230996](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44953230996) passed. The integration-branch rerun at the **same** SHA, [#44953853843](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44953853843), was **RED**, before reaching installer QA.
+
+The P179 genuine native audio/save test printed:
+
+```
+P179_PACED_AUDIBLE_V5_SAVES saves=500 failed=0 torn=0 thrown=0
+blocks=700 blocksBefore=7 blocksAfter=700
+energy=320.19955126 finalEnergy=22.69809681 maxCallbackMs=1.1283
+P010_FAIL P179 test did not continuously play a live original-chip voice
+```
+
+This was **not** an accepted product/PCM/save failure: all 700 genuine 128-frame callbacks ran, full-duration voice PCM was nonzero, and all 500 saves had valid unmodified V5 states. The CI failed only because the QA host-side pre-save synchronization used a fixed **500,000 yields**, which happened to complete at block 7 instead of the stipulated minimum **8**. It is a *harness timing false negative*, but the red run must remain documented and not relabeled green.
+
+The new P188 corrective revision retains the real **minimum eight audible blocks** and instead waits until those eight genuinely paced callbacks complete (bounded wall-clock two seconds, sleeping exclusively in the host test thread), or a real audio failure/timeout. The production VST3/EMU8000, installer/watchdog behavior, MIDI, audio and GUI remain byte-identical to the previously successful P188 source; only the **P010 test oracle** and this explanatory document change. The entire exact revised Windows host+installer+X07 forced process-kill run must be green before PR #46 can claim current-source self-QA success.
+
+**Independent Codex audit and real owner original-media/DAW acceptance remain NOT VERIFIED.**
