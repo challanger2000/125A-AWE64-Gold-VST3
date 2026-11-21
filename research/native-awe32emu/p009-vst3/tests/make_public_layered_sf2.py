@@ -67,6 +67,19 @@ for kind in range(2):
         # so a wrong-bank fallback MUST change the original chip's audio.
         samples.append(int((3400 if alternate else 11000)*v))
 smpl=struct.pack("<%dh"%len(samples),*samples)
+# P174 hardware-boundary fixture: preserve the SAME audible first 1536
+# samples and real SoundFont headers, but add silent PCM words to fill the
+# physical EMU8000 RAM to the exact calculated boundary. Unlike file-size
+# heuristics, the original driver loader counts every PCM word and 8-word
+# bank guard. This fixture also permits precisely ONE additional PCM word.
+word_sizes=[a for a in sys.argv[2:] if a.startswith("--sample-words=")]
+if len(word_sizes)>1:
+    raise SystemExit("one --sample-words option allowed")
+if word_sizes:
+    wanted=int(word_sizes[0].split("=",1)[1])
+    if wanted<len(samples) or wanted>28*1024*1024//2:
+        raise SystemExit("invalid requested PCM word count")
+    smpl+=bytes((wanted-len(samples))*2)
 if "--oversized" in sys.argv[2:]:
     # Valid sample header, but the actual PCM exceeds hardware capacity.
     smpl+=bytes(28*1024*1024)
