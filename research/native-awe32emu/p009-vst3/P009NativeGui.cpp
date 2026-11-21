@@ -187,7 +187,12 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     // A second complete original-chip/SBK/selected SF2 is built offline,
     // including 28 MiB RAM upload, preallocated 64-frame source FIFO and FX.
     // Neither audio render thread nor the old Synth is touched.
-    const auto selected=std::filesystem::u8path(path);
+    std::filesystem::path selected;
+    try {
+        selected=std::filesystem::u8path(path);
+    }catch(...){
+        return reject("Invalid UTF-8 SoundFont path.");
+    }
     std::array<std::uint8_t,32> fingerprint{};
     if(!sha256FileNonRealtime(selected,fingerprint))
         return reject("Cannot read SoundFont file.");

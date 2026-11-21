@@ -15,7 +15,9 @@
 namespace p009 {
 inline bool sha256FileNonRealtime(const std::filesystem::path& path,
                                   std::array<std::uint8_t,32>& result) {
-    if(!std::filesystem::is_regular_file(path))return false;
+    std::error_code pathError;
+    if(!std::filesystem::is_regular_file(path,pathError) || pathError)
+        return false;
     BCRYPT_ALG_HANDLE provider=nullptr;
     BCRYPT_HASH_HANDLE handle=nullptr;
     DWORD bytes=0,objectBytes=0;
@@ -35,7 +37,12 @@ inline bool sha256FileNonRealtime(const std::filesystem::path& path,
         objectBytes,nullptr,0,0))) {
         close();return false;
     }
-    std::ifstream f(path,std::ios::binary);
+    std::ifstream f;
+    try {
+        f.open(path,std::ios::binary);
+    }catch(...){
+        close();return false;
+    }
     if(!f){close();return false;}
     std::array<char,65536> buf{};
     while(f){

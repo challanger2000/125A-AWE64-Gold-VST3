@@ -1278,6 +1278,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     }
     OwnerStateV5 ext{};
     std::string requestedPath;
+    std::filesystem::path verifiedOwnerPath;
     std::unique_ptr<Synth> preparedAsset;
     AWE125::PresetCatalog freshCatalog;
     bool replaceAsset=false;
@@ -1299,9 +1300,16 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
                 tail!=static_cast<int32>(ext.pathBytes) ||
                 requestedPath.find('\0')!=std::string::npos)
                 return kResultFalse;
-            const auto path=std::filesystem::u8path(requestedPath);
+            // V5 path comes from an untrusted DAW project stream. MSVC
+            // std::filesystem::u8path may throw on invalid UTF-8; NEVER
+            // let that exception propagate through the VST3 host ABI.
+            try {
+                verifiedOwnerPath=std::filesystem::u8path(requestedPath);
+            }catch(...){
+                return kResultFalse;
+            }
             std::array<std::uint8_t,32> actualSha{};
-            if(!sha256FileNonRealtime(path,actualSha) ||
+            if(!sha256FileNonRealtime(verifiedOwnerPath,actualSha) ||
                 actualSha!=ext.assetSha256)
                 return kResultFalse; // no silent fallback to another SF2
             nextExplicit=true;
@@ -1318,10 +1326,13 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(replaceAsset){
         const auto folder=bundleResourcePath();
         if(folder.empty())return kResultFalse;
-        const auto replacement=nextExplicit?
-            std::filesystem::u8path(requestedPath):
-            (std::filesystem::is_regular_file(folder/"user.sf2")?
-                folder/"user.sf2":std::filesystem::path{});
+        // Reuse the *validated* decoded path; do not parse hostile UTF-8
+        // again after the SHA identity check.
+        std::error_code fsError;
+        const auto bundleUser=folder/"user.sf2";
+        const auto replacement=nextExplicit?verifiedOwnerPath:
+            (std::filesystem::is_regular_file(bundleUser,fsError)&&!fsError?
+                bundleUser:std::filesystem::path{});
         std::string error;
         if(!buildInstrumentNonRealtime(replacement,preparedAsset,error))
             return kResultFalse;

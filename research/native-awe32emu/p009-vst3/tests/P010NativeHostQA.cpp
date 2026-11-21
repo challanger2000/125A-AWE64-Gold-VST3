@@ -2727,6 +2727,100 @@ void verifyP176RapidSf2SwitchForwardProgress(
   std::puts("P176_ACTUAL_WIN64_VST3_RAPID_DOUBLE_SF2_SWAP_WITHOUT_GUI_GETSTATE_PCM_PASS");
 }
 
+
+// P177: A host may restore stale, partially saved or corrupt VST3 projects.
+// No byte sequence is allowed to escape an exception into the DAW, to turn
+// a truncated V5 stream into success, or to mutate a previously accepted
+// external SF2. Test *every* partial length, all 32 hash bytes and malformed
+// controller/path/FX metadata through the ACTUAL compiled Windows VST3.
+void verifyP177CorruptV5StreamFailClosed(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Plugin unit(factory,id,host);unit.start(0,1,44100.);
+  const auto valid=p174V5State(resources/"77-presets.sf2");
+  check(p174ApplyV5(unit,valid)==kResultOk,
+        "P177 positive external SF2 fixture rejected");
+  const auto stable=p174Saved(unit);
+  check(stable==valid,"P177 positive original project identity not committed");
+  int rejected=0;
+  const auto invalid=[&](const std::vector<std::uint8_t>& bad){
+    bool accepted=false,threw=false;
+    try {
+      accepted=p174ApplyV5(unit,bad)==kResultOk;
+    }catch(...){
+      threw=true;
+    }
+    if(threw)
+      std::fprintf(stderr,
+        "P177_UNCAUGHT_VST3_EXCEPTION badBytes=%llu pathFirst=%02X\n",
+        static_cast<unsigned long long>(bad.size()),
+        bad.size()>sizeof(Saved)+68u?unsigned(bad[sizeof(Saved)+68u]):0u);
+    check(!threw,
+          "P177 V5 restore threw across Steinberg plugin ABI (DAW crash risk)");
+    check(!accepted,
+          "P177 corrupt V5 project was accepted by the real Windows VST3");
+    check(p174Saved(unit)==stable,
+          "P177 corrupt V5 project modified previous accepted SHA/state");
+    ++rejected;
+  };
+  for(std::size_t bytes=1;bytes<valid.size();++bytes)
+    invalid(std::vector<std::uint8_t>(valid.begin(),valid.begin()+bytes));
+  constexpr std::size_t shaOffset=sizeof(Saved)+8u+24u;
+  for(std::size_t i=0;i<32;++i){
+    auto b=valid;b[shaOffset+i]^=0x55u;invalid(b);
+  }
+  // Original file path length, byte patterns and available SHA may be
+  // hostile. A bad UTF-8 sequence must return a normal failure result,
+  // never throw std::filesystem_error or std::range_error at the host.
+  for(const unsigned byte:{0u,0xFFu,0xFEu,0xC0u,0x80u}){
+    auto b=valid;b[sizeof(Saved)+68u]=static_cast<std::uint8_t>(byte);
+    invalid(b);
+  }
+  for(const std::uint32_t value:{128u,255u,0xffffffffu}){
+    auto b=valid;
+    std::memcpy(b.data()+8u,&value,sizeof(value));
+    invalid(b); // invalid program
+  }
+  for(const std::uint32_t value:{3u,0xffffffffu}){
+    auto b=valid;
+    std::memcpy(b.data()+12u,&value,sizeof(value));
+    invalid(b); // invalid bank
+  }
+  for(const std::uint32_t value:{4097u,0xffffffffu}){
+    auto b=valid;
+    std::memcpy(b.data()+sizeof(Saved)+4u,&value,sizeof(value));
+    invalid(b); // bounded path length
+  }
+  for(const std::uint32_t invalidFloat:{0x7fc00000u,0x7f800000u,0xbf800000u}){
+    auto b=valid;
+    std::memcpy(b.data()+16u,&invalidFloat,sizeof(invalidFloat));
+    invalid(b);
+  }
+  {
+    auto b=valid;b[sizeof(Saved)]=0x21u;invalid(b); // V5 magic
+  }
+  {
+    auto b=valid;b[sizeof(Saved)+64u]=0xFFu;invalid(b); // FX mode bits
+  }
+  {
+    auto b=valid;b[sizeof(Saved)+8u]=0xFFu;
+    b[sizeof(Saved)+9u]=0xFFu;
+    invalid(b); // GUI control >10000
+  }
+  // Every accepted external file state must still make real ORIGINAL-chip
+  // audio after all rejections; mere getState equality is not sufficient.
+  const auto voice=p015Play(unit,0,60);
+  check(voice!=0u,
+        "P177 valid original-chip bank not playable after malformed stream flood");
+  ownerBank(resources,nullptr);
+  std::printf("P177_CORRUPT_V5_STATE rejected=%d playable_hash=%016llX\n",
+              rejected,static_cast<unsigned long long>(voice));
+  check(rejected>=650,
+        "P177 negative controls did not cover all V5 truncation boundaries");
+  std::puts("P177_ACTUAL_WIN64_VST3_FULL_V5_TRUNCATION_UTF8_SHA_FX_FAIL_CLOSED_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -2813,6 +2907,7 @@ int main(int argc,char** argv){
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
     verifyP175ThirtyTwoOriginalChipVoicesAndSustain(factory,cls->ID(),host.get(),resources);
     verifyP176RapidSf2SwitchForwardProgress(factory,cls->ID(),host.get(),resources);
+    verifyP177CorruptV5StreamFailClosed(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
