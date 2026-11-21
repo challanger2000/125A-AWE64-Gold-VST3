@@ -369,12 +369,95 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
           }
+      - name: P170 actual 125A Plugin Tester v0.3.3 from exact Windows-tested source (synthetic 86Box assets)
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference='Stop'
+          # Version 0.3.3 is a validated DEVELOPMENT CANDIDATE, not the
+          # v0.2.10 tagged FINAL. Pin the exact proven 2026-11-20 Windows
+          # source from 125A-Plugin-Tester-Final/actions/runs/44779582971.
+          $sha='2b118955bf409cb7f1484c80009fe94e5f9409e2'
+          git init _p009-tester-v033-source
+          if($LASTEXITCODE -ne 0){throw 'P170 tester source init failed'}
+          git -C _p009-tester-v033-source remote add origin https://github.com/challanger2000/125A-Plugin-Tester-Final.git
+          git -C _p009-tester-v033-source fetch --depth 1 origin $sha
+          if($LASTEXITCODE -ne 0){throw 'P170 pinned 0.3.3 tester source fetch failed'}
+          git -C _p009-tester-v033-source checkout --detach FETCH_HEAD
+          if($LASTEXITCODE -ne 0 -or (git -C _p009-tester-v033-source rev-parse HEAD).Trim() -ne $sha){
+            throw 'P170 incorrect 0.3.3 development tester source SHA'
+          }
+          $manifest=Get-Content -Raw -LiteralPath '_p009-tester-v033-source/CMakeLists.txt'
+          if($manifest -notmatch 'project\\(PluginTester125A VERSION 0\\.3\\.3 LANGUAGES CXX\\)'){
+            throw 'P170 source is not exact v0.3.3 tester CMake version'
+          }
+          # Reuse same exact Steinberg SDK already fetched for the native
+          # instrument. Do NOT depend on a cross-repository GITHUB_TOKEN
+          # to download Actions artifacts: it is scoped to this repository.
+          $sdk=Join-Path $env:GITHUB_WORKSPACE '_p009-sdk'
+          cmake -S _p009-tester-v033-source -B _p009-tester-v033-build -G "Visual Studio 17 2022" -A x64 -DFETCHCONTENT_SOURCE_DIR_VST3SDK="$sdk" -DSMTG_CREATE_PLUGIN_LINK=0
+          if($LASTEXITCODE -ne 0){throw 'P170 v0.3.3 QA host source configuration failed'}
+          cmake --build _p009-tester-v033-build --config Release --parallel 4 --target PluginTester125ADispatcher PluginTester125ALauncher PluginTester125AWorker PluginTester125AReloadProbe PluginTester125AStateProbe PluginTester125AEditorLifecycleProbe PluginTester125AIOEventProbe PluginTester125AValidatorWrapper validator
+          if($LASTEXITCODE -ne 0){throw 'P170 pinned genuine v0.3.3 QA host build failed'}
+          $exe=(Resolve-Path '_p009-tester-v033-build/Release/125A_Plugin_Tester.exe').Path
+          $helper=(Resolve-Path '_p009-tester-v033-build/Release/125A_Plugin_Tester_Single.exe').Path
+          if(-not (Test-Path $helper)){throw 'P170 0.3.3 actual isolated dispatcher helper absent'}
+          $plugin=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          $resource=Join-Path $plugin 'Contents/Resources/P009-Private'
+          New-Item -ItemType Directory -Force -Path $resource | Out-Null
+          $rom=Join-Path $resource 'awe32.raw'
+          $sbk=Join-Path $resource 'SYNTHGM.SBK'
+          $sf2=Join-Path $resource 'user.sf2'
+          $evidence=Join-Path $env:GITHUB_WORKSPACE '_p009-tester-v033-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          $env:125A_PLUGIN_TESTER_REPORT_DIR=$evidence
+          $stdOut=Join-Path $evidence 'P170_v033_stdout.log'
+          $stdErr=Join-Path $evidence 'P170_v033_stderr.log'
+          try {
+            [IO.File]::WriteAllBytes($rom,(New-Object byte[] 1048576))
+            python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sbk --wet
+            if($LASTEXITCODE -ne 0){throw 'P170 synthetic Creative bank generation failed'}
+            python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2 --expressive
+            if($LASTEXITCODE -ne 0){throw 'P170 synthetic user expressive bank generation failed'}
+            # This executable is the real CONSOLE dispatcher, unlike the
+            # released v0.2.10 portable GUI stub. Wait on its actual process.
+            $child=Start-Process -FilePath $exe -ArgumentList ('"'+$plugin+'"') -WorkingDirectory (Split-Path -Parent $exe) -Wait -PassThru -RedirectStandardOutput $stdOut -RedirectStandardError $stdErr
+            $rc=$child.ExitCode
+            Write-Host "P170_REAL_WINDOWS_V033_DISPATCH_EXIT_CODE=$rc"
+            if(Test-Path $stdOut){Get-Content $stdOut | Select-Object -Last 45}
+            if(Test-Path $stdErr){Get-Content $stdErr | Select-Object -Last 45}
+            $reports=@(Get-ChildItem -LiteralPath $evidence -File)
+            $qa=@($reports | Where-Object {$_.Name -like 'AWE64_Gold_Native_P009_*_125A_QA_Report.txt'})
+            $json=@($reports | Where-Object {$_.Name -like 'AWE64_Gold_Native_P009_*_125A_QA_Report.json'})
+            if($qa.Count -ne 1 -or $json.Count -ne 1){
+              throw "P170 expected one 125A v0.3.3 QA TXT and JSON; got TXT=$($qa.Count), JSON=$($json.Count)"
+            }
+            $result=Get-Content -Raw -LiteralPath $qa[0].FullName
+            $machine=Get-Content -Raw -LiteralPath $json[0].FullName | ConvertFrom-Json
+            $summary=@([regex]::Matches($result,'(?m)^RESULT: ([0-9]+) PASS / ([0-9]+) WARNING / ([0-9]+) FAIL'))
+            if($summary.Count -ne 1){throw 'P170 real v0.3.3 tester did not write one machine-checkable verdict'}
+            Write-Host "P170_125A_V033_VERDICT $($summary[0].Value)"
+            Write-Host "P170_125A_V033_JSON status=$($machine.status) testerVersion=$($machine.testerVersion) sourceSHA=$sha"
+            Get-Content $qa[0].FullName | Select-Object -Last 45
+            if($rc -ne 0){throw "P170 125A v0.3.3 real dispatcher returned $rc"}
+            if($machine.testerVersion -ne '0.3.3' -or $machine.status -ne 'PASS'){
+              throw 'P170 v0.3.3 actual QA JSON verdict is not PASS'
+            }
+            if($summary[0].Groups[2].Value -ne '0' -or $summary[0].Groups[3].Value -ne '0'){
+              throw 'P170 new v0.3.3 tester reported warnings or failures: investigate'
+            }
+            Write-Host 'P170_ACTUAL_WINDOWS_125A_TESTER_V033_ZERO_WARNING_ZERO_FAILURE_GENUINE_VST3_PASS'
+          } finally {
+            Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
+          }
       - name: Preserve diagnostic report-only evidence when owner tester fails
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: P168-FAILED-125A-TESTER-DIAGNOSTICS-ONLY
-          path: _p009-tester-evidence/**
+          path: |
+            _p009-tester-evidence/**
+            _p009-tester-v033-evidence/**
           if-no-files-found: warn
           retention-days: 1
       - name: Archive evidence only, not unsigned unlicensed binary
@@ -389,6 +472,7 @@ jobs:
             _p021-original-chip-multirate.log
             _p165-real-editor-evidence/**
             _p009-tester-evidence/**
+            _p009-tester-v033-evidence/**
             _p009-build/Release/P021OriginalChipResamplingProbe.exe
             _p009-build/Release/P019Probe980.exe
             _p009-build/Release/P019Probe128.exe
