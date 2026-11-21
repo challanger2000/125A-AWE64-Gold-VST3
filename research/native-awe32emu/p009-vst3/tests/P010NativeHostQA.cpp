@@ -2772,7 +2772,7 @@ void verifyP177CorruptV5StreamFailClosed(
     auto b=valid;b[sizeof(Saved)+68u]=static_cast<std::uint8_t>(byte);
     invalid(b);
   }
-  for(const std::uint32_t value:{3u,128u,0xffffffffu}){
+  for(const std::uint32_t value:{128u,255u,0xffffffffu}){
     auto b=valid;
     std::memcpy(b.data()+8u,&value,sizeof(value));
     invalid(b); // invalid program
