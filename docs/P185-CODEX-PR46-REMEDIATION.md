@@ -52,6 +52,16 @@ No modifications were made to the upstream original 86Box EMU8000 DSP source. Th
 - P184 modified independent Win32 editor close/reopen & surviving peer test PASS.
 - **IMPORTANT:** That run used the **weaker original drum fixture** and did not yet independently prove that CH1 alone controls Kit 5. A further build with the stronger drum oracle and deferred bend wheel replay is required. Treat the strengthened P185-D/R status as **NOT RUN** until its matching exact-SHA Windows CI passes.
 
+## Additional P185 cross-channel fault found during self-challenge
+
+**Interaction beyond the five Codex reports:** CH1 drum browser temporarily programs the physical CH10 lane with its selected Kit 5. When the user subsequently selects a melodic/ROM CH1 bank, CH10 must return to **its own independently stored kit**. The initial P185 correction changed CH10 to the correct browser kit, but left that kit on CH10 after switching CH1 away from drums. This could silently change an otherwise untouched MIDI channel.
+
+**Root-cause remediation:** Track whether CH1 currently borrows CH10's program slot on the audio/lifecycle thread, and restore CH10's own bank/program only when the CH1 drum override is relinquished. Never reprogram all other MIDI channels on every CH1 edit. This is bounded, allocation-free, original Creative Program Change behavior and does not edit original chip DSP.
+
+**Extra negative/positive regression:** In `verifyP185BrowserDrumKitActuallyChangesPCM`, all channels start with Kit 0, real VST3 CH1 parameter flush selects Kit 5, real VST3 CH1 bank automation exits drums, then *actual original-chip CH10 PCM* must equal a fresh independent CH10 Kit 0. This regression must fail if the browser kit erroneously persists after CH1 returns to melodic/ROM mode.
+
+The new cross-channel interaction is **NOT RUN** until its exact-commit Windows CI completes.
+
 ## Remaining release gates — NOT VERIFIED
 
 - Independent Codex audit of the repaired exact commit, including test oracle adversarial review.

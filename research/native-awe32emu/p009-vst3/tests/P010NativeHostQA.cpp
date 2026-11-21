@@ -3345,6 +3345,26 @@ void verifyP185BrowserDrumKitActuallyChangesPCM(
         "P185 independent CH10 Kit 0/5 instruments were not distinguishable");
   check(kit0==hwKit0 && kit5==hwKit5,
         "P185 browser CH1 program must control actual sounding CH10 kit");
+  // NEW interaction challenge: the dedicated real CH10 lane must return
+  // to its independently stored Kit 0 when CH1 exits the browser drum bank.
+  // CH10 played Kit 5 on the old adapter even after CH1 left drums.
+  Plugin leavingDrums(factory,id,host);
+  leavingDrums.start(0,2,44100.);
+  selectBrowserKit(leavingDrums,5);
+  ParameterChanges leave(1);
+  int32 bankQueue=0,bankPoint=0;
+  auto* bank=leave.addParameterData(1002u,bankQueue);
+  check(bank && bank->addPoint(0,0.,bankPoint)==kResultOk,
+        "P185 cannot leave CH1 drum bank via real VST3 automation");
+  ProcessData leaveFlush{};
+  leaveFlush.processMode=kRealtime;
+  leaveFlush.symbolicSampleSize=kSample32;
+  leaveFlush.numSamples=0;
+  leaveFlush.inputParameterChanges=&leave;
+  check(leavingDrums.processor->process(leaveFlush)==kResultOk,
+        "P185 failed to leave CH1 drum bank");
+  check(p015Play(leavingDrums,9,60)==hwKit0,
+        "P185 leaving CH1 drums failed to restore independent CH10 Kit 0");
   Plugin recalled(factory,id,host);
   recalled.start(0,0,44100.);
   Saved state{};state.version=4u;state.program=5u;state.bank=2u;

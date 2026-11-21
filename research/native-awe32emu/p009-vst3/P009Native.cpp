@@ -734,13 +734,24 @@ void NativeVst3::changeChannelBankProgram(unsigned ch) noexcept{
     synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
     synth_->ProgramChange(static_cast<std::uint8_t>(ch),
                           static_cast<std::uint8_t>(chosenProgram));
-    if(ch==0u && bank_==2){
-        // CH1's browser drum lane actually sounds through hardware CH10.
-        // Selecting Program 5 on CH1 without setting CH10 previously played
-        // Kit 0 despite the browser displaying Kit 5.
-        synth_->ControlChange(9u,0u,0u);
-        synth_->ControlChange(9u,32u,0u);
-        synth_->ProgramChange(9u,static_cast<std::uint8_t>(chosenProgram));
+    if(ch==0u){
+        if(bank_==2){
+            // CH1 browser drums borrow the physical CH10 program. The UI
+            // selecting Kit 5 must ACTUALLY program CH10, not merely CH1.
+            synth_->ControlChange(9u,0u,0u);
+            synth_->ControlChange(9u,32u,0u);
+            synth_->ProgramChange(9u,static_cast<std::uint8_t>(chosenProgram));
+            browserDrumOverrideActive_=true;
+        }else if(browserDrumOverrideActive_){
+            // CH1 just left the drum bank. Without restoring the prior CH10
+            // state, the independent CH10 MIDI lane stays on the browser kit
+            // even though the current project says its program is unchanged.
+            browserDrumOverrideActive_=false;
+            synth_->ControlChange(9u,0u,
+                static_cast<std::uint8_t>(banksByChannel_[9]==1u?1u:0u));
+            synth_->ControlChange(9u,32u,0u);
+            synth_->ProgramChange(9u,programsByChannel_[9]);
+        }
     }
 }
 void NativeVst3::changeBankProgram() noexcept{

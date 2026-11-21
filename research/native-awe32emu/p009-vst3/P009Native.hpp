@@ -192,6 +192,9 @@ private:
     void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
+    // CH1 browser drum mode borrows the physical CH10 voice lane.
+    // Restore CH10's independent programmed kit when CH1 leaves drums.
+    bool browserDrumOverrideActive_=false; // owned by audio/lifecycle thread
     double sampleRate_=44100.;
     int program_=0,bank_=0;
     // CH2-16 independent Win95 Creative MIDI preset/bank states.
