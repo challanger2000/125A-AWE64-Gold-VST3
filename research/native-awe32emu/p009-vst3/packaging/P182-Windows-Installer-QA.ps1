@@ -105,6 +105,108 @@ try {
     } finally {
         $exclusive.Dispose()
     }
+    # P188 INDEPENDENT PROCESS-KILL: actual Windows second installer
+    # reaches the post-rename/pre-publish window with a fully validated
+    # stage and a separate already-ready recovery watchdog. We kill the
+    # installer *process*, not simulate a catch/throw. The previous bundle
+    # and the older historical backup must survive byte-identically.
+    $crashSentinel = Join-Path $installed 'P188-current-bundle-survives-kill.txt'
+    [IO.File]::WriteAllText($crashSentinel, 'PREVIOUS_COMPLETE_BUNDLE_AFTER_FORCED_KILL')
+    $beforeCrash = @{}
+    Get-ChildItem -LiteralPath $installed -Recurse -File -Force |
+        ForEach-Object {
+            $key = $_.FullName.Substring($installed.Length + 1)
+            $beforeCrash[$key] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }
+    $historical = @(
+        Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.backup-*')
+    )
+    if ($historical.Count -ne 1) { throw 'P188 missing prior historical backup' }
+    $priorBackup = $historical[0].FullName
+    $priorSentinel = Join-Path $priorBackup 'P182-old-version-sentinel.txt'
+    $oldHistoricalHash = (Get-FileHash -LiteralPath $priorSentinel -Algorithm SHA256).Hash
+    $crashOut = Join-Path $fixture 'p188-forced-kill-out.log'
+    $crashErr = Join-Path $fixture 'p188-forced-kill-error.log'
+    $crashArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $script +
+                 '" -DestinationRoot "' + $root + '" -NoElevation'
+    $victim = $null
+    $env:P188_INSTALLER_CI_KILLPOINT = '1'
+    try {
+        $victim = Start-Process -FilePath 'powershell.exe' -ArgumentList $crashArgs -PassThru -RedirectStandardOutput $crashOut -RedirectStandardError $crashErr
+        $until = [DateTime]::UtcNow.AddSeconds(90)
+        $observedWindow = $false
+        while ([DateTime]::UtcNow -lt $until) {
+            $signals = @(
+                Get-ChildItem -LiteralPath $root -File -Filter ($bundle + '.killpoint-*')
+            )
+            if ($signals.Count -eq 1) {
+                if (Test-Path -LiteralPath $installed) {
+                    throw 'P188 forced-kill marker appeared while canonical target still existed'
+                }
+                $observedWindow = $true
+                break
+            }
+            $victim.Refresh()
+            if ($victim.HasExited) {
+                throw ('P188 victim exited before killpoint: ' + $victim.ExitCode +
+                       ' ' + (Get-Content -LiteralPath $crashErr -Raw))
+            }
+            Start-Sleep -Milliseconds 30
+        }
+        if (-not $observedWindow) {
+            throw 'P188 actual installer never reached destructive rename gap'
+        }
+        Stop-Process -Id $victim.Id -Force -ErrorAction Stop
+        if (-not $victim.WaitForExit(10000)) {
+            throw 'P188 real installer process did not terminate'
+        }
+    } finally {
+        Remove-Item Env:\P188_INSTALLER_CI_KILLPOINT -ErrorAction SilentlyContinue
+        if ($null -ne $victim) {
+            $victim.Refresh()
+            if (-not $victim.HasExited) {
+                Stop-Process -Id $victim.Id -Force -ErrorAction SilentlyContinue
+            }
+            $victim.Dispose()
+        }
+    }
+    # Watchdog must repair the missing canonical path WITHOUT a new
+    # installer invocation. This is different from catch/finally rollback.
+    $repairDeadline = [DateTime]::UtcNow.AddSeconds(45)
+    $repaired = $false
+    while ([DateTime]::UtcNow -lt $repairDeadline) {
+        $journals = @(
+            Get-ChildItem -LiteralPath $root -File -Filter ($bundle + '.txn-*.journal')
+        )
+        if ((Test-Path -LiteralPath $installed -PathType Container) -and
+            $journals.Count -eq 0) {
+            $repaired = $true
+            break
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    if (-not $repaired) {
+        throw 'P188 CRASH: no automatic recovery of canonical bundle after process kill'
+    }
+    $afterCrashFiles = @(Get-ChildItem -LiteralPath $installed -Recurse -File -Force)
+    if ($afterCrashFiles.Count -ne $beforeCrash.Count) {
+        throw 'P188 watchdog restored missing or additional files'
+    }
+    foreach ($f in $afterCrashFiles) {
+        $key = $f.FullName.Substring($installed.Length + 1)
+        if (-not $beforeCrash.ContainsKey($key) -or
+            (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash -ne $beforeCrash[$key]) {
+            throw ('P188 watchdog did not restore original byte-exact file: ' + $key)
+        }
+    }
+    if (-not (Test-Path -LiteralPath $priorSentinel -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $priorSentinel -Algorithm SHA256).Hash -ne $oldHistoricalHash -or
+        @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.backup-*')).Count -ne 1 -or
+        @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.stage-*')).Count -ne 0 -or
+        @(Get-ChildItem -LiteralPath $root -File -Filter ($bundle + '.killpoint-*')).Count -ne 0) {
+        throw 'P188 forced crash damaged previous backup or left orphan stage/marker'
+    }
+    Write-Host 'P188_WINDOWS_FORCED_PROCESS_KILL_WATCHDOG_RESTORED_BYTE_EXACT_PREVIOUS_BUNDLE_PASS'
     # Ensure no stale mutex prevents a valid subsequent install. The ordinary
     # tampered-source negative case below continues to test rollback integrity.
     # The negative control MUST fail before any replacement on corrupted SF2.
