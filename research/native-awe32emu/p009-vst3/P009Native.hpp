@@ -121,6 +121,9 @@ private:
     std::array<std::int16_t,2048> fadingPcm_{};
     std::uint32_t fadeTotalSamples_=0;
     std::uint32_t fadeRemainingSamples_=0;
+    // Audio-thread-only evidence of the outgoing chip actually producing
+    // PCM. A silent project restore must NOT attenuate its first new note.
+    bool synthHadAudiblePcm_=false;
     // Bounded POD host/audio state transfers. getState only reads atomic
     // snapshots, never audio-thread-owned arrays or a mutable Synth.
     std::atomic<NativeRuntimeRestore*> pendingRestore_{nullptr};

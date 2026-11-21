@@ -489,16 +489,21 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
     if(retiredSynth_.load(std::memory_order_acquire)!=nullptr ||
        fadingSynth_)return;
     if(auto* incoming=stagedSynth_.exchange(nullptr,std::memory_order_acq_rel)){
-        fadingSynth_=std::move(synth_);
+        // Crossfade ONLY when old chip PCM was genuinely audible.
+        // Starting a V5 project, activating a silent instance, or loading
+        // the first SF2 must not fade its very first NoteOn for 15 ms.
+        // Its pre-swap silence offers nothing to preserve. Still reclaim
+        // old Synth only on the host/GUI thread, even in this case.
+        const bool audibleOutgoing=synth_ && synthHadAudiblePcm_;
+        if(audibleOutgoing)
+            fadingSynth_=std::move(synth_);
+        else if(synth_)
+            retiredSynth_.store(synth_.release(),std::memory_order_release);
         synth_.reset(incoming);
-        // Deliberate short tail policy: do not abruptly cut off a held
-        // voice or FX return at the load boundary. Fade the original chip
-        // for 15 ms, even if Sustain was down; then retire it without
-        // running destructors on the audio callback. This bounds the old
-        // bank's resource lifetime while the new bank accepts MIDI.
-        fadeTotalSamples_=fadingSynth_?
+        fadeTotalSamples_=audibleOutgoing?
             static_cast<std::uint32_t>(std::ceil(sampleRate_*0.015)):0u;
         fadeRemainingSamples_=fadeTotalSamples_;
+        synthHadAudiblePcm_=false;
         activeRamWords_.store(synth_->Core().DramSize(),std::memory_order_release);
         authenticRomLoaded_=true;
         redirectedDrumNotes_.fill(0);
@@ -525,6 +530,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
         cleanStagedAndRetiredNonRealtime();
         fadingSynth_.reset();
         fadeTotalSamples_=fadeRemainingSamples_=0u;
+        synthHadAudiblePcm_=false;
         synth_.reset();
         redirectedDrumNotes_.fill(0);
         // Explicit stopped-transport controller edits are project state,
@@ -557,6 +563,7 @@ tresult PLUGIN_API NativeVst3::setActive(TBool on){
     }else{
         cleanStagedAndRetiredNonRealtime();
         fadingSynth_.reset();fadeTotalSamples_=fadeRemainingSamples_=0u;
+        synthHadAudiblePcm_=false;
         synth_.reset();active_=false;authenticRomLoaded_=false;
         activeRamWords_.store(0u,std::memory_order_release);
         redirectedDrumNotes_.fill(0);
@@ -685,6 +692,7 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
         return;
     }
     int32 written=0;
+    bool producedAudiblePcm=false;
     while(written<frames) {
         const int32 n=std::min<int32>(1024,frames-written);
         synth_->RenderBlock(pcm_.data(),static_cast<std::uint32_t>(n));
@@ -694,6 +702,11 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
         if(fadingFrames)
             fadingSynth_->RenderBlock(fadingPcm_.data(),fadingFrames);
         for(int32 i=0;i<n;++i) {
+            // Measure the *new* active chip directly, not the old fading
+            // output. Only a genuinely audible active chip warrants a
+            // future bank-switch crossfade.
+            producedAudiblePcm |= (master_!=0.f) &&
+                (pcm_[i*2]!=0 || pcm_[i*2+1]!=0);
             if(static_cast<std::uint32_t>(i)<fadingFrames) {
                 // Linear old->new crossfade; continuity is defined at the
                 // exact original-chip PCM sample, not by an extra effect.
@@ -725,6 +738,7 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
         }
         written+=n;
     }
+    synthHadAudiblePcm_=producedAudiblePcm;
 }
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
