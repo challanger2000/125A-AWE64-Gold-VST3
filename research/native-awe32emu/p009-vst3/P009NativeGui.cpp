@@ -174,10 +174,6 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     };
     if(path.empty()||path.size()>4096)
         return reject("Invalid SoundFont path.");
-    // Keep the GUI's SF2 identity/catalog/chip staging and any concurrent
-    // non-RT VST3 project snapshot in the same transaction generation.
-    // The real-time process thread NEVER acquires this mutex.
-    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // A candidate must be a *real* complete SoundFont with valid 'phdr':
     // never fabricate 128 presets from an owner's 77-entry sparse bank.
     std::string err;
@@ -203,6 +199,11 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     std::unique_ptr<Synth> ready;
     if(!buildInstrumentNonRealtime(selected,ready,err))
         return reject(err.empty()?"Could not prepare SoundFont.":err);
+    // The GUI's SF2 identity/catalog/chip staging and a concurrent DAW
+    // project save are one transaction, but lengthy parsing/loading above
+    // never blocks a valid getState() of the *previous* accepted bank.
+    // The audio callback NEVER takes this lock.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // Staging queue is single-slot; superseded *unconsumed* candidate can
     // be deleted here on the GUI thread, NEVER in process().
     drainRetiredSynthsNonRealtime();

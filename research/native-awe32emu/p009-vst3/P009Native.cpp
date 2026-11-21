@@ -1272,10 +1272,10 @@ tresult PLUGIN_API NativeVst3::setComponentState(IBStream* stream){
 }
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
-    // VST3 host state transactions are NON-RT. Serialize with getState()
-    // and GUI bank imports from initial parse through final publication,
-    // so nobody can observe a split old-MIDI/new-SF2 project identity.
-    std::lock_guard<std::mutex> session(hostSessionMutex_);
+    // VST3 host project parsing, SHA hashing and original-chip 28-MiB
+    // candidate construction can take significant time. Do NOT block
+    // independent DAW saves while this work has not changed any state!
+    // Only the short, coherent commit is protected by hostSessionMutex_.
     Saved s{};
     // Compatible with existing owner P009 v1 (20B), P011 v2 (52B).
     int32 n=0;
@@ -1417,6 +1417,11 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         for(unsigned i=0;i<2u;++i)
             desired->sendManual[i]=(ext.effectModes[i]&0x0100u)!=0u ||
                 ext.guiControls[10u+i]>0u; // pre-override V5 compatibility
+    // Host owner SHA/path, MIDI/master/FX and the prepared instrument are
+    // committed as one non-RT transaction. getState() is allowed to save
+    // the previous *valid* A state during an expensive B preparation, but
+    // can never observe B's path with A's MIDI controller tuple.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // User file and preset catalog are always handled on the host thread.
     // The complete original-chip candidate is staged atomically and
     // consumed at the following audio block, with no heap in process().
