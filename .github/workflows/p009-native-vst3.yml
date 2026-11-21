@@ -556,7 +556,12 @@ jobs:
           function CallInstaller([string]$dest) {
             $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',
                   ('"'+$installer+'"'),'-TargetRoot',('"'+$dest+'"'))
-            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Wait -PassThru
+            $out=Join-Path $env:RUNNER_TEMP 'P182-Installer-stdout.log'
+            $err=Join-Path $env:RUNNER_TEMP 'P182-Installer-stderr.log'
+            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            Write-Host "P182_ACTUAL_WINDOWS_POWERSHELL_INSTALL_EXIT=$($p.ExitCode)"
+            if(Test-Path -LiteralPath $out){Get-Content -LiteralPath $out}
+            if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err}
             return $p.ExitCode
           }
           if((CallInstaller $rootTarget) -ne 0){throw 'P182 full Windows PowerShell upgrade installation rejected'}
