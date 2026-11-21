@@ -2681,11 +2681,34 @@ void verifyP176RapidSf2SwitchForwardProgress(
   }
   // Distinct ORIGINAL-chip fixture controls. The exact selected C bank
   // must be audible without an editor or project-save callback.
+  // An actual chip's silent oscillator/FX FIFO evolves with time.
+  // C was installed only AFTER the remaining A->B fade completed:
+  // ceil(44100*.015)=662; 64 fade samples in first callback; 10 further
+  // 64-frame blocks to finish; C then rendered in the final 50 blocks.
+  // An immediate NoteOn in a fresh C instance is NOT a bit-exact timing
+  // oracle. Independently warm C for the same 50 blocks before comparing.
+  const int fadeFrames=static_cast<int>(std::ceil(44100.*.015));
+  const int blocksBeforeC=(fadeFrames-64+63)/64;
+  const int latestBlocks=60-blocksBeforeC;
+  check(latestBlocks==50,"P176 independent chip-timeline oracle drift");
+  const auto warm=[&](Plugin& p){
+    std::array<float,64> l{},r{};
+    float* channels[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=channels;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=64;
+    pd.numOutputs=1;pd.outputs=&bus;
+    for(int i=0;i<latestBlocks;++i)
+      check(p.processor->process(pd)==kResultOk,
+            "P176 independent post-swap chip idle preroll failed");
+  };
   ownerBank(resources,"77-presets.sf2");
   Plugin expected(factory,id,host);expected.start(0,1,44100.);
+  warm(expected);
   const auto wanted=p015Play(expected,0,60);
   ownerBank(resources,"sustain.sf2");
   Plugin wrong(factory,id,host);wrong.start(0,1,44100.);
+  warm(wrong);
   const auto unwanted=p015Play(wrong,0,60);
   check(wanted!=unwanted,
         "P176 source SoundFonts have indistinguishable chip PCM");
