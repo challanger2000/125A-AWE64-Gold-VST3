@@ -13,6 +13,28 @@
 #include <fstream>
 
 namespace p009 {
+// Pins a specific Windows file object for the COMPLETE non-RT
+// hash -> parse -> original-chip upload transaction. In particular,
+// FILE_SHARE_READ forbids replacement, deletion or an overlapping write
+// from passing through a "same path, different bytes" TOCTOU window.
+// The lock is never acquired by process(), and is released before returning
+// to any audio/render callback. Failure is deliberately fail-closed.
+class ScopedOwnerSoundFontRead {
+    HANDLE file_=INVALID_HANDLE_VALUE;
+public:
+    ScopedOwnerSoundFontRead() noexcept=default;
+    ScopedOwnerSoundFontRead(const ScopedOwnerSoundFontRead&)=delete;
+    ScopedOwnerSoundFontRead& operator=(const ScopedOwnerSoundFontRead&)=delete;
+    ~ScopedOwnerSoundFontRead() noexcept {
+        if(file_!=INVALID_HANDLE_VALUE)CloseHandle(file_);
+    }
+    bool open(const std::filesystem::path& path) noexcept {
+        if(file_!=INVALID_HANDLE_VALUE)return false;
+        file_=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,
+                          OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+        return file_!=INVALID_HANDLE_VALUE;
+    }
+};
 inline bool sha256FileNonRealtime(const std::filesystem::path& path,
                                   std::array<std::uint8_t,32>& result) {
     std::error_code pathError;

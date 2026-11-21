@@ -198,6 +198,15 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     };
     if(path.empty()||path.size()>4096)
         return reject("Invalid SoundFont path.");
+    std::filesystem::path selected;
+    try {
+        selected=std::filesystem::u8path(path);
+    }catch(...){
+        return reject("Invalid UTF-8 SoundFont path.");
+    }
+    ScopedOwnerSoundFontRead ownerFilePin;
+    if(!ownerFilePin.open(selected))
+        return reject("Cannot exclusively pin SoundFont for verified read.");
     // A candidate must be a *real* complete SoundFont with valid 'phdr':
     // never fabricate 128 presets from an owner's 77-entry sparse bank.
     std::string err;
@@ -211,18 +220,15 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     // A second complete original-chip/SBK/selected SF2 is built offline,
     // including 28 MiB RAM upload, preallocated 64-frame source FIFO and FX.
     // Neither audio render thread nor the old Synth is touched.
-    std::filesystem::path selected;
-    try {
-        selected=std::filesystem::u8path(path);
-    }catch(...){
-        return reject("Invalid UTF-8 SoundFont path.");
-    }
     std::array<std::uint8_t,32> fingerprint{};
     if(!sha256FileNonRealtime(selected,fingerprint))
         return reject("Cannot read SoundFont file.");
     std::unique_ptr<Synth> ready;
     if(!buildInstrumentNonRealtime(selected,ready,err))
         return reject(err.empty()?"Could not prepare SoundFont.":err);
+    std::array<std::uint8_t,32> afterLoad{};
+    if(!sha256FileNonRealtime(selected,afterLoad) || afterLoad!=fingerprint)
+        return reject("SoundFont bytes changed during sample upload.");
     // The GUI's SF2 identity/catalog/chip staging and a concurrent DAW
     // project save are one transaction, but lengthy parsing/loading above
     // never blocks a valid getState() of the *previous* accepted bank.

@@ -14,12 +14,65 @@
 #include "vstgui/plugin-bindings/vst3editor.h"
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <memory>
 #include <atomic>
 #include <filesystem>
 #include <mutex>
 #include <string>
 namespace p009 {
+// A GUI/host edit is a *versioned transaction*, not only a scalar value.
+// A new same-valued edit is still a NEW accepted host command. Audio must
+// never acknowledge that edit by comparing only its numeric value.
+// The 64-bit CAS is lock-free on the supported Windows x64 target.
+template <typename Value>
+class VersionedHostEdit {
+    static_assert(sizeof(Value)==4u &&
+                  std::is_trivially_copyable<Value>::value,
+                  "4-byte atomically versioned host edits only");
+    static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+                  "native x64 lock-free atomic host edit required");
+    std::atomic<std::uint64_t> bits_{};
+    static std::uint32_t encode(Value v) noexcept {
+        std::uint32_t x=0;
+        std::memcpy(&x,&v,sizeof(x));
+        return x;
+    }
+public:
+    static Value decode(std::uint64_t token) noexcept {
+        const std::uint32_t x=static_cast<std::uint32_t>(token);
+        Value value{};
+        std::memcpy(&value,&x,sizeof(x));
+        return value;
+    }
+    VersionedHostEdit() noexcept {
+        bits_.store(encode(Value(-1)),std::memory_order_relaxed);
+    }
+    std::uint64_t snapshot() const noexcept {
+        return bits_.load(std::memory_order_acquire);
+    }
+    Value load(std::memory_order order=std::memory_order_acquire) const noexcept {
+        return decode(bits_.load(order));
+    }
+    void store(Value v,
+               std::memory_order=std::memory_order_release) noexcept {
+        auto old=bits_.load(std::memory_order_acquire);
+        for(;;){
+            const auto updated=((old>>32u)+1u)<<32u |
+                               static_cast<std::uint64_t>(encode(v));
+            if(bits_.compare_exchange_weak(old,updated,
+                    std::memory_order_acq_rel,std::memory_order_acquire))
+                return;
+        }
+    }
+    bool clearIfUnchanged(std::uint64_t token) noexcept {
+        const auto empty=((token>>32u)+1u)<<32u |
+                         static_cast<std::uint64_t>(encode(Value(-1)));
+        return bits_.compare_exchange_strong(token,empty,
+                 std::memory_order_acq_rel,std::memory_order_acquire);
+    }
+};
 // Prebuilt on the host lifecycle thread. The audio thread copies its
 // bounded POD state at a block boundary and retires the object *without*
 // freeing it. This prevents host state restores from racing chip register
@@ -30,6 +83,9 @@ struct NativeRuntimeRestore {
     std::array<std::uint8_t,16> programs{},banks{};
     std::array<std::uint16_t,16*8> midi{},advanced{};
     std::array<std::uint8_t,16> modes{};
+    // RPN 0/0 Data Entry that ACTUALLY changed hardware bend range,
+    // independent of a later RPN NULL or unsupported NRPN selection.
+    std::array<std::uint8_t,16> bendRangeValid{};
     std::array<float,12> gui{};
     int reverb=4,chorus=2;
     std::array<bool,2> sendManual{};
@@ -122,12 +178,12 @@ private:
     // saving and GUI readback must retain the *new* host-side choice.
     // -1 means no pending controller-side change; these atomics never
     // allocate in the render callback.
-    std::array<std::atomic<int>,16> hostProgramEdits_{},hostBankEdits_{};
-    std::atomic<float> hostMasterEdit_{-1.f};
+    std::array<VersionedHostEdit<int>,16> hostProgramEdits_{},hostBankEdits_{};
+    VersionedHostEdit<float> hostMasterEdit_{};
     // Unacknowledged stopped-transport editor changes, never merged with
     // unrelated audio generations. -1 means the RT epoch is authoritative.
-    std::array<std::atomic<int>,12> hostGuiEdits_{};
-    std::array<std::atomic<int>,2> hostFxEdits_{},hostSendEdits_{};
+    std::array<VersionedHostEdit<int>,12> hostGuiEdits_{};
+    std::array<VersionedHostEdit<int>,2> hostFxEdits_{},hostSendEdits_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     // Two bounded old-chip slots prevent a pending bank from stalling if
     // it was requested during the previous 15-ms fade. Only the audio
@@ -178,7 +234,7 @@ private:
     std::atomic<unsigned> publishedSnapshot_{0u};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
-    void publishRuntimeSnapshot() noexcept;
+    bool publishRuntimeSnapshot() noexcept;
     void drainRetiredRestoresNonRealtime() noexcept;
     // GUI repeated bank selection after MIDI CC0: the actual chip must
     // receive a bank/program reassert, not only a boolean "ack".
@@ -232,6 +288,7 @@ private:
     // 8 original Creative CC controls per channel; 0xFFFF = untouched.
     // Never send default values unnecessarily (preserve original register PCM).
     std::array<std::uint16_t,16*8> midiState_{};
+    std::array<std::uint8_t,16> effectiveBendRangeValid_{};
     // Additional standard MIDI CCs, independently mapped per channel.
     // NRPN is selector-only: upstream Creative driver has no NRPN synthesis.
     std::array<std::uint16_t,16*8> advancedMidiState_{};

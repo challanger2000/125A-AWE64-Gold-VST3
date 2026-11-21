@@ -59,6 +59,9 @@ struct Saved {
     float master=1.f;
     std::array<std::uint8_t,15> otherPrograms{};
     std::array<std::uint8_t,15> otherBanks{};
+    // V4/V5 original 580B layout retained. Bit ch of reserved[0..1]
+    // explicitly marks an effective RPN0/0 bend range when the final
+    // RPN selector was later NULL. Old archives wrote both bytes as zero.
     std::array<std::uint8_t,2> reserved{};
     std::array<std::uint16_t,16*8> midiStates{};
     std::array<std::uint16_t,16*8> advancedStates{};
@@ -367,9 +370,11 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     // setState already authenticated the owner's V5 path by full SHA.
     // setActive must NOT silently replace that asset with modified disk
     // content and then overwrite the saved SHA with the new file's bytes.
+    ScopedOwnerSoundFontRead ownerFilePin;
     if(explicitOwner){
+        if(sf2.empty() || !ownerFilePin.open(sf2))return false;
         std::array<std::uint8_t,32> actualSha{};
-        if(sf2.empty() || !sha256FileNonRealtime(sf2,actualSha) ||
+        if(!sha256FileNonRealtime(sf2,actualSha) ||
            actualSha!=expectedSha)return false;
     }
     std::unique_ptr<Synth> candidate;
@@ -413,13 +418,14 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     delete pendingGuiCatalog_.exchange(nextCatalog,std::memory_order_acq_rel);
     return true;
 }
-void NativeVst3::publishRuntimeSnapshot() noexcept {
+bool NativeVst3::publishRuntimeSnapshot() noexcept {
     // A single immutable generation for concurrent, unpaced DAW saves.
     // The audio/lifecycle writer never waits for a reader, never allocates,
     // and writes ONLY a nonpublished snapshot with pins acquired by CAS.
     const unsigned current=publishedSnapshot_.load(std::memory_order_acquire);
     const auto& previous=stableSnapshots_[current].data;
     bool same=previous.program==static_cast<std::uint32_t>(program_) &&
+        previous.bendRangeValid==effectiveBendRangeValid_ &&
         previous.bank==static_cast<std::uint32_t>(bank_) &&
         previous.master==master_ &&
         previous.midi==midiState_ &&
@@ -434,6 +440,7 @@ void NativeVst3::publishRuntimeSnapshot() noexcept {
                  (ch?programsByChannel_[ch]:static_cast<std::uint8_t>(program_)) &&
              previous.banks[ch]==
                  (ch?banksByChannel_[ch]:static_cast<std::uint8_t>(bank_));
+    bool published=same;
     if(!same) {
         for(unsigned n=1;n<stableSnapshots_.size();++n){
             const unsigned target=(current+n)%stableSnapshots_.size();
@@ -457,12 +464,14 @@ void NativeVst3::publishRuntimeSnapshot() noexcept {
             d.midi=midiState_;
             d.advanced=advancedMidiState_;
             d.modes=selectedParameterMode_;
+            d.bendRangeValid=effectiveBendRangeValid_;
             d.gui=guiControls_;
             d.reverb=reverbPreset_;
             d.chorus=chorusPreset_;
             d.sendManual=sendManual_;
             slot.pins.store(0,std::memory_order_release);
             publishedSnapshot_.store(target,std::memory_order_release);
+            published=true;
             break; // bounded: at most three nonblocking attempts
         }
     }
@@ -510,7 +519,7 @@ void NativeVst3::publishRuntimeSnapshot() noexcept {
                     static_cast<std::uint8_t>(i?chorusPreset_:reverbPreset_) &&
                 stateSendMirrors_[i].load(std::memory_order_seq_cst)==sendManual_[i];
     }
-    if(unchanged)return;
+    if(unchanged)return published;
     // Only the audio thread mutates state while active. Host lifecycle
     // publishes only after processing stops; all shared mirrors are ATOMIC.
     stateMirrorEpoch_.fetch_add(1,std::memory_order_seq_cst); // odd
@@ -541,6 +550,7 @@ void NativeVst3::publishRuntimeSnapshot() noexcept {
         stateSendMirrors_[i].store(sendManual_[i],std::memory_order_seq_cst);
     }
     stateMirrorEpoch_.fetch_add(1,std::memory_order_seq_cst); // even
+    return published;
 }
 void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexcept {
     // Executed at process() boundary (or by the stopped host before active).
@@ -553,6 +563,7 @@ void NativeVst3::applyRuntimeRestore(const NativeRuntimeRestore& desired) noexce
     midiState_=desired.midi;
     advancedMidiState_=desired.advanced;
     selectedParameterMode_=desired.modes;
+    effectiveBendRangeValid_=desired.bendRangeValid;
     guiControls_=desired.gui;
     sendManual_=desired.sendManual;
     const bool changedFx=fxEdited_ || desired.reverb!=4 ||
@@ -807,6 +818,8 @@ void NativeVst3::applyAdvancedController(unsigned channel,
         advancedMidiState_[base+3u]==0u;
     if(!isDataEntry||selectedBendRpn)
         advancedMidiState_[base+slot]=value;
+    if(isDataEntry && selectedBendRpn)
+        effectiveBendRangeValid_[channel]=1u;
     // Mirror actual Creative CC0 ROM/user-bank selections into VST3 state.
     // Values 2..127 must not masquerade as the CH1 special drum lane.
     if(slot==0u && value<=1u){
@@ -854,7 +867,7 @@ void NativeVst3::replayMidiState() noexcept{
         // Reapply the last *effective* data-entry values without changing
         // the saved selector values or control-state mirrors.
         const auto range=advancedMidiState_[base+4u];
-        if(range!=0xFFFFu){
+        if(effectiveBendRangeValid_[ch] && range!=0xFFFFu){
             synth_->ControlChange(static_cast<std::uint8_t>(ch),101u,0u);
             synth_->ControlChange(static_cast<std::uint8_t>(ch),100u,0u);
             synth_->ControlChange(static_cast<std::uint8_t>(ch),6u,
@@ -942,9 +955,11 @@ void NativeVst3::dispatch(const Event& event) noexcept{
             if(entry.active && entry.source==ch && entry.key==key &&
                entry.noteId==noteId){match=&entry;break;}
     }
-    if(!match){
-        // Hosts may send unspecified/duplicate note IDs. Retire the
-        // latest matching logical note instead of leaking a routed voice.
+    if(!match && noteId<0){
+        // Only unspecified NoteIDs may use a pitch/channel fallback.
+        // A late NoteOff with an explicit ID already released (or a
+        // different active ID of the same pitch) is NOT an authorization
+        // to kill that other note. Doing so was an independent P186 NO-GO.
         for(auto& entry:activeRoutedNotes_)
             if(entry.active && entry.source==ch && entry.key==key)
                 match=&entry;
@@ -1029,19 +1044,36 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     const int32 parameterFrames=std::max<int32>(1,data.numSamples);
     // Capture host-side requests at this block boundary. A newly arriving
     // GUI edit during process() must not be erased by an older audio point.
+    // Capture exact edit generations, not just numeric values. A DAW may
+    // resubmit an IDENTICAL value after this block starts. That is a new
+    // command and must not be lost by acknowledging the earlier edit.
     std::array<int,16> programAtBlock{},bankAtBlock{};
+    std::array<std::uint64_t,16> programToken{},bankToken{};
+    std::array<bool,16> touchedProgram{},touchedBank{};
     for(unsigned ch=0;ch<16u;++ch){
-        programAtBlock[ch]=hostProgramEdits_[ch].load(std::memory_order_acquire);
-        bankAtBlock[ch]=hostBankEdits_[ch].load(std::memory_order_acquire);
+        programToken[ch]=hostProgramEdits_[ch].snapshot();
+        bankToken[ch]=hostBankEdits_[ch].snapshot();
+        programAtBlock[ch]=VersionedHostEdit<int>::decode(programToken[ch]);
+        bankAtBlock[ch]=VersionedHostEdit<int>::decode(bankToken[ch]);
     }
-    const float masterAtBlock=hostMasterEdit_.load(std::memory_order_acquire);
+    const auto masterToken=hostMasterEdit_.snapshot();
+    const float masterAtBlock=VersionedHostEdit<float>::decode(masterToken);
+    bool touchedMaster=false;
     std::array<int,12> guiAtBlock{};
+    std::array<std::uint64_t,12> guiToken{};
+    std::array<bool,12> touchedGui{};
     std::array<int,2> fxAtBlock{},sendAtBlock{};
-    for(unsigned i=0;i<guiAtBlock.size();++i)
-        guiAtBlock[i]=hostGuiEdits_[i].load(std::memory_order_acquire);
+    std::array<std::uint64_t,2> fxToken{},sendToken{};
+    std::array<bool,2> touchedFx{},touchedSend{};
+    for(unsigned i=0;i<guiAtBlock.size();++i){
+        guiToken[i]=hostGuiEdits_[i].snapshot();
+        guiAtBlock[i]=VersionedHostEdit<int>::decode(guiToken[i]);
+    }
     for(unsigned i=0;i<2u;++i){
-        fxAtBlock[i]=hostFxEdits_[i].load(std::memory_order_acquire);
-        sendAtBlock[i]=hostSendEdits_[i].load(std::memory_order_acquire);
+        fxToken[i]=hostFxEdits_[i].snapshot();
+        sendToken[i]=hostSendEdits_[i].snapshot();
+        fxAtBlock[i]=VersionedHostEdit<int>::decode(fxToken[i]);
+        sendAtBlock[i]=VersionedHostEdit<int>::decode(sendToken[i]);
     }
     applyStagedInstrumentRealtime();
     // Never apply a newer project's MIDI state to a previous SoundFont
@@ -1293,22 +1325,13 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                                          mp.slot-kMappedCount,mp.value);
             }else if(mp.slot==kPatchMaster){
                 master_=mp.normalized;
-                if(masterAtBlock>=0.f){
-                    float expected=masterAtBlock;
-                    (void)hostMasterEdit_.compare_exchange_strong(
-                        expected,-1.f,std::memory_order_acq_rel);
-                }
+                touchedMaster=true; // Acknowledge ONLY after publishing B.
             }else if(mp.slot==kPatchProgram){
                 if(mp.channel==0)program_=static_cast<int>(mp.value);
                 else programsByChannel_[mp.channel]=
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
-                const int pending=programAtBlock[mp.channel];
-                if(pending>=0){
-                    int expected=pending;
-                    (void)hostProgramEdits_[mp.channel].compare_exchange_strong(
-                        expected,-1,std::memory_order_acq_rel);
-                }
+                touchedProgram[mp.channel]=true;
             }else if(mp.slot==kPatchBank){
                 if(mp.channel==0)bank_=static_cast<int>(mp.value);
                 else banksByChannel_[mp.channel]=
@@ -1322,12 +1345,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 advancedMidiState_[base]=0xFFFFu;
                 advancedMidiState_[base+1u]=0xFFFFu;
                 changeChannelBankProgram(mp.channel);
-                const int pending=bankAtBlock[mp.channel];
-                if(pending>=0){
-                    int expected=pending;
-                    (void)hostBankEdits_[mp.channel].compare_exchange_strong(
-                        expected,-1,std::memory_order_acq_rel);
-                }
+                touchedBank[mp.channel]=true;
             }else if(mp.slot==kGuiReverbType||mp.slot==kGuiChorusType){
                 if(mp.slot==kGuiReverbType){
                     reverbPreset_=int(mp.value);
@@ -1342,20 +1360,12 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 }
                 fxEdited_=true;
                 const unsigned i=mp.slot==kGuiReverbType?0u:1u;
-                if(fxAtBlock[i]>=0){
-                    int expected=fxAtBlock[i];
-                    (void)hostFxEdits_[i].compare_exchange_strong(
-                        expected,-1,std::memory_order_acq_rel);
-                }
+                touchedFx[i]=true;
             }else if(mp.slot>=kGuiSendManualSlotBase &&
                      mp.slot<kGuiSendManualSlotBase+2u){
                 const auto i=static_cast<unsigned>(mp.slot-kGuiSendManualSlotBase);
                 sendModeAtFrame[i]=int(mp.value);
-                if(sendAtBlock[i]>=0){
-                    int expected=sendAtBlock[i];
-                    (void)hostSendEdits_[i].compare_exchange_strong(
-                        expected,-1,std::memory_order_acq_rel);
-                }
+                touchedSend[i]=true;
             }else if(mp.slot>=kGuiControlSlotBase &&
                      mp.slot<kGuiControlSlotBase+guiControls_.size()){
                 const auto index=static_cast<unsigned>(
@@ -1366,11 +1376,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     std::memory_order_release);
                 if(synth_)synth_->SetGuiControl(
                     static_cast<int>(index),guiControls_[index]);
-                if(guiAtBlock[index]>=0){
-                    int expected=guiAtBlock[index];
-                    (void)hostGuiEdits_[index].compare_exchange_strong(
-                        expected,-1,std::memory_order_acq_rel);
-                }
+                touchedGui[index]=true;
                 if(index>=10u){
                     // A real performed send gesture (including an explicit
                     // 0%) switches to absolute hardware send operation.
@@ -1390,6 +1396,25 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             dispatch(events[notePos++]);
     }
     if(pos<data.numSamples)render(l+pos,r+pos,data.numSamples-pos);
+    // Stopped-transport/controller-only updates must still reach the chip.
+    // Never apply a captured OLDER GUI edit over a newer audio automation
+    // point, including when both edits happen to have the same value.
+    for(unsigned ch=0;ch<16u;++ch){
+        if(bankAtBlock[ch]>=0 && !touchedBank[ch] &&
+           hostBankEdits_[ch].snapshot()==bankToken[ch]){
+            if(ch==0u)bank_=bankAtBlock[ch];
+            else banksByChannel_[ch]=static_cast<std::uint8_t>(bankAtBlock[ch]);
+            changeChannelBankProgram(ch);
+        }
+        if(programAtBlock[ch]>=0 && !touchedProgram[ch] &&
+           hostProgramEdits_[ch].snapshot()==programToken[ch]){
+            if(ch==0u)program_=programAtBlock[ch];
+            else programsByChannel_[ch]=static_cast<std::uint8_t>(programAtBlock[ch]);
+            changeChannelBankProgram(ch);
+        }
+    }
+    if(masterAtBlock>=0.f && !touchedMaster &&
+       hostMasterEdit_.snapshot()==masterToken)master_=masterAtBlock;
     // A DAW may call IEditController::setParamNormalized() without delivering
     // a matching audio queue in the same callback. Do not save a GUI cutoff,
     // FX type or explicit SEND mode that never reached the audible chip.
@@ -1398,8 +1423,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // callback has a different value and remains for the next callback.
     for(unsigned i=0;i<guiAtBlock.size();++i){
         const int pending=guiAtBlock[i];
-        if(pending>=0 &&
-           hostGuiEdits_[i].load(std::memory_order_acquire)==pending){
+        if(pending>=0 && !touchedGui[i] &&
+           hostGuiEdits_[i].snapshot()==guiToken[i]){
             guiControls_[i]=float(pending)/10000.f;
             if(synth_)synth_->SetGuiControl(static_cast<int>(i),guiControls_[i]);
             if(i>=10u){
@@ -1411,8 +1436,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     }
     for(unsigned i=0;i<2u;++i){
         const int pendingFx=fxAtBlock[i];
-        if(pendingFx>=0 &&
-           hostFxEdits_[i].load(std::memory_order_acquire)==pendingFx){
+        if(pendingFx>=0 && !touchedFx[i] &&
+           hostFxEdits_[i].snapshot()==fxToken[i]){
             if(i==0u){
                 reverbPreset_=pendingFx;
                 if(synth_)applyOriginalEmu8000Reverb(*synth_,unsigned(pendingFx));
@@ -1426,15 +1451,37 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         // value, including an older controller gesture arriving later in
         // the host parameter queue. Never infer mode from the knob value.
         const int pendingMode=sendAtBlock[i];
-        if(pendingMode>=0 &&
-           hostSendEdits_[i].load(std::memory_order_acquire)==pendingMode){
+        if(pendingMode>=0 && !touchedSend[i] &&
+           hostSendEdits_[i].snapshot()==sendToken[i]){
             sendManual_[i]=pendingMode!=0;
             sendManualMirrors_[i].store(sendManual_[i],std::memory_order_release);
             if(synth_)synth_->SetGuiSendManual(int(i),sendManual_[i]);
         }
     }
     if(bus&&data.numSamples>0)bus->silenceFlags=authenticRomLoaded_?0:3;
-    publishRuntimeSnapshot();
+    // Critical N08 correction: keep *all* pending host edits visible
+    // until a coherent B audio snapshot is published. Clearing earlier
+    // yields old-A saved state or a mixed A/B project during in-flight
+    // physical rendering. A failed bounded publish must not consume edits.
+    if(publishRuntimeSnapshot()){
+        for(unsigned ch=0;ch<16u;++ch){
+            if(programAtBlock[ch]>=0)
+                (void)hostProgramEdits_[ch].clearIfUnchanged(programToken[ch]);
+            if(bankAtBlock[ch]>=0)
+                (void)hostBankEdits_[ch].clearIfUnchanged(bankToken[ch]);
+        }
+        if(masterAtBlock>=0.f)
+            (void)hostMasterEdit_.clearIfUnchanged(masterToken);
+        for(unsigned i=0;i<12u;++i)
+            if(guiAtBlock[i]>=0)
+                (void)hostGuiEdits_[i].clearIfUnchanged(guiToken[i]);
+        for(unsigned i=0;i<2u;++i){
+            if(fxAtBlock[i]>=0)
+                (void)hostFxEdits_[i].clearIfUnchanged(fxToken[i]);
+            if(sendAtBlock[i]>=0)
+                (void)hostSendEdits_[i].clearIfUnchanged(sendToken[i]);
+        }
+    }
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
@@ -1517,6 +1564,18 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     s.midiStates=stable.midi;
     s.advancedStates=stable.advanced;
     s.parameterModes=stable.modes;
+    // Only encode an additional effective-range marker when it cannot
+    // be inferred from a retained RPN selector 0/0. This preserves
+    // byte-identical legacy V4/V5 for all ordinary old projects and
+    // lets new RPN-NULL V4 data survive without increasing 580B size.
+    for(unsigned ch=0;ch<16u;++ch){
+        const auto base=ch*kAdvancedCount;
+        const bool selectorIsBend=stable.advanced[base+2u]==0u &&
+                                  stable.advanced[base+3u]==0u;
+        if(stable.bendRangeValid[ch] && !selectorIsBend &&
+           stable.advanced[base+4u]!=0xFFFFu)
+            s.reserved[ch/8u]|=static_cast<std::uint8_t>(1u<<(ch%8u));
+    }
     OwnerStateV5 extended{};
     std::string ownerPath;
     bool explicitOwner=false;
@@ -1626,6 +1685,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     OwnerStateV5 ext{};
     std::string requestedPath;
     std::filesystem::path verifiedOwnerPath;
+    ScopedOwnerSoundFontRead ownerFilePin;
     std::unique_ptr<Synth> preparedAsset;
     AWE125::PresetCatalog freshCatalog;
     bool replaceAsset=false;
@@ -1655,6 +1715,8 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             }catch(...){
                 return kResultFalse;
             }
+            if(!ownerFilePin.open(verifiedOwnerPath))
+                return kResultFalse;
             std::array<std::uint8_t,32> actualSha{};
             if(!sha256FileNonRealtime(verifiedOwnerPath,actualSha) ||
                 actualSha!=ext.assetSha256)
@@ -1683,6 +1745,14 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         std::string error;
         if(!buildInstrumentNonRealtime(replacement,preparedAsset,error))
             return kResultFalse;
+        // A path verified before bank construction must still be the same
+        // bytes as the SF2 actually uploaded. The read pin also prevents
+        // Windows rename/replace/write throughout this whole transaction.
+        if(nextExplicit){
+            std::array<std::uint8_t,32> afterLoad{};
+            if(!sha256FileNonRealtime(replacement,afterLoad) ||
+               afterLoad!=ext.assetSha256)return kResultFalse;
+        }
         freshCatalog.SetOriginalCreativeMidiNumbers();
         if(!replacement.empty()){
             const auto utf8=replacement.u8string();
@@ -1709,9 +1779,19 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(s.version>=kStateV3)desired->midi=s.midiStates;
     desired->advanced.fill(0xFFFFu);
     desired->modes.fill(0u);
+    desired->bendRangeValid.fill(0u);
     if(s.version>=kStateV4){
         desired->advanced=s.advancedStates;
         desired->modes=s.parameterModes;
+        for(unsigned ch=0;ch<16u;++ch){
+            const auto base=ch*kAdvancedCount;
+            const bool oldRpnBend=desired->advanced[base+2u]==0u &&
+                                  desired->advanced[base+3u]==0u &&
+                                  desired->advanced[base+4u]!=0xFFFFu;
+            const bool newNullMarker=
+                ((s.reserved[ch/8u]>>(ch%8u))&1u)!=0u;
+            desired->bendRangeValid[ch]=(oldRpnBend||newNullMarker)?1u:0u;
+        }
     }
     for(unsigned i=0;i<desired->gui.size();++i)
         desired->gui[i]=(s.version==kStateV5?ext.guiControls[i]:0u)/10000.f;

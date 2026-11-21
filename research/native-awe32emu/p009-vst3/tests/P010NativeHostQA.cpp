@@ -3920,6 +3920,232 @@ void verifyP186AudibleAtomicStateAndFreshness(
   std::puts("P186_LIVE_ORIGINAL_CHIP_SOUNDING_AUTOMATION_STATE_FRESH_AND_ATOMIC_PASS");
 }
 
+
+// P187 independent adversarial repeat of P186 N08: the GUI/host has accepted
+// BOTH B control edits BEFORE each nonzero 512-frame sounding callback.
+// While the audio callback acknowledges the identical points, saves MUST
+// NEVER see old A or a mixed A/B. P186 self-oracle lacked live controller
+// echo on every block, so its 1.27M saves missed this exact failure.
+void verifyP187SoundingControllerEchoWholeGeneration(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"voice32.sf2");
+  Plugin unit(factory,id,host);unit.start(0,1,44100.);
+  const auto setGui=[&](bool b){
+    check(unit.controller->setParamNormalized(1001u,b?.875:.125)==kResultOk &&
+          unit.controller->setParamNormalized(1100u,b?.75:.25)==kResultOk,
+          "P187 original N08 pre-echo controller edit failed");
+  };
+  const auto save=[&](){
+    MemoryStream stream;
+    check(unit.component->getState(&stream)==kResultOk,
+          "P187 active VST3 getState was rejected");
+    const auto* bytes=reinterpret_cast<const std::uint8_t*>(stream.getData());
+    const auto n=static_cast<std::size_t>(stream.getSize());
+    check(bytes && n==648u,"P187 expected full V5 controller saved state");
+    return std::vector<std::uint8_t>(bytes,bytes+n);
+  };
+  const auto render=[&](bool b,bool first){
+    ParameterChanges changes(2);
+    const auto put=[&](ParamID param,double v){
+      int32 qi=0,pi=0;
+      auto* q=changes.addParameterData(param,qi);
+      check(q && q->addPoint(0,v,pi)==kResultOk,
+            "P187 controller echo point not sent to actual processor");
+    };
+    put(1001u,b?.875:.125);
+    put(1100u,b?.75:.25);
+    EventList events;
+    if(first){
+      Event note{};note.type=Event::kNoteOnEvent;
+      note.noteOn.channel=0;note.noteOn.pitch=60;
+      note.noteOn.noteId=701;note.noteOn.velocity=.95f;
+      note.sampleOffset=10;
+      check(events.addEvent(note)==kResultOk,
+            "P187 sounding real original-chip note not queued");
+    }
+    std::array<float,512> l{},r{};
+    float* ch[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ch;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;
+    pd.numSamples=512;pd.numOutputs=1;pd.outputs=&bus;
+    pd.inputEvents=&events;pd.inputParameterChanges=&changes;
+    check(unit.processor->process(pd)==kResultOk,
+          "P187 nonzero 512-frame sounding original VST3 callback failed");
+    double energy=0.;
+    for(int i=0;i<512;++i){
+      check(std::isfinite(l[i])&&std::isfinite(r[i]),
+            "P187 audible original-chip output nonfinite");
+      energy+=double(l[i])*l[i]+double(r[i])*r[i];
+    }
+    return energy;
+  };
+  setGui(false);
+  double energy=render(false,true);
+  const auto A=save();
+  setGui(true);
+  const auto B=save();
+  check(A!=B && A.size()==648u && B.size()==648u,
+        "P187 audio A/B baseline cannot distinguish master+attack");
+  energy+=render(true,false);
+  check(save()==B,"P187 starting callback could not acknowledge B");
+  setGui(false);
+  energy+=render(false,false);
+  check(save()==A,"P187 initial A restore did not complete");
+
+  std::atomic<unsigned> phase{0u};
+  std::atomic<bool> stopping{false},healthy{true};
+  std::atomic<uint64_t> checked{0},stale{0},mixed{0},rejected{0};
+  std::thread observer([&](){
+    while(!stopping.load(std::memory_order_acquire)){
+      const unsigned before=phase.load(std::memory_order_acquire);
+      if(before&1u){std::this_thread::yield();continue;}
+      MemoryStream stream;
+      const auto rc=unit.component->getState(&stream);
+      const unsigned after=phase.load(std::memory_order_acquire);
+      if(before!=after || (after&1u))continue;
+      if(rc!=kResultOk){rejected.fetch_add(1);continue;}
+      const auto* bytes=reinterpret_cast<const std::uint8_t*>(stream.getData());
+      const auto n=static_cast<std::size_t>(stream.getSize());
+      const auto& expected=((before/2u)&1u)?B:A;
+      if(!bytes || n!=expected.size() ||
+         std::memcmp(bytes,expected.data(),n)!=0){
+        const auto& other=((before/2u)&1u)?A:B;
+        if(bytes && n==other.size() &&
+           std::memcmp(bytes,other.data(),n)==0)stale.fetch_add(1);
+        else mixed.fetch_add(1);
+      }
+      checked.fetch_add(1);
+    }
+  });
+  try {
+    for(int i=0;i<900;++i){
+      const bool b=(i&1)==0;
+      phase.fetch_add(1u,std::memory_order_release); // odd: host edits
+      setGui(b);
+      check(save()==(b?B:A),
+            "P187 controller B/A accepted BEFORE callback not serializable");
+      phase.fetch_add(1u,std::memory_order_release); // even: B/A authoritative
+      energy+=render(b,false);
+      check(save()==(b?B:A),
+            "P187 accepted controller edit vanished after callback");
+      if((i&3)==0)std::this_thread::yield();
+    }
+  }catch(...){
+    healthy.store(false);stopping.store(true);
+    observer.join();
+    ownerBank(resources,nullptr);
+    throw;
+  }
+  stopping.store(true,std::memory_order_release);
+  observer.join();
+  std::printf("P187_SOUNDING_N08_ECHO accepted=%llu stale=%llu mixed=%llu rejected=%llu energy=%.9f\n",
+      static_cast<unsigned long long>(checked.load()),
+      static_cast<unsigned long long>(stale.load()),
+      static_cast<unsigned long long>(mixed.load()),
+      static_cast<unsigned long long>(rejected.load()),energy);
+  check(healthy.load() && checked.load()>=1000u &&
+        stale.load()==0u && mixed.load()==0u &&
+        rejected.load()==0u && energy>.001,
+        "P187 Codex N08 sounding controller echo saw A/mixed after B confirmed");
+  ownerBank(resources,nullptr);
+  std::puts("P187_ORIGINAL_CHIP_SOUNDING_CONTROLLER_ECHO_N08_ATOMIC_FRESH_PASS");
+}
+
+// Legacy V4 saved a raw DataEntry value but had NO proof it was ever
+// effective RPN0/0. A wrong old NRPN/NULL value must not become a hardware
+// pitch range on reopen. New RPN-NULL sessions use the reserved bitmap.
+void verifyP187LegacyUnownedDataEntryDoesNotRetuneBend(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Saved legacy{};legacy.version=4u;legacy.bank=1u;
+  legacy.midiStates.fill(0xFFFFu);
+  legacy.advancedStates.fill(0xFFFFu);
+  legacy.midiStates[7]=16383u;
+  legacy.advancedStates[2]=127u;
+  legacy.advancedStates[3]=127u;
+  legacy.advancedStates[4]=5u; // stale, NOT valid effective RPN
+  legacy.parameterModes[0]=1u;
+  Saved defaultRange=legacy;
+  defaultRange.advancedStates[4]=0xFFFFu;
+  Saved wrongRange=legacy;
+  wrongRange.advancedStates[2]=0u;
+  wrongRange.advancedStates[3]=0u;
+  Plugin source(factory,id,host),expected(factory,id,host),wrong(factory,id,host);
+  source.start(0,1,44100.);expected.start(0,1,44100.);
+  wrong.start(0,1,44100.);
+  p015Restore(source,legacy);
+  p015Restore(expected,defaultRange);
+  p015Restore(wrong,wrongRange);
+  const auto got=p015Play(source,0,60);
+  const auto correct=p015Play(expected,0,60);
+  const auto bad=p015Play(wrong,0,60);
+  check(correct!=bad,
+        "P187 legacy original-chip pitch range 2/5 independent oracle invalid");
+  check(got==correct,
+        "P187 legacy NRPN/RPN-null unowned data entry changed restored bend");
+  ownerBank(resources,nullptr);
+  std::puts("P187_LEGACY_V4_UNOWNED_DATA_ENTRY_BEND_DEFAULT_PCM_PASS");
+}
+
+// VST3 explicit NoteID, unlike noteId==-1, must NEVER fall back by pitch.
+// A delayed duplicate NoteOff for an already finished ID is no authority
+// to release a newer independently held same-pitch note.
+void verifyP187LateExplicitNoteOffNeverKillsNewNoteId(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"voice32.sf2");
+  const auto scenario=[&](bool lateOff){
+    Plugin unit(factory,id,host);unit.start(0,1,44100.);
+    std::array<float,512> l{},r{};
+    float* ch[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ch;
+    EventList events;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=512;
+    pd.numOutputs=1;pd.outputs=&bus;pd.inputEvents=&events;
+    std::vector<float> after;
+    for(int block=0;block<60;++block){
+      events.clear();
+      const auto event=[&](bool on,int id){
+        Event e{};e.type=on?Event::kNoteOnEvent:Event::kNoteOffEvent;
+        e.sampleOffset=12;
+        if(on){
+          e.noteOn.channel=0;e.noteOn.pitch=60;
+          e.noteOn.noteId=id;e.noteOn.velocity=.95f;
+        }else{
+          e.noteOff.channel=0;e.noteOff.pitch=60;
+          e.noteOff.noteId=id;
+        }
+        check(events.addEvent(e)==kResultOk,
+              "P187 independent delayed explicit NoteID event rejected");
+      };
+      if(block==0)event(true,100);
+      if(block==4)event(false,100);
+      if(block==8)event(true,101);
+      if(block==12 && lateOff)event(false,100); // stale duplicate ID
+      if(block==36)event(false,101);
+      check(unit.processor->process(pd)==kResultOk,
+            "P187 genuine original-chip note route render rejected");
+      if(block>=14 && block<33)
+        for(int i=0;i<512;++i){
+          check(std::isfinite(l[i])&&std::isfinite(r[i]),
+                "P187 actual original chip produced nonfinite PCM");
+          after.push_back(l[i]);after.push_back(r[i]);
+        }
+    }
+    return after;
+  };
+  const auto withoutLate=scenario(false);
+  const auto withLate=scenario(true);
+  check(withoutLate==withLate,
+        "P187 delayed NoteOff ID100 muted another held ID101");
+  ownerBank(resources,nullptr);
+  std::puts("P187_DELAYED_EXPLICIT_NOTEID_NEVER_MUTES_ANOTHER_VOICE_PASS");
+}
+
 int main(int argc,char** argv){
  try{
   std::setvbuf(stdout,nullptr,_IONBF,0);
@@ -3978,6 +4204,9 @@ int main(int argc,char** argv){
     verifyP186ExplicitSF2SHAActivationRejectsChangedFile(factory,cls->ID(),host.get(),resources);
     verifyP186CutoffAndSendRestoreActualPCM(factory,cls->ID(),host.get(),resources);
     verifyP186AudibleAtomicStateAndFreshness(factory,cls->ID(),host.get(),resources);
+    verifyP187SoundingControllerEchoWholeGeneration(factory,cls->ID(),host.get(),resources);
+    verifyP187LegacyUnownedDataEntryDoesNotRetuneBend(factory,cls->ID(),host.get(),resources);
+    verifyP187LateExplicitNoteOffNeverKillsNewNoteId(factory,cls->ID(),host.get(),resources);
     verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
     verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
