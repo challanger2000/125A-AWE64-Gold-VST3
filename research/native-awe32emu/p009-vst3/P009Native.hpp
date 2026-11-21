@@ -112,7 +112,11 @@ private:
     std::array<std::atomic<int>,16> hostProgramEdits_{},hostBankEdits_{};
     std::atomic<float> hostMasterEdit_{-1.f};
     std::atomic<Synth*> stagedSynth_{nullptr};
+    // Two bounded old-chip slots prevent a pending bank from stalling if
+    // it was requested during the previous 15-ms fade. Only the audio
+    // thread publishes detached Synths; only host/UI deletes their heaps.
     std::atomic<Synth*> retiredSynth_{nullptr};
+    std::atomic<Synth*> retiredSynthSpare_{nullptr};
     // For a bounded 15-ms SF2 transition the previous REAL EMU8000 chip
     // continues rendering while its output fades to the newly loaded chip.
     // Both synths stay audio-thread-owned. Retire only after the last fade
@@ -150,6 +154,8 @@ private:
     bool buildInstrumentNonRealtime(const std::filesystem::path&,
                                     std::unique_ptr<Synth>&,std::string&);
     void cleanStagedAndRetiredNonRealtime() noexcept;
+    void drainRetiredSynthsNonRealtime() noexcept;
+    bool retireSynthRealtime(std::unique_ptr<Synth>&) noexcept;
     void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
