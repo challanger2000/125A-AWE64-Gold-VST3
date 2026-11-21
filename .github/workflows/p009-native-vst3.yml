@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -243,6 +243,13 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'synthetic sustained drum bank fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'oversized.sf2') --oversized
           if($LASTEXITCODE -ne 0){throw 'P171 oversized SF2 generator failed'}
+          # EMU8000 chip RAM: 28 MiB=14680064 sample words. Original Win95
+          # 16-word reserve, this SBK contains 1536 PCM words + 8 guard,
+          # and the user SF2 adds 8 guard. Exact user words=14678496.
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'exact-fit.sf2') --sample-words=14678496
+          if($LASTEXITCODE -ne 0){throw 'P174 exact physical 28 MiB fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'one-word-over.sf2') --sample-words=14678497
+          if($LASTEXITCODE -ne 0){throw 'P174 one sample word over physical RAM fixture failed'}
           # Independent C++20 SF2 browser test: never compile Steinberg's
           # module_win32.cpp as C++20 merely to use std::span in the catalog.
           cmake --build _p009-build --config Release --parallel 4 --target P173BrowserContract
@@ -254,7 +261,18 @@ jobs:
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic *> _p009-host-synthetic.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
-          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          if($rc -eq 0) {
+            foreach($gate in @(
+              'P174_ACTUAL_WINDOWS_VST3_28MIB_EXACT_FIT_ONE_WORD_OVER_REJECT_ROLLBACK_PCM_PASS',
+              'P174_ACTUAL_WINDOWS_VST3_SIXTY_ACCEPT_REJECT_AUDIO_RECALL_HEAP_BOUNDED_PASS',
+              'P173_ACTUAL_WINDOWS_VST3_ORIGINAL_CHIP_LIVE_SF2_FADE_9X_PCM_PASS'
+            )){
+              if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
+                throw "P174 missing critical actual Windows VST3 positive+negative gate: $gate"
+              }
+            }
+          }
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'exact-fit.sf2'),(Join-Path $dir 'one-word-over.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
           if($rc -ne 0){
             $last=Get-Content _p009-host-synthetic.log -Tail 1
             Write-Host "::error title=P010 synthetic host regression::Exit ${rc}. $last"

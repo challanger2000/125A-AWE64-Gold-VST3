@@ -139,7 +139,7 @@ add_executable(P010NativeHostQA
   "${P009_SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
   "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
 target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting bcrypt)
+target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting bcrypt psapi)
 target_compile_features(P010NativeHostQA PRIVATE cxx_std_17)
 
 # Browser model includes native std::span through IbkBank; compile it

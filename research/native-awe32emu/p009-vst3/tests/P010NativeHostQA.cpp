@@ -31,6 +31,8 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <windows.h>
+#include <psapi.h>
 #include <utility>
 namespace fs=std::filesystem;
 using namespace Steinberg;
@@ -2284,6 +2286,158 @@ void verifyP165RealChipFxSendAndPresetPCM(
 }
 
 }
+// P174 exact EMU8000 physical sample RAM bounds and *active* rejection:
+// Win95 original chip reserves 16 words, public SBK uses 1536 PCM words
+// plus 8 guard words, and a newly loaded SF2 adds another 8 guard words.
+// 28*1024*1024/2 - 16 - 1536 - 8 - 8 = 14678496 user PCM words.
+// A valid SoundFont with 14678496 words MUST load; 14678497 MUST reject,
+// without a changed running engine, active project identity or preset state.
+// This is a hardware-word test, NOT an SF2 file-length approximation.
+std::vector<std::uint8_t> p174V5State(const fs::path& path){
+  struct Ext {
+    std::uint32_t magic=0x35534150u,bytes=0u;
+    std::array<std::uint16_t,12> controls{};
+    std::array<std::uint8_t,32> sha{};
+    std::array<std::uint16_t,2> effects{{4u,2u}};
+  };
+  static_assert(sizeof(Ext)==68u,"P174 state header layout drift");
+  std::array<std::uint8_t,32> digest{};
+  check(p009::sha256FileNonRealtime(path,digest),
+        "P174 owner-independent SF2 hash read failed");
+  const auto pathUtf8=path.u8string();
+  const std::string name(pathUtf8.begin(),pathUtf8.end());
+  check(!name.empty() && name.size()<4096u,"P174 path outside V5 limit");
+  Saved state{};
+  state.version=5u;state.bank=1u;
+  state.midiStates.fill(0xFFFFu);
+  state.advancedStates.fill(0xFFFFu);
+  Ext ext{};ext.bytes=static_cast<std::uint32_t>(name.size());
+  ext.sha=digest;
+  std::vector<std::uint8_t> wire(sizeof(state)+sizeof(ext)+name.size());
+  std::memcpy(wire.data(),&state,sizeof(state));
+  std::memcpy(wire.data()+sizeof(state),&ext,sizeof(ext));
+  std::memcpy(wire.data()+sizeof(state)+sizeof(ext),name.data(),name.size());
+  return wire;
+}
+tresult p174ApplyV5(Plugin& plugin,const std::vector<std::uint8_t>& state){
+  MemoryStream mem;int32 n=0;
+  check(mem.write(const_cast<std::uint8_t*>(state.data()),
+                  static_cast<int32>(state.size()),&n)==kResultOk &&
+        n==static_cast<int32>(state.size()) &&
+        mem.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk,
+        "P174 external SF2 V5 state stream invalid");
+  return plugin.component->setState(&mem);
+}
+std::vector<std::uint8_t> p174Saved(Plugin& plugin){
+  MemoryStream mem;
+  check(plugin.component->getState(&mem)==kResultOk,
+        "P174 native VST3 state save rejected");
+  const auto* b=reinterpret_cast<const std::uint8_t*>(mem.getData());
+  check(b && mem.getSize()>0,"P174 empty VST3 project save");
+  return std::vector<std::uint8_t>(b,b+mem.getSize());
+}
+void verifyP174OneWordPhysicalRamBoundary(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  const auto exact=resources/"exact-fit.sf2";
+  const auto over=resources/"one-word-over.sf2";
+  constexpr std::uint64_t totalWords=28ull*1024ull*1024ull/2ull;
+  constexpr std::uint64_t baseWords=16ull+1536ull+8ull;
+  constexpr std::uint64_t userWords=totalWords-baseWords-8ull;
+  check(fs::is_regular_file(exact) && fs::is_regular_file(over) &&
+        fs::file_size(over)==fs::file_size(exact)+2ull &&
+        userWords==14678496ull,
+        "P174 28 MiB exact-fit/+one hardware boundary fixtures missing");
+  ownerBank(resources,"vintage.sf2");
+  Plugin running(factory,id,host),reference(factory,id,host);
+  running.start(0,1,44100.);reference.start(0,1,44100.);
+  const auto exactState=p174V5State(exact);
+  const auto overState=p174V5State(over);
+  check(p174ApplyV5(running,exactState)==kResultOk &&
+        p174ApplyV5(reference,exactState)==kResultOk,
+        "P174 exact 28 MiB EMU8000 DRAM bank incorrectly rejected");
+  check(p174Saved(running)==exactState &&
+        p174Saved(reference)==exactState,
+        "P174 exact-fit SoundFont identity was not committed");
+  // Both running Synth instances must render equal REAL chip PCM after
+  // an accepted exact-capacity upload, not merely parse RIFF metadata.
+  const auto expected=p015Play(reference,0,60);
+  check(p015Play(running,0,60)==expected,
+        "P174 accepted exact-fit SF2 failed genuine EMU8000 PCM parity");
+  const auto saved=p174Saved(running);
+  check(p174ApplyV5(running,overState)!=kResultOk,
+        "P174 one-sample-word over 28 MiB was incorrectly accepted");
+  check(p174Saved(running)==saved,
+        "P174 rejected one-word-over SF2 changed accepted project identity");
+  check(p015Play(running,0,60)==p015Play(reference,0,60),
+        "P174 one-word-over rejection corrupted running EMU8000 PCM");
+  // A small bank *after* the boundary rejection must still load and sound.
+  const auto smaller=p174V5State(resources/"77-presets.sf2");
+  check(p174ApplyV5(running,smaller)==kResultOk &&
+        p174Saved(running)==smaller,
+        "P174 valid small SoundFont cannot be loaded after RAM rejection");
+  check(p015Play(running,0,60)!=0u,
+        "P174 small bank after rejection did not render original-chip PCM");
+  ownerBank(resources,nullptr);
+  std::printf("P174_EMU8000_DRAM_BOUNDARY exact=%llu total=%llu over=%llu\n",
+      static_cast<unsigned long long>(userWords),
+      static_cast<unsigned long long>(totalWords),
+      static_cast<unsigned long long>(userWords+1ull));
+  std::puts("P174_ACTUAL_WINDOWS_VST3_28MIB_EXACT_FIT_ONE_WORD_OVER_REJECT_ROLLBACK_PCM_PASS");
+}
+std::size_t p174PrivateCommittedBytes() {
+  PROCESS_MEMORY_COUNTERS_EX counters{};
+  counters.cb=sizeof(counters);
+  check(GetProcessMemoryInfo(GetCurrentProcess(),
+    reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+    static_cast<DWORD>(sizeof(counters)))!=FALSE,
+    "P174 process private memory counter unreadable");
+  return static_cast<std::size_t>(counters.PrivateUsage);
+}
+// P174 60-cycle active VST3 SF2/host recall endurance: each cycle builds
+// a new complete original-chip bank non-realtime, rejects a corrupted SHA
+// without modifying any state, and plays audio through process(). Memory
+// must not grow by even a handful of leaked 28-MiB chip instances.
+void verifyP174SixtyActiveValidInvalidLoads(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Plugin unit(factory,id,host);
+  unit.start(0,1,44100.);
+  const auto a=p174V5State(resources/"vintage.sf2");
+  const auto b=p174V5State(resources/"77-presets.sf2");
+  auto memAtTen=std::size_t{0};
+  auto memAtEnd=std::size_t{0};
+  for(int cycle=0;cycle<60;++cycle){
+    const auto& good=cycle%2?a:b;
+    check(p174ApplyV5(unit,good)==kResultOk,
+          "P174 repeated valid SF2 rejected after an earlier swap");
+    check(p174Saved(unit)==good,
+          "P174 running project state failed to follow active SF2 selection");
+    auto bad=good;
+    constexpr std::size_t shaOffset=sizeof(Saved)+8u+24u;
+    check(bad.size()>shaOffset,"P174 V5 SHA offset invalid");
+    bad[shaOffset]^=0x40u;
+    check(p174ApplyV5(unit,bad)!=kResultOk,
+          "P174 malformed SHA was accepted during 60-cycle endurance");
+    check(p174Saved(unit)==good,
+          "P174 invalid owner SF2 mutated previous active project");
+    // This real instrument/86Box chip generates and releases the note,
+    // allowing the old 15-ms audible chip transition to retire normally.
+    (void)p015Play(unit,0,60);
+    if(cycle==9)memAtTen=p174PrivateCommittedBytes();
+    if(cycle==59)memAtEnd=p174PrivateCommittedBytes();
+  }
+  const auto increase=memAtEnd>memAtTen?memAtEnd-memAtTen:0u;
+  std::printf("P174_60_CYCLES_RAM privateMB_at10=%.2f privateMB_at60=%.2f growthMiB=%.2f\n",
+     double(memAtTen)/1048576.,double(memAtEnd)/1048576.,
+     double(increase)/1048576.);
+  check(increase<192u*1024u*1024u,
+        "P174 60 active SF2 swaps leaked multiple original 28-MiB chip heaps");
+  ownerBank(resources,nullptr);
+  std::puts("P174_ACTUAL_WINDOWS_VST3_SIXTY_ACCEPT_REJECT_AUDIO_RECALL_HEAP_BOUNDED_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -2366,6 +2520,8 @@ int main(int argc,char** argv){
     verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
+    verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
+    verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
