@@ -54,6 +54,9 @@ public:
         for(auto& x:hostSendEdits_)x.store(-1);
         stateFxMirrors_[0].store(4u);
         stateFxMirrors_[1].store(2u);
+        // The initial saveable chip state has no MIDI controllers set.
+        stableSnapshots_[0].data.midi.fill(0xFFFFu);
+        stableSnapshots_[0].data.advanced.fill(0xFFFFu);
     }
     ~NativeVst3() override { cleanStagedAndRetiredNonRealtime(); }
     Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID,void**) override;
@@ -162,6 +165,17 @@ private:
     std::array<std::atomic<std::uint16_t>,12> stateGuiMirrors_{};
     std::array<std::atomic<std::uint8_t>,2> stateFxMirrors_{};
     std::array<std::atomic<bool>,2> stateSendMirrors_{};
+    // Immutable read-pinned snapshots. Writer (audio OR stopped lifecycle)
+    // only modifies a NONpublished, UNpinned slot. Host saves pin a slot
+    // with one CAS, then memcpy a complete generation with no RT locking.
+    // Four slots make fast zero-sample automation bursts saveable without
+    // waiting for the 512 individual controller/GUI atomic mirror loads.
+    struct StateSnapshotSlot {
+        std::atomic<int> pins{0}; // -1 = single RT writer, >=0 host readers
+        NativeRuntimeRestore data{};
+    };
+    std::array<StateSnapshotSlot,4> stableSnapshots_{};
+    std::atomic<unsigned> publishedSnapshot_{0u};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
     void publishRuntimeSnapshot() noexcept;

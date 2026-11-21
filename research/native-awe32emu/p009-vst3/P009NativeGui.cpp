@@ -168,14 +168,26 @@ ParamValue PLUGIN_API NativeVst3::getParamNormalized(ParamID id){
             return SingleComponentEffect::getParamNormalized(id);
         return static_cast<double>(stateMasterMirror_.load(std::memory_order_acquire));
     }
-    if(id>=1100u&&id<1112u)
-        return static_cast<double>(guiControlMirrors_[id-1100u].load(
+    if(id>=1100u&&id<1112u){
+        const unsigned i=id-1100u;
+        const int pending=hostGuiEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return double(pending)/10000.;
+        return static_cast<double>(guiControlMirrors_[i].load(
             std::memory_order_acquire))/10000.;
-    if(id==1400u||id==1401u)
-        return static_cast<double>(fxPresetMirrors_[id==1400u?0u:1u].load(
+    }
+    if(id==1400u||id==1401u){
+        const unsigned i=id==1400u?0u:1u;
+        const int pending=hostFxEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return double(pending)/7.;
+        return static_cast<double>(fxPresetMirrors_[i].load(
             std::memory_order_acquire))/7.;
-    if(id==1420u||id==1421u)
-        return sendManualMirrors_[id-1420u].load(std::memory_order_acquire)?1.:0.;
+    }
+    if(id==1420u||id==1421u){
+        const unsigned i=id-1420u;
+        const int pending=hostSendEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return pending?1.:0.;
+        return sendManualMirrors_[i].load(std::memory_order_acquire)?1.:0.;
+    }
     return SingleComponentEffect::getParamNormalized(id);
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {

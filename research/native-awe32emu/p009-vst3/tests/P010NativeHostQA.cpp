@@ -357,8 +357,8 @@ void verifyP165GuiV5OwnerAssetState(
     check(v==static_cast<unsigned>((i+1)*500),
           "P165 control parameter did not roundtrip exactly");
  }
- check(bytes[644]==4u&&bytes[645]==3u &&
-       bytes[646]==2u&&bytes[647]==3u,
+ check(bytes[644]==4u&&bytes[645]==1u &&
+       bytes[646]==2u&&bytes[647]==1u,
        "P165 V5 must persist two explicit SEND hardware modes with FX types");
  auto zeroSendProject=Plugin(factory,id,host);
  check(zeroSendProject.controller->setParamNormalized(1110u,0.)==kResultOk &&
@@ -369,8 +369,8 @@ void verifyP165GuiV5OwnerAssetState(
        zeroState.getSize()==648u,
        "P165 manual 0% needs V5 explicit SEND-mode state, not V4 DEFAULT");
  auto* z=reinterpret_cast<const std::uint8_t*>(zeroState.getData());
- check(z && z[644]==4u && z[645]==3u &&
-       z[646]==2u && z[647]==3u &&
+ check(z && z[644]==4u && z[645]==1u &&
+       z[646]==2u && z[647]==1u &&
        z[608]==0u && z[609]==0u &&
        z[610]==0u && z[611]==0u,
        "P165 V5 zero SEND register override missing despite manual mode");
@@ -385,8 +385,8 @@ void verifyP165GuiV5OwnerAssetState(
        fxState.getSize()==648u,
        "P165 real FX-type automation not persisted in DAW state");
  const auto* fxBytes=reinterpret_cast<const std::uint8_t*>(fxState.getData());
- check(fxBytes && fxBytes[644]==5u && fxBytes[645]==2u &&
-       fxBytes[646]==6u && fxBytes[647]==2u,
+ check(fxBytes && fxBytes[644]==5u && fxBytes[645]==0u &&
+       fxBytes[646]==6u && fxBytes[647]==0u,
        "P165 original hardware FX type values wrong after automation");
  auto fxReopen=Plugin(factory,id,host);
  MemoryStream fxRestore;int32 fxBytesWritten=0;
@@ -3371,7 +3371,7 @@ void verifyP185CoherentGUIAndMidiAutomationSaves(
   const auto A=save();
   check(apply(true),"P185 initial automation state B rejected");
   const auto B=save();
-  check(A!=B && A[645]==3u && B[645]==2u,
+  check(A!=B && A[645]==1u && B[645]==0u,
         "P185 independent A/B FX mode and send-mode oracle was not exercised");
   check(apply(false),"P185 restore automation state A rejected");
   std::thread audio([&](){

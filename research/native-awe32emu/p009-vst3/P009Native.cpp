@@ -395,6 +395,58 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     return true;
 }
 void NativeVst3::publishRuntimeSnapshot() noexcept {
+    // A single immutable generation for concurrent, unpaced DAW saves.
+    // The audio/lifecycle writer never waits for a reader, never allocates,
+    // and writes ONLY a nonpublished snapshot with pins acquired by CAS.
+    const unsigned current=publishedSnapshot_.load(std::memory_order_acquire);
+    const auto& previous=stableSnapshots_[current].data;
+    bool same=previous.program==static_cast<std::uint32_t>(program_) &&
+        previous.bank==static_cast<std::uint32_t>(bank_) &&
+        previous.master==master_ &&
+        previous.midi==midiState_ &&
+        previous.advanced==advancedMidiState_ &&
+        previous.modes==selectedParameterMode_ &&
+        previous.gui==guiControls_ &&
+        previous.reverb==reverbPreset_ &&
+        previous.chorus==chorusPreset_ &&
+        previous.sendManual==sendManual_;
+    for(unsigned ch=0;ch<16u&&same;++ch)
+        same=previous.programs[ch]==
+                 (ch?programsByChannel_[ch]:static_cast<std::uint8_t>(program_)) &&
+             previous.banks[ch]==
+                 (ch?banksByChannel_[ch]:static_cast<std::uint8_t>(bank_));
+    if(!same) {
+        for(unsigned n=1;n<stableSnapshots_.size();++n){
+            const unsigned target=(current+n)%stableSnapshots_.size();
+            auto& slot=stableSnapshots_[target];
+            int vacant=0;
+            if(!slot.pins.compare_exchange_strong(vacant,-1,
+                    std::memory_order_acq_rel,std::memory_order_acquire))
+                continue;
+            // The old published snapshot is immutable; the new slot is
+            // exclusively writer-owned until all fields are committed.
+            auto& d=slot.data;
+            d.program=static_cast<std::uint32_t>(program_);
+            d.bank=static_cast<std::uint32_t>(bank_);
+            d.master=master_;
+            for(unsigned ch=0;ch<16u;++ch){
+                d.programs[ch]=ch?programsByChannel_[ch]:
+                    static_cast<std::uint8_t>(program_);
+                d.banks[ch]=ch?banksByChannel_[ch]:
+                    static_cast<std::uint8_t>(bank_);
+            }
+            d.midi=midiState_;
+            d.advanced=advancedMidiState_;
+            d.modes=selectedParameterMode_;
+            d.gui=guiControls_;
+            d.reverb=reverbPreset_;
+            d.chorus=chorusPreset_;
+            d.sendManual=sendManual_;
+            slot.pins.store(0,std::memory_order_release);
+            publishedSnapshot_.store(target,std::memory_order_release);
+            break; // bounded: at most three nonblocking attempts
+        }
+    }
     // The chip can render thousands of unchanged 64-frame callbacks while
     // another host thread is saving a VST3 project. Publishing the *same*
     // 16-channel MIDI/project state every time needlessly toggles the
@@ -1131,7 +1183,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                                          mp.slot-kMappedCount,mp.value);
             }else if(mp.slot==kPatchMaster){
                 master_=mp.normalized;
-                if(masterAtBlock>=0.f){
+                if(masterAtBlock>=0.f && masterAtBlock==mp.normalized){
                     float expected=masterAtBlock;
                     (void)hostMasterEdit_.compare_exchange_strong(
                         expected,-1.f,std::memory_order_acq_rel);
@@ -1142,7 +1194,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     static_cast<std::uint8_t>(mp.value);
                 changeChannelBankProgram(mp.channel);
                 const int pending=programAtBlock[mp.channel];
-                if(pending>=0){
+                if(pending>=0 && pending==static_cast<int>(mp.value)){
                     int expected=pending;
                     (void)hostProgramEdits_[mp.channel].compare_exchange_strong(
                         expected,-1,std::memory_order_acq_rel);
@@ -1161,7 +1213,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 advancedMidiState_[base+1u]=0xFFFFu;
                 changeChannelBankProgram(mp.channel);
                 const int pending=bankAtBlock[mp.channel];
-                if(pending>=0){
+                if(pending>=0 && pending==static_cast<int>(mp.value)){
                     int expected=pending;
                     (void)hostBankEdits_[mp.channel].compare_exchange_strong(
                         expected,-1,std::memory_order_acq_rel);
@@ -1180,7 +1232,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 }
                 fxEdited_=true;
                 const unsigned i=mp.slot==kGuiReverbType?0u:1u;
-                if(fxAtBlock[i]>=0){
+                if(fxAtBlock[i]>=0 && fxAtBlock[i]==static_cast<int>(mp.value)){
                     int expected=fxAtBlock[i];
                     (void)hostFxEdits_[i].compare_exchange_strong(
                         expected,-1,std::memory_order_acq_rel);
@@ -1189,7 +1241,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                      mp.slot<kGuiSendManualSlotBase+2u){
                 const auto i=static_cast<unsigned>(mp.slot-kGuiSendManualSlotBase);
                 sendModeAtFrame[i]=int(mp.value);
-                if(sendAtBlock[i]>=0){
+                if(sendAtBlock[i]>=0 && sendAtBlock[i]==static_cast<int>(mp.value)){
                     int expected=sendAtBlock[i];
                     (void)hostSendEdits_[i].compare_exchange_strong(
                         expected,-1,std::memory_order_acq_rel);
@@ -1204,7 +1256,8 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                     std::memory_order_release);
                 if(synth_)synth_->SetGuiControl(
                     static_cast<int>(index),guiControls_[index]);
-                if(guiAtBlock[index]>=0){
+                if(guiAtBlock[index]>=0 &&
+                   guiAtBlock[index]==static_cast<int>(mp.value)*100){
                     int expected=guiAtBlock[index];
                     (void)hostGuiEdits_[index].compare_exchange_strong(
                         expected,-1,std::memory_order_acq_rel);
@@ -1255,33 +1308,23 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
         stable=lastHostRestore_;
     }else{
         bool consistent=false;
-        for(int attempt=0;attempt<128 && !consistent;++attempt){
-            const auto before=stateMirrorEpoch_.load(std::memory_order_seq_cst);
-            if(before&1u)continue;
-            stable.program=stateProgramMirror_.load(std::memory_order_seq_cst);
-            stable.bank=stateBankMirror_.load(std::memory_order_seq_cst);
-            stable.master=stateMasterMirror_.load(std::memory_order_seq_cst);
-            for(unsigned ch=0;ch<16u;++ch){
-                stable.programs[ch]=stateProgramsMirror_[ch].load(std::memory_order_seq_cst);
-                stable.banks[ch]=stateBanksMirror_[ch].load(std::memory_order_seq_cst);
-                stable.modes[ch]=stateModesMirror_[ch].load(std::memory_order_seq_cst);
-            }
-            for(unsigned i=0;i<stable.midi.size();++i){
-                stable.midi[i]=stateMidiMirror_[i].load(std::memory_order_seq_cst);
-                stable.advanced[i]=stateAdvancedMirror_[i].load(std::memory_order_seq_cst);
-            }
-            for(unsigned i=0;i<stable.gui.size();++i)
-                stable.gui[i]=float(stateGuiMirrors_[i].load(
-                    std::memory_order_seq_cst))/10000.f;
-            stable.reverb=stateFxMirrors_[0].load(std::memory_order_seq_cst);
-            stable.chorus=stateFxMirrors_[1].load(std::memory_order_seq_cst);
-            for(unsigned i=0;i<2u;++i)
-                stable.sendManual[i]=stateSendMirrors_[i].load(
-                    std::memory_order_seq_cst);
-            const auto after=stateMirrorEpoch_.load(std::memory_order_seq_cst);
-            consistent=(before==after && !(after&1u));
+        for(int attempt=0;attempt<32&&!consistent;++attempt){
+            const unsigned id=publishedSnapshot_.load(
+                std::memory_order_acquire);
+            auto& slot=stableSnapshots_[id];
+            int pins=slot.pins.load(std::memory_order_acquire);
+            if(pins<0)continue;
+            if(!slot.pins.compare_exchange_weak(pins,pins+1,
+                std::memory_order_acq_rel,std::memory_order_acquire))
+                continue;
+            // Single RT writer cannot modify a pinned slot. The snapshot
+            // is a complete A or B even when the writer has already moved
+            // its currently published index to another slot.
+            stable=slot.data;
+            slot.pins.fetch_sub(1,std::memory_order_release);
+            consistent=true;
         }
-        if(!consistent)return kResultFalse; // never return a torn session
+        if(!consistent)return kResultFalse;
     }
     // The controller's last edit can precede the first process callback
     // (stopped transport, inactive project, or host saving immediately).
@@ -1335,10 +1378,15 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     }
     // V5 bit 0x0200 means mode is explicit even with a nonzero saved
     // SEND control. 0x0100 remains the separate manual-mode bit.
+    // Preserve byte-identical legacy V5 output wherever the mode is
+    // unambiguous. Only an ORIGINAL send with a positive stored knob needs
+    // the NEW explicit-original 0x0200 marker. Old V5 projects stay valid.
     extended.effectModes[0]=static_cast<std::uint16_t>(stable.reverb)|
-        0x0200u|(stable.sendManual[0]?0x0100u:0u);
+        (stable.sendManual[0]?0x0100u:
+          (stable.gui[10]>0.f?0x0200u:0u));
     extended.effectModes[1]=static_cast<std::uint16_t>(stable.chorus)|
-        0x0200u|(stable.sendManual[1]?0x0100u:0u);
+        (stable.sendManual[1]?0x0100u:
+          (stable.gui[11]>0.f?0x0200u:0u));
     bool changed=explicitOwner||stable.reverb!=4||stable.chorus!=2||
         stable.sendManual[0]||stable.sendManual[1];
     for(unsigned i=0;i<stable.gui.size();++i){
@@ -1549,8 +1597,10 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
             std::array<std::uint8_t,32>{};
         userChoseSf2_=nextExplicit;
     }
-    // An accepted project restore replaces every pending controller edit.
-    // Invalid/corrupt projects return above WITHOUT changing these flags.
+    // An accepted project restore replaces every pending controller edit,
+    // including a browser reassert queued by the PREVIOUS project.
+    // Invalid/corrupt projects return above without changing these flags.
+    bankReassertRequested_.store(0xFFu,std::memory_order_release);
     for(auto& p:hostProgramEdits_)p.store(-1,std::memory_order_release);
     for(auto& b:hostBankEdits_)b.store(-1,std::memory_order_release);
     hostMasterEdit_.store(-1.f,std::memory_order_release);
