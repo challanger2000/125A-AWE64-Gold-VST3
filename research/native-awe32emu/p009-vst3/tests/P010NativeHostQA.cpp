@@ -2957,7 +2957,7 @@ void verifyP179PacedAudibleHostSaves(
   std::atomic<bool> audioOk{true};
   double audioEnergy=0.,finalEnergy=0.,maxCallbackMs=0.;
   std::thread realAudio([&](){
-    std::array<float,blockFrames> left{},right{};
+    std::array<float,128> left{},right{};
     float* ptr[2]={left.data(),right.data()};
     AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ptr;
     EventList notes(2);
@@ -3002,6 +3002,7 @@ void verifyP179PacedAudibleHostSaves(
   // Guarantee that the saver actually overlaps an already sounding chip.
   for(int spins=0;spins<500000 && doneBlocks.load(std::memory_order_acquire)<8;
       ++spins)std::this_thread::yield();
+  const int blocksBeforeSaves=doneBlocks.load(std::memory_order_acquire);
   int failedSaves=0,wrongStates=0,thrown=0;
   for(int i=0;i<saveCount;++i){
     try{
@@ -3018,13 +3019,15 @@ void verifyP179PacedAudibleHostSaves(
     }catch(...){++thrown;}
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
+  const int blocksAfterSaves=doneBlocks.load(std::memory_order_acquire);
   realAudio.join();
-  std::printf("P179_PACED_AUDIBLE_V5_SAVES saves=%d failed=%d torn=%d thrown=%d blocks=%d energy=%.8f finalEnergy=%.8f maxCallbackMs=%.4f\n",
+  std::printf("P179_PACED_AUDIBLE_V5_SAVES saves=%d failed=%d torn=%d thrown=%d blocks=%d blocksBefore=%d blocksAfter=%d energy=%.8f finalEnergy=%.8f maxCallbackMs=%.4f\n",
      saveCount,failedSaves,wrongStates,thrown,
-     doneBlocks.load(std::memory_order_acquire),audioEnergy,
-     finalEnergy,maxCallbackMs);
+     doneBlocks.load(std::memory_order_acquire),
+     blocksBeforeSaves,blocksAfterSaves,audioEnergy,finalEnergy,maxCallbackMs);
   check(audioOk.load(std::memory_order_acquire) &&
         doneBlocks.load(std::memory_order_acquire)==totalBlocks &&
+        blocksBeforeSaves>=8 && blocksAfterSaves>blocksBeforeSaves+50 &&
         audioEnergy>0.001 && finalEnergy>0.00001,
         "P179 test did not continuously play a live original-chip voice");
   check(failedSaves==0 && wrongStates==0 && thrown==0,
