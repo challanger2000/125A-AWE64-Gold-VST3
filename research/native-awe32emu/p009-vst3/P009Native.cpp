@@ -779,60 +779,30 @@ void NativeVst3::changeChannelBankProgram(unsigned ch) noexcept{
     synth_->ControlChange(static_cast<std::uint8_t>(ch),32,0);
     synth_->ProgramChange(static_cast<std::uint8_t>(ch),
                           static_cast<std::uint8_t>(chosenProgram));
-    if(ch==0u){
-        if(bank_==2){
-            // CH1 browser drums borrow the physical CH10 program. The UI
-            // selecting Kit 5 must ACTUALLY program CH10, not merely CH1.
-            synth_->ControlChange(9u,0u,0u);
-            synth_->ControlChange(9u,32u,0u);
-            synth_->ProgramChange(9u,static_cast<std::uint8_t>(chosenProgram));
-            browserDrumOverrideActive_=true;
-        }else if(browserDrumOverrideActive_){
-            // CH1 just left the drum bank. Without restoring the prior CH10
-            // state, the independent CH10 MIDI lane stays on the browser kit
-            // even though the current project says its program is unchanged.
-            browserDrumOverrideActive_=false;
-            synth_->ControlChange(9u,0u,
-                static_cast<std::uint8_t>(banksByChannel_[9]==1u?1u:0u));
-            synth_->ControlChange(9u,32u,0u);
-            synth_->ProgramChange(9u,programsByChannel_[9]);
-        }
-        if(bank_!=2 && browserPanOverrideActive_){
-            const auto direct=midiState_[9u*kMappedCount+2u];
-            synth_->ControlChange(9u,10u,
-                static_cast<std::uint8_t>(direct==0xFFFFu?64u:direct));
-            browserPanOverrideActive_=false;
-        }
-    }
+    if(ch==0u)
+        synth_->ProgramChange(Synth::kAuditionDrumChannel,
+                              static_cast<std::uint8_t>(chosenProgram));
 }
 void NativeVst3::changeBankProgram() noexcept{
     for(unsigned ch=0;ch<16;++ch)changeChannelBankProgram(ch);
-    // The ordinary CH10 state is applied during the loop. Reassert the
-    // browser's redirected CH1 kit last so a fresh/stopped restore cannot
-    // silently replace it with the default CH10 Kit 0.
-    if(bank_==2)changeChannelBankProgram(0u);
 }
 void NativeVst3::applyMidiController(unsigned channel,unsigned slot,
                                      std::uint16_t raw) noexcept{
     if(channel>=16||slot>=kMappedCount)return;
     midiState_[channel*kMappedCount+slot]=raw;
     if(!synth_)return;
-    // Browser CH1 Drum audition is physically voiced by the CH10 chip.
-    // Pan must reach that same physical channel or the visible/MIDI
-    // CH1 audition pan is inaudible (independent Codex X05).
-    // The independent CH10 logical pan is restored on its next note.
-    const bool routedBrowserPan=channel==0u && bank_==2 &&
-                                slot==2u;
-    const auto target=static_cast<std::uint8_t>(
-        routedBrowserPan?9u:channel);
-    if(routedBrowserPan)browserPanOverrideActive_=true;
+    const auto target=static_cast<std::uint8_t>(channel);
     if(slot==kMappedCount-1){
         synth_->PitchBend(target,
                           static_cast<std::int16_t>(static_cast<int>(raw)-8192));
     }else{
-        synth_->ControlChange(target,
-                              static_cast<std::uint8_t>(kMappedControllers[slot]),
-                              static_cast<std::uint8_t>(raw));
+        const auto controller=static_cast<std::uint8_t>(kMappedControllers[slot]);
+        const auto value=static_cast<std::uint8_t>(raw);
+        synth_->ControlChange(target,controller,value);
+        // CH1's saved pan also belongs to the audition lane. Each lane
+        // keeps its own Win95 channel state and its own held chip voices.
+        if(channel==0u && controller==10u)
+            synth_->ControlChange(Synth::kAuditionDrumChannel,controller,value);
     }
 }
 void NativeVst3::applyAdvancedController(unsigned channel,
@@ -938,37 +908,13 @@ void NativeVst3::dispatch(const Event& event) noexcept{
     const int key=on?event.noteOn.pitch:event.noteOff.pitch;
     if(ch<0||ch>=16||key<0||key>127)return;
     const int32 noteId=on?event.noteOn.noteId:event.noteOff.noteId;
-    const auto idx=static_cast<std::size_t>(ch)*128u+
-                   static_cast<std::size_t>(key);
     if(on){
         const float velocity=event.noteOn.velocity;
         if(!std::isfinite(velocity))return;
         if(velocity>0.f){
             const bool drums=bank_==2 && ch==0;
-            const auto route=static_cast<std::uint8_t>(drums?9:ch);
-            // Browser CH1 and native CH10 both address physical CH10.
-            // ProgramChange is channel-global but existing voices keep their
-            // allocated sample/voice parameters. Select the correct kit
-            // immediately before each new NoteOn, so a CH10 MIDI Program
-            // Change cannot silently retarget a later CH1 browser note.
-            if(route==9u){
-                synth_->ProgramChange(9u,static_cast<std::uint8_t>(
-                    drums?program_:programsByChannel_[9]));
-                if(drums){
-                    const auto browserPan=midiState_[2u];
-                    if(browserPan!=0xFFFFu){
-                        synth_->ControlChange(9u,10u,
-                            static_cast<std::uint8_t>(browserPan));
-                        browserPanOverrideActive_=true;
-                    }
-                }else if(browserPanOverrideActive_){
-                    const auto direct=midiState_[9u*kMappedCount+2u];
-                    synth_->ControlChange(9u,10u,
-                        static_cast<std::uint8_t>(
-                            direct==0xFFFFu?64u:direct));
-                    browserPanOverrideActive_=false;
-                }
-            }
+            const auto route=drums?Synth::kAuditionDrumChannel:
+                                   static_cast<std::uint8_t>(ch);
             ActiveRoutedNote* freeSlot=nullptr;
             for(auto& entry:activeRoutedNotes_){
                 if(!entry.active){freeSlot=&entry;break;}
@@ -978,7 +924,7 @@ void NativeVst3::dispatch(const Event& event) noexcept{
             if(!freeSlot||routeHeldCounts_[physical]==0xFFFFu){
                 // Bounded fail-closed behavior if a host sends more active
                 // NoteIDs than the fixed registry can represent.
-                for(unsigned channel=0;channel<16u;++channel)
+                for(unsigned channel=0;channel<Synth::kChannelCount;++channel)
                     synth_->ControlChange(static_cast<std::uint8_t>(channel),120u,0u);
                 clearRoutedNotes();
                 return;
@@ -987,7 +933,6 @@ void NativeVst3::dispatch(const Event& event) noexcept{
                 static_cast<std::uint8_t>(ch),
                 static_cast<std::uint8_t>(key),route,true};
             ++routeHeldCounts_[physical];
-            redirectedDrumNotes_[idx]=static_cast<unsigned char>(drums);
             synth_->NoteOn(route,static_cast<std::uint8_t>(key),
                 static_cast<std::uint8_t>(std::max(1u,toByte(velocity))));
             return;
@@ -1013,25 +958,14 @@ void NativeVst3::dispatch(const Event& event) noexcept{
             if(entry.active && entry.source==ch && entry.key==key)
                 match=&entry;
     }
-    if(!match){
-        // Defensive unmatched NoteOff; do not reinterpret a changed bank
-        // as a newly valid routed voice.
-        redirectedDrumNotes_[idx]=0u;
-        return;
-    }
+    if(!match)return;
     const auto route=match->route;
     match->active=false;
     const auto physical=static_cast<std::size_t>(route)*128u+
                         static_cast<std::size_t>(key);
     if(routeHeldCounts_[physical] && --routeHeldCounts_[physical]==0u)
         synth_->NoteOff(route,static_cast<std::uint8_t>(key));
-    bool stillHeld=false;
-    for(const auto& entry:activeRoutedNotes_){
-        if(entry.active && entry.source==ch && entry.key==key){
-            stillHeld=true;break;
-        }
-    }
-    if(!stillHeld)redirectedDrumNotes_[idx]=0u;
+
 }
 void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
     if(!left||!right||frames<=0)return;
@@ -1098,7 +1032,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // command and must not be lost by acknowledging the earlier edit.
     std::array<int,16> programAtBlock{},bankAtBlock{};
     std::array<std::uint64_t,16> programToken{},bankToken{};
-    std::array<bool,16> touchedProgram{},touchedBank{};
+    std::array<bool,16> touchedProgram{},queuedHostBank{};
     for(unsigned ch=0;ch<16u;++ch){
         programToken[ch]=hostProgramEdits_[ch].snapshot();
         bankToken[ch]=hostBankEdits_[ch].snapshot();
@@ -1135,19 +1069,18 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // while a prior 15-ms fade still blocks its staged chip candidate.
     if(stagedSynth_.load(std::memory_order_acquire)==nullptr)
         applyPendingRestoreRealtime();
+    const auto applyHostBank=[&](unsigned ch,unsigned value) noexcept {
+        if(ch==0u)bank_=static_cast<int>(value);
+        else banksByChannel_[ch]=static_cast<std::uint8_t>(value);
+        // A host selection supersedes raw MIDI bank history for this lane.
+        const auto base=ch*kAdvancedCount;
+        advancedMidiState_[base]=0xFFFFu;
+        advancedMidiState_[base+1u]=0xFFFFu;
+        changeChannelBankProgram(ch);
+    };
     const auto reassert=bankReassertRequested_.exchange(
         0xFFu,std::memory_order_acq_rel);
-    if(reassert<=2u){
-        // A bank/Program change via CC0 may have changed the actual engine
-        // while the VST3 bank parameter remained at the same host value.
-        bank_=static_cast<int>(reassert);
-        // A newer browser/ROM bank choice supersedes stale MIDI CC0/CC32.
-        // Otherwise a saved V4/V5 project would replay the old CC0 AFTER
-        // the stored host bank and silently restore a DIFFERENT chip bank.
-        advancedMidiState_[0]=0xFFFFu;
-        advancedMidiState_[1]=0xFFFFu;
-        changeChannelBankProgram(0u);
-    }
+    if(reassert<=2u)applyHostBank(0u,reassert);
     if(fxPending_.exchange(false,std::memory_order_acq_rel)&&synth_){
         applyOriginalEmu8000Reverb(*synth_,unsigned(reverbPreset_));
         applyOriginalEmu8000Chorus(*synth_,unsigned(chorusPreset_));
@@ -1198,7 +1131,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         // sounding when NoteOff was part of the rejected block.
         // Genuine Win95 Creative CC120, all 16 channels, no heap here.
         if(synth_){
-            for(unsigned channel=0;channel<16u;++channel)
+            for(unsigned channel=0;channel<Synth::kChannelCount;++channel)
                 synth_->ControlChange(static_cast<std::uint8_t>(channel),120u,0u);
             // The original 86Box model can continue rendering a sustained
             // SF2 voice after Creative CC120 -> DCYSUSV=0x0080 (verified
@@ -1354,6 +1287,18 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             events[j]=e;++num;
         }
     }
+    // A controller-only edit captured on entry precedes timed MIDI
+    // in this block. A timed host bank point already supplies the bank
+    // transition at its stated offset and must not be applied early.
+    for(std::size_t i=0;i<numMidiPoints;++i){
+        const auto& point=midiPoints[i];
+        if(point.slot==kPatchBank)queuedHostBank[point.channel]=true;
+    }
+    for(unsigned ch=0;ch<16u;++ch){
+        if(bankAtBlock[ch]>=0 && !queuedHostBank[ch] &&
+           hostBankEdits_[ch].snapshot()==bankToken[ch])
+            applyHostBank(ch,static_cast<unsigned>(bankAtBlock[ch]));
+    }
     int32 pos=0;
     std::size_t notePos=0,midiPos=0;
     while(notePos<num||midiPos<numMidiPoints){
@@ -1388,19 +1333,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 changeChannelBankProgram(mp.channel);
                 touchedProgram[mp.channel]=true;
             }else if(mp.slot==kPatchBank){
-                if(mp.channel==0)bank_=static_cast<int>(mp.value);
-                else banksByChannel_[mp.channel]=
-                    static_cast<std::uint8_t>(mp.value);
-                // Host bank selection (including an unchanged bank value)
-                // is later than any previously recorded raw CC0/CC32.
-                // Erase obsolete overrides instead of reapplying them on
-                // project restore; preserve CC/RPN on OTHER MIDI channels.
-                const auto base=static_cast<std::size_t>(mp.channel)*
-                    kAdvancedCount;
-                advancedMidiState_[base]=0xFFFFu;
-                advancedMidiState_[base+1u]=0xFFFFu;
-                changeChannelBankProgram(mp.channel);
-                touchedBank[mp.channel]=true;
+                applyHostBank(mp.channel,mp.value);
             }else if(mp.slot==kGuiReverbType||mp.slot==kGuiChorusType){
                 if(mp.slot==kGuiReverbType){
                     reverbPreset_=int(mp.value);
@@ -1455,12 +1388,6 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // Never apply a captured OLDER GUI edit over a newer audio automation
     // point, including when both edits happen to have the same value.
     for(unsigned ch=0;ch<16u;++ch){
-        if(bankAtBlock[ch]>=0 && !touchedBank[ch] &&
-           hostBankEdits_[ch].snapshot()==bankToken[ch]){
-            if(ch==0u)bank_=bankAtBlock[ch];
-            else banksByChannel_[ch]=static_cast<std::uint8_t>(bankAtBlock[ch]);
-            changeChannelBankProgram(ch);
-        }
         if(programAtBlock[ch]>=0 && !touchedProgram[ch] &&
            hostProgramEdits_[ch].snapshot()==programToken[ch]){
             if(ch==0u)program_=programAtBlock[ch];

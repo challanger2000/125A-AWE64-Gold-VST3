@@ -276,7 +276,6 @@ private:
     bool retireSynthRealtime(std::unique_ptr<Synth>&) noexcept;
     void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
-    std::array<unsigned char,16*128> redirectedDrumNotes_{};
     // VST3 noteId is not a chip address: track immutable original routing
     // across bank changes and matching overlapping NoteOn/NoteOff. Releasing
     // an already redirected note based on the NEW bank strands chip voices.
@@ -287,19 +286,11 @@ private:
         bool active=false;
     };
     std::array<ActiveRoutedNote,512> activeRoutedNotes_{};
-    std::array<std::uint16_t,16*128> routeHeldCounts_{};
+    std::array<std::uint16_t,Synth::kChannelCount*128> routeHeldCounts_{};
     void clearRoutedNotes() noexcept {
         for(auto& n:activeRoutedNotes_)n.active=false;
         routeHeldCounts_.fill(0u);
-        redirectedDrumNotes_.fill(0u);
-        browserPanOverrideActive_=false;
     }
-    // CH1 browser drum mode borrows the physical CH10 voice lane.
-    // Restore CH10's independent programmed kit when CH1 leaves drums.
-    bool browserDrumOverrideActive_=false; // owned by audio/lifecycle thread
-    // A CH1 drum-browser pan edit targets physical CH10. Restore the
-    // independent CH10 pan once its next native note/kit is selected.
-    bool browserPanOverrideActive_=false;
     double sampleRate_=44100.;
     int program_=0,bank_=0;
     // CH2-16 independent Win95 Creative MIDI preset/bank states.

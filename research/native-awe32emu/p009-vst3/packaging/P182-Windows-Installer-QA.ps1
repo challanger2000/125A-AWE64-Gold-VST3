@@ -207,6 +207,98 @@ try {
         throw 'P188 forced crash damaged previous backup or left orphan stage/marker'
     }
     Write-Host 'P188_WINDOWS_FORCED_PROCESS_KILL_WATCHDOG_RESTORED_BYTE_EXACT_PREVIOUS_BUNDLE_PASS'
+
+    # Independent fault injection on two disposable destinations. The
+    # ordinary watchdog gets no test override and must fail closed.
+    $publishWrapper = Join-Path $fixture 'pause-after-publication.ps1'
+    @'
+param([string]$Installer,[string]$DestinationRoot,[string]$PublishMarker)
+$ErrorActionPreference = 'Stop'
+function Move-Item {
+    [CmdletBinding()]
+    param([string]$LiteralPath,[string]$Destination)
+    Microsoft.PowerShell.Management\Move-Item @PSBoundParameters
+    if ($LiteralPath -like '*.stage-*') {
+        [IO.File]::WriteAllText($PublishMarker, 'P189_AFTER_STAGE_RENAME')
+        Start-Sleep -Seconds 60
+    }
+}
+& $Installer -DestinationRoot $DestinationRoot -NoElevation
+'@ | Set-Content -LiteralPath $publishWrapper -Encoding UTF8
+
+    function Wait-P189([scriptblock]$condition) {
+        $until = [DateTime]::UtcNow.AddSeconds(45)
+        while ([DateTime]::UtcNow -lt $until) {
+            if (& $condition) { return }
+            Start-Sleep -Milliseconds 30
+        }
+        throw 'P189 process did not reach the required recovery phase.'
+    }
+
+    foreach ($variant in @('backup','target')) {
+        $testRoot = Join-Path $fixture ('p189-' + $variant)
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -DestinationRoot $testRoot -NoElevation
+        if ($LASTEXITCODE -ne 0) { throw 'P189 failed to prepare the previous bundle' }
+        $target = Join-Path $testRoot $bundle
+        [IO.File]::WriteAllText((Join-Path $target 'p189-old-sentinel.txt'), 'ORIGINAL-SHA')
+        $pause = Join-Path $fixture ('p189-' + $variant + '.pause')
+        $victimOut = Join-Path $fixture ('p189-' + $variant + '.out')
+        $victimErr = Join-Path $fixture ('p189-' + $variant + '.err')
+        $victim = $null
+        if ($variant -eq 'backup') {
+            $env:P188_INSTALLER_CI_KILLPOINT = '1'
+            $arg = '-NoProfile -ExecutionPolicy Bypass -File "' + $script +
+                   '" -DestinationRoot "' + $testRoot + '" -NoElevation'
+        } else {
+            $arg = '-NoProfile -ExecutionPolicy Bypass -File "' + $publishWrapper +
+                   '" -Installer "' + $script + '" -DestinationRoot "' + $testRoot +
+                   '" -PublishMarker "' + $pause + '"'
+        }
+        try {
+            $victim = Start-Process -FilePath 'powershell.exe' -ArgumentList $arg -PassThru -RedirectStandardOutput $victimOut -RedirectStandardError $victimErr
+            Wait-P189 {
+                if ($victim.HasExited) { throw ('P189 victim exited: ' + (Get-Content -LiteralPath $victimErr -Raw)) }
+                if ($variant -eq 'target') { Test-Path -LiteralPath $pause }
+                else { @(Get-ChildItem -LiteralPath $testRoot -File -Filter ($bundle + '.killpoint-*')).Count -eq 1 }
+            }
+            $old = @(Get-ChildItem -LiteralPath $testRoot -Directory -Filter ($bundle + '.backup-*'))
+            if ($old.Count -ne 1 -or (Test-Path -LiteralPath $target) -ne ($variant -eq 'target')) {
+                throw 'P189 test did not reach the intended directory state.'
+            }
+            $edited = if ($variant -eq 'backup') { $old[0].FullName } else { $target }
+            $damaged = Join-Path $edited 'Contents\Resources\moduleinfo.json'
+            $corrupt = [IO.File]::ReadAllBytes($damaged)
+            $corrupt[0] = $corrupt[0] -bxor 1
+            [IO.File]::WriteAllBytes($damaged, $corrupt)
+            $damageSha = (Get-FileHash -LiteralPath $damaged -Algorithm SHA256).Hash
+            Stop-Process -Id $victim.Id -Force -ErrorAction Stop
+            if (-not $victim.WaitForExit(10000)) { throw 'P189 failed to kill test installer' }
+        } finally {
+            Remove-Item Env:\P188_INSTALLER_CI_KILLPOINT -ErrorAction SilentlyContinue
+            if ($null -ne $victim) {
+                if (-not $victim.HasExited) { Stop-Process -Id $victim.Id -Force -ErrorAction SilentlyContinue }
+                $victim.Dispose()
+            }
+        }
+        Wait-P189 {
+            @(Get-ChildItem -LiteralPath $testRoot -File -Filter '*.failure' |
+                Where-Object { $_.Length -gt 0 }).Count -eq 1
+        }
+        $failure = @(Get-ChildItem -LiteralPath $testRoot -File -Filter '*.failure')[0]
+        $reason = if ($variant -eq 'backup') { 'backup is missing or its tree SHA256' } else { 'target tree does not match' }
+        if ((Get-Content -LiteralPath $failure.FullName -Raw) -notmatch $reason -or
+            @(Get-ChildItem -LiteralPath $testRoot -File -Filter '*.journal').Count -ne 1 -or
+            (Get-FileHash -LiteralPath $damaged -Algorithm SHA256).Hash -ne $damageSha -or
+            (Get-Content -LiteralPath (Join-Path $old[0].FullName 'p189-old-sentinel.txt') -Raw) -ne 'ORIGINAL-SHA' -or
+            (Test-Path -LiteralPath $target) -ne ($variant -eq 'target')) {
+            throw 'P189 corrupt tree was published, removed or declared recovered.'
+        }
+        if ($variant -eq 'backup' -and @(Get-ChildItem -LiteralPath $testRoot -Directory -Filter ($bundle + '.stage-*')).Count -ne 1) {
+            throw 'P189 corrupt backup case lost its intact staging tree.'
+        }
+        Write-Host ('P189_NATIVE_INTERRUPTED_' + $variant.ToUpperInvariant() + '_INTEGRITY_FAIL_CLOSED_PASS')
+    }
+
     # Ensure no stale mutex prevents a valid subsequent install. The ordinary
     # tampered-source negative case below continues to test rollback integrity.
     # The negative control MUST fail before any replacement on corrupted SF2.

@@ -3608,15 +3608,14 @@ void verifyP186CH10ProgramAndCC0DrumRouting(
   std::puts("P186_CH1_CC0_CH10_PROGRAM_ISOLATED_REAL_CHIP_DRUM_PCM_PASS");
 }
 
-// Same pitched notes with *distinct NoteIDs* on two logical channels can
-// share physical CH10 during browser drum routing. Each NoteOff must use
-// the original note route, not the new bank/program. Last release must
-// terminate the physical note rather than strand a looped voice.
+// Same pitched notes with distinct NoteIDs on independent Win95 lanes.
+// Releasing the browser note after its bank switch must release that note
+// without waiting for, or cutting off, the independently held native CH10.
 void verifyP186TwoNoteIDsAfterBankSwitch(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host,const fs::path& resources){
   ownerBank(resources,"multi-drums-sustain.sf2");
-  const auto renderScenario=[&](bool releaseNotes){
+  const auto renderScenario=[&](bool releaseNotes,bool audition=true){
     Plugin unit(factory,id,host);unit.start(0,2,44100.);
     std::array<float,1024> left{},right{};
     float* channels[2]={left.data(),right.data()};
@@ -3637,7 +3636,7 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
         first.noteOn.noteId=101;
         Event second=first;second.sampleOffset=12;
         second.noteOn.channel=9;second.noteOn.noteId=202;
-        check(events.addEvent(first)==kResultOk&&
+        check((!audition || events.addEvent(first)==kResultOk)&&
               events.addEvent(second)==kResultOk,
               "P186 two distinct NoteIDs not submitted");
       }
@@ -3647,7 +3646,7 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
         check(bank&&bank->addPoint(0,0.,pi)==kResultOk,
               "P186 route change between NoteOn and NoteOff missing");
       }
-      if(releaseNotes && (block==5||block==20)){
+      if(releaseNotes && ((block==5&&audition)||block==50)){
         Event off{};off.type=Event::kNoteOffEvent;
         off.sampleOffset=15;off.noteOff.pitch=60;
         off.noteOff.channel=block==5?0:9;
@@ -3657,14 +3656,14 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
       }
       check(unit.processor->process(data)==kResultOk,
             "P186 NoteID routed original-chip PCM callback rejected");
-      if(block>=8)
+      if(block>=38)
         for(int i=0;i<1024;++i){
           check(std::isfinite(left[i])&&std::isfinite(right[i]),
                 "P186 NoteID route nonfinite PCM");
-          if(block<19){
+          if(block<49){
             firstReleaseWindow.push_back(left[i]);
             firstReleaseWindow.push_back(right[i]);
-          }else if(block>=30){
+          }else if(block>=70){
             tail.push_back(left[i]);tail.push_back(right[i]);
           }
         }
@@ -3673,14 +3672,14 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
   };
   const auto released=renderScenario(true);
   const auto held=renderScenario(false);
-  // First ID's release must NOT cut off the still-held second voice on
-  // the same physical CH10/pitch. The old handler released both here.
-  check(released.first==held.first,
-        "P186 first NoteID released the OTHER held CH10 note");
+  const auto nativeOnly=renderScenario(true,false);
   const auto energy=[&](const std::vector<float>& pcm){
     double sum=0.;for(float x:pcm)sum+=double(x)*x;
     return sum;
   };
+  check(energy(nativeOnly.first)>0.001 && released.first==nativeOnly.first &&
+        released.first!=held.first,
+        "P189 the first NoteID must release only the audition voice");
   check(energy(held.second)>0.001 &&
         energy(released.second)<energy(held.second)*.90,
         "P186 overlapping NoteIDs remained hanging after last physical release");
@@ -4372,6 +4371,146 @@ void verifyP187ActiveSf2LoadPinPreventsIdentitySplit(
   std::puts("P187_PINNED_OWNER_SHA_MATCHES_ACTIVE_SF2_CHIP_PCM_PASS");
 }
 
+void verifyP189BankEventOrderAndSave(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"77-presets.sf2");
+  Plugin referenceRom(factory,id,host),referenceSf2(factory,id,host);
+  referenceRom.start(0,0,44100.);referenceSf2.start(0,1,44100.);
+  const auto rom=p015Play(referenceRom,0,60);
+  const auto sf2=p015Play(referenceSf2,0,60);
+  check(rom!=sf2,"P189 ROM and SoundFont PCM references are indistinguishable");
+
+  Plugin unit(factory,id,host);
+  unit.start(0,0,44100.);
+  FUnknownPtr<IMidiMapping> mapping(unit.controller);
+  ParamID cc0=0;
+  check(mapping && mapping->getMidiControllerAssignment(0,0,kCtrlBankSelectMSB,cc0)==kResultTrue,
+        "P189 CC0 mapping");
+  auto flush=[&](Plugin& target,bool midiSwitch,bool timedHostLast){
+    ParameterChanges changes(2);
+    const auto add=[&](ParamID tag,int32 offset,double value){
+      int32 number=0,point=0;
+      auto* q=changes.addParameterData(tag,number);
+      check(q && q->addPoint(offset,value,point)==kResultOk,"P189 bank point");
+    };
+    if(midiSwitch)add(cc0,0,1./127.);
+    if(timedHostLast)add(1002u,17,0.);
+    std::array<float,64> left{},right{};
+    float* channels[]{left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=channels;
+    ProcessData data{};data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+    data.numSamples=64;data.numOutputs=1;data.outputs=&out;data.inputParameterChanges=&changes;
+    check(target.processor->process(data)==kResultOk,"P189 ordered VST3 block");
+  };
+  const auto save=[&](){
+    MemoryStream stream;
+    check(unit.component->getState(&stream)==kResultOk && stream.getSize()==sizeof(Saved),
+          "P189 save while processing");
+    Saved bytes{};std::memcpy(&bytes,stream.getData(),sizeof(bytes));
+    return bytes;
+  };
+  check(unit.controller->setParamNormalized(1002u,0.)==kResultOk,"P189 earlier controller bank");
+  const auto before=save();
+  std::atomic<bool> entered{false},done{false};
+  std::exception_ptr failure;
+  std::thread audio([&](){
+    entered.store(true,std::memory_order_release);
+    try {flush(unit,true,false);}catch(...){failure=std::current_exception();}
+    done.store(true,std::memory_order_release);
+  });
+  std::vector<Saved> observed;
+  observed.reserve(256);
+  std::exception_ptr saveFailure;
+  try {
+    while(!entered.load(std::memory_order_acquire))std::this_thread::yield();
+    do observed.push_back(save());while(!done.load(std::memory_order_acquire)&&observed.size()<256u);
+  }catch(...){saveFailure=std::current_exception();}
+  audio.join();
+  if(failure)std::rethrow_exception(failure);
+  if(saveFailure)std::rethrow_exception(saveFailure);
+  const auto after=save();
+  check(after.bank==1u && after.advancedStates[0]==1u &&
+        unit.controller->getParamNormalized(1002u)==.5,
+        "P189 older controller ROM reversed the later MIDI bank");
+  for(const auto& state:observed)
+    check(std::memcmp(&state,&before,sizeof(state))==0 ||
+          std::memcmp(&state,&after,sizeof(state))==0,"P189 mixed bank generation");
+  Plugin userRecall(factory,id,host);
+  userRecall.start(0,0,44100.);p015Restore(userRecall,after);
+  check(p015Play(userRecall,0,60)==sf2,"P189 MIDI bank recall PCM");
+  flush(unit,true,true);
+  const auto reverse=save();
+  check(reverse.bank==0u && reverse.advancedStates[0]==0xFFFFu &&
+        unit.controller->getParamNormalized(1002u)==0.,
+        "P189 later timed host bank did not win over CC0");
+  // The reference sees exactly the same number and partitioning of audio
+  // frames before NoteOn. Free-running chip FX/LFO phase is not a bank oracle.
+  Plugin matchedRom(factory,id,host);
+  matchedRom.start(0,0,44100.);
+  flush(matchedRom,false,false);flush(matchedRom,false,true);
+  const auto reversedPcm=p015Play(unit,0,60);
+  check(reversedPcm==p015Play(matchedRom,0,60),"P189 later host point ROM PCM");
+  Plugin romRecall(factory,id,host);
+  romRecall.start(0,0,44100.);p015Restore(romRecall,reverse);
+  check(p015Play(romRecall,0,60)==rom,"P189 later host point ROM recall PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P189_CHRONOLOGICAL_BANK_MIDI_HOST_SAVE_PCM_PASS");
+}
+
+void verifyP189AuditionPanIsolation(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"multi-drums-sustain.sf2");
+  const auto run=[&](int playedChannel,int changedChannel){
+    Plugin unit(factory,id,host);unit.start(0,2,44100.);
+    FUnknownPtr<IMidiMapping> mapping(unit.controller);
+    check(bool(mapping),"P189 pan mapping");
+    ParameterChanges parameters(1);
+    const auto pan=[&](int channel,double value){
+      ParamID param=0;
+      check(mapping->getMidiControllerAssignment(0,channel,kCtrlPan,param)==kResultTrue,
+            "P189 pan controller mapped");
+      int32 i=0,j=0;auto* q=parameters.addParameterData(param,i);
+      check(q && q->addPoint(0,value,j)==kResultOk,"P189 pan point");
+    };
+    EventList events;
+    Event note{};note.type=Event::kNoteOnEvent;
+    note.noteOn.channel=static_cast<int16>(playedChannel);
+    note.noteOn.pitch=60;note.noteOn.velocity=.75f;note.noteOn.noteId=189;
+    check(events.addEvent(note)==kResultOk,"P189 pan held note");
+    std::array<float,512> left{},right{};
+    float* channels[]{left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=channels;
+    ProcessData data{};data.symbolicSampleSize=kSample32;data.processMode=kRealtime;
+    data.numSamples=512;data.numOutputs=1;data.outputs=&out;
+    data.inputParameterChanges=&parameters;data.inputEvents=&events;
+    pan(playedChannel,1.);
+    std::vector<float> pcm;
+    double energy=0.;
+    for(int n=0;n<24;++n){
+      if(n==4 && changedChannel>=0)pan(changedChannel,0.);
+      check(unit.processor->process(data)==kResultOk,"P189 held pan PCM render");
+      if(n>=5)
+        for(unsigned i=0;i<left.size();++i){
+          pcm.push_back(left[i]);pcm.push_back(right[i]);
+          energy+=double(left[i])*left[i]+double(right[i])*right[i];
+        }
+      parameters.clearQueue();events.clear();
+    }
+    check(energy>0.001,"P189 held reference is silent");
+    return pcm;
+  };
+  for(int held:{0,9}){
+    const auto unchanged=run(held,-1);
+    check(run(held,held)!=unchanged,"P189 direct pan positive control must change PCM");
+    check(run(held,held==0?9:0)==unchanged,
+          "P189 control from other MIDI lane altered a held chip voice");
+  }
+  ownerBank(resources,nullptr);
+  std::puts("P189_HELD_NATIVE_AND_AUDITION_PAN_ISOLATION_PCM_PASS");
+}
+
 int main(int argc,char** argv){
  try{
   std::setvbuf(stdout,nullptr,_IONBF,0);
@@ -4438,6 +4577,8 @@ int main(int argc,char** argv){
     verifyP187ActiveSf2LoadPinPreventsIdentitySplit(factory,cls->ID(),host.get(),resources);
     verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
     verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
+    verifyP189BankEventOrderAndSave(factory,cls->ID(),host.get(),resources);
+    verifyP189AuditionPanIsolation(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(factory,cls->ID(),host.get(),resources);
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);

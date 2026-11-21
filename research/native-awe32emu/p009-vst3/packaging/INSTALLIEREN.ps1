@@ -11,30 +11,145 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $bundleName = 'AWE64_Gold_Native_P009.vst3'
-# P188 short-lived independent recovery process. The ordinary installer
-# must receive a ready handshake before displacing the existing bundle.
-# The OS releases its exclusive lock if the process is terminated; this
-# helper then restores the previous WHOLE directory, never a partial copy.
-# This is recovery, not an unsupported claim of an atomic directory swap.
+# Journal paths are derived from the nonce, never from serialized path data.
+function Get-TransactionPaths([string]$root, [string]$token) {
+    if ($token -cnotmatch '^[0-9a-f]{32}$') { throw 'P189 invalid recovery token.' }
+    $prefix = Join-Path $root $bundleName
+    @{
+        Target = $prefix
+        Stage = $prefix + '.stage-' + $token
+        Backup = $prefix + '.backup-' + $token
+        Journal = $prefix + '.txn-' + $token + '.journal'
+        Failure = $prefix + '.txn-' + $token + '.failure'
+        Ready = $prefix + '.txn-' + $token + '.ready'
+        KillPoint = $prefix + '.killpoint-' + $token
+    }
+}
+
+function Get-TextSha256([string]$data) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($data)
+        [BitConverter]::ToString($algorithm.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
+    } finally { $algorithm.Dispose() }
+}
+
+# Include directory names (even empty directories), every relative filename,
+# file length and file SHA. Reject junctions/symlinks rather than traversing
+# outside the staged or backed-up bundle. Ordering is independent of locale.
+function Get-BundleTreeSha256([string]$root) {
+    $base = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+    if (-not $base.PSIsContainer -or
+        ($base.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw ('P189 invalid bundle directory: ' + $root)
+    }
+    $records = @(
+        foreach ($entry in Get-ChildItem -LiteralPath $base.FullName -Recurse -Force -ErrorAction Stop) {
+            if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw ('P189 linked bundle entry rejected: ' + $entry.FullName)
+            }
+            $relative = $entry.FullName.Substring($base.FullName.Length + 1).Replace('\', '/')
+            $name = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($relative))
+            if ($entry.PSIsContainer) {
+                'D:' + $name
+            } else {
+                $sha = (Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256 -ErrorAction Stop).Hash
+                'F:' + $name + ':' + $entry.Length + ':' + $sha
+            }
+        }
+    )
+    [Array]::Sort($records, [StringComparer]::Ordinal)
+    Get-TextSha256 ("P189-BUNDLE`n" + [string]::Join("`n", $records))
+}
+
+function Write-InstallJournal($paths, [string]$token, [string]$before, [string]$after) {
+    $body = "P189:${token}:${before}:${after}"
+    $bytes = [Text.Encoding]::UTF8.GetBytes($body + ':' + (Get-TextSha256 $body))
+    $temporary = $paths.Journal + '.new'
+    $file = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+        $file.Write($bytes, 0, $bytes.Length)
+        $file.Flush($true)
+    } finally { $file.Dispose() }
+    [IO.File]::Move($temporary, $paths.Journal)
+}
+
+function Read-InstallJournal($paths, [string]$token) {
+    $record = [IO.File]::ReadAllText($paths.Journal)
+    if ($record -cnotmatch '\A(P189:([0-9a-f]{32}):(-|[0-9a-f]{64}):([0-9a-f]{64})):([0-9a-f]{64})\z' -or
+        $Matches[2] -cne $token -or (Get-TextSha256 $Matches[1]) -cne $Matches[5]) {
+        throw 'P189 recovery journal has no valid integrity record.'
+    }
+    @{ Before = $Matches[3]; After = $Matches[4] }
+}
+
+function Assert-BackupTree($paths, [string]$expected) {
+    if (-not (Test-Path -LiteralPath $paths.Backup -PathType Container) -or
+        (Get-BundleTreeSha256 $paths.Backup) -cne $expected) {
+        throw 'P189 recovery backup is missing or its tree SHA256 does not match.'
+    }
+}
+
+# Both the watchdog and a later installer use this same validation while
+# holding the destination lock. Unknown targets and damaged backups preserve
+# the journal, stage and backup for diagnosis instead of completing recovery.
+function Complete-InstallTransaction($paths, [string]$token, [switch]$Rollback) {
+    try {
+        $journal = Read-InstallJournal $paths $token
+        if (Test-Path -LiteralPath $paths.Target) {
+            $actual = Get-BundleTreeSha256 $paths.Target
+            if ($actual -cne $journal.Before -and $actual -cne $journal.After) {
+                throw 'P189 recovery target tree does not match either recorded bundle.'
+            }
+            # A synchronous install failure may roll back a verified stage
+            # that was published before the error. Preserve it until the old
+            # tree is validated and restored. An unknown tree stays in place.
+            if ($Rollback -and $actual -cne $journal.Before) {
+                if ($journal.Before -cne '-') { Assert-BackupTree $paths $journal.Before }
+                if (Test-Path -LiteralPath $paths.Stage) {
+                    throw 'P189 rollback staging path is occupied.'
+                }
+                Move-Item -LiteralPath $paths.Target -Destination $paths.Stage -ErrorAction Stop
+            }
+        }
+        if (-not (Test-Path -LiteralPath $paths.Target) -and $journal.Before -cne '-') {
+            Assert-BackupTree $paths $journal.Before
+            Move-Item -LiteralPath $paths.Backup -Destination $paths.Target -ErrorAction Stop
+            if ((Get-BundleTreeSha256 $paths.Target) -cne $journal.Before) {
+                throw 'P189 restored tree failed post-rename verification.'
+            }
+            Write-Host 'P188_ABANDONED_INSTALL_RESTORED_BY_NEXT_RUN'
+        }
+        if (Test-Path -LiteralPath $paths.Stage) {
+            if ((Get-BundleTreeSha256 $paths.Stage) -cne $journal.After) {
+                throw 'P189 recovery retained a changed staging tree.'
+            }
+            Remove-Item -LiteralPath $paths.Stage -Recurse -Force -ErrorAction Stop
+        }
+        foreach ($marker in @($paths.Ready, $paths.KillPoint, $paths.Failure)) {
+            if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction Stop }
+        }
+        Remove-Item -LiteralPath $paths.Journal -Force -ErrorAction Stop
+    } catch {
+        [IO.File]::WriteAllText($paths.Failure, $_.Exception.Message)
+        throw
+    }
+}
+
+# The watchdog uses the same per-destination lock after the owner's process
+# has exited. It recovers a verified tree; directory exchange has a gap.
 if ($RecoveryWatchdog) {
-    if ([string]::IsNullOrWhiteSpace($DestinationRoot) -or
-        $RecoveryToken -cnotmatch '^[0-9a-f]{32}$') {
-        throw 'P188 recovery watchdog arguments invalid.'
+    if ([string]::IsNullOrWhiteSpace($DestinationRoot)) {
+        throw 'P189 recovery watchdog requires a destination.'
     }
     $watchRoot = [IO.Path]::GetFullPath($DestinationRoot)
-    $watchTarget = Join-Path $watchRoot $bundleName
-    $watchStage = Join-Path $watchRoot ($bundleName + '.stage-' + $RecoveryToken)
-    $watchBackup = Join-Path $watchRoot ($bundleName + '.backup-' + $RecoveryToken)
-    $watchJournal = Join-Path $watchRoot ($bundleName + '.txn-' + $RecoveryToken + '.journal')
-    $watchReady = Join-Path $watchRoot ($bundleName + '.txn-' + $RecoveryToken + '.ready')
-    $watchKillPoint = Join-Path $watchRoot ($bundleName + '.killpoint-' + $RecoveryToken)
+    $paths = Get-TransactionPaths $watchRoot $RecoveryToken
+    $null = Read-InstallJournal $paths $RecoveryToken
+    [IO.File]::WriteAllText($paths.Ready, 'P188_WATCHDOG_READY')
     $watchLockPath = Join-Path $watchRoot ($bundleName + '.install.lock')
-    if (-not (Test-Path -LiteralPath $watchJournal -PathType Leaf) -or
-        [IO.File]::ReadAllText($watchJournal) -cne ('P188:' + $RecoveryToken)) {
-        throw 'P188 recovery journal invalid or missing.'
-    }
-    [IO.File]::WriteAllText($watchReady, 'P188_WATCHDOG_READY')
     $recoveryLock = $null
+    $deadline = [DateTime]::UtcNow.AddMinutes(2)
     try {
         while ($null -eq $recoveryLock) {
             try {
@@ -42,28 +157,14 @@ if ($RecoveryWatchdog) {
                     [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite,
                     [IO.FileShare]::None)
             } catch {
+                if ([DateTime]::UtcNow -ge $deadline) {
+                    throw 'P189 watchdog could not take the lock. Recovery journal retained.'
+                }
                 Start-Sleep -Milliseconds 50
             }
         }
-        if (Test-Path -LiteralPath $watchJournal -PathType Leaf) {
-            if (-not (Test-Path -LiteralPath $watchTarget) -and
-                (Test-Path -LiteralPath $watchBackup -PathType Container)) {
-                Move-Item -LiteralPath $watchBackup -Destination $watchTarget -ErrorAction Stop
-                Write-Host 'P188_WATCHDOG_RESTORED_PREVIOUS_COMPLETE_BUNDLE'
-            }
-            if ((Test-Path -LiteralPath $watchTarget -PathType Container) -and
-                (Test-Path -LiteralPath $watchStage -PathType Container)) {
-                Remove-Item -LiteralPath $watchStage -Recurse -Force -ErrorAction Stop
-            }
-            if (Test-Path -LiteralPath $watchTarget -PathType Container) {
-                Remove-Item -LiteralPath $watchJournal -Force -ErrorAction Stop
-                if (Test-Path -LiteralPath $watchReady) {
-                    Remove-Item -LiteralPath $watchReady -Force
-                }
-                if (Test-Path -LiteralPath $watchKillPoint) {
-                    Remove-Item -LiteralPath $watchKillPoint -Force
-                }
-            }
+        if (Test-Path -LiteralPath $paths.Journal -PathType Leaf) {
+            Complete-InstallTransaction $paths $RecoveryToken
         }
     } finally {
         if ($null -ne $recoveryLock) { $recoveryLock.Dispose() }
@@ -179,123 +280,78 @@ try {
 } catch {
     throw ('Installation laeuft bereits; Ziel unveraendert: ' + $installLockPath)
 }
-try {
-$target = Join-Path $parent $bundleName
-# Recover abandoned P188 transactions BEFORE starting another install,
-# while holding the same nonshareable cross-process lock. These are exact
-# GUID journals; historical user backups with no matching journal are NEVER
-# deleted or automatically overwritten.
-$stale = @(Get-ChildItem -LiteralPath $parent -File -Filter ($bundleName + '.txn-*.journal'))
-foreach ($entry in $stale) {
-    $prefix = $bundleName + '.txn-'
-    $suffix = '.journal'
-    $name = $entry.Name
-    if (-not $name.StartsWith($prefix, [StringComparison]::Ordinal) -or
-        -not $name.EndsWith($suffix, [StringComparison]::Ordinal)) { continue }
-    $token = $name.Substring($prefix.Length,
-        $name.Length - $prefix.Length - $suffix.Length)
-    if ($token -cnotmatch '^[0-9a-f]{32}$' -or
-        [IO.File]::ReadAllText($entry.FullName) -cne ('P188:' + $token)) { continue }
-    $oldBackup = Join-Path $parent ($bundleName + '.backup-' + $token)
-    $oldStage = Join-Path $parent ($bundleName + '.stage-' + $token)
-    if (-not (Test-Path -LiteralPath $target) -and
-        (Test-Path -LiteralPath $oldBackup -PathType Container)) {
-        Move-Item -LiteralPath $oldBackup -Destination $target -ErrorAction Stop
-        Write-Host 'P188_ABANDONED_INSTALL_RESTORED_BY_NEXT_RUN'
-    }
-    if (Test-Path -LiteralPath $target -PathType Container) {
-        if (Test-Path -LiteralPath $oldStage -PathType Container) {
-            Remove-Item -LiteralPath $oldStage -Recurse -Force
-        }
-        Remove-Item -LiteralPath $entry.FullName -Force
-        $oldReady = Join-Path $parent ($bundleName + '.txn-' + $token + '.ready')
-        $oldKill = Join-Path $parent ($bundleName + '.killpoint-' + $token)
-        if (Test-Path -LiteralPath $oldReady) {
-            Remove-Item -LiteralPath $oldReady -Force
-        }
-        if (Test-Path -LiteralPath $oldKill) {
-            Remove-Item -LiteralPath $oldKill -Force
-        }
-    }
-}
-$nonce = [Guid]::NewGuid().ToString('N')
-$stage = Join-Path $parent ($bundleName + '.stage-' + $nonce)
-$backup = Join-Path $parent ($bundleName + '.backup-' + $nonce)
-$journal = Join-Path $parent ($bundleName + '.txn-' + $nonce + '.journal')
-$ready = Join-Path $parent ($bundleName + '.txn-' + $nonce + '.ready')
-$killpoint = Join-Path $parent ($bundleName + '.killpoint-' + $nonce)
-$hadTarget = Test-Path -LiteralPath $target
-$madeBackup = $false
 $watchdog = $null
 try {
-    Copy-Item -LiteralPath $sourceBundle -Destination $stage -Recurse -Force -ErrorAction Stop
-    # Verify the exact files *in the staged install*, not merely the ZIP.
-    Assert-PackageFiles $stage $true
-    if ($hadTarget) {
-        # Never move the original without a separate recovery process that
-        # already acknowledged the transaction. Crash-recovery journal and
-        # stage both live on the target volume under the exclusive mutex.
-        [IO.File]::WriteAllText($journal, 'P188:' + $nonce)
+    # Reconcile only known, validated transactions. A legacy P188 journal
+    # lacks tree evidence; retain it and its data for explicit recovery.
+    $prefix = $bundleName + '.txn-'
+    $suffix = '.journal'
+    foreach ($entry in Get-ChildItem -LiteralPath $parent -File -Filter ($prefix + '*' + $suffix)) {
+        $name = $entry.Name
+        $token = $name.Substring($prefix.Length, $name.Length - $prefix.Length - $suffix.Length)
+        $abandoned = Get-TransactionPaths $parent $token
+        Complete-InstallTransaction $abandoned $token
+    }
+
+    $nonce = [Guid]::NewGuid().ToString('N')
+    $paths = Get-TransactionPaths $parent $nonce
+    $before = '-'
+    if (Test-Path -LiteralPath $paths.Target) {
+        $before = Get-BundleTreeSha256 $paths.Target
+    }
+    $after = Get-BundleTreeSha256 $sourceBundle
+    try {
+        Copy-Item -LiteralPath $sourceBundle -Destination $paths.Stage -Recurse -Force -ErrorAction Stop
+        Assert-PackageFiles $paths.Stage $true
+        if ((Get-BundleTreeSha256 $paths.Stage) -cne $after) {
+            throw 'P189 staged tree does not match the verified package.'
+        }
+        Write-InstallJournal $paths $nonce $before $after
         $argsWatch = '-NoProfile -ExecutionPolicy Bypass -File "' +
             $PSCommandPath + '" -DestinationRoot "' + $parent +
             '" -RecoveryWatchdog -RecoveryToken ' + $nonce
         $watchdog = Start-Process -FilePath 'powershell.exe' -ArgumentList $argsWatch -WindowStyle Hidden -PassThru -ErrorAction Stop
         $deadline = [DateTime]::UtcNow.AddSeconds(30)
-        while (-not (Test-Path -LiteralPath $ready -PathType Leaf)) {
-            if ($watchdog.HasExited) {
-                throw 'P188 recovery watchdog exited before readiness.'
-            }
-            if ([DateTime]::UtcNow -ge $deadline) {
-                throw 'P188 recovery watchdog startup timeout.'
-            }
+        while (-not (Test-Path -LiteralPath $paths.Ready -PathType Leaf)) {
+            if ($watchdog.HasExited) { throw 'P188 recovery watchdog exited before readiness.' }
+            if ([DateTime]::UtcNow -ge $deadline) { throw 'P188 recovery watchdog startup timeout.' }
             Start-Sleep -Milliseconds 50
         }
-        if ([IO.File]::ReadAllText($ready) -cne 'P188_WATCHDOG_READY') {
+        if ($watchdog.HasExited -or [IO.File]::ReadAllText($paths.Ready) -cne 'P188_WATCHDOG_READY') {
             throw 'P188 recovery watchdog readiness corrupt.'
         }
-        Move-Item -LiteralPath $target -Destination $backup -ErrorAction Stop
-        $madeBackup = $true
-        # Deterministic negative test hook ONLY in isolated CI destination.
-        # Real owner installation never enables this test environment.
-        if ($env:P188_INSTALLER_CI_KILLPOINT -eq '1' -and $NoElevation -and
-            -not [string]::IsNullOrWhiteSpace($DestinationRoot)) {
-            [IO.File]::WriteAllText($killpoint, 'P188_AFTER_OLD_TARGET_RENAMED')
-            Start-Sleep -Seconds 60
+        if ($before -cne '-') {
+            if ((Get-BundleTreeSha256 $paths.Target) -cne $before) {
+                throw 'P189 previous bundle changed before backup.'
+            }
+            Move-Item -LiteralPath $paths.Target -Destination $paths.Backup -ErrorAction Stop
+            Assert-BackupTree $paths $before
+            # Retained for the native CI forced-process-kill regression.
+            if ($env:P188_INSTALLER_CI_KILLPOINT -eq '1' -and $NoElevation -and
+                -not [string]::IsNullOrWhiteSpace($DestinationRoot)) {
+                [IO.File]::WriteAllText($paths.KillPoint, 'P188_AFTER_OLD_TARGET_RENAMED')
+                Start-Sleep -Seconds 60
+            }
         }
-    }
-    # A same-volume directory rename publishes a complete stage, not a
-    # partially copied plugin. The canonical name is briefly absent before
-    # this second rename. After forced process termination the watchdog
-    # restores the backup, without ever touching existing older backups.
-    Move-Item -LiteralPath $stage -Destination $target -ErrorAction Stop
-    Assert-PackageFiles $target $true
-    Write-Host ('125A AWE64 Gold installiert: ' + $target)
-    if ($madeBackup) { Write-Host ('Vorherige Version gesichert: ' + $backup) }
-    Write-Host 'VST3-Paket vollstaendig per SHA256 geprueft.'
-} catch {
-    # Failure is never allowed to strand a displaced previous plugin.
-    if ($madeBackup) {
-        if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+        if (Test-Path -LiteralPath $paths.Target) { throw 'P189 publication target is occupied.' }
+        Move-Item -LiteralPath $paths.Stage -Destination $paths.Target -ErrorAction Stop
+        if ((Get-BundleTreeSha256 $paths.Target) -cne $after) {
+            throw 'P189 published tree failed verification.'
         }
-        Move-Item -LiteralPath $backup -Destination $target -ErrorAction Stop
-    } elseif (-not $hadTarget -and (Test-Path -LiteralPath $target)) {
-        Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+        Complete-InstallTransaction $paths $nonce
+        Write-Host ('125A AWE64 Gold installiert: ' + $paths.Target)
+        if ($before -cne '-') { Write-Host ('Vorherige Version gesichert: ' + $paths.Backup) }
+        Write-Host 'VST3-Paket vollstaendig per SHA256 geprueft.'
+    } catch {
+        if (Test-Path -LiteralPath $paths.Journal -PathType Leaf) {
+            Complete-InstallTransaction $paths $nonce -Rollback
+        } elseif (Test-Path -LiteralPath $paths.Stage) {
+            Remove-Item -LiteralPath $paths.Stage -Recurse -Force -ErrorAction Stop
+        }
+        throw
     }
-    throw
 } finally {
-    if (Test-Path -LiteralPath $stage) {
-        Remove-Item -LiteralPath $stage -Recurse -Force
-    }
-}
-} finally {
-    # Releasing in an outer finally also covers failures that occur before
-    # the staging/catch block (e.g. target metadata access).
     $installLock.Dispose()
-    # On a normal return, allow the watchdog to observe the released lock
-    # and remove its journal before we report a clean install. The forcibly
-    # killed installer never runs this finally; its independent watchdog
-    # still holds the repair responsibility.
     if ($null -ne $watchdog) {
         if (-not $watchdog.WaitForExit(15000)) {
             Write-Warning 'P188 recovery watchdog still running; transaction journal retained.'

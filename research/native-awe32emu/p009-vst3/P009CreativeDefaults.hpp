@@ -7,7 +7,7 @@
 #include <cstdint>
 namespace p009 {
 inline void resetOriginalCreativeControllers(Synth& synth) noexcept {
-    for(unsigned ch=0;ch<16;++ch){
+    for(unsigned ch=0;ch<Synth::kChannelCount;++ch){
         const auto channel=static_cast<std::uint8_t>(ch);
         synth.ControlChange(channel,64,0);     // sustain off
         synth.ControlChange(channel,1,0);      // modulation

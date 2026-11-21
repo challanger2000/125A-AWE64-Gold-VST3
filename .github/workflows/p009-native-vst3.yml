@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -57,6 +57,11 @@ jobs:
           python research/native-awe32emu/p009-vst3/apply_p165_original_synth_overlays.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P165 original hardware-control pin/source mismatch'}
           Write-Host P165_ALL_12_REAL_ORIGINAL_CHIP_GENERATOR_OVERLAYS_PINNED
+      - name: Apply independent original-chip drum audition channel
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/apply_p189_audition_channel.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P189 pinned Synth source mismatch'}
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
@@ -273,6 +278,9 @@ jobs:
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
           if($rc -eq 0) {
+            Select-String -Path _p009-host-synthetic.log -Pattern '^(P179_PACED_AUDIBLE_V5_SAVES|P187_SOUNDING_N08_ECHO|P189_CHRONOLOGICAL|P189_HELD)' | ForEach-Object {
+              Write-Host ('::notice title=P189 native host QA::' + $_.Line)
+            }
             foreach($gate in @(
               'P174_ACTUAL_WINDOWS_VST3_28MIB_EXACT_FIT_ONE_WORD_OVER_REJECT_ROLLBACK_PCM_PASS',
               'P174_ACTUAL_WINDOWS_VST3_SIXTY_ACCEPT_REJECT_AUDIO_RECALL_HEAP_BOUNDED_PASS',
@@ -287,6 +295,8 @@ jobs:
               'P185_REAL_WIN64_VST3_ATOMIC_GUI_FX_MIDI_AUTOMATION_SAVE_PASS',
               'P185_REAL_CHIP_RPN12_NRPN_RESELECT_V4_RECALL_PCM_PASS',
               'P185_REAL_CHIP_STOPPED_ROM_BANK_STALE_CC0_RECALL_PCM_PASS',
+              'P189_CHRONOLOGICAL_BANK_MIDI_HOST_SAVE_PCM_PASS',
+              'P189_HELD_NATIVE_AND_AUDITION_PAN_ISOLATION_PCM_PASS',
               'P185_ORIGINAL_CHIP_BROWSER_KIT0_KIT5_CH10_PCM_V4_RECALL_PASS',
               'P186_ORIGINAL_CHIP_RPN_NULL_NRPN_DATA_ENTRY_BEND12_RECALL_PCM_PASS',
               'P186_CH1_CC0_CH10_PROGRAM_ISOLATED_REAL_CHIP_DRUM_PCM_PASS',
@@ -564,13 +574,22 @@ jobs:
           } finally {
             Remove-Item Env:P184_EDITOR_REOPEN -ErrorAction SilentlyContinue
           }
-      - name: P188 native Win64 installer + actual process-kill watchdog recovery + SHA256/backup
+      - name: P189 native Win64 installer verifies interrupted backup and target integrity
         shell: pwsh
         timeout-minutes: 7
         run: |
           $ErrorActionPreference='Stop'
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File research/native-awe32emu/p009-vst3/packaging/P182-Windows-Installer-QA.ps1
-          if($LASTEXITCODE -ne 0){throw 'P182 actual Windows installer QA did not complete'}
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File research/native-awe32emu/p009-vst3/packaging/P182-Windows-Installer-QA.ps1 *> _p189-installer.log
+          $installerRc=$LASTEXITCODE
+          Get-Content _p189-installer.log
+          if($installerRc -ne 0){throw 'P182 actual Windows installer QA did not complete'}
+          foreach($variant in @('BACKUP','TARGET')) {
+            $marker="P189_NATIVE_INTERRUPTED_${variant}_INTEGRITY_FAIL_CLOSED_PASS"
+            if(!(Select-String -Path _p189-installer.log -SimpleMatch -Pattern $marker -Quiet)){
+              throw "Missing native Windows installer gate: $marker"
+            }
+            Write-Host ("::notice title=P189 native installer QA::$marker")
+          }
           Write-Host P182_WINDOWS_PRIVATE_PACKAGE_INSTALL_INTEGRITY_ROLLBACK_PASS
           Write-Host P188_WINDOWS_FORCED_PROCESS_KILL_VERIFIED_IN_INSTALLER_QA
       - name: Preserve host and tester diagnostic reports on failure
@@ -583,6 +602,7 @@ jobs:
             _p009-host-synthetic.log
             _p009-host-editors.log
             _p184-editor-lifecycle.log
+            _p189-installer.log
             _awe64-peer-editor-evidence/**
             _p184-editor-lifecycle-evidence/**
             _p009-tester-evidence/**
