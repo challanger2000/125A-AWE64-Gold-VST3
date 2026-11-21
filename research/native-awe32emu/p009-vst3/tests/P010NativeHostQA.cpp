@@ -3310,25 +3310,51 @@ void verifyP185BrowserDrumKitActuallyChangesPCM(
     const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host,const fs::path& resources){
   ownerBank(resources,"multi-drums.sf2");
-  const auto kit0=render(factory,id,host,
-      "P185_BROWSER_DRUMKIT0",44100,0,60,100,0,2);
-  const auto kit5=render(factory,id,host,
-      "P185_BROWSER_DRUMKIT5",44100,0,60,100,5,2);
-  const auto ch10kit5=render(factory,id,host,
-      "P185_REAL_CH10_DRUMKIT5",44100,9,60,100,5,0);
-  check(kit0.rms>0.0001 && kit5.rms>0.0001,
-        "P185 original-chip two different drum-kit PCM fixtures are silent");
-  check(kit0.hash!=kit5.hash,
-        "P185 browser selected Kit 5 but rendered the same PCM as Kit 0");
-  check(ch10kit5.hash==kit5.hash,
-        "P185 CH1 browser kit must select the actual CH10 drum program");
-  Plugin recalled(factory,id,host),direct(factory,id,host);
-  recalled.start(0,0,44100.);direct.start(5,2,44100.);
-  Saved s{};s.version=4u;s.program=5u;s.bank=2u;
-  s.midiStates.fill(0xFFFFu);s.advancedStates.fill(0xFFFFu);
-  p015Restore(recalled,s);
-  check(p015Play(recalled,0,60)==p015Play(direct,0,60),
-        "P185 browser drum Kit 5 not reproduced by reopened VST3 project");
+  // Crucial independent negative oracle: all 16 channels START on Kit 0.
+  // Plugin::start(5,2) would set CH10's program to 5 as well and falsely
+  // pass even if the CH1 browser never programs its audible CH10 route.
+  const auto selectBrowserKit=[&](Plugin& plugin,int kit){
+    ParameterChanges changes(1);
+    int32 qi=0,pi=0;
+    auto* q=changes.addParameterData(1000u,qi);
+    check(q && q->addPoint(0,double(kit)/127.,pi)==kResultOk,
+          "P185 browser program parameter not queued");
+    ProcessData flush{};
+    flush.processMode=kRealtime;flush.symbolicSampleSize=kSample32;
+    flush.numSamples=0;flush.inputParameterChanges=&changes;
+    check(plugin.processor->process(flush)==kResultOk,
+          "P185 CH1 browser program change rejected at stopped transport");
+  };
+  Plugin kit0Unit(factory,id,host),kit5Unit(factory,id,host);
+  kit0Unit.start(0,2,44100.);
+  kit5Unit.start(0,2,44100.);
+  selectBrowserKit(kit0Unit,0);
+  selectBrowserKit(kit5Unit,5);
+  const auto kit0=p015Play(kit0Unit,0,60);
+  const auto kit5=p015Play(kit5Unit,0,60);
+  check(kit0!=kit5,
+        "P185 CH1 browser Kit 5 still sounds exactly like Kit 0");
+  // Independent ground truth: a direct CH10 patch change, with CH1 not
+  // routed, selects the exact same Creative instrument and PCM.
+  Plugin ch10Kit0(factory,id,host),ch10Kit5(factory,id,host);
+  ch10Kit0.start(0,0,44100.);
+  ch10Kit5.start(5,0,44100.);
+  const auto hwKit0=p015Play(ch10Kit0,9,60);
+  const auto hwKit5=p015Play(ch10Kit5,9,60);
+  check(hwKit0!=hwKit5,
+        "P185 independent CH10 Kit 0/5 instruments were not distinguishable");
+  check(kit0==hwKit0 && kit5==hwKit5,
+        "P185 browser CH1 program must control actual sounding CH10 kit");
+  Plugin recalled(factory,id,host);
+  recalled.start(0,0,44100.);
+  Saved state{};state.version=4u;state.program=5u;state.bank=2u;
+  state.midiStates.fill(0xFFFFu);
+  state.advancedStates.fill(0xFFFFu);
+  // Every OTHER MIDI channel remains at program zero: a realistic fresh
+  // project rather than the accidental all-channel Program 5 fixture.
+  p015Restore(recalled,state);
+  check(p015Play(recalled,0,60)==kit5,
+        "P185 recalled CH1 browser Kit 5 not reproduced on CH10 hardware");
   ownerBank(resources,nullptr);
   std::puts("P185_ORIGINAL_CHIP_BROWSER_KIT0_KIT5_CH10_PCM_V4_RECALL_PASS");
 }

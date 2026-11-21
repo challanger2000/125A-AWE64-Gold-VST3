@@ -797,7 +797,11 @@ void NativeVst3::replayMidiState() noexcept{
         // The restored per-channel bank fields are authoritative and have
         // ALREADY sent CC0/CC32 in changeBankProgram(). Raw older CC0/32
         // is history, not a newer event: replaying it overwrote saved ROM.
-        for(unsigned slot=0;slot<kMappedCount;++slot){
+        // Replay melodic CCs first, but defer the 14-bit pitch wheel
+        // until AFTER the saved RPN bend range is restored. The wheel's
+        // hardware pitch register must use the restored semitone range,
+        // not the chip's default two semitones.
+        for(unsigned slot=0;slot<kMappedCount-1u;++slot){
             const auto v=midiState_[ch*kMappedCount+slot];
             if(v!=0xFFFFu)applyMidiController(ch,slot,v);
         }
@@ -828,6 +832,9 @@ void NativeVst3::replayMidiState() noexcept{
             }
             // Unsupported NRPN data-entry is not applied to chip registers.
         }
+        const auto bend=midiState_[ch*kMappedCount+kMappedCount-1u];
+        if(bend!=0xFFFFu)
+            applyMidiController(ch,kMappedCount-1u,bend);
     }
 }
 void NativeVst3::dispatch(const Event& event) noexcept{
