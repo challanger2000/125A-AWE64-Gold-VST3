@@ -33,6 +33,11 @@ class VersionedHostEdit {
                   "4-byte atomically versioned host edits only");
     static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
                   "native x64 lock-free atomic host edit required");
+    // Retain LAST accepted host value and generation even after the audio
+    // thread acknowledges it. A reader that pinned an *older* A snapshot
+    // must still be able to overlay a newer B host edit after B's pending
+    // flag has been cleared. Clearing by storing -1 lost this provenance.
+    static constexpr std::uint64_t kPending=1ull<<63u;
     std::atomic<std::uint64_t> bits_{};
     static std::uint32_t encode(Value v) noexcept {
         std::uint32_t x=0;
@@ -46,6 +51,12 @@ public:
         std::memcpy(&value,&x,sizeof(x));
         return value;
     }
+    static std::uint32_t generation(std::uint64_t token) noexcept {
+        return static_cast<std::uint32_t>((token>>32u)&0x7FFFFFFFu);
+    }
+    static bool pending(std::uint64_t token) noexcept {
+        return (token&kPending)!=0u;
+    }
     VersionedHostEdit() noexcept {
         bits_.store(encode(Value(-1)),std::memory_order_relaxed);
     }
@@ -53,23 +64,28 @@ public:
         return bits_.load(std::memory_order_acquire);
     }
     Value load(std::memory_order order=std::memory_order_acquire) const noexcept {
-        return decode(bits_.load(order));
+        const auto token=bits_.load(order);
+        return pending(token)?decode(token):Value(-1);
     }
     void store(Value v,
                std::memory_order=std::memory_order_release) noexcept {
         auto old=bits_.load(std::memory_order_acquire);
         for(;;){
-            const auto updated=((old>>32u)+1u)<<32u |
-                               static_cast<std::uint64_t>(encode(v));
+            const auto nextGeneration=
+                (generation(old)+1u)&0x7FFFFFFFu;
+            const auto updated=kPending |
+                (std::uint64_t(nextGeneration)<<32u) |
+                static_cast<std::uint64_t>(encode(v));
             if(bits_.compare_exchange_weak(old,updated,
                     std::memory_order_acq_rel,std::memory_order_acquire))
                 return;
         }
     }
     bool clearIfUnchanged(std::uint64_t token) noexcept {
-        const auto empty=((token>>32u)+1u)<<32u |
-                         static_cast<std::uint64_t>(encode(Value(-1)));
-        return bits_.compare_exchange_strong(token,empty,
+        // Do NOT overwrite accepted value/version! Only clear pending.
+        // A reader with an old snapshot can still see the newer accepted
+        // generation and serialize its value coherently.
+        return bits_.compare_exchange_strong(token,token&~kPending,
                  std::memory_order_acq_rel,std::memory_order_acquire);
     }
 };
@@ -86,6 +102,12 @@ struct NativeRuntimeRestore {
     // RPN 0/0 Data Entry that ACTUALLY changed hardware bend range,
     // independent of a later RPN NULL or unsupported NRPN selection.
     std::array<std::uint8_t,16> bendRangeValid{};
+    // Generation of the latest host edit already integrated/superseded in
+    // this exact immutable audio snapshot (not the current pending flag).
+    std::array<std::uint64_t,16> ackProgram{},ackBank{};
+    std::uint64_t ackMaster=0u;
+    std::array<std::uint64_t,12> ackGui{};
+    std::array<std::uint64_t,2> ackFx{},ackSend{};
     std::array<float,12> gui{};
     int reverb=4,chorus=2;
     std::array<bool,2> sendManual{};
@@ -184,6 +206,13 @@ private:
     // unrelated audio generations. -1 means the RT epoch is authoritative.
     std::array<VersionedHostEdit<int>,12> hostGuiEdits_{};
     std::array<VersionedHostEdit<int>,2> hostFxEdits_{},hostSendEdits_{};
+    // Audio-owned acknowledgments copied into every published state slot.
+    // A host getter compares its pinned slot's generation with the
+    // retained last accepted host edit; no global seqlock or host waiting.
+    std::array<std::uint64_t,16> audioAckProgram_{},audioAckBank_{};
+    std::uint64_t audioAckMaster_=0u;
+    std::array<std::uint64_t,12> audioAckGui_{};
+    std::array<std::uint64_t,2> audioAckFx_{},audioAckSend_{};
     std::atomic<Synth*> stagedSynth_{nullptr};
     // Two bounded old-chip slots prevent a pending bank from stalling if
     // it was requested during the previous 15-ms fade. Only the audio
@@ -232,12 +261,6 @@ private:
     };
     std::array<StateSnapshotSlot,4> stableSnapshots_{};
     std::atomic<unsigned> publishedSnapshot_{0u};
-    // RT publishes a new pinned audio snapshot and consumes old host-edit
-    // generations as ONE observable transaction. A host save validates
-    // this short even/odd publication epoch across both reads. Otherwise
-    // it can see new B from the snapshot with still-pending A overlay
-    // before the per-edit acknowledgements finish (another torn save).
-    std::atomic<std::uint64_t> statePublishEpoch_{0u};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
     bool publishRuntimeSnapshot() noexcept;

@@ -20,7 +20,6 @@
 #include <cstring>
 #include <filesystem>
 #include <new>
-#include <thread>
 #include <string>
 #include <vector>
 namespace p009 {
@@ -427,6 +426,12 @@ bool NativeVst3::publishRuntimeSnapshot() noexcept {
     const auto& previous=stableSnapshots_[current].data;
     bool same=previous.program==static_cast<std::uint32_t>(program_) &&
         previous.bendRangeValid==effectiveBendRangeValid_ &&
+        previous.ackProgram==audioAckProgram_ &&
+        previous.ackBank==audioAckBank_ &&
+        previous.ackMaster==audioAckMaster_ &&
+        previous.ackGui==audioAckGui_ &&
+        previous.ackFx==audioAckFx_ &&
+        previous.ackSend==audioAckSend_ &&
         previous.bank==static_cast<std::uint32_t>(bank_) &&
         previous.master==master_ &&
         previous.midi==midiState_ &&
@@ -466,6 +471,12 @@ bool NativeVst3::publishRuntimeSnapshot() noexcept {
             d.advanced=advancedMidiState_;
             d.modes=selectedParameterMode_;
             d.bendRangeValid=effectiveBendRangeValid_;
+            d.ackProgram=audioAckProgram_;
+            d.ackBank=audioAckBank_;
+            d.ackMaster=audioAckMaster_;
+            d.ackGui=audioAckGui_;
+            d.ackFx=audioAckFx_;
+            d.ackSend=audioAckSend_;
             d.gui=guiControls_;
             d.reverb=reverbPreset_;
             d.chorus=chorusPreset_;
@@ -1091,11 +1102,14 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     for(unsigned ch=0;ch<16u;++ch){
         programToken[ch]=hostProgramEdits_[ch].snapshot();
         bankToken[ch]=hostBankEdits_[ch].snapshot();
-        programAtBlock[ch]=VersionedHostEdit<int>::decode(programToken[ch]);
-        bankAtBlock[ch]=VersionedHostEdit<int>::decode(bankToken[ch]);
+        programAtBlock[ch]=VersionedHostEdit<int>::pending(programToken[ch])?
+            VersionedHostEdit<int>::decode(programToken[ch]):-1;
+        bankAtBlock[ch]=VersionedHostEdit<int>::pending(bankToken[ch])?
+            VersionedHostEdit<int>::decode(bankToken[ch]):-1;
     }
     const auto masterToken=hostMasterEdit_.snapshot();
-    const float masterAtBlock=VersionedHostEdit<float>::decode(masterToken);
+    const float masterAtBlock=VersionedHostEdit<float>::pending(masterToken)?
+        VersionedHostEdit<float>::decode(masterToken):-1.f;
     bool touchedMaster=false;
     std::array<int,12> guiAtBlock{};
     std::array<std::uint64_t,12> guiToken{};
@@ -1105,13 +1119,16 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     std::array<bool,2> touchedFx{},touchedSend{};
     for(unsigned i=0;i<guiAtBlock.size();++i){
         guiToken[i]=hostGuiEdits_[i].snapshot();
-        guiAtBlock[i]=VersionedHostEdit<int>::decode(guiToken[i]);
+        guiAtBlock[i]=VersionedHostEdit<int>::pending(guiToken[i])?
+            VersionedHostEdit<int>::decode(guiToken[i]):-1;
     }
     for(unsigned i=0;i<2u;++i){
         fxToken[i]=hostFxEdits_[i].snapshot();
         sendToken[i]=hostSendEdits_[i].snapshot();
-        fxAtBlock[i]=VersionedHostEdit<int>::decode(fxToken[i]);
-        sendAtBlock[i]=VersionedHostEdit<int>::decode(sendToken[i]);
+        fxAtBlock[i]=VersionedHostEdit<int>::pending(fxToken[i])?
+            VersionedHostEdit<int>::decode(fxToken[i]):-1;
+        sendAtBlock[i]=VersionedHostEdit<int>::pending(sendToken[i])?
+            VersionedHostEdit<int>::decode(sendToken[i]):-1;
     }
     applyStagedInstrumentRealtime();
     // Never apply a newer project's MIDI state to a previous SoundFont
@@ -1497,9 +1514,17 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         }
     }
     if(bus&&data.numSamples>0)bus->silenceFlags=authenticRomLoaded_?0:3;
-    // The publication and per-field version acknowledgements are
-    // one short transaction for any concurrent host getState().
-    statePublishEpoch_.fetch_add(1u,std::memory_order_seq_cst); // odd
+    for(unsigned ch=0;ch<16u;++ch){
+        if(programAtBlock[ch]>=0)audioAckProgram_[ch]=programToken[ch];
+        if(bankAtBlock[ch]>=0)audioAckBank_[ch]=bankToken[ch];
+    }
+    if(masterAtBlock>=0.f)audioAckMaster_=masterToken;
+    for(unsigned i=0;i<12u;++i)
+        if(guiAtBlock[i]>=0)audioAckGui_[i]=guiToken[i];
+    for(unsigned i=0;i<2u;++i){
+        if(fxAtBlock[i]>=0)audioAckFx_[i]=fxToken[i];
+        if(sendAtBlock[i]>=0)audioAckSend_[i]=sendToken[i];
+    }
     // Critical N08 correction: keep *all* pending host edits visible
     // until a coherent B audio snapshot is published. Clearing earlier
     // yields old-A saved state or a mixed A/B project during in-flight
@@ -1523,7 +1548,6 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 (void)hostSendEdits_[i].clearIfUnchanged(sendToken[i]);
         }
     }
-    statePublishEpoch_.fetch_add(1u,std::memory_order_seq_cst); // even
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
@@ -1541,20 +1565,6 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     // repeated project switches work even without any GUI editor open.
     drainRetiredSynthsNonRealtime();
     NativeRuntimeRestore stable{};
-    bool coherent=false;
-    // Snapshot slot and controller overlays must belong to the SAME
-    // publication generation. Publishing B before clearing the old A
-    // overlays leaves a tiny but real save window; validate a bounded
-    // read transaction instead of accepting a mixed B-slot/A-overlay.
-    for(unsigned readAttempt=0u;readAttempt<1024u && !coherent;++readAttempt){
-        const auto epochBefore=statePublishEpoch_.load(
-            std::memory_order_seq_cst);
-        if((epochBefore&1u)!=0u){
-            // This is a HOST-only save thread; it may yield to the
-            // nonblocking audio publisher. Audio never waits for the host.
-            if((readAttempt&15u)==15u)std::this_thread::yield();
-            continue;
-        }
     const auto request=restoreRequestedSeq_.load(std::memory_order_acquire);
     if(request!=restoreAppliedSeq_.load(std::memory_order_acquire)){
         // A valid project was accepted by setState but will be applied at
@@ -1579,44 +1589,63 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
             slot.pins.fetch_sub(1,std::memory_order_release);
             consistent=true;
         }
-        if(!consistent)continue;
+        if(!consistent)return kResultFalse;
     }
     // The controller's last edit can precede the first process callback
     // (stopped transport, inactive project, or host saving immediately).
     // Keep it ahead of the last published audio snapshot until acknowledged.
     for(unsigned ch=0;ch<16u;++ch){
-        const int program=hostProgramEdits_[ch].load(std::memory_order_acquire);
-        const int bank=hostBankEdits_[ch].load(std::memory_order_acquire);
-        if(program>=0){
+        const auto programToken=hostProgramEdits_[ch].snapshot();
+        const auto bankToken=hostBankEdits_[ch].snapshot();
+        const int program=VersionedHostEdit<int>::decode(programToken);
+        const int bank=VersionedHostEdit<int>::decode(bankToken);
+        // Include newer accepted host edits even after audio cleared their
+        // pending bits, IF this reader pinned an older immutable slot.
+        // That makes a legitimate old-slot read serialize B rather than A
+        // during publication/acknowledgment interleaving.
+        if(program>=0 &&
+           VersionedHostEdit<int>::generation(programToken)!=
+           VersionedHostEdit<int>::generation(stable.ackProgram[ch])){
             stable.programs[ch]=static_cast<std::uint8_t>(program);
             if(ch==0)stable.program=static_cast<std::uint32_t>(program);
         }
-        if(bank>=0){
+        if(bank>=0 &&
+           VersionedHostEdit<int>::generation(bankToken)!=
+           VersionedHostEdit<int>::generation(stable.ackBank[ch])){
             stable.banks[ch]=static_cast<std::uint8_t>(bank);
             if(ch==0)stable.bank=static_cast<std::uint32_t>(bank);
         }
     }
-    const float masterEdit=hostMasterEdit_.load(std::memory_order_acquire);
-    if(masterEdit>=0.f)stable.master=masterEdit;
+    const auto masterToken=hostMasterEdit_.snapshot();
+    const auto masterEdit=VersionedHostEdit<float>::decode(masterToken);
+    if(masterEdit>=0.f &&
+       VersionedHostEdit<float>::generation(masterToken)!=
+       VersionedHostEdit<float>::generation(stable.ackMaster))
+        stable.master=masterEdit;
     for(unsigned i=0;i<stable.gui.size();++i){
-        const int pending=hostGuiEdits_[i].load(std::memory_order_acquire);
-        if(pending>=0)stable.gui[i]=float(pending)/10000.f;
+        const auto token=hostGuiEdits_[i].snapshot();
+        const int pending=VersionedHostEdit<int>::decode(token);
+        if(pending>=0 &&
+           VersionedHostEdit<int>::generation(token)!=
+           VersionedHostEdit<int>::generation(stable.ackGui[i]))
+            stable.gui[i]=float(pending)/10000.f;
     }
     for(unsigned i=0;i<2u;++i){
-        const int pendingFx=hostFxEdits_[i].load(std::memory_order_acquire);
-        const int pendingMode=hostSendEdits_[i].load(std::memory_order_acquire);
-        if(pendingFx>=0){
+        const auto fxToken=hostFxEdits_[i].snapshot();
+        const auto sendToken=hostSendEdits_[i].snapshot();
+        const int pendingFx=VersionedHostEdit<int>::decode(fxToken);
+        const int pendingMode=VersionedHostEdit<int>::decode(sendToken);
+        if(pendingFx>=0 &&
+           VersionedHostEdit<int>::generation(fxToken)!=
+           VersionedHostEdit<int>::generation(stable.ackFx[i])){
             if(i==0)stable.reverb=pendingFx;
             else stable.chorus=pendingFx;
         }
-        if(pendingMode>=0)stable.sendManual[i]=pendingMode!=0;
+        if(pendingMode>=0 &&
+           VersionedHostEdit<int>::generation(sendToken)!=
+           VersionedHostEdit<int>::generation(stable.ackSend[i]))
+            stable.sendManual[i]=pendingMode!=0;
     }
-        coherent=statePublishEpoch_.load(
-            std::memory_order_seq_cst)==epochBefore;
-        if(!coherent && (readAttempt&15u)==15u)
-            std::this_thread::yield();
-    }
-    if(!coherent)return kResultFalse;
     Saved s{};
     s.program=stable.program;s.bank=stable.bank;s.master=stable.master;
     for(unsigned ch=1;ch<16u;++ch){

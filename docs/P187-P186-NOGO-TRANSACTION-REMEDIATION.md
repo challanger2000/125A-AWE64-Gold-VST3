@@ -109,6 +109,37 @@ additional protection, not a claim that the independent Codex original
 N08 raw script is accessible here. **Requires exact current Windows CI and
 Codex re-audit.** Never erase the original red CI evidence.
 
+## P187 additional RED and new wait-free snapshot proof
+
+The third exact Windows source `933dbd73131c8ea44702d59dc2005dcfa4b73442`
+[run #44951147780](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44951147780)
+**FAILED** the existing P185 concurrent host save test:
+`successful=211362 mixed=0 rejected=16 callbacks=20000`.
+The new even/odd publication epoch blocked torn reads but under a
+20,000-callback hot audio loop could exhaust a bounded 1024-attempt host
+retry budget. It is another red result, **not** a PASS.
+
+A professional DAW must not routinely reject project saves while a valid
+single RT writer is continuously running. **P187's fourth design** drops
+the global reader-spinning epoch and retains immutable accepted host-edit
+history with an atomic 31-bit version + 32-bit payload + 1-bit pending flag.
+The audio thread clears only the pending flag after publishing. It records
+the acknowledged host-edit generations in that particular immutable
+audio snapshot. A host reader that pins the **previous A slot** can still
+overlay a newly accepted B edit **after** B was acknowledged and
+published; a reader that pins the new B slot sees its acknowledged
+generation and does not reapply that same old B as an overlay. A fresh
+even-same-valued C edit gets a newer generation and remains observable.
+The host reads a pinned slot and atomic versioned history **without
+waiting for the RT writer**, while the RT writer never locks, allocates,
+does I/O or spins waiting for the host.
+
+Every audio producer callback must be tested with a still-sounding chip,
+rapid controller echo, back-to-back zero-frame MIDI/GUI changes and
+continual host saves. **The new design is unverified until exact Windows
+CI**, including zero mixed, stale and rejected saves. It still does not
+substitute for Codex original scripts and independent audit.
+
 ## Evidence boundary / release gate
 
 P187 source is NOT a release and remains **NO-GO until exact-commit Win64 build, P187 targeted independent source-semantics tests, original independent N08/P186 adversarial re-audit, original Creative licensed media + hardware and actual Fender Studio Pro/ASIO acceptance**.
