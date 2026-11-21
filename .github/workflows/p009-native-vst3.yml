@@ -205,6 +205,7 @@ jobs:
           if(!(Select-String -Path _p021-original-chip-multirate.log -Pattern '^P021_ALL_RATES_GENUINE_86BOX_EMU8000_PCM_FROM_NATIVE_44100_PASS_8_OF_8' -Quiet)){throw 'P021 chip reference proof missing'}
           Write-Host P021_BOX86_ORIGINAL_PCM_ALL_8_48_96_192K_TRULY_86BOX_PASS
       - name: P010 ACTUAL Steinberg Windows native VST3 host checks public silence
+        id: p010_public
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -214,7 +215,11 @@ jobs:
           & _p009-build/Release/P010NativeHostQA.exe $bundle --public *> _p009-host-public.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-public.log
-          if($rc -ne 0){throw "P010 public VST3 host contracts failed: $rc"}
+          if($rc -ne 0){
+            $last=Get-Content _p009-host-public.log -Tail 1
+            Write-Host "::error title=P010 public host regression::Exit ${rc}. $last"
+            throw "P010 public VST3 host contracts failed: $rc"
+          }
           Write-Host P010_REAL_NATIVE_WINDOWS_VST3_HOST_NO_ROM_SILENCE_ONLY_PASS
       - name: Actual native Win64 VST3 synthetic original 86Box chip V5 external SF2 SHA and PCM end-to-end
         shell: pwsh
@@ -240,7 +245,11 @@ jobs:
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
           Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
-          if($rc -ne 0){throw "P010 synthetic original-chip VST3 host contracts failed: $rc"}
+          if($rc -ne 0){
+            $last=Get-Content _p009-host-synthetic.log -Tail 1
+            Write-Host "::error title=P010 synthetic host regression::Exit ${rc}. $last"
+            throw "P010 synthetic original-chip VST3 host contracts failed: $rc"
+          }
           Write-Host P165_PUBLIC_SYNTHETIC_ACTUAL_WIN64_VST3_V5_EXTERNAL_SF2_SHA_AND_PCM_RECALL_PASS
       - name: Original EMU8000 VST3 FX type UI is enabled, not a visual-only fake
         shell: pwsh
@@ -451,9 +460,25 @@ jobs:
             if($summary[0].Groups[2].Value -ne '0' -or $summary[0].Groups[3].Value -ne '0'){
               throw 'P170 new v0.3.3 tester reported warnings or failures: investigate'
             }
+            Write-Host "::notice title=125A Plugin Tester v0.3.3::$($summary[0].Value)"
             Write-Host 'P170_ACTUAL_WINDOWS_125A_TESTER_V033_ZERO_WARNING_ZERO_FAILURE_GENUINE_VST3_PASS'
           } finally {
             Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
+          }
+      - name: P010 multiple native editors attach, close and reopen
+        if: ${{ !cancelled() && steps.p010_public.outcome == 'success' }}
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference='Stop'
+          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          & _p009-build/Release/P010NativeHostQA.exe $bundle --editors *> _p009-host-editors.log
+          $rc=$LASTEXITCODE
+          Get-Content _p009-host-editors.log
+          if($rc -ne 0){
+            $last=Get-Content _p009-host-editors.log -Tail 1
+            Write-Host "::error title=P010 multiple editors regression::Exit ${rc}. $last"
+            throw "P010 multiple native editors failed: $rc"
           }
       - name: Preserve host and tester diagnostic reports on failure
         if: failure()
@@ -463,6 +488,7 @@ jobs:
           path: |
             _p009-host-public.log
             _p009-host-synthetic.log
+            _p009-host-editors.log
             _p009-tester-evidence/**
             _p009-tester-v033-evidence/**
           if-no-files-found: warn
@@ -475,6 +501,7 @@ jobs:
             _p009-validator.log
             _p009-host-public.log
             _p009-host-synthetic.log
+            _p009-host-editors.log
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt

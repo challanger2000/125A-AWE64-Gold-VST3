@@ -109,43 +109,76 @@ struct Plugin{
 #ifdef _WIN32
 void verifyMultipleNativeEditors(const VST3::Hosting::PluginFactory& factory,
                                  const VST3::UID& id,FUnknown* host){
+  std::puts("editors: initializing OLE");
   check(SUCCEEDED(OleInitialize(nullptr)),"editors: OLE initialization failed");
   struct OleScope { ~OleScope(){ OleUninitialize(); } } ole;
   Plugin first(factory,id,host),other(factory,id,host);
-  struct Editor {
+  struct Frame : IPlugFrame {
     HWND parent=nullptr;
+    tresult PLUGIN_API queryInterface(const TUID id,void** object) override {
+      if(!object)return kInvalidArgument;
+      *object=nullptr;
+      if(!FUnknownPrivate::iidEqual(id,IPlugFrame::iid.toTUID()) &&
+         !FUnknownPrivate::iidEqual(id,FUnknown::iid.toTUID()))
+        return kNoInterface;
+      *object=static_cast<IPlugFrame*>(this);
+      addRef();
+      return kResultOk;
+    }
+    uint32 PLUGIN_API addRef() override { return ++references; }
+    uint32 PLUGIN_API release() override { return --references; }
+    tresult PLUGIN_API resizeView(IPlugView* view,ViewRect* size) override {
+      if(!view||!size)return kInvalidArgument;
+      RECT bounds{0,0,size->getWidth(),size->getHeight()};
+      if(!AdjustWindowRect(&bounds,WS_OVERLAPPEDWINDOW,FALSE) ||
+         !SetWindowPos(parent,nullptr,0,0,bounds.right-bounds.left,
+              bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE))
+        return kResultFalse;
+      return view->onSize(size);
+    }
+    uint32 references=1u; // test host owns the frame
+  };
+  struct Editor {
+    Frame frame;
     IPtr<IPlugView> view;
     bool attached=false;
     ~Editor(){
       if(attached)view->removed();
+      if(view)view->setFrame(nullptr);
       view=nullptr;
-      if(parent)DestroyWindow(parent);
+      if(frame.parent)DestroyWindow(frame.parent);
     }
     void open(IEditController& controller){
-      parent=CreateWindowExW(0,L"STATIC",L"AWE64 editor QA",WS_POPUP,
-                             0,0,1000,708,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-      check(parent!=nullptr,"editors: cannot create Win32 parent");
+      std::puts("editors: creating Win32 parent and plugin view");
+      frame.parent=CreateWindowExW(0,L"STATIC",L"AWE64 editor QA",WS_OVERLAPPEDWINDOW,
+                                   0,0,1000,708,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+      check(frame.parent!=nullptr,"editors: cannot create Win32 parent");
       view=owned(controller.createView(ViewType::kEditor));
       check(bool(view) && view->isPlatformTypeSupported(kPlatformTypeHWND)==kResultTrue &&
             view->isPlatformTypeSupported("unsupported-platform")!=kResultTrue,
             "editors: wrong platform handshake");
-      attached=view->attached(parent,kPlatformTypeHWND)==kResultOk;
+      check(view->setFrame(&frame)==kResultOk,"editors: host frame rejected");
+      std::puts("editors: attaching HWND");
+      attached=view->attached(frame.parent,kPlatformTypeHWND)==kResultOk;
       check(attached,"editors: attach rejected");
+      ShowWindow(frame.parent,SW_SHOWNOACTIVATE);
       verify();
     }
     void verify(){
       ViewRect bounds{};
       check(view->getSize(&bounds)==kResultOk && bounds.getWidth()>0 &&
-            bounds.getHeight()>0 && GetWindow(parent,GW_CHILD)!=nullptr,
+            bounds.getHeight()>0 && GetWindow(frame.parent,GW_CHILD)!=nullptr,
             "editors: attached editor lost its native child or dimensions");
     }
     void close(){
+      std::puts("editors: detaching HWND");
       check(view->removed()==kResultOk,"editors: detach failed");
       attached=false;
-      check(GetWindow(parent,GW_CHILD)==nullptr,"editors: detach left a native child");
+      check(view->setFrame(nullptr)==kResultOk,"editors: host frame removal failed");
+      check(GetWindow(frame.parent,GW_CHILD)==nullptr,"editors: detach left a native child");
       view=nullptr;
-      check(DestroyWindow(parent)!=0,"editors: host window teardown failed");
-      parent=nullptr;
+      check(DestroyWindow(frame.parent)!=0,"editors: host window teardown failed");
+      frame.parent=nullptr;
     }
   } a,b,c;
   check(first.controller->createView("unsupported-view")==nullptr,
@@ -2215,12 +2248,15 @@ void verifyP165RealChipFxSendAndPresetPCM(
 }
 int main(int argc,char** argv){
  try{
+  std::setvbuf(stdout,nullptr,_IONBF,0);
   check(argc==3&&(std::strcmp(argv[2],"--public")==0||
       std::strcmp(argv[2],"--private")==0||
-      std::strcmp(argv[2],"--synthetic")==0),
-      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic");
+      std::strcmp(argv[2],"--synthetic")==0||
+      std::strcmp(argv[2],"--editors")==0),
+      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic|--editors");
   const bool priv=std::strcmp(argv[2],"--private")==0;
   const bool synthetic=std::strcmp(argv[2],"--synthetic")==0;
+  const bool editors=std::strcmp(argv[2],"--editors")==0;
   const fs::path bundle=fs::absolute(argv[1]);
   check(fs::is_directory(bundle),"actual native VST3 bundle missing");
   const auto resources=bundle/"Contents"/"Resources"/"P009-Private";
@@ -2246,6 +2282,14 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  if(editors){
+#ifdef _WIN32
+    verifyMultipleNativeEditors(factory,cls->ID(),host.get());
+    return 0;
+#else
+    check(false,"editors: Win32 is required");
+#endif
+  }
   verifyZeroFrameParameterFlush(factory,cls->ID(),host.get());
   verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(factory,cls->ID(),host.get());
   verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
@@ -2273,9 +2317,6 @@ int main(int argc,char** argv){
     return 0;
   }
   if(!priv){
-#ifdef _WIN32
-    verifyMultipleNativeEditors(factory,cls->ID(),host.get());
-#endif
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
     check(x.rms==0&&x.peak==0,"no genuine ROM must always be silent");
