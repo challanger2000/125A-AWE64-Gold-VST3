@@ -401,12 +401,12 @@ std::string BankLabel(uint16_t id) {
     // instruments and drums remain selectable while 16 MIDI channels work.
     if(id==128)return "ROM Bank B - Drums";
     if(id==129)return "SF2 Bank B - Drums";
-    if(id==1)return "SF2 Bank A - Instrumente";
-    if(id==0)return "ROM Bank A - Instrumente";
+    if(id==1)return "SF2 Bank A - Instruments";
+    if(id==0)return "ROM Bank A - Instruments";
     return "Bank "+std::to_string(id);
 }
 std::string DisplayName(const std::string& path) {
-    if(path.empty())return "Noch keine SoundFont ausgewaehlt";
+    if(path.empty())return "No SoundFont selected";
     const auto i=path.find_last_of("/\\");
     return i==std::string::npos?path:path.substr(i+1);
 }
@@ -419,8 +419,8 @@ bool NativeChooseFile(std::string& chosen,bool forRom) {
     ofn.lpstrFile=file;
     ofn.nMaxFile=32768;
     ofn.lpstrFilter=forRom
-        ? L"EMU8000 Wave-ROM (*.raw;*.rom;*.bin)\0*.raw;*.rom;*.bin\0Alle Dateien (*.*)\0*.*\0\0"
-        : L"SoundFont 2 (*.sf2)\0*.sf2\0Alle Dateien (*.*)\0*.*\0\0";
+        ? L"EMU8000 Wave-ROM (*.raw;*.rom;*.bin)\0*.raw;*.rom;*.bin\0All Files (*.*)\0*.*\0\0"
+        : L"SoundFont 2 (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0\0";
     ofn.nFilterIndex=1;
     ofn.lpstrDefExt=forRom?L"raw":L"sf2";
     ofn.Flags=OFN_EXPLORER|OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST;
@@ -450,6 +450,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     std::function<std::string()> hardwareInfoProvider,
     std::function<bool(const std::string&)> romLoadRequest,
     std::function<bool(const std::string&)> sf2LoadRequest,
+    std::function<std::string()> sf2LoadErrorProvider,
     std::function<std::string()> sf2CurrentPath,
     std::function<uint64_t()> sf2CatalogRevision,
     std::function<bool(uint16_t)> browserBankReselect)
@@ -458,6 +459,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
       hardwareInfoProvider_(std::move(hardwareInfoProvider)),
       romLoadRequest_(std::move(romLoadRequest)),
       sf2LoadRequest_(std::move(sf2LoadRequest)),
+      sf2LoadErrorProvider_(std::move(sf2LoadErrorProvider)),
       sf2CurrentPath_(std::move(sf2CurrentPath)),
       sf2CatalogRevision_(std::move(sf2CatalogRevision)),
       browserBankReselect_(std::move(browserBankReselect)) {
@@ -480,7 +482,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     programLabel_=MakeLabel({370,118,728,145},"NO PRESET",false);
     programLabel_->setFont(kNormalFontBig);
     programLabel_->setFontColor(CColor(41,31,6,255));
-    hardwareInfoLabel_=MakeLabel({370,145,728,163},"ROM: AUTOMATISCH",true);
+    hardwareInfoLabel_=MakeLabel({370,145,728,163},"ROM: AUTO",true);
     hardwareInfoLabel_->setFontColor(CColor(53,40,9,255));
     hardwareInfoLabel_->setTextTruncateMode(CTextLabel::kTruncateTail);
 
@@ -594,9 +596,9 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
     bankMenu_=new GoldHardwareMenu(PageRect({100,247,494,284}),this,kBankFilter);
     StyleGoldMenu(bankMenu_);
     AddToCurrentPage(bankMenu_);
-    searchCaption_=MakeLabel({506,247,572,282},"SUCHE",true);
+    searchCaption_=MakeLabel({506,247,572,282},"SEARCH",true);
     search_=new CTextEdit(PageRect({586,249,968,282}),this,kFilter,"");
-    search_->setPlaceholderString("Instrument suchen...");
+    search_->setPlaceholderString("Search instruments...");
     search_->setImmediateTextChange(true);
     // Underlying CTextEdit still owns typing, caret, search and focus.
     // Its metal bezel is a separate non-interactive view behind the edit.
@@ -625,7 +627,7 @@ PresetBrowserView::PresetBrowserView(const CRect& rect,
 
     buildingPanel_=nullptr;
     hint_=MakeLabel({370,166,728,184},
-        "SF2-Audiostatus noch nicht vom Prozessor bestaetigt.",true);
+        "SoundFont audio status not yet confirmed.",true);
     hint_->setTextTruncateMode(CTextLabel::kTruncateTail);
     SetPage(0);
     setWantsIdle(true);
@@ -749,7 +751,7 @@ void PresetBrowserView::Select(uint16_t bank,uint8_t program) {
         // parameter edit while CC0 continues to select a different bank.
         // Do not pretend a new program selection succeeded.
         if(hint_) {
-            hint_->setText("Bank-Neuauswahl fehlgeschlagen: Verbindung zum Prozessor pruefen.");
+            hint_->setText("Bank selection failed: audio engine unavailable.");
             hint_->setFontColor(CColor(255,143,122,255));
         }
         return;
@@ -782,13 +784,13 @@ void PresetBrowserView::RebuildActiveMenus() {
     if(!activeBankMenu_ || !programMenu_)return;
     activeBanks_=PresetBrowserModel::Banks(0,sf_,fm_);
     activeBankMenu_->removeAllEntry();
-    if(activeBanks_.empty())activeBankMenu_->addEntry("Keine Bank geladen");
+    if(activeBanks_.empty())activeBankMenu_->addEntry("No bank loaded");
     else for(const auto bank:activeBanks_)
         activeBankMenu_->addEntry(BankLabel(bank).c_str());
 
     activePrograms_=PresetBrowserModel::Programs(sf_.Entries(),bank_);
     programMenu_->removeAllEntry();
-    if(activePrograms_.empty())programMenu_->addEntry("Keine Presets in der Bank");
+    if(activePrograms_.empty())programMenu_->addEntry("No presets in this bank");
     else for(const auto id:activePrograms_) {
         const auto* p=sf_.Find(bank_,id);
         char label[8]{};
@@ -813,7 +815,7 @@ void PresetBrowserView::SyncActiveMenuSelection() {
 void PresetBrowserView::RebuildBanks() {
     filterBanks_=PresetBrowserModel::Banks(0,sf_,fm_);
     bankMenu_->removeAllEntry();
-    bankMenu_->addEntry("Alle Baenke");
+    bankMenu_->addEntry("All Banks");
     bool exists=false;
     for(const auto id:filterBanks_) {
         bankMenu_->addEntry(BankLabel(id).c_str());
@@ -830,8 +832,8 @@ void PresetBrowserView::RebuildRows() {
     table_->recalculateLayout();
     if(rows_.empty()) {
         empty_->setText(sf_.Entries().empty()?
-            "Keine SF2 geladen. Oben auf SF2 LADEN klicken.":
-            "Keine Treffer. Suche oder Bankfilter aendern.");
+            "No SF2 loaded. Click SF2 above to load one.":
+            "No matching presets. Change search or bank filter.");
         empty_->setVisible(currentPage_==1);
     } else empty_->setVisible(false);
     SyncBrowserSelection();
@@ -966,7 +968,7 @@ void PresetBrowserView::SyncHardwareInfo() {
     if(state==lastHardwareInfo_)return;
     lastHardwareInfo_=state;
     hardwareInfoLabel_->setText(state.empty()
-        ? "32 STIMMEN | 44,1 kHz | RAM/ROM: nicht ermittelt"
+        ? "Sample RAM: unavailable"
         : state.c_str());
 }
 void PresetBrowserView::SetPage(int page) {
@@ -988,7 +990,7 @@ void PresetBrowserView::ChooseSf2() {
     OPENFILENAMEW open{};
     open.lStructSize=sizeof(open);
     open.hwndOwner=GetForegroundWindow();
-    open.lpstrFilter=L"SoundFont 2 (*.sf2)\0*.sf2\0Alle Dateien (*.*)\0*.*\0\0";
+    open.lpstrFilter=L"SoundFont 2 (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0\0";
     open.lpstrFile=file;
     open.nMaxFile=4096u;
     open.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
@@ -1003,9 +1005,19 @@ void PresetBrowserView::ChooseSf2() {
     if(path.back()!=0)return;
     path.pop_back();
     if(!sf2LoadRequest_||!sf2LoadRequest_(path)) {
-        MessageBoxW(GetForegroundWindow(),
-            L"SoundFont could not be loaded. Check its format and the "
-            L"28 MiB total sample RAM limit. The existing bank is unchanged.",
+        const std::string reason=sf2LoadErrorProvider_?
+            sf2LoadErrorProvider_():std::string{};
+        std::wstring detail;
+        const int length=reason.empty()?0:MultiByteToWideChar(
+            CP_UTF8,MB_ERR_INVALID_CHARS,reason.c_str(),-1,nullptr,0);
+        if(length>1){
+            detail.resize(static_cast<size_t>(length));
+            MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,
+                reason.c_str(),-1,detail.data(),length);
+            detail.resize(static_cast<size_t>(length-1));
+        }else detail=L"Unable to load the selected SoundFont.";
+        detail+=L"\nThe previously loaded bank remains unchanged.";
+        MessageBoxW(GetForegroundWindow(),detail.c_str(),
             L"125A AWE64 Gold: SoundFont rejected",MB_OK|MB_ICONWARNING);
         return;
     }

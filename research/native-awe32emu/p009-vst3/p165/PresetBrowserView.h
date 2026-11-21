@@ -29,6 +29,7 @@ public:
                       std::function<std::string()> hardwareInfoProvider,
                       std::function<bool(const std::string&)> romLoadRequest,
                       std::function<bool(const std::string&)> sf2LoadRequest,
+                      std::function<std::string()> sf2LoadErrorProvider,
                       std::function<std::string()> sf2CurrentPath,
                       std::function<uint64_t()> sf2CatalogRevision,
                       std::function<bool(uint16_t)> browserBankReselect);
@@ -62,6 +63,7 @@ private:
     std::function<std::string()> hardwareInfoProvider_;
     std::function<bool(const std::string&)> romLoadRequest_;
     std::function<bool(const std::string&)> sf2LoadRequest_;
+    std::function<std::string()> sf2LoadErrorProvider_;
     std::function<std::string()> sf2CurrentPath_;
     std::function<uint64_t()> sf2CatalogRevision_;
     std::function<bool(uint16_t)> browserBankReselect_;

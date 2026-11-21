@@ -317,6 +317,7 @@ bool NativeVst3::buildInstrumentNonRealtime(const std::filesystem::path& selecte
     if(!candidate->Core().UseBox86Chip(romPath,error))return false;
     candidate->Core().SetDriver(Awe32::Driver::Win95);
     if(!candidate->LoadBank(bytes(sbk),error,false,-1))return false;
+    const auto baseBankWords=candidate->Core().DramSize();
     if(!selected.empty()){
         if(!std::filesystem::is_regular_file(selected)){
             error="Selected owner SoundFont cannot be found";return false;
@@ -329,9 +330,12 @@ bool NativeVst3::buildInstrumentNonRealtime(const std::filesystem::path& selecte
     const auto limit=candidate->Core().ChipRamWords();
     if(needed>limit){
         char message[160]{};
+        const auto extra=needed>baseBankWords?needed-baseBankWords:0u;
+        const auto free=limit>baseBankWords?limit-baseBankWords:0u;
         std::snprintf(message,sizeof(message),
-            "Insufficient sample RAM: required %.2f MiB; maximum %.2f MiB.",
-            double(needed)/524288.,double(limit)/524288.);
+            "Not enough sample RAM. New bank: %.2f MiB; available: "
+            "%.2f MiB (28 MiB total).",
+            double(extra)/524288.,double(free)/524288.);
         error=message;
         return false; // Current instrument stays valid; no partial upload.
     }
@@ -581,6 +585,12 @@ void NativeVst3::applyAdvancedController(unsigned channel,
                                          unsigned slot,std::uint16_t value) noexcept{
     if(channel>=16||slot>=kAdvancedCount||value>127u)return;
     advancedMidiState_[channel*kAdvancedCount+slot]=value;
+    // Mirror actual Creative CC0 ROM/user-bank selections into VST3 state.
+    // Values 2..127 must not masquerade as the CH1 special drum lane.
+    if(slot==0u && value<=1u){
+        if(channel==0u)bank_=static_cast<int>(value);
+        else banksByChannel_[channel]=static_cast<std::uint8_t>(value);
+    }
     if(slot==2||slot==3) selectedParameterMode_[channel]=1u;  // RPN
     if(slot==6||slot==7) selectedParameterMode_[channel]=2u;  // NRPN
     if(!synth_)return;

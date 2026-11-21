@@ -7,6 +7,7 @@
 #include "p165/PresetBrowserModel.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include <cstring>
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -40,6 +41,10 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
         },
         [](const std::string&){return false;}, // no fake hot-swap ROM
         [this](const std::string& path){return requestUserSf2NonRealtime(path);},
+        [this](){
+            std::lock_guard<std::mutex> lock(guiAssetMutex_);
+            return lastSf2LoadError_;
+        },
         [this](){
             std::lock_guard<std::mutex> guard(guiAssetMutex_);
             return selectedUserSf2_;
@@ -162,24 +167,33 @@ ParamValue PLUGIN_API NativeVst3::getParamNormalized(ParamID id){
     return SingleComponentEffect::getParamNormalized(id);
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
-    if(path.empty()||path.size()>4096)return false;
+    const auto reject=[this](const std::string& why){
+        std::lock_guard<std::mutex> lock(guiAssetMutex_);
+        lastSf2LoadError_=why;
+        return false;
+    };
+    if(path.empty()||path.size()>4096)
+        return reject("Invalid SoundFont path.");
     // A candidate must be a *real* complete SoundFont with valid 'phdr':
     // never fabricate 128 presets from an owner's 77-entry sparse bank.
     std::string err;
     AWE125::PresetCatalog parsed;
-    if(!parsed.LoadSoundFont(path,err))return false;
+    if(!parsed.LoadSoundFont(path,err))
+        return reject(err.empty()?"Invalid SoundFont file.":err);
     AWE125::PresetCatalog nextCatalog;
     nextCatalog.SetOriginalCreativeMidiNumbers();
     if(nextCatalog.AppendCreativeMelodicUserOneFromSource(parsed)==0)
-        return false;
+        return reject("No playable melodic presets in this SoundFont.");
     // A second complete original-chip/SBK/selected SF2 is built offline,
     // including 28 MiB RAM upload, preallocated 64-frame source FIFO and FX.
     // Neither audio render thread nor the old Synth is touched.
     const auto selected=std::filesystem::u8path(path);
     std::array<std::uint8_t,32> fingerprint{};
-    if(!sha256FileNonRealtime(selected,fingerprint))return false;
+    if(!sha256FileNonRealtime(selected,fingerprint))
+        return reject("Cannot read SoundFont file.");
     std::unique_ptr<Synth> ready;
-    if(!buildInstrumentNonRealtime(selected,ready,err))return false;
+    if(!buildInstrumentNonRealtime(selected,ready,err))
+        return reject(err.empty()?"Could not prepare SoundFont.":err);
     // Staging queue is single-slot; superseded *unconsumed* candidate can
     // be deleted here on the GUI thread, NEVER in process().
     delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
@@ -193,6 +207,7 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
       selectedUserSf2_=path;
       selectedUserSha256_=fingerprint;
       userChoseSf2_=true;
+      lastSf2LoadError_.clear();
     }
     guiCatalogRevision_.fetch_add(1u,std::memory_order_release);
     return true;

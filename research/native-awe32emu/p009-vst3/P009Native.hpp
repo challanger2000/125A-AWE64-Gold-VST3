@@ -98,6 +98,8 @@ private:
     std::atomic<std::uint64_t> guiCatalogRevision_{1};
     std::mutex guiAssetMutex_{};
     std::string selectedUserSf2_{};
+    // GUI-thread-visible last load error; guarded by guiAssetMutex_.
+    std::string lastSf2LoadError_{};
     std::array<std::uint8_t,32> selectedUserSha256_{};
     bool userChoseSf2_=false;
     // UI-side atomic mirrors of real audio-thread control states for safe DAW getState.

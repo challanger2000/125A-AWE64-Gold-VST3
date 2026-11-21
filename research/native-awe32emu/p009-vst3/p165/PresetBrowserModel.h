@@ -20,7 +20,7 @@ public:
     };
     static const char* HardwareDescription(int engine) noexcept {
         switch(engine) {
-        case 0:return "Sample-Synthesizer mit Wave-ROM und SoundFonts (SF2).";
+        case 0:return "Sample synthesizer with wave ROM and SoundFonts (SF2).";
         case 1:return "Originaler Yamaha-FM-Synthesizer für klassische Sound-Blaster-Klänge.";
         case 2:return "Creatives eigener, OPL3-kompatibler FM-Synthesizer.";
         default:return "Unbekannte Hardware.";

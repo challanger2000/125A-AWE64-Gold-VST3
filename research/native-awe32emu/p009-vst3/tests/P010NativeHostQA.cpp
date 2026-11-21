@@ -1836,8 +1836,9 @@ void verifyP165HostBankSupersedesOldCC0(
          first.getSize()==sizeof(Saved),"F05 CC0 state lost");
    Saved initially{};
    std::memcpy(&initially,first.getData(),sizeof(initially));
-   check(initially.advancedStates[0]==1u&&initially.bank==0u,
-         "F05 MIDI CC0 override not recorded independently of GUI bank");
+   check(initially.advancedStates[0]==1u&&initially.bank==1u&&
+         replay.controller->getParamNormalized(1002u)==.5,
+         "F05 MIDI CC0 bank1 not reflected in controller and engine state");
    // An explicit same-bank host edit must win over this prior CC0.
    params.clearQueue();qIndex=0;point=0;
    q=params.addParameterData(1002u,qIndex); // host Bank CH1
