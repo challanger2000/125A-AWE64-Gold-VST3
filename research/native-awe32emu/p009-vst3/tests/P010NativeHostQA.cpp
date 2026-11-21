@@ -2286,6 +2286,193 @@ void verifyP165RealChipFxSendAndPresetPCM(
 }
 
 }
+
+// P175 genuine original Win95 EMU8000 32-hardware-voice oracle (not 32 MIDI
+// keys through a fake/simulated mixer). A dedicated public SF2 has exactly ONE
+// active sample region and a loop per key: all 32 hardware voices can therefore
+// be driven independently. Each of 33 different notes is released in an
+// independent fresh VST3, then compared SAMPLE-BY-SAMPLE to an identically
+// timed still-held reference. Exactly 32 keys MUST alter the 86Box chip PCM;
+// exactly one stolen key MUST NOT. This would FAIL if the host only played
+// 16 or 30 voices, or if it played 33.
+void verifyP175ThirtyTwoOriginalChipVoicesAndSustain(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  check(fs::is_regular_file(resources/"voice32.sf2"),
+        "P175 single-zone original-chip SF2 fixture missing");
+  ownerBank(resources,"voice32.sf2");
+  constexpr int kStartNote=36;
+  constexpr int kProbeNotes=33;
+  constexpr int kAudioFrames=512;
+  constexpr int kWarmBlocks=8;
+  constexpr int kObserveBlocks=8;
+  constexpr float kVelocity=.18f;
+  const auto makeNote=[&](bool on,int pitch,int offset){
+    Event e{};e.sampleOffset=offset;e.busIndex=0;
+    if(on){
+      e.type=Event::kNoteOnEvent;e.noteOn.channel=0;
+      e.noteOn.pitch=static_cast<int16>(pitch);
+      e.noteOn.velocity=kVelocity;
+    }else{
+      e.type=Event::kNoteOffEvent;e.noteOff.channel=0;
+      e.noteOff.pitch=static_cast<int16>(pitch);
+    }
+    return e;
+  };
+  const auto render=[&](int noteOffKey){
+    Plugin unit(factory,id,host);
+    unit.start(0,1,44100.);
+    EventList events(64);
+    std::array<float,kAudioFrames> left{},right{};
+    float* ptr[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
+    ProcessData pd{};pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
+    pd.numSamples=kAudioFrames;pd.numOutputs=1;pd.outputs=&out;
+    pd.inputEvents=&events;
+    for(int block=0;block<kWarmBlocks;++block){
+      events.clear();
+      if(block==0)for(int i=0;i<kProbeNotes;++i){
+        Event on=makeNote(true,kStartNote+i,8+8*i);
+        check(events.addEvent(on)==kResultOk,
+              "P175 host could not deliver 33 separately timed NoteOns");
+      }
+      check(unit.processor->process(pd)==kResultOk,
+            "P175 original chip 33-note pre-roll callback failed");
+    }
+    std::vector<float> pcm;
+    pcm.reserve(2u*kAudioFrames*kObserveBlocks);
+    for(int block=0;block<kObserveBlocks;++block){
+      events.clear();
+      if(block==0 && noteOffKey>=0){
+        Event off=makeNote(false,noteOffKey,3);
+        check(events.addEvent(off)==kResultOk,
+              "P175 host NoteOff voice counterfactual enqueue failed");
+      }
+      check(unit.processor->process(pd)==kResultOk,
+            "P175 original chip voice-release callback failed");
+      for(int i=0;i<kAudioFrames;++i){
+        check(std::isfinite(left[i]) && std::isfinite(right[i]),
+              "P175 actual 86Box chip produced non-finite PCM");
+        pcm.push_back(left[i]);pcm.push_back(right[i]);
+      }
+    }
+    return pcm;
+  };
+  const auto baseline=render(-1);
+  double energy=0.;
+  unsigned clips=0;
+  for(float sample:baseline){
+    energy+=double(sample)*sample;
+    if(std::abs(sample)>=.9999f)++clips;
+  }
+  check(energy>0.001,
+        "P175 33-note original chip counterfactual would be vacuous (silent)");
+  check(clips<baseline.size()/50u,
+        "P175 33-note original chip test invalid: excessive saturation");
+  // Negative oracle: NoteOff for a pitch that never started MUST NOT
+  // perturb original-chip PCM or the host parameters.
+  check(render(kStartNote-1)==baseline,
+        "P175 absent-note NoteOff wrongly changed original-chip sound");
+  int audibleNotes=0,stolenNotes=0;
+  for(int key=0;key<kProbeNotes;++key){
+    const auto offPcm=render(kStartNote+key);
+    check(offPcm.size()==baseline.size(),
+          "P175 independent VST3 note-off comparison length mismatch");
+    double difference=0.;
+    for(std::size_t i=0;i<baseline.size();++i){
+      const double d=double(offPcm[i])-double(baseline[i]);
+      difference+=d*d;
+    }
+    if(difference>1e-10)++audibleNotes;
+    else ++stolenNotes;
+    std::printf("P175_ORIGINAL_CHIP_HW_VOICE pitch=%d note_off_difference=%.10f active=%d\n",
+                kStartNote+key,difference,difference>1e-10);
+  }
+  check(audibleNotes==32 && stolenNotes==1,
+        "P175 physical 32-voice limit or original Win95 voice stealing violated");
+  std::printf("P175_32_HW_VOICES active=%d stolen=%d baseline_energy=%.8f clips=%u\n",
+              audibleNotes,stolenNotes,energy,clips);
+
+  // CC64 must gate NoteOff on ALL 32 voices, not merely one note or channel.
+  // Two independent VST3 instances process identical NoteOns and exact
+  // sample times. One gets Sustain Down + all NoteOffs; the other stays
+  // physically held. PCM must remain bit-identical while the pedal is down;
+  // pedal-up must release the actually held voices.
+  Plugin held(factory,id,host),pedal(factory,id,host);
+  held.start(0,1,44100.);pedal.start(0,1,44100.);
+  const auto mapping=FUnknownPtr<IMidiMapping>(pedal.controller);
+  check(bool(mapping),"P175 pedal controller interface absent");
+  ParamID cc64=0;
+  check(mapping->getMidiControllerAssignment(0,0,kCtrlSustainOnOff,cc64)==kResultTrue,
+        "P175 genuine VST3 CC64 sustain controller not mapped");
+  std::array<float,kAudioFrames> holdL{},holdR{},pedalL{},pedalR{};
+  float* hch[2]={holdL.data(),holdR.data()};
+  float* pch[2]={pedalL.data(),pedalR.data()};
+  AudioBusBuffers outH{},outP{};
+  outH.numChannels=outP.numChannels=2;
+  outH.channelBuffers32=hch;outP.channelBuffers32=pch;
+  EventList notesH(64),notesP(64);
+  ParameterChanges changes(4);
+  ProcessData hd{},pd{};
+  hd.processMode=pd.processMode=kRealtime;
+  hd.symbolicSampleSize=pd.symbolicSampleSize=kSample32;
+  hd.numSamples=pd.numSamples=kAudioFrames;
+  hd.numOutputs=pd.numOutputs=1;
+  hd.outputs=&outH;pd.outputs=&outP;
+  hd.inputEvents=&notesH;pd.inputEvents=&notesP;
+  pd.inputParameterChanges=&changes;
+  double heldEnergy=0.,afterPedalDifference=0.,afterReleaseEnergy=0.;
+  for(int block=0;block<40;++block){
+    notesH.clear();notesP.clear();changes.clearQueue();
+    if(block==0)for(int i=0;i<32;++i){
+      const auto on=makeNote(true,kStartNote+i,8+8*i);
+      check(notesH.addEvent(on)==kResultOk && notesP.addEvent(on)==kResultOk,
+            "P175 32-voice sustain host NoteOn queue failed");
+    }
+    if(block==5 || block==16){
+      int32 queue=0,point=0;
+      auto* q=changes.addParameterData(cc64,queue);
+      check(q && q->addPoint(0,block==5?1.:0.,point)==kResultOk,
+            "P175 VST3 sustain-pedal sample-timed host queue failed");
+    }
+    if(block==6)for(int i=0;i<32;++i){
+      const auto off=makeNote(false,kStartNote+i,8+8*i);
+      check(notesP.addEvent(off)==kResultOk,
+            "P175 32-note physical pedal-held NoteOff enqueue failed");
+    }
+    check(held.processor->process(hd)==kResultOk &&
+          pedal.processor->process(pd)==kResultOk,
+          "P175 genuine original-chip 32-voice sustain callback failed");
+    for(int i=0;i<kAudioFrames;++i){
+      for(float sample:{holdL[i],holdR[i],pedalL[i],pedalR[i]})
+        check(std::isfinite(sample),"P175 32-voice pedal PCM nonfinite");
+      if(block>=7 && block<=15){
+        check(holdL[i]==pedalL[i] && holdR[i]==pedalR[i],
+              "P175 CC64 pedal-down changed held original-chip PCM after NoteOff");
+        heldEnergy+=double(holdL[i])*holdL[i]+double(holdR[i])*holdR[i];
+      }
+      if(block>=20 && block<=38){
+        const double dL=double(holdL[i])-double(pedalL[i]);
+        const double dR=double(holdR[i])-double(pedalR[i]);
+        afterPedalDifference+=dL*dL+dR*dR;
+        if(block>=32)
+          afterReleaseEnergy+=double(pedalL[i])*pedalL[i]+
+                              double(pedalR[i])*pedalR[i];
+      }
+    }
+  }
+  check(heldEnergy>0.001,
+        "P175 CC64 pedal-down control was silent, no valid hold oracle");
+  check(afterPedalDifference>1e-7,
+        "P175 sustain-pedal release did not change 32-note chip PCM");
+  check(afterReleaseEnergy<heldEnergy*.05,
+        "P175 voices remained stuck after releasing the actual CC64 pedal");
+  ownerBank(resources,nullptr);
+  std::printf("P175_32_VOICE_CC64 held=%.8f post_pedal_diff=%.8f post_release=%.8f\n",
+              heldEnergy,afterPedalDifference,afterReleaseEnergy);
+  std::puts("P175_ACTUAL_WIN64_VST3_ORIGINAL_EMU8000_EXACT_32_VOICE_STEAL_SUSTAIN_PASS");
+}
+
 // P174 exact EMU8000 physical sample RAM bounds and *active* rejection:
 // Win95 original chip reserves 16 words, public SBK uses 1536 PCM words
 // plus 8 guard words, and a newly loaded SF2 adds another 8 guard words.
@@ -2522,6 +2709,7 @@ int main(int argc,char** argv){
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
+    verifyP175ThirtyTwoOriginalChipVoicesAndSustain(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");

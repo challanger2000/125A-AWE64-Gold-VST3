@@ -110,6 +110,32 @@ pdta=(
                 shdr("EOS",2*sample_length,2*sample_length,
                      2*sample_length,2*sample_length))
 )
+
+# P175 32-voice hardware validation uses one active SF2 zone PER NOTE.
+# The normal public fixture deliberately has two zones, which consumes
+# 2 physical EMU8000 voices per key and would falsely report 16-note polyphony.
+# This conditional rewrites ONLY the --single test bank; every older P010-
+# P174 SoundFont fixture remains byte-for-byte unchanged.
+if "--single" in sys.argv[2:]:
+    if not sustain or wet or expressive or alternate:
+        raise SystemExit("--single requires --sustain only")
+    pdta=(
+        ck(b"phdr",phdr("OneVoiceSustain",0,bank_number,0)+
+                      phdr("EOP",0,0,1))+
+        ck(b"pbag",bag(0)+bag(1))+
+        ck(b"pmod",bytes(10))+
+        ck(b"pgen",gen(41,0)+gen(0,0))+
+        ck(b"inst",inst("OneVoiceInstrument",0)+inst("EOI",1))+
+        ck(b"ibag",bag(0)+bag(4))+
+        ck(b"imod",bytes(10))+
+        ck(b"igen",gen(37,0)+gen(38,-7200)+gen(54,1)+gen(53,0)+gen(0,0))+
+        ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
+                    shdr("HarmonicWave",sample_length,2*sample_length,
+                         sample_length+64,2*sample_length-128)+
+                    shdr("EOS",2*sample_length,2*sample_length,
+                         2*sample_length,2*sample_length))
+    )
+
 info=ck(b"ifil",struct.pack("<HH",2,1))+ck(b"INAM",b"P009 Public Two Layer QA\0")
 bank=ls(b"INFO",info)+ls(b"sdta",ck(b"smpl",smpl))+ls(b"pdta",pdta)
 data=ck(b"RIFF",b"sfbk"+bank)
