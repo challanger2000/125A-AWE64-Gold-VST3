@@ -2323,7 +2323,7 @@ void verifyP175ThirtyTwoOriginalChipVoicesAndSustain(
     Plugin unit(factory,id,host);
     unit.start(0,1,44100.);
     EventList events(64);
-    std::array<float,kAudioFrames> left{},right{};
+    std::array<float,512> left{},right{};
     float* ptr[2]={left.data(),right.data()};
     AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=ptr;
     ProcessData pd{};pd.processMode=kRealtime;pd.symbolicSampleSize=kSample32;
@@ -2405,7 +2405,7 @@ void verifyP175ThirtyTwoOriginalChipVoicesAndSustain(
   ParamID cc64=0;
   check(mapping->getMidiControllerAssignment(0,0,kCtrlSustainOnOff,cc64)==kResultTrue,
         "P175 genuine VST3 CC64 sustain controller not mapped");
-  std::array<float,kAudioFrames> holdL{},holdR{},pedalL{},pedalR{};
+  std::array<float,512> holdL{},holdR{},pedalL{},pedalR{};
   float* hch[2]={holdL.data(),holdR.data()};
   float* pch[2]={pedalL.data(),pedalR.data()};
   AudioBusBuffers outH{},outP{};
@@ -2425,7 +2425,7 @@ void verifyP175ThirtyTwoOriginalChipVoicesAndSustain(
   for(int block=0;block<40;++block){
     notesH.clear();notesP.clear();changes.clearQueue();
     if(block==0)for(int i=0;i<32;++i){
-      const auto on=makeNote(true,kStartNote+i,8+8*i);
+      auto on=makeNote(true,kStartNote+i,8+8*i);
       check(notesH.addEvent(on)==kResultOk && notesP.addEvent(on)==kResultOk,
             "P175 32-voice sustain host NoteOn queue failed");
     }
@@ -2436,7 +2436,7 @@ void verifyP175ThirtyTwoOriginalChipVoicesAndSustain(
             "P175 VST3 sustain-pedal sample-timed host queue failed");
     }
     if(block==6)for(int i=0;i<32;++i){
-      const auto off=makeNote(false,kStartNote+i,8+8*i);
+      auto off=makeNote(false,kStartNote+i,8+8*i);
       check(notesP.addEvent(off)==kResultOk,
             "P175 32-note physical pedal-held NoteOff enqueue failed");
     }
