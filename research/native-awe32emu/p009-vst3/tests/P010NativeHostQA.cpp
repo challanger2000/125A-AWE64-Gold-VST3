@@ -3617,7 +3617,7 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
     data.symbolicSampleSize=kSample32;data.numSamples=1024;
     data.numOutputs=1;data.outputs=&out;
     data.inputEvents=&events;data.inputParameterChanges=&changes;
-    std::vector<float> tail;
+    std::vector<float> firstReleaseWindow,tail;
     for(int block=0;block<85;++block){
       events.clear();changes.clearQueue();
       if(block==0){
@@ -3637,7 +3637,7 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
         check(bank&&bank->addPoint(0,0.,pi)==kResultOk,
               "P186 route change between NoteOn and NoteOff missing");
       }
-      if(releaseNotes && (block==5||block==6)){
+      if(releaseNotes && (block==5||block==20)){
         Event off{};off.type=Event::kNoteOffEvent;
         off.sampleOffset=15;off.noteOff.pitch=60;
         off.noteOff.channel=block==5?0:9;
@@ -3647,24 +3647,32 @@ void verifyP186TwoNoteIDsAfterBankSwitch(
       }
       check(unit.processor->process(data)==kResultOk,
             "P186 NoteID routed original-chip PCM callback rejected");
-      if(block>=15)
+      if(block>=8)
         for(int i=0;i<1024;++i){
           check(std::isfinite(left[i])&&std::isfinite(right[i]),
                 "P186 NoteID route nonfinite PCM");
-          tail.push_back(left[i]);tail.push_back(right[i]);
+          if(block<19){
+            firstReleaseWindow.push_back(left[i]);
+            firstReleaseWindow.push_back(right[i]);
+          }else if(block>=30){
+            tail.push_back(left[i]);tail.push_back(right[i]);
+          }
         }
     }
-    return tail;
+    return std::make_pair(std::move(firstReleaseWindow),std::move(tail));
   };
   const auto released=renderScenario(true);
   const auto held=renderScenario(false);
-  check(released!=held,
-        "P186 two independent NoteOff IDs did not release any original voices");
+  // First ID's release must NOT cut off the still-held second voice on
+  // the same physical CH10/pitch. The old handler released both here.
+  check(released.first==held.first,
+        "P186 first NoteID released the OTHER held CH10 note");
   const auto energy=[&](const std::vector<float>& pcm){
     double sum=0.;for(float x:pcm)sum+=double(x)*x;
     return sum;
   };
-  check(energy(held)>0.001 && energy(released)<energy(held)*.90,
+  check(energy(held.second)>0.001 &&
+        energy(released.second)<energy(held.second)*.90,
         "P186 overlapping NoteIDs remained hanging after last physical release");
   ownerBank(resources,nullptr);
   std::puts("P186_TWO_DISTINCT_NOTEIDS_BANK_SWITCH_NO_STUCK_CH10_VOICES_PASS");
@@ -3700,6 +3708,216 @@ void verifyP186ExplicitSF2SHAActivationRejectsChangedFile(
   }catch(...){fs::remove(testPath);throw;}
   fs::remove(testPath);
   std::puts("P186_PINNED_OWNER_SF2_SHA_ACTIVATION_TAMPER_FAIL_CLOSED_PASS");
+}
+
+// Prior editor-only values must not survive as a stale V5 SEND/Cutoff
+// override when newer genuine VST3 audio parameter points were processed.
+void verifyP186CutoffAndSendRestoreActualPCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"expressive.sf2");
+  Plugin unit(factory,id,host);unit.start(0,1,44100.);
+  check(unit.controller->setParamNormalized(1108u,.20)==kResultOk &&
+        unit.controller->setParamNormalized(1110u,.65)==kResultOk &&
+        unit.controller->setParamNormalized(1420u,0.)==kResultOk,
+        "P186 could not seed cutoff and explicit ORIGINAL mode");
+  ParameterChanges values(2);
+  int32 qi=0,pi=0;
+  auto* cutoff=values.addParameterData(1108u,qi);
+  check(cutoff&&cutoff->addPoint(0,.80,pi)==kResultOk,
+        "P186 host cutoff override missing");
+  auto* send=values.addParameterData(1110u,qi);
+  check(send&&send->addPoint(0,.40,pi)==kResultOk,
+        "P186 delayed SEND knob automation point missing");
+  ProcessData pd{};pd.processMode=kRealtime;
+  pd.symbolicSampleSize=kSample32;pd.numSamples=0;
+  pd.inputParameterChanges=&values;
+  check(unit.processor->process(pd)==kResultOk,
+        "P186 filter/send audio parameter flush failed");
+  MemoryStream snap;
+  check(unit.component->getState(&snap)==kResultOk &&
+        snap.getSize()==648u,
+        "P186 no project V5 after filter/send automation");
+  const auto* bytes=reinterpret_cast<const std::uint8_t*>(snap.getData());
+  auto read16=[&](unsigned at)->unsigned {
+      return unsigned(bytes[at]) | (unsigned(bytes[at+1u])<<8u);
+  };
+  check(bytes && read16(588u+8u*2u)==8000u &&
+        read16(588u+10u*2u)==4000u &&
+        read16(644u)==0x0204u &&
+        unit.controller->getParamNormalized(1420u)==0.,
+        "P186 saved older Cutoff or wrongly switched explicit ORIGINAL mode");
+  // Original send must have NO extra manual hardware SEND. On an original
+  // wet expressive bank it must reproduce exact dry/default chip PCM when
+  // cutoff is made the same; the active and reopened same-V5 PCM must match.
+  Plugin fresh(factory,id,host);fresh.start(0,1,44100.);
+  MemoryStream restore;int32 written=0;
+  check(restore.write(snap.getData(),648,&written)==kResultOk &&
+        written==648 &&
+        restore.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        fresh.component->setState(&restore)==kResultOk,
+        "P186 V5 cutoff/send project restore rejected");
+  const auto active=p015Play(unit,0,60);
+  const auto restarted=p015Play(fresh,0,60);
+  check(active==restarted,
+        "P186 live cutoff/SEND original-chip PCM differs after V5 reopening");
+  ownerBank(resources,nullptr);
+  std::puts("P186_SF2_FILTER_CUTOFF_EXPLICIT_ORIGINAL_SEND_STATE_PCM_RECALL_PASS");
+}
+
+// P186 independent Codex live-audio save challenge: do not infer project
+// freshness from a zero-frame test. Keep a real original-chip looping voice
+// sounding while the entire MIDI/GUI/FX tuple alternates under host points.
+void verifyP186AudibleAtomicStateAndFreshness(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"voice32.sf2");
+  Plugin unit(factory,id,host);unit.start(0,1,44100.);
+  // Host-side edits deliberately contradict upcoming audio-point values.
+  check(unit.controller->setParamNormalized(1001u,.12)==kResultOk &&
+        unit.controller->setParamNormalized(1108u,.11)==kResultOk &&
+        unit.controller->setParamNormalized(1110u,.10)==kResultOk &&
+        unit.controller->setParamNormalized(1400u,1./7.)==kResultOk &&
+        unit.controller->setParamNormalized(1420u,0.)==kResultOk,
+        "P186 could not seed old GUI Cutoff/SEND/FX state");
+  const auto processState=[&](bool b,bool startNote)->double {
+    ParameterChanges changes(8);
+    const auto add=[&](ParamID id,double v){
+      int32 qi=0,pi=0;
+      auto* q=changes.addParameterData(id,qi);
+      check(q && q->addPoint(0,v,pi)==kResultOk,
+            "P186 genuine VST3 audio automation point missing");
+    };
+    add(1000u,b?8./127.:7./127.);
+    add(1001u,b?.875:.375);
+    add(1108u,b?.75:.25); // ACTUAL filter cutoff, not AMP Attack
+    add(1110u,b?.60:.20);
+    add(1400u,b?6./7.:5./7.);
+    add(1420u,b?0.:1.);
+    std::array<float,128> l{},r{};
+    float* ch[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ch;
+    EventList note;
+    if(startNote){
+      Event event{};event.type=Event::kNoteOnEvent;
+      event.sampleOffset=12;event.noteOn.channel=0;
+      event.noteOn.pitch=60;event.noteOn.velocity=.95f;
+      event.noteOn.noteId=900;
+      check(note.addEvent(event)==kResultOk,
+            "P186 sustained source voice NoteOn rejected");
+    }
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=128;
+    pd.numOutputs=1;pd.outputs=&bus;
+    pd.inputParameterChanges=&changes;pd.inputEvents=&note;
+    check(unit.processor->process(pd)==kResultOk,
+          "P186 real sounding callback failed");
+    double energy=0.;
+    for(int i=0;i<128;++i){
+      check(std::isfinite(l[i])&&std::isfinite(r[i]),
+            "P186 nonfinite original-chip PCM");
+      energy+=double(l[i])*l[i]+double(r[i])*r[i];
+    }
+    return energy;
+  };
+  const auto save=[&](){
+    MemoryStream memory;
+    check(unit.component->getState(&memory)==kResultOk,
+          "P186 real audible getState rejected");
+    const auto size=static_cast<std::size_t>(memory.getSize());
+    const auto* raw=reinterpret_cast<const std::uint8_t*>(memory.getData());
+    check(raw && size==648u,"P186 audible full GUI V5 state missing");
+    return std::vector<std::uint8_t>(raw,raw+size);
+  };
+  double initialEnergy=processState(false,true);
+  const auto A=save();
+  initialEnergy+=processState(true,false);
+  const auto B=save();
+  check(A!=B && A[644]==5u && A[645]==1u &&
+                 B[644]==6u && B[645]==2u,
+        "P186 independent audible A/B ORIGINAL vs MANUAL V5 oracle invalid");
+  initialEnergy+=processState(false,false);
+  std::atomic<int> published{-1},ack{-1};
+  std::atomic<bool> done{false},healthy{true};
+  std::atomic<unsigned> stale{0},saveFailures{0};
+  double handshakeEnergy=0.;
+  constexpr int exchanges=256;
+  std::thread audio([&](){
+    try{
+      for(int i=0;i<exchanges;++i){
+        handshakeEnergy+=processState((i&1)!=0,false);
+        published.store(i,std::memory_order_release);
+        while(ack.load(std::memory_order_acquire)<i && healthy.load())
+          std::this_thread::yield();
+        if(!healthy.load())break;
+      }
+    }catch(...){healthy.store(false,std::memory_order_release);}
+    done.store(true,std::memory_order_release);
+  });
+  std::thread observer([&](){
+    for(int i=0;i<exchanges;++i){
+      while(published.load(std::memory_order_acquire)<i && !done.load())
+        std::this_thread::yield();
+      if(published.load(std::memory_order_acquire)<i)break;
+      MemoryStream memory;
+      if(unit.component->getState(&memory)!=kResultOk){
+        saveFailures.fetch_add(1u);
+      }else{
+        const auto& expected=(i&1)?B:A;
+        if(static_cast<std::size_t>(memory.getSize())!=expected.size() ||
+           !memory.getData() ||
+           std::memcmp(memory.getData(),expected.data(),expected.size())!=0)
+          stale.fetch_add(1u);
+      }
+      ack.store(i,std::memory_order_release);
+    }
+  });
+  audio.join();observer.join();
+  check(healthy.load() && ack.load()==exchanges-1 &&
+        stale.load()==0u && saveFailures.load()==0u &&
+        initialEnergy+handshakeEnergy>0.001,
+        "P186 a settled sounding callback produced stale/mixed host state");
+  // Now REMOVE the barrier: getState can race with an actual in-flight
+  // original-chip render callback and must return only an entire A or B.
+  std::atomic<bool> stop{false};
+  std::atomic<unsigned> mixed{0},rejected{0},accepted{0};
+  double concurrentEnergy=0.;
+  std::thread realAudio([&](){
+    try{
+      for(int i=0;i<2500;++i)
+        concurrentEnergy+=processState((i&1)!=0,false);
+    }catch(...){healthy.store(false,std::memory_order_release);}
+    stop.store(true,std::memory_order_release);
+  });
+  std::thread saver([&](){
+    while(!stop.load(std::memory_order_acquire)){
+      MemoryStream memory;
+      if(unit.component->getState(&memory)!=kResultOk){
+        rejected.fetch_add(1u);
+      }else{
+        const auto sz=static_cast<std::size_t>(memory.getSize());
+        const auto* raw=reinterpret_cast<const std::uint8_t*>(memory.getData());
+        const bool matchA=raw && sz==A.size() &&
+             std::memcmp(raw,A.data(),sz)==0;
+        const bool matchB=raw && sz==B.size() &&
+             std::memcmp(raw,B.data(),sz)==0;
+        if(!matchA&&!matchB)mixed.fetch_add(1u);
+        accepted.fetch_add(1u);
+      }
+    }
+  });
+  realAudio.join();saver.join();
+  const auto final=save();
+  check(healthy.load() && accepted.load()>=100u &&
+        rejected.load()==0u && mixed.load()==0u &&
+        concurrentEnergy>0.001 && final==B,
+        "P186 sounding automation mixed, stale or dropped V5 project saves");
+  std::printf("P186_AUDIBLE_V5_SAVES handshake=%d stale=%u"
+              " unpaced_accepted=%u mixed=%u rejected=%u energy=%.6f\n",
+              exchanges,stale.load(),accepted.load(),mixed.load(),
+              rejected.load(),initialEnergy+handshakeEnergy+concurrentEnergy);
+  ownerBank(resources,nullptr);
+  std::puts("P186_LIVE_ORIGINAL_CHIP_SOUNDING_AUTOMATION_STATE_FRESH_AND_ATOMIC_PASS");
 }
 
 int main(int argc,char** argv){
@@ -3758,6 +3976,8 @@ int main(int argc,char** argv){
     verifyP186CH10ProgramAndCC0DrumRouting(factory,cls->ID(),host.get(),resources);
     verifyP186TwoNoteIDsAfterBankSwitch(factory,cls->ID(),host.get(),resources);
     verifyP186ExplicitSF2SHAActivationRejectsChangedFile(factory,cls->ID(),host.get(),resources);
+    verifyP186CutoffAndSendRestoreActualPCM(factory,cls->ID(),host.get(),resources);
+    verifyP186AudibleAtomicStateAndFreshness(factory,cls->ID(),host.get(),resources);
     verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
     verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);

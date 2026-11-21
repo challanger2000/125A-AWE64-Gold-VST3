@@ -28,6 +28,33 @@
 - Other untested controls and host MIDI paths remain NOT VERIFIED.
 - Fender Studio Pro / owner's ASIO device and physical original-hardware PCM parity remain NOT VERIFIED.
 
+## Stronger live-audio / settled-snapshot counterchecks
+
+The first P186 synthetic Windows VST3-host execution covers raw MIDI CC0,
+independent CH10 program selection, RPN NULL and NRPN Data Entry, overlapping
+NoteIDs, and SF2 SHA activation. A second exact-commit run adds two deliberately
+harder negative oracles:
+
+1. **Distinct NoteIDs on physical CH10:** let two overlapping notes start,
+   release only the first ID, then compare **bit-exact PCM with both notes
+   held** for a fixed intermediate window. Only after the second note's
+   separate delayed release should sustained-loop PCM energy decay. This
+   catches both *prematurely killing the other note* and *stuck last note*.
+2. **Actively sounding filter/SEND/FX stress:** `verifyP186CutoffAndSendRestoreActualPCM`
+   sends an older editor Cutoff/SEND value and later contradictory real
+   VST3 automation. Assert actual V5 Cutoff 80%, SEND knob 40% and explicit
+   ORIGINAL mode. Save/reopen PCM must match the original EMU8000 chip.
+   `verifyP186AudibleAtomicStateAndFreshness` sustains a real synthetic
+   looped chip voice while rapidly alternating full controller/GUI/FX states.
+   Its 256-exchange producer/observer handshake detects **outdated successful
+   saves after an audio callback has completed** (no in-flight ambiguity).
+   Its separate 2,500-block unpaced audio/save overlap detects *mixed* or
+   *rejected* snapshots, while total nonzero PCM proves the chip was sounding.
+
+Both new cases remain **NOT VERIFIED until a source-SHA-matched Windows CI
+actually runs them**, regardless of previously green P185 stress statistics.
+
 ## Evidence
 
-Evidence must be filled with actual commit-matched Windows runs and their output markers. No test may be marked PASS solely by compilation or the 47/47 validator.
+Source SHA, specific Windows logs and all test markers are required. No test
+may be marked PASS solely by compilation or the 47/47 validator.

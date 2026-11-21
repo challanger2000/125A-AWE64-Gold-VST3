@@ -291,7 +291,9 @@ jobs:
               'P186_ORIGINAL_CHIP_RPN_NULL_NRPN_DATA_ENTRY_BEND12_RECALL_PCM_PASS',
               'P186_CH1_CC0_CH10_PROGRAM_ISOLATED_REAL_CHIP_DRUM_PCM_PASS',
               'P186_TWO_DISTINCT_NOTEIDS_BANK_SWITCH_NO_STUCK_CH10_VOICES_PASS',
-              'P186_PINNED_OWNER_SF2_SHA_ACTIVATION_TAMPER_FAIL_CLOSED_PASS'
+              'P186_PINNED_OWNER_SF2_SHA_ACTIVATION_TAMPER_FAIL_CLOSED_PASS',
+              'P186_SF2_FILTER_CUTOFF_EXPLICIT_ORIGINAL_SEND_STATE_PCM_RECALL_PASS',
+              'P186_LIVE_ORIGINAL_CHIP_SOUNDING_AUTOMATION_STATE_FRESH_AND_ATOMIC_PASS'
             )){
               if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
                 throw "P174 missing critical actual Windows VST3 positive+negative gate: $gate"
