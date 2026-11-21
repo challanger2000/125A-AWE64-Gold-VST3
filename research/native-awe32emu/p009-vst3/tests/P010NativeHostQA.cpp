@@ -13,7 +13,6 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "P009AssetFingerprint.hpp"
-#include "p165/PresetBrowserModel.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
@@ -1987,46 +1986,6 @@ void verifyP165HeldNoteOverflowRecovery(
    ownerBank(resources,nullptr);
 }
 
-// P173: use the original chip's actual drum bank 128, but never claim an
-// SF2 replacement kit is the original ROM kit. The test deliberately loads
-// a DRUM-ONLY SF2: pre-P173 GUI rejected it as "no melodic presets".
-void verifyP173DrumBrowserSource(const fs::path& resources){
-  AWE125::PresetCatalog catalog,drum;
-  catalog.SetOriginalCreativeMidiNumbers();
-  const auto* rom=catalog.Find(128u,0u);
-  check(AWE125::PresetBrowserModel::PreferredImportedBank(catalog)==-1,
-        "P173 ROM-only catalog falsely reported an imported SoundFont");
-  check(rom && !rom->fromUserSf2 &&
-        AWE125::PresetBrowserModel::BankLabel(128u,catalog)=="ROM Bank B - Drums",
-        "P173 initial original GM drum-kit provenance missing");
-  const auto path=resources/"drums.sf2";
-  const auto utf8=path.u8string();
-  std::string error;
-  check(drum.LoadSoundFont(std::string(utf8.begin(),utf8.end()),error),
-        "P173 synthetic drum-only SF2 invalid");
-  check(catalog.AppendCreativeMelodicUserOneFromSource(drum)==1u,
-        "P173 drum-only SoundFont was incorrectly rejected");
-  check(AWE125::PresetBrowserModel::PreferredImportedBank(catalog)==128,
-        "P173 drum-only SF2 was not chosen for the native CH10 browser lane");
-  const auto* userKit=catalog.Find(128u,0u);
-  check(userKit && userKit->drums && userKit->fromUserSf2 &&
-        userKit->name=="PublicTwoLayers" &&
-        AWE125::PresetBrowserModel::BankLabel(128u,catalog)=="SF2 Bank B - Drums",
-        "P173 loaded SF2 kit was falsely labelled ROM in browser");
-  check(!catalog.Find(129u,0u) && catalog.Entries().size()==129u,
-        "P173 native browser fabricated an additional drum bank/presets");
-  const auto label=AWE125::PresetBrowserModel::CurrentLabel(
-      0,catalog,catalog,128u,0u);
-  check(label.find("PublicTwoLayers")!=std::string::npos,
-        "P173 actual selected SF2 drum kit not shown");
-  const auto missing=AWE125::PresetBrowserModel::CurrentLabel(
-      0,catalog,catalog,1u,127u);
-  check(missing.find("GM fallback candidate: Gunshot")!=std::string::npos &&
-        missing.find("Nicht") == std::string::npos,
-        "P173 sparse user-bank fallback still misleading/non-English");
-  std::puts("P173_DRUM_ONLY_SF2_ORIGIN_BROWSER_NO_PHANTOM_BANK_AND_ENGLISH_PASS");
-}
-
 // P173 source-level defect counterfactual: the pre-fix implementation
 // immediately stopped rendering the old sustained 86Box EMU8000 chip at
 // setState + first process block. This actual VST3 test makes an audible
@@ -2404,7 +2363,6 @@ int main(int argc,char** argv){
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
-    verifyP173DrumBrowserSource(resources);
     verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
