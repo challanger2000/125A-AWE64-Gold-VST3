@@ -285,6 +285,12 @@ uint32 PLUGIN_API NativeVst3::getLatencySamples(){
         static_cast<double>(Emu8000Box::kLatencyFrames)*
         sampleRate_/44100.));
 }
+uint32 PLUGIN_API NativeVst3::getTailSamples(){
+    // User SoundFonts and the Creative sustain pedal can hold looping
+    // voices. The original FX can continue after the last note as well.
+    // There is no safe fixed cutoff common to all configured instruments.
+    return kInfiniteTail;
+}
 bool NativeVst3::buildInstrumentNonRealtime(const std::filesystem::path& selected,
                                               std::unique_ptr<Synth>& result,
                                               std::string& error){
@@ -615,24 +621,24 @@ void NativeVst3::dispatch(const Event& event) noexcept{
     if(ch<0||ch>=16||key<0||key>127)return;
     const auto idx=static_cast<std::size_t>(ch)*128+
                    static_cast<std::size_t>(key);
-    const bool drums=bank_==2 && ch==0;
     if(on){
         const float v=event.noteOn.velocity;
         if(!std::isfinite(v))return;
-        // Change to Standard GM CH10 only for CH1 browser audition;
-        // original CH2..CH16 are always separately addressable.
-        redirectedDrumNotes_[idx]=static_cast<unsigned char>(drums);
-        const unsigned route=drums?9u:static_cast<unsigned>(ch);
-        if(v<=0.f)synth_->NoteOff(route,key);
-        else synth_->NoteOn(route,key,
-             static_cast<std::uint8_t>(std::max(1u,toByte(v))));
-    }else{
-        const unsigned route=redirectedDrumNotes_[idx]?9u:
-                              static_cast<unsigned>(ch);
-        redirectedDrumNotes_[idx]=0u;
-        synth_->NoteOff(static_cast<std::uint8_t>(route),
-                       static_cast<std::uint8_t>(key));
+        if(v>0.f){
+            // Redirect CH1 browser audition to Standard GM CH10.
+            const bool drums=bank_==2 && ch==0;
+            redirectedDrumNotes_[idx]=static_cast<unsigned char>(drums);
+            const auto route=static_cast<std::uint8_t>(drums?9:ch);
+            synth_->NoteOn(route,static_cast<std::uint8_t>(key),
+                static_cast<std::uint8_t>(std::max(1u,toByte(v))));
+            return;
+        }
     }
+    // A zero-velocity NoteOn releases the same voice as an explicit
+    // NoteOff, even if the browser bank changed since the key went down.
+    const auto route=static_cast<std::uint8_t>(redirectedDrumNotes_[idx]?9:ch);
+    redirectedDrumNotes_[idx]=0u;
+    synth_->NoteOff(route,static_cast<std::uint8_t>(key));
 }
 void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
     if(!left||!right||frames<=0)return;
@@ -653,6 +659,8 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
 }
 tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     if(data.numSamples<0)return kResultFalse;
+    // A host can flush parameter changes at offset zero without rendering.
+    const int32 parameterFrames=std::max<int32>(1,data.numSamples);
     // Capture host-side requests at this block boundary. A newly arriving
     // GUI edit during process() must not be erased by an older audio point.
     std::array<int,16> programAtBlock{},bankAtBlock{};
@@ -703,7 +711,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         for(int32 p=0;p<count;++p){
             int32 frame=0;ParamValue value=0.;
             if(q->getPoint(p,frame,value)!=kResultOk ||
-               !finite01(value) || frame<0 || frame>=data.numSamples)
+               !finite01(value) || frame<0 || frame>=parameterFrames)
                 continue;
             if(numMidiPoints==midiPoints.size())return false;
             MidiPoint point{};
@@ -782,7 +790,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 for(int32 p=0;p<count;++p){
                     int32 at=0;ParamValue value=0.;
                     if(q->getPoint(p,at,value)!=kResultOk||
-                       !finite01(value)||at<0||at>=data.numSamples)
+                       !finite01(value)||at<0||at>=parameterFrames)
                         continue;
                     if(numMidiPoints==midiPoints.size())return reject();
                     MidiPoint point{};
@@ -831,7 +839,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 for(int32 p=0;p<nPoints;++p){
                     int32 frame=0;ParamValue v=0.;
                     if(q->getPoint(p,frame,v)!=kResultOk || !finite01(v) ||
-                       frame<0||frame>=data.numSamples)continue;
+                       frame<0||frame>=parameterFrames)continue;
                     if(numMidiPoints==midiPoints.size())return reject();
                     MidiPoint point{};
                     point.sampleOffset=frame;
@@ -856,7 +864,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             // Unknown IDs intentionally have no audio side effects.
         }
     }
-    if(!l||!r||data.numSamples==0){
+    if(data.numSamples>0&&(!l||!r)){
         publishRuntimeSnapshot();
         return kResultOk;
     }
@@ -864,7 +872,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     // prototype gate rather than silently dropping NoteOff and sticking.
     std::array<Event,512> events{};
     std::size_t num=0;
-    if(data.inputEvents){
+    if(data.numSamples>0&&data.inputEvents){
         const int32 n=data.inputEvents->getEventCount();
         if(n<0||n>static_cast<int32>(events.size()))
             return reject();
@@ -989,7 +997,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
             dispatch(events[notePos++]);
     }
     if(pos<data.numSamples)render(l+pos,r+pos,data.numSamples-pos);
-    if(bus)bus->silenceFlags=authenticRomLoaded_?0:3;
+    if(bus&&data.numSamples>0)bus->silenceFlags=authenticRomLoaded_?0:3;
     publishRuntimeSnapshot();
     return kResultOk;
 }

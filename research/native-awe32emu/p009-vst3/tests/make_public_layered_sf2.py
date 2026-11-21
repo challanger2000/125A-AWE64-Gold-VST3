@@ -27,6 +27,7 @@ alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
 sustain="--sustain" in sys.argv[2:]
 expressive="--expressive" in sys.argv[2:]
+bank_number=128 if "--drums" in sys.argv[2:] else 0
 # A specially authored, owner-independent two-zone soundfont containing
 # genuine audible volume and modulation envelopes, filter routing/cutoff,
 # resonance and long looping samples. This supplies an INDEPENDENT oracle
@@ -68,7 +69,7 @@ for kind in range(2):
 smpl=struct.pack("<%dh"%len(samples),*samples)
 # Both instrument zones are active simultaneously, MIDI velocity 1..127.
 pdta=(
-    ck(b"phdr",phdr("PublicTwoLayers",0,0,0)+phdr("EOP",0,0,1))+
+    ck(b"phdr",phdr("PublicTwoLayers",0,bank_number,0)+phdr("EOP",0,0,1))+
     ck(b"pbag",bag(0)+bag(1))+
     ck(b"pmod",bytes(10))+
     ck(b"pgen",gen(41,0)+gen(0,0))+

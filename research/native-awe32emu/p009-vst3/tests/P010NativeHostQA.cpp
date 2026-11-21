@@ -4,6 +4,8 @@
 // --private with original ROM + Creative SBK + owner SF2s tests REAL AUDIO.
 #define NOMINMAX
 #include <windows.h>
+#include <ole2.h>
+#include "pluginterfaces/gui/iplugview.h"
 #include "public.sdk/source/vst/hosting/module.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
@@ -104,6 +106,136 @@ struct Plugin{
    processing=true;
  }
 };
+#ifdef _WIN32
+void verifyMultipleNativeEditors(const VST3::Hosting::PluginFactory& factory,
+                                 const VST3::UID& id,FUnknown* host){
+  check(SUCCEEDED(OleInitialize(nullptr)),"editors: OLE initialization failed");
+  struct OleScope { ~OleScope(){ OleUninitialize(); } } ole;
+  Plugin first(factory,id,host),other(factory,id,host);
+  struct Editor {
+    HWND parent=nullptr;
+    IPtr<IPlugView> view;
+    bool attached=false;
+    ~Editor(){
+      if(attached)view->removed();
+      view=nullptr;
+      if(parent)DestroyWindow(parent);
+    }
+    void open(IEditController& controller){
+      parent=CreateWindowExW(0,L"STATIC",L"AWE64 editor QA",WS_POPUP,
+                             0,0,1000,708,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+      check(parent!=nullptr,"editors: cannot create Win32 parent");
+      view=owned(controller.createView(ViewType::kEditor));
+      check(bool(view) && view->isPlatformTypeSupported(kPlatformTypeHWND)==kResultTrue &&
+            view->isPlatformTypeSupported("unsupported-platform")!=kResultTrue,
+            "editors: wrong platform handshake");
+      attached=view->attached(parent,kPlatformTypeHWND)==kResultOk;
+      check(attached,"editors: attach rejected");
+      verify();
+    }
+    void verify(){
+      ViewRect bounds{};
+      check(view->getSize(&bounds)==kResultOk && bounds.getWidth()>0 &&
+            bounds.getHeight()>0 && GetWindow(parent,GW_CHILD)!=nullptr,
+            "editors: attached editor lost its native child or dimensions");
+    }
+    void close(){
+      check(view->removed()==kResultOk,"editors: detach failed");
+      attached=false;
+      check(GetWindow(parent,GW_CHILD)==nullptr,"editors: detach left a native child");
+      view=nullptr;
+      check(DestroyWindow(parent)!=0,"editors: host window teardown failed");
+      parent=nullptr;
+    }
+  } a,b,c;
+  check(first.controller->createView("unsupported-view")==nullptr,
+        "editors: controller returned an editor for an unknown view");
+  a.open(*first.controller);
+  b.open(*first.controller);
+  c.open(*other.controller);
+  check(a.view.get()!=b.view.get() && b.view.get()!=c.view.get() &&
+        a.view.get()!=c.view.get(),"editors: reused a live plug view");
+  check(first.controller->setParamNormalized(1001u,.25)==kResultOk &&
+        other.controller->setParamNormalized(1001u,.75)==kResultOk,
+        "editors: independent master edits rejected");
+  a.close();
+  b.verify();c.verify();
+  a.open(*first.controller);
+  c.close();
+  a.verify();b.verify();
+  check(first.controller->getParamNormalized(1001u)==.25 &&
+        other.controller->getParamNormalized(1001u)==.75,
+        "editors: closing or reopening a view changed an instance's master");
+  b.close();
+  a.close();
+  std::puts("AWE64_WIN32_MULTIPLE_EDITORS_ATTACH_CLOSE_REOPEN_PASS");
+}
+#endif
+
+void verifyZeroFrameParameterFlush(const VST3::Hosting::PluginFactory& factory,
+                                   const VST3::UID& id,FUnknown* host){
+  Plugin plugin(factory,id,host);
+  plugin.start(0,0,44100.);
+  const auto mapping=FUnknownPtr<IMidiMapping>(plugin.controller);
+  check(bool(mapping),"flush: MIDI mapping unavailable");
+  ParamID sustain=0,bankMsb=0;
+  check(mapping->getMidiControllerAssignment(0,15,kCtrlSustainOnOff,sustain)==kResultTrue &&
+        mapping->getMidiControllerAssignment(0,14,kCtrlBankSelectMSB,bankMsb)==kResultTrue,
+        "flush: channel-local MIDI parameter mapping missing");
+  ParameterChanges changes(5);
+  AudioBusBuffers output{}; // SDK parameter flush: zero channels, no sample buffers
+  ProcessData data{};
+  data.numOutputs=1;
+  data.outputs=&output;
+  data.inputParameterChanges=&changes;
+  const auto add=[&](ParamID param,int32 frame,double value){
+    int32 queueIndex=0,pointIndex=0;
+    auto* queue=changes.addParameterData(param,queueIndex);
+    check(queue && queue->addPoint(frame,value,pointIndex)==kResultOk,
+          "flush: cannot enqueue parameter point");
+  };
+  add(1001u,0,.25);  // master
+  add(1202u,0,39./127.); // MIDI channel 3 program
+  add(1108u,0,.5);  // filter cutoff
+  add(sustain,0,1.);
+  add(bankMsb,0,1./127.);
+  check(plugin.processor->process(data)==kResultOk,"flush: valid callback rejected");
+  const auto save=[](Plugin& unit){
+    MemoryStream stream;
+    check(unit.component->getState(&stream)==kResultOk,"flush: project save failed");
+    const auto* bytes=reinterpret_cast<const std::uint8_t*>(stream.getData());
+    check(bytes && stream.getSize()>=sizeof(Saved),"flush: missing saved project");
+    return std::vector<std::uint8_t>(bytes,bytes+stream.getSize());
+  };
+  const auto accepted=save(plugin);
+  Saved header{};
+  std::memcpy(&header,accepted.data(),sizeof(header));
+  check(header.master==.25f && header.otherPrograms[1]==39 &&
+        header.midiStates[15*8+4]==127 && header.midiStates[14*8+4]==0xFFFFu &&
+        header.advancedStates[14*8]==1 && header.advancedStates[15*8]==0xFFFFu,
+        "flush: accepted master, program or channel-local MIDI did not reach project state");
+  check(plugin.controller->getParamNormalized(1108u)==.5 &&
+        plugin.controller->getParamNormalized(1001u)==.25,
+        "flush: controller readback differs from accepted controls");
+  changes.clearQueue();
+  add(1001u,1,.75); // outside the legal flush position
+  add(1108u,0,1.25); // invalid normalized value
+  check(plugin.processor->process(data)==kResultOk && save(plugin)==accepted,
+        "flush: rejected points changed the accepted project");
+  Plugin reopened(factory,id,host);
+  MemoryStream state;
+  int32 written=0;
+  check(state.write(const_cast<std::uint8_t*>(accepted.data()),
+                    static_cast<int32>(accepted.size()),&written)==kResultOk &&
+        written==static_cast<int32>(accepted.size()) &&
+        state.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+        reopened.controller->setComponentState(&state)==kResultOk &&
+        save(reopened)==accepted &&
+        reopened.controller->getParamNormalized(1108u)==.5,
+        "flush: fresh controller/processor lost flushed project state");
+  std::puts("AWE64_ZERO_FRAME_PARAMETER_FLUSH_STATE_RECALL_PASS");
+}
+
 // P169: Genuine real Win64 VST3 controller-side component restore,
 // NOT the same interface as IComponent::setState. Verify the source V4
 // stream can be applied ONLY via IEditController::setComponentState;
@@ -1369,6 +1501,173 @@ void verifyP165PrivateExternalSf2V5OriginalPCM(
   std::puts("P165_REAL_OWNER_V5_EXTERNAL_SHA_SF2_POSITIVE_REOPEN_ORIGINAL_PCM_PASS");
   ownerBank(resources,nullptr);
 }
+void verifyTailAndBlockPartitions(const VST3::Hosting::PluginFactory& factory,
+                                  const VST3::UID& id,FUnknown* host,
+                                  const fs::path& resources){
+  ownerBank(resources,"expressive.sf2");
+  for(const int rate:{44100,48000,96000}){
+    const int onset=23,release=rate*8/5+127,end=release+rate/4;
+    const auto renderTimeline=[&](Plugin& plugin,bool irregular,bool playNote,
+                                  Plugin* peer=nullptr){
+      std::vector<float> pcm;
+      pcm.reserve(2*end);
+      std::array<float,frames> left{},right{},peerLeft{},peerRight{};
+      float* channels[2]={left.data(),right.data()};
+      float* peerChannels[2]={peerLeft.data(),peerRight.data()};
+      AudioBusBuffers output{},peerOutput{};
+      output.numChannels=peerOutput.numChannels=2;
+      output.channelBuffers32=channels;
+      peerOutput.channelBuffers32=peerChannels;
+      EventList events,peerEvents;
+      ProcessData data{},peerData{};
+      data.numOutputs=peerData.numOutputs=1;
+      data.outputs=&output;
+      data.inputEvents=&events;
+      peerData.outputs=&peerOutput;
+      peerData.inputEvents=&peerEvents;
+      double peerEnergy=0.;
+      constexpr std::array<int,8> sizes{{1,17,63,64,65,127,257,511}};
+      for(int position=0,block=0;position<end;++block){
+        const int count=std::min(end-position,
+                                 irregular?sizes[block%sizes.size()]:frames);
+        events.clear();
+        for(const bool on:{true,false}){
+          const int time=on?onset:release;
+          if(!playNote || time<position || time>=position+count)continue;
+          Event event{};
+          event.sampleOffset=time-position;
+          if(on){
+            event.type=Event::kNoteOnEvent;
+            event.noteOn.pitch=60;event.noteOn.velocity=100.f/127.f;
+          }else{
+            event.type=Event::kNoteOffEvent;event.noteOff.pitch=60;
+          }
+          check(events.addEvent(event)==kResultOk,"tail: could not enqueue note");
+        }
+        if(peer){
+          peerEvents.clear();
+          if(block==0){
+            Event event{};
+            event.type=Event::kNoteOnEvent;
+            event.noteOn.pitch=72;event.noteOn.velocity=1.f;
+            check(peerEvents.addEvent(event)==kResultOk,"tail: peer note missing");
+          }
+          peerData.numSamples=count;
+          check(peer->processor->process(peerData)==kResultOk,"tail: peer callback failed");
+          for(int i=0;i<count;++i)
+            peerEnergy+=double(peerLeft[i])*peerLeft[i]+double(peerRight[i])*peerRight[i];
+        }
+        data.numSamples=count;
+        check(plugin.processor->process(data)==kResultOk,"tail: callback failed");
+        for(int i=0;i<count;++i){
+          check(std::isfinite(left[i]) && std::isfinite(right[i]),"tail: nonfinite PCM");
+          pcm.push_back(left[i]);pcm.push_back(right[i]);
+        }
+        position+=count;
+      }
+      if(peer)check(peerEnergy>0.,"tail: isolation control never played");
+      return pcm;
+    };
+    Plugin fixed(factory,id,host),variable(factory,id,host),peer(factory,id,host);
+    fixed.start(0,1,rate);
+    variable.start(0,1,rate);
+    peer.start(0,1,rate==48000?44100:48000);
+    const auto expected=renderTimeline(fixed,false,true);
+    const auto actual=renderTimeline(variable,true,true,&peer);
+    const auto tailPeak=[&](const std::vector<float>& pcm){
+      float peak=0.f;
+      for(int i=2*(release+rate/10);i<2*end;++i)
+        peak=std::max(peak,std::abs(pcm[i]));
+      return peak;
+    };
+    Plugin silent(factory,id,host);
+    silent.start(0,1,rate);
+    const auto tail=tailPeak(expected);
+    const auto idle=tailPeak(renderTimeline(silent,false,false));
+    const auto reported=fixed.processor->getTailSamples();
+    std::printf("AWE64_TAIL rate=%d postReleasePeak=%.9f noNotePeak=%.9f reported=%u\n",
+                rate,tail,idle,reported);
+    check(tail>1.f/32768.f && idle==0.f,"tail: post-release audio oracle is invalid");
+    check(reported==kInfiniteTail,"tail: host limit may cut off original release/FX");
+    const auto mismatch=std::mismatch(expected.begin(),expected.end(),actual.begin());
+    if(mismatch.first!=expected.end())
+      std::fprintf(stderr,"AWE64_BLOCK_MISMATCH rate=%d frame=%td channel=%td expected=%.9f actual=%.9f\n",
+                   rate,(mismatch.first-expected.begin())/2,(mismatch.first-expected.begin())%2,
+                   *mismatch.first,*mismatch.second);
+    check(mismatch.first==expected.end(),"tail: partition or another instance changed stereo PCM");
+  }
+  ownerBank(resources,nullptr);
+  std::puts("AWE64_TAIL_VARIABLE_BLOCKS_MULTI_INSTANCE_PCM_PASS");
+}
+
+void verifyDrumReleaseAfterBankChange(const VST3::Hosting::PluginFactory& factory,
+                                      const VST3::UID& id,FUnknown* host,
+                                      const fs::path& resources){
+  ownerBank(resources,"drums.sf2");
+  enum class Release { explicitOff, zeroVelocity, none };
+  const auto render=[&](Release release){
+    Plugin plugin(factory,id,host);
+    plugin.start(0,2,44100.); // browser drum lane redirects CH1 to CH10
+    std::array<float,frames> left{},right{};
+    float* channels[2]={left.data(),right.data()};
+    AudioBusBuffers output{};
+    output.numChannels=2;
+    output.channelBuffers32=channels;
+    EventList events;
+    ParameterChanges changes(1);
+    ProcessData data{};
+    data.numSamples=frames;
+    data.numOutputs=1;
+    data.outputs=&output;
+    data.inputEvents=&events;
+    data.inputParameterChanges=&changes;
+    std::vector<float> pcm;
+    for(int block=0;block<100;++block){
+      events.clear();
+      changes.clearQueue();
+      if(block==0){
+        Event event{};
+        event.type=Event::kNoteOnEvent;
+        event.noteOn.pitch=60;event.noteOn.velocity=1.f;
+        check(events.addEvent(event)==kResultOk,"drum release: missing note");
+      }
+      if(block==64){
+        int32 queue=0,point=0;
+        auto* bank=changes.addParameterData(1002u,queue);
+        check(bank && bank->addPoint(1,0.,point)==kResultOk,
+              "drum release: missing change to melodic bank");
+      }
+      if(block==70 && release!=Release::none){
+        Event event{};
+        event.sampleOffset=15;
+        if(release==Release::explicitOff){
+          event.type=Event::kNoteOffEvent;
+          event.noteOff.pitch=60;
+        }else{
+          event.type=Event::kNoteOnEvent;
+          event.noteOn.pitch=60;event.noteOn.velocity=0.f;
+        }
+        check(events.addEvent(event)==kResultOk,"drum release: missing release");
+      }
+      check(plugin.processor->process(data)==kResultOk,"drum release: callback failed");
+      for(int i=0;i<frames;++i){
+        check(std::isfinite(left[i]) && std::isfinite(right[i]),
+              "drum release: nonfinite PCM");
+        pcm.push_back(left[i]);pcm.push_back(right[i]);
+      }
+    }
+    return pcm;
+  };
+  const auto explicitOff=render(Release::explicitOff);
+  const auto zeroVelocity=render(Release::zeroVelocity);
+  const auto held=render(Release::none);
+  check(explicitOff!=held,"drum release: explicit NoteOff did not change held PCM");
+  check(zeroVelocity==explicitOff,
+        "drum release: zero-velocity NoteOn lost the original drum route");
+  ownerBank(resources,nullptr);
+  std::puts("AWE64_ZERO_VELOCITY_RELEASE_ORIGINAL_DRUM_ROUTE_PCM_PASS");
+}
+
 // P168 adversarial original-chip per-knob audio contract: every one of
 // the 10 non-FX faceplate controls must change REAL rendered EMU8000 PCM on
 // a deliberately expressive SoundFont. A stored V5 project must produce
@@ -1947,6 +2246,7 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
+  verifyZeroFrameParameterFlush(factory,cls->ID(),host.get());
   verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(factory,cls->ID(),host.get());
   verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
   verifyP011MultichannelProjectRecall(factory,cls->ID(),host.get());
@@ -1959,6 +2259,8 @@ int main(int argc,char** argv){
   verifyP020True64FrameHostLatency(factory,cls->ID(),host.get());
   if(synthetic){
     ownerBank(resources,nullptr);
+    verifyTailAndBlockPartitions(factory,cls->ID(),host.get(),resources);
+    verifyDrumReleaseAfterBankChange(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP168AllTenHardwareKnobsOriginalPCMAndReopen(factory,cls->ID(),host.get(),resources);
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
@@ -1971,6 +2273,9 @@ int main(int argc,char** argv){
     return 0;
   }
   if(!priv){
+#ifdef _WIN32
+    verifyMultipleNativeEditors(factory,cls->ID(),host.get());
+#endif
     const auto x=render(factory,cls->ID(),host.get(),"NO_ROM",
                               44100,0,60,90,7,0);
     check(x.rms==0&&x.peak==0,"no genuine ROM must always be silent");

@@ -74,6 +74,7 @@ public:
     Steinberg::tresult PLUGIN_API canProcessSampleSize(
         Steinberg::int32) override;
     Steinberg::uint32 PLUGIN_API getLatencySamples() override;
+    Steinberg::uint32 PLUGIN_API getTailSamples() override;
     Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream*) override;
     Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream*) override;
     Steinberg::tresult PLUGIN_API setComponentState(Steinberg::IBStream*) override;
