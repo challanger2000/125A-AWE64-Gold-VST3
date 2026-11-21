@@ -50,7 +50,7 @@ No modifications were made to the upstream original 86Box EMU8000 DSP source. Th
 - All first-generation P185 synthetic original-chip MIDI/FX/bank/drum counterexamples PASS.
 - Both Plugin Tester v0.2.10 and v0.3.3 **41 PASS, 0 WARNING, 0 FAIL**.
 - P184 modified independent Win32 editor close/reopen & surviving peer test PASS.
-- **IMPORTANT:** That run used the **weaker original drum fixture** and did not yet independently prove that CH1 alone controls Kit 5. A further build with the stronger drum oracle and deferred bend wheel replay is required. Treat the strengthened P185-D/R status as **NOT RUN** until its matching exact-SHA Windows CI passes.
+- **Historical limitation:** That run used the **weaker original drum fixture** and did not prove that CH1 alone controls Kit 5. This was remedied in the separate stronger third/fourth runs below; this run is not retrospective evidence for those tests.
 
 ## Additional P185 cross-channel fault found during self-challenge
 
@@ -60,7 +60,19 @@ No modifications were made to the upstream original 86Box EMU8000 DSP source. Th
 
 **Extra negative/positive regression:** In `verifyP185BrowserDrumKitActuallyChangesPCM`, all channels start with Kit 0, real VST3 CH1 parameter flush selects Kit 5, real VST3 CH1 bank automation exits drums, then *actual original-chip CH10 PCM* must equal a fresh independent CH10 Kit 0. This regression must fail if the browser kit erroneously persists after CH1 returns to melodic/ROM mode.
 
-The new cross-channel interaction is **NOT RUN** until its exact-commit Windows CI completes.
+### Final P185 source Windows acceptance — all added gates executed
+
+[Windows run 44939474721](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44939474721), **production source commit** `52eb1c1636772ef25b8e0af95449f24d6250a55c`, status **SUCCESS**, Windows Server 2022 x64/MSVC Release:
+
+- **New P185 executable Win64 VST3 host cases all PASS:** independent Kit 0/5 PCM selection through CH1-only program flush, exact CH10 waveform oracle, CH10 original kit restored after leaving CH1 drums, fresh V4 drum recall, saved 12-semitone RPN bend despite final NRPN, older CC0 unable to override stopped ROM selection, and explicit ORIGINAL SEND>0 V5 plus old-state compatibility.
+- Two distinct real-host automation suites under 20,000 rapid callbacks each: **327,638 successful saves / mixed=0 / rejected=0** (synthetic original-chip host), and **234,052 / mixed=0 / rejected=0** (public no-owner-media host).
+- P178 owner-independent synthetic external-SF2 state transaction: **3,098,468 actual VST3 snapshots / 0 torn / 0 failed saves**. P179 paced sounding-SF2 host: **500 of 500 saves**, failures=0, torn=0, exceptions=0, maximum observed processing callback **0.524 ms** in this test.
+- Steinberg VST3 Validator **47/47 PASS**; independent 125A Plugin Tester **v0.2.10 and v0.3.3 each 41 PASS, 0 WARNING, 0 FAIL**; actual Win32 GUI, real peer close/reopen with original HWND disappearance and surviving editor, and P182 installer synthetic integrity/rollback tests PASS.
+- The earlier Codex audit reported five bugs at `5de21c8`. This is **developer self-test evidence of targeted remediations**, not independent Codex clearance. The P185 program changes have not been independently rerun with the licensed original Creative ROM/SBK/private owner 77-preset bank on a physical Windows user installation.
+
+[Windows run 44938877570](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44938877570), prior `bd8eb9c9b93c95b882408997af1b63f449442cf7`, also SUCCESS: hardened source-only CH1->CH10 drum oracle and deferred pitch-bend replay had already passed under native Windows VST3. This earlier source did **not** yet test the independent CH10 kit restoration on CH1 drum exit, which was added and verified in the final source commit above.
+
+The P185 report may subsequently receive a **documentation-only follow-up SHA**. Such a commit never changes the Windows-tested production files. The independent Codex review must pin the updated PR head, independently inspect the source and re-run the old five counterexamples.
 
 ## Remaining release gates — NOT VERIFIED
 
