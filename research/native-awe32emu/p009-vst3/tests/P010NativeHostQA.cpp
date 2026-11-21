@@ -3085,6 +3085,76 @@ void verifyP180Sparse77OriginalChipSelection(
   std::puts("P180_ACTUAL_WIN64_VST3_SPARSE_77_PROGRAM_MAPPING_PCM_V5_PASS");
 }
 
+
+// P181: OWNER-ONLY Windows VST3 host/original Creative files.
+// Test the complete real sparse 77-preset file, not a 5-preset synthetic
+// approximation.  For each actual phdr program, load the private user SF2
+// directly on the original chip AND reopen an independently constructed
+// external-SF2 V5 project from a *different* default SoundFont.  The
+// resulting stereo PCM must be bit-identical.  This code is in the public
+// repository but PRIVATE data are NEVER copied into Actions or the repo.
+// P181 is explicitly not called by the --synthetic CI path.
+void verifyP181Private77OriginalChipV5Matrix(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  const auto privateBank=resources/"77-presets.sf2";
+  const auto actualPrograms=exactOwnerSf2Programs(privateBank);
+  check(actualPrograms.size()==77u &&
+        actualPrograms.count(63u)==0u &&
+        actualPrograms.count(77u)==1u,
+        "P181 private owner SoundFont's actual 77 sparse phdr entries changed");
+  const auto originalV5=p174V5State(privateBank);
+  std::set<std::uint64_t> distinct;
+  unsigned restored=0;
+  const auto prove=[&](const int program,const double rate){
+    ownerBank(resources,"77-presets.sf2");
+    Plugin direct(factory,id,host);
+    direct.start(program,1,rate);
+    const auto wanted=p015Play(direct,0,60);
+    auto state=originalV5;
+    Saved settings{};
+    std::memcpy(&settings,state.data(),sizeof(settings));
+    settings.program=static_cast<std::uint32_t>(program);
+    std::memcpy(state.data(),&settings,sizeof(settings));
+    // Deliberately select a DIFFERENT default SoundFont first. The
+    // external project must really reload the selected private sample
+    // bank; a fake or ignored setState will sound from the wrong bank.
+    ownerBank(resources,"vintage.sf2");
+    Plugin reopened(factory,id,host);
+    reopened.start(0,1,rate);
+    check(p174ApplyV5(reopened,state)==kResultOk,
+          "P181 private original SF2 V5 project restore failed");
+    check(p174Saved(reopened)==state,
+          "P181 private V5 project lost preset/owner SHA and file identity");
+    const auto actual=p015Play(reopened,0,60);
+    if(actual!=wanted)
+      std::fprintf(stderr,
+         "P181_PRIVATE_PCM_MISMATCH program=%d rate=%.0f\n",
+         program,rate);
+    check(actual==wanted,
+          "P181 direct private owner preset vs V5 original-chip PCM mismatch");
+    ++restored;
+    return wanted;
+  };
+  for(const int program:actualPrograms){
+    const auto hash=prove(program,44100.);
+    check(distinct.insert(hash).second,
+          "P181 private owner SF2 contains two different program PCM collisions");
+  }
+  check(restored==77u && distinct.size()==77u,
+        "P181 not all 77 private original SoundFont programs restored");
+  std::puts("P181_PRIVATE_REAL_WIN64_VST3_ALL_77_PROGRAMS_V5_BIT_EXACT_PCM_PASS");
+  // Three independently selected patches at 48/96k test host resampling
+  // together with EXTERNAL original-bank identity. The chip time base
+  // stays 44100 and the VST3 adapter performs rate conversion.
+  for(const double rate:{48000.,96000.})
+    for(const int program:{0,62,77})
+      (void)prove(program,rate);
+  check(restored==83u,"P181 private multi-rate recall matrix incomplete");
+  ownerBank(resources,nullptr);
+  std::puts("P181_PRIVATE_REAL_WIN64_VST3_ALL77_AND_48_96KHZ_V5_PCM_PARITY_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -3344,6 +3414,7 @@ int main(int argc,char** argv){
         "ORIGINAL_ROM_KICK_AFTER_ABA",44100,9,36,100,0,0);
   audible(romAfter,"ROM kick after user A/B/A");
   check(kick.hash==romAfter.hash,"ROM kick changed after two SF2 swaps");
+  verifyP181Private77OriginalChipV5Matrix(factory,cls->ID(),host.get(),resources);
   std::puts("P010_PRIVATE_ACTUAL_WIN64_VST3_ORIGINAL_ROM_SBK_TWO_SF2_77_PRESETS_ABA_PASS");
   return 0;
  }catch(const std::exception& e){
