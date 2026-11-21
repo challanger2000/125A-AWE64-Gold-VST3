@@ -554,15 +554,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path $old | Out-Null
           [IO.File]::WriteAllText((Join-Path $old 'PREVIOUS-PLUGIN-MARKER.txt'),'P182 OLD COMPLETE PLUGIN')
           function CallInstaller([string]$dest) {
-            $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',
-                  ('"'+$installer+'"'),'-TargetRoot',('"'+$dest+'"'))
-            $out=Join-Path $env:RUNNER_TEMP 'P182-Installer-stdout.log'
-            $err=Join-Path $env:RUNNER_TEMP 'P182-Installer-stderr.log'
-            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-            Write-Host "P182_ACTUAL_WINDOWS_POWERSHELL_INSTALL_EXIT=$($p.ExitCode)"
-            if(Test-Path -LiteralPath $out){Get-Content -LiteralPath $out}
-            if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err}
-            return $p.ExitCode
+            # Invoke the real Windows PowerShell 5.1 host with *separate*
+            # argv fields. Start-Process -ArgumentList joins the array into
+            # a single commandline and can misquote paths with spaces.
+            $exe=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+            Write-Host "P182_INVOKE_EXACT_SCRIPT=$installer DEST=$dest"
+            & $exe -NoProfile -ExecutionPolicy Bypass -File $installer -TargetRoot $dest 2>&1 |
+                ForEach-Object { Write-Host "P182_CHILD: $_" }
+            $rc=$LASTEXITCODE
+            Write-Host "P182_ACTUAL_WINDOWS_POWERSHELL_INSTALL_EXIT=$rc"
+            return $rc
           }
           if((CallInstaller $rootTarget) -ne 0){throw 'P182 full Windows PowerShell upgrade installation rejected'}
           $installed=Join-Path $parent $name
