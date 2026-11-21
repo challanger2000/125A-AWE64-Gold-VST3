@@ -474,20 +474,48 @@ void NativeVst3::drainRetiredRestoresNonRealtime() noexcept {
         node=following;
     }
 }
+void NativeVst3::drainRetiredSynthsNonRealtime() noexcept {
+    // Atomically acquire old Synth ownership before destroying it on
+    // a host/UI thread. Audio may publish either slot concurrently.
+    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    delete retiredSynthSpare_.exchange(nullptr,std::memory_order_acq_rel);
+}
+bool NativeVst3::retireSynthRealtime(std::unique_ptr<Synth>& old) noexcept {
+    if(!old)return true;
+    // Single producer = audio callback. The non-RT consumer only empties.
+    if(retiredSynth_.load(std::memory_order_acquire)!=nullptr &&
+       retiredSynthSpare_.load(std::memory_order_acquire)!=nullptr)return false;
+    // Release *before* publication: host could immediately claim/delete.
+    Synth* detached=old.release();
+    Synth* empty=nullptr;
+    if(retiredSynth_.compare_exchange_strong(empty,detached,
+            std::memory_order_release,std::memory_order_relaxed))
+        return true;
+    empty=nullptr;
+    if(retiredSynthSpare_.compare_exchange_strong(empty,detached,
+            std::memory_order_release,std::memory_order_relaxed))
+        return true;
+    old.reset(detached);
+    return false;
+}
 void NativeVst3::cleanStagedAndRetiredNonRealtime() noexcept {
     delete stagedSynth_.exchange(nullptr,std::memory_order_acq_rel);
-    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    drainRetiredSynthsNonRealtime();
     delete pendingGuiCatalog_.exchange(nullptr,std::memory_order_acq_rel);
     delete pendingRestore_.exchange(nullptr,std::memory_order_acq_rel);
     drainRetiredRestoresNonRealtime();
 }
 void NativeVst3::applyStagedInstrumentRealtime() noexcept {
-    // Only the audio thread uses synth_. Old engine must be reclaimed on the
-    // UI/non-real-time side; **never** destroy its 28MiB buffers in process.
-    // A second request stays staged until the current audible transition
-    // has finished and its old chip has been reclaimed on a GUI/host thread.
-    if(retiredSynth_.load(std::memory_order_acquire)!=nullptr ||
-       fadingSynth_)return;
+    // Last audible transition may have finished while the next external
+    // project was already staged. Retire that chip, then continue without
+    // requiring a project-save callback or an open editor.
+    if(fadingSynth_ && fadeRemainingSamples_==0u)
+        (void)retireSynthRealtime(fadingSynth_);
+    if(fadingSynth_)return;
+    // Reserve one non-RT disposal slot for the current old engine.
+    // Never allocate, delete or lock in process().
+    if(retiredSynth_.load(std::memory_order_acquire)!=nullptr &&
+       retiredSynthSpare_.load(std::memory_order_acquire)!=nullptr)return;
     if(auto* incoming=stagedSynth_.exchange(nullptr,std::memory_order_acq_rel)){
         // Crossfade ONLY when old chip PCM was genuinely audible.
         // Starting a V5 project, activating a silent instance, or loading
@@ -498,7 +526,7 @@ void NativeVst3::applyStagedInstrumentRealtime() noexcept {
         if(audibleOutgoing)
             fadingSynth_=std::move(synth_);
         else if(synth_)
-            retiredSynth_.store(synth_.release(),std::memory_order_release);
+            (void)retireSynthRealtime(synth_);
         synth_.reset(incoming);
         fadeTotalSamples_=audibleOutgoing?
             static_cast<std::uint32_t>(std::ceil(sampleRate_*0.015)):0u;
@@ -731,9 +759,8 @@ void NativeVst3::render(float* left,float* right,int32 frames) noexcept{
         if(fadingFrames){
             fadeRemainingSamples_-=fadingFrames;
             if(fadeRemainingSamples_==0u){
-                // NonRT owner deletes this only after the fade is finished.
-                retiredSynth_.store(fadingSynth_.release(),
-                                    std::memory_order_release);
+                // Off-RT disposal only; a waiting newer bank can proceed.
+                (void)retireSynthRealtime(fadingSynth_);
             }
         }
         written+=n;
@@ -753,7 +780,10 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
     }
     const float masterAtBlock=hostMasterEdit_.load(std::memory_order_acquire);
     applyStagedInstrumentRealtime();
-    applyPendingRestoreRealtime();
+    // Never apply a newer project's MIDI state to a previous SoundFont
+    // while a prior 15-ms fade still blocks its staged chip candidate.
+    if(stagedSynth_.load(std::memory_order_acquire)==nullptr)
+        applyPendingRestoreRealtime();
     const auto reassert=bankReassertRequested_.exchange(
         0xFFu,std::memory_order_acq_rel);
     if(reassert<=2u){
@@ -1092,7 +1122,7 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     // After the chip swap, the old 28-MiB native Synth is no longer
     // accessed by the render thread. Reclaim on this host SAVE thread so
     // repeated project switches work even without any GUI editor open.
-    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    drainRetiredSynthsNonRealtime();
     NativeRuntimeRestore stable{};
     const auto request=restoreRequestedSeq_.load(std::memory_order_acquire);
     if(request!=restoreAppliedSeq_.load(std::memory_order_acquire)){
@@ -1337,7 +1367,7 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     // The complete original-chip candidate is staged atomically and
     // consumed at the following audio block, with no heap in process().
     if(replaceAsset){
-        delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+            drainRetiredSynthsNonRealtime();
         if(preparedAsset)
             delete stagedSynth_.exchange(preparedAsset.release(),
                 std::memory_order_acq_rel);

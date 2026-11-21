@@ -51,7 +51,7 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
         },
         [this](){
             // Reclaim the *old* chip's 28 MiB heap outside the audio thread.
-            delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+            drainRetiredSynthsNonRealtime();
             drainRetiredRestoresNonRealtime();
             if(auto* latest=pendingGuiCatalog_.exchange(
                      nullptr,std::memory_order_acq_rel)){
@@ -196,7 +196,7 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
         return reject(err.empty()?"Could not prepare SoundFont.":err);
     // Staging queue is single-slot; superseded *unconsumed* candidate can
     // be deleted here on the GUI thread, NEVER in process().
-    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    drainRetiredSynthsNonRealtime();
     if(auto* prior=stagedSynth_.exchange(ready.release(),
                                         std::memory_order_acq_rel))
         delete prior;
