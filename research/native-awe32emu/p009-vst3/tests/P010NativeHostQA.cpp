@@ -2821,6 +2821,121 @@ void verifyP177CorruptV5StreamFailClosed(
   std::puts("P177_ACTUAL_WIN64_VST3_FULL_V5_TRUNCATION_UTF8_SHA_FX_FAIL_CLOSED_PASS");
 }
 
+
+// P178: The host can serialize the VST3 project while a different NON-RT
+// thread commits an external SoundFont and the audio callback is running.
+// A component snapshot must match A or B exactly: never A's MIDI program
+// and B's SF2 SHA/path, or vice versa. Public synthetic original-chip data.
+void verifyP178ConcurrentOwnerSF2StateTransaction(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  Plugin unit(factory,id,host);
+  unit.start(0,1,44100.);
+  auto A=p174V5State(resources/"vintage.sf2");
+  auto B=p174V5State(resources/"77-presets.sf2");
+  Saved a{},b{};
+  std::memcpy(&a,A.data(),sizeof(a));
+  std::memcpy(&b,B.data(),sizeof(b));
+  a.program=3u; a.master=.375f;
+  b.program=87u; b.master=.875f;
+  std::memcpy(A.data(),&a,sizeof(a));
+  std::memcpy(B.data(),&b,sizeof(b));
+  check(p174ApplyV5(unit,A)==kResultOk,
+        "P178 initial valid owner A bank rejected");
+  // Commit A to chip before starting concurrent getState snapshots.
+  {
+    std::array<float,64> l{},r{};
+    float* ch[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ch;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=64;
+    pd.numOutputs=1;pd.outputs=&bus;
+    check(unit.processor->process(pd)==kResultOk,
+          "P178 initial A project callback failed");
+  }
+  std::atomic<bool> stop{false},ok{true};
+  std::atomic<std::uint64_t> audioBlocks{0},observations{0},torn{0},saveErrors{0};
+  std::array<std::uint8_t,32> mismatched{};
+  std::atomic<bool> gotMismatch{false};
+  std::thread audio([&](){
+    std::array<float,64> l{},r{};
+    float* ch[2]={l.data(),r.data()};
+    AudioBusBuffers bus{};bus.numChannels=2;bus.channelBuffers32=ch;
+    ProcessData pd{};pd.processMode=kRealtime;
+    pd.symbolicSampleSize=kSample32;pd.numSamples=64;
+    pd.numOutputs=1;pd.outputs=&bus;
+    while(!stop.load(std::memory_order_acquire)){
+      if(unit.processor->process(pd)!=kResultOk ||
+         !std::isfinite(l[0])||!std::isfinite(r[0])){
+        ok.store(false,std::memory_order_release);break;
+      }
+      audioBlocks.fetch_add(1,std::memory_order_relaxed);
+    }
+  });
+  std::thread snapshot([&](){
+    while(!stop.load(std::memory_order_acquire)){
+      try {
+        MemoryStream mem;
+        if(unit.component->getState(&mem)!=kResultOk){
+          saveErrors.fetch_add(1,std::memory_order_relaxed);
+          continue;
+        }
+        const auto size=static_cast<std::size_t>(mem.getSize());
+        const auto* raw=reinterpret_cast<const std::uint8_t*>(mem.getData());
+        bool isA=size==A.size() && raw &&
+                 std::memcmp(raw,A.data(),size)==0;
+        bool isB=size==B.size() && raw &&
+                 std::memcmp(raw,B.data(),size)==0;
+        if(!isA&&!isB){
+          torn.fetch_add(1,std::memory_order_relaxed);
+          if(!gotMismatch.exchange(true,std::memory_order_acq_rel) && raw){
+            const auto n=std::min<std::size_t>(mismatched.size(),size);
+            std::memcpy(mismatched.data(),raw,n);
+          }
+        }
+        observations.fetch_add(1,std::memory_order_relaxed);
+      }catch(...){
+        ok.store(false,std::memory_order_release);break;
+      }
+    }
+  });
+  // Loading the actual 28-MiB chip on the NON-RT thread creates a broad
+  // overlap in which the audio thread continues to process, while the
+  // saver polls. Different MIDI program and master make split generations
+  // observable even if owner path lengths happened to be equal.
+  bool setOk=true;
+  for(int cycle=0;cycle<80 && setOk;++cycle){
+    const auto& state=cycle%2?A:B;
+    try {setOk=p174ApplyV5(unit,state)==kResultOk;}
+    catch(...){setOk=false;}
+    std::this_thread::yield();
+  }
+  // Allow last audio boundary to acknowledge pending project and finish
+  // the 15-ms fade before taking the final exact owner snapshot.
+  for(int i=0;i<100000;++i){
+    if(audioBlocks.load(std::memory_order_acquire)>4000u)break;
+    std::this_thread::yield();
+  }
+  stop.store(true,std::memory_order_release);
+  audio.join();snapshot.join();
+  std::printf("P178_CONCURRENT_V5_TX snapshots=%llu torn=%llu save_errors=%llu audio_blocks=%llu first_mismatch=%02X%02X%02X%02X\n",
+    static_cast<unsigned long long>(observations.load()),
+    static_cast<unsigned long long>(torn.load()),
+    static_cast<unsigned long long>(saveErrors.load()),
+    static_cast<unsigned long long>(audioBlocks.load()),
+    unsigned(mismatched[0]),unsigned(mismatched[1]),
+    unsigned(mismatched[2]),unsigned(mismatched[3]));
+  check(setOk && ok.load(std::memory_order_acquire),
+        "P178 concurrent SF2 state load or original-chip audio callback failed");
+  check(observations.load()>50u && audioBlocks.load()>50u,
+        "P178 concurrent host snapshot and original-chip audio not exercised");
+  check(saveErrors.load()==0u && torn.load()==0u,
+        "P178 getState captured TORN project (SF2 SHA/path vs MIDI/master generation)");
+  ownerBank(resources,nullptr);
+  std::puts("P178_ACTUAL_WIN64_VST3_CONCURRENT_EXTERNAL_SF2_STATE_AUDIO_TRANSACTION_PASS");
+}
+
 // Genuine P171 packaged VST3 regression: a valid RIFF SF2 with >28 MiB
 // sample PCM must fail where pre-P171 silently truncated the upload.
 void verifyP171RamOverflow(const VST3::Hosting::PluginFactory& factory,
@@ -2908,6 +3023,7 @@ int main(int argc,char** argv){
     verifyP175ThirtyTwoOriginalChipVoicesAndSustain(factory,cls->ID(),host.get(),resources);
     verifyP176RapidSf2SwitchForwardProgress(factory,cls->ID(),host.get(),resources);
     verifyP177CorruptV5StreamFailClosed(factory,cls->ID(),host.get(),resources);
+    verifyP178ConcurrentOwnerSF2StateTransaction(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");

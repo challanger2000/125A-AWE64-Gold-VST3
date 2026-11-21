@@ -199,6 +199,11 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     std::unique_ptr<Synth> ready;
     if(!buildInstrumentNonRealtime(selected,ready,err))
         return reject(err.empty()?"Could not prepare SoundFont.":err);
+    // The GUI's SF2 identity/catalog/chip staging and a concurrent DAW
+    // project save are one transaction, but lengthy parsing/loading above
+    // never blocks a valid getState() of the *previous* accepted bank.
+    // The audio callback NEVER takes this lock.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // Staging queue is single-slot; superseded *unconsumed* candidate can
     // be deleted here on the GUI thread, NEVER in process().
     drainRetiredSynthsNonRealtime();

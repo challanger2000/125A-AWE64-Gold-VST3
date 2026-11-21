@@ -395,9 +395,43 @@ bool NativeVst3::openPrivateSoundBanksNonRealtime(){
     return true;
 }
 void NativeVst3::publishRuntimeSnapshot() noexcept {
-    // Only process() publishes while active. Host setState publishes only
-    // while inactive; all members are ATOMIC so even a racing getState sees
-    // either a coherent version or safely retries.
+    // The chip can render thousands of unchanged 64-frame callbacks while
+    // another host thread is saving a VST3 project. Publishing the *same*
+    // 16-channel MIDI/project state every time needlessly toggles the
+    // sequence lock and made getState FAIL after 128 retries under load.
+    // Check exact atomic snapshots first; only publish when something
+    // ACTUALLY changed. No heap, mutex, I/O or unbounded work on process().
+    bool unchanged=
+        stateProgramMirror_.load(std::memory_order_relaxed)==
+            static_cast<std::uint32_t>(program_) &&
+        stateBankMirror_.load(std::memory_order_relaxed)==
+            static_cast<std::uint32_t>(bank_) &&
+        stateMasterMirror_.load(std::memory_order_relaxed)==master_;
+    if(unchanged){
+        for(unsigned ch=0;ch<16u && unchanged;++ch){
+            unchanged=
+                stateProgramsMirror_[ch].load(std::memory_order_relaxed)==
+                    (ch?programsByChannel_[ch]:
+                        static_cast<std::uint8_t>(program_)) &&
+                stateBanksMirror_[ch].load(std::memory_order_relaxed)==
+                    (ch?banksByChannel_[ch]:
+                        static_cast<std::uint8_t>(bank_)) &&
+                stateModesMirror_[ch].load(std::memory_order_relaxed)==
+                    selectedParameterMode_[ch];
+        }
+    }
+    if(unchanged){
+        for(unsigned i=0;i<midiState_.size() && unchanged;++i){
+            unchanged=
+                stateMidiMirror_[i].load(std::memory_order_relaxed)==
+                    midiState_[i] &&
+                stateAdvancedMirror_[i].load(std::memory_order_relaxed)==
+                    advancedMidiState_[i];
+        }
+    }
+    if(unchanged)return;
+    // Only the audio thread mutates state while active. Host lifecycle
+    // publishes only after processing stops; all shared mirrors are ATOMIC.
     stateMirrorEpoch_.fetch_add(1,std::memory_order_acq_rel); // odd
     stateProgramMirror_.store(static_cast<std::uint32_t>(program_),std::memory_order_relaxed);
     stateBankMirror_.store(static_cast<std::uint32_t>(bank_),std::memory_order_relaxed);
@@ -1116,6 +1150,11 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     if(!stream)return kResultFalse;
+    // Serialize only NON-real-time host save/restore and external file
+    // commit. The audio callback remains lock-free, using atomic mirrors.
+    // Without this guard getState can join B's SHA/path with A's program
+    // or master during a concurrent two-thread DAW snapshot.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // Host save is allowed concurrently with audio callbacks. NEVER read
     // the live non-atomic program/MIDI/RPN arrays here.
     drainRetiredRestoresNonRealtime();
@@ -1233,6 +1272,10 @@ tresult PLUGIN_API NativeVst3::setComponentState(IBStream* stream){
 }
 tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
     if(!stream)return kResultFalse;
+    // VST3 host project parsing, SHA hashing and original-chip 28-MiB
+    // candidate construction can take significant time. Do NOT block
+    // independent DAW saves while this work has not changed any state!
+    // Only the short, coherent commit is protected by hostSessionMutex_.
     Saved s{};
     // Compatible with existing owner P009 v1 (20B), P011 v2 (52B).
     int32 n=0;
@@ -1374,6 +1417,11 @@ tresult PLUGIN_API NativeVst3::setState(IBStream* stream){
         for(unsigned i=0;i<2u;++i)
             desired->sendManual[i]=(ext.effectModes[i]&0x0100u)!=0u ||
                 ext.guiControls[10u+i]>0u; // pre-override V5 compatibility
+    // Host owner SHA/path, MIDI/master/FX and the prepared instrument are
+    // committed as one non-RT transaction. getState() is allowed to save
+    // the previous *valid* A state during an expensive B preparation, but
+    // can never observe B's path with A's MIDI controller tuple.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // User file and preset catalog are always handled on the host thread.
     // The complete original-chip candidate is staged atomically and
     // consumed at the following audio block, with no heap in process().
