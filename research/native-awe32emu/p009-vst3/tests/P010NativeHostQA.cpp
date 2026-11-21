@@ -2760,7 +2760,7 @@ void verifyP177CorruptV5StreamFailClosed(
     ++rejected;
   };
   for(std::size_t bytes=1;bytes<valid.size();++bytes)
-    invalid({valid.begin(),valid.begin()+bytes});
+    invalid(std::vector<std::uint8_t>(valid.begin(),valid.begin()+bytes));
   constexpr std::size_t shaOffset=sizeof(Saved)+8u+24u;
   for(std::size_t i=0;i<32;++i){
     auto b=valid;b[shaOffset+i]^=0x55u;invalid(b);
