@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, fix/p182-windows-private-installer-complete-bundle-qa-20261121]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -523,6 +523,89 @@ jobs:
             Write-Host "::error title=P010 multiple editors regression::Exit ${rc}. $last"
             throw "Steinberg EditorHost two-view test failed: $rc"
           }
+      - name: P182 Windows PowerShell VST3 installer backup and complete-bundle integrity
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'P182 Installer Source With Spaces'
+          $rootTarget=Join-Path $env:RUNNER_TEMP 'P182 Install Root With Spaces'
+          $newTarget=Join-Path $env:RUNNER_TEMP 'P182 Fresh Root With Spaces'
+          New-Item -ItemType Directory -Force -Path $root,$rootTarget,$newTarget | Out-Null
+          $name='AWE64_Gold_Native_P009.vst3'
+          $script='research/native-awe32emu/p009-vst3/install/INSTALLIEREN.ps1'
+          $bat='research/native-awe32emu/p009-vst3/install/INSTALLIEREN.bat'
+          if(!(Test-Path -LiteralPath $script -PathType Leaf) -or
+             !(Test-Path -LiteralPath $bat -PathType Leaf)){throw 'P182 source installer missing'}
+          Copy-Item -LiteralPath $script -Destination (Join-Path $root 'INSTALLIEREN.ps1')
+          Copy-Item -LiteralPath $bat -Destination (Join-Path $root 'INSTALLIEREN.bat')
+          $built='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
+          Copy-Item -LiteralPath $built -Destination (Join-Path $root $name) -Recurse -Force
+          $files=Join-Path $root ($name+'/Contents/Resources/P009-Private')
+          New-Item -ItemType Directory -Force -Path $files | Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $files 'awe32.raw'),(New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $files 'SYNTHGM.SBK') --wet
+          if($LASTEXITCODE -ne 0){throw 'P182 synthetic public SBK construction failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $files 'user.sf2') --expressive
+          if($LASTEXITCODE -ne 0){throw 'P182 synthetic public SF2 construction failed'}
+          $installer=Join-Path $root 'INSTALLIEREN.ps1'
+          $parent=Join-Path $rootTarget 'VST3'
+          $old=Join-Path $parent $name
+          New-Item -ItemType Directory -Force -Path $old | Out-Null
+          [IO.File]::WriteAllText((Join-Path $old 'PREVIOUS-PLUGIN-MARKER.txt'),'P182 OLD COMPLETE PLUGIN')
+          function CallInstaller([string]$dest) {
+            $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',
+                  ('"'+$installer+'"'),'-TargetRoot',('"'+$dest+'"'))
+            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Wait -PassThru
+            return $p.ExitCode
+          }
+          if((CallInstaller $rootTarget) -ne 0){throw 'P182 full Windows PowerShell upgrade installation rejected'}
+          $installed=Join-Path $parent $name
+          $backups=@(Get-ChildItem -LiteralPath $parent -Directory |
+            Where-Object {$_.Name -like 'AWE64_Gold_Native_P009.backup-*'})
+          if($backups.Count -ne 1 -or
+             !(Test-Path -LiteralPath (Join-Path $backups[0].FullName 'PREVIOUS-PLUGIN-MARKER.txt'))){
+            throw 'P182 existing plugin was NOT preserved as a whole-folder backup'
+          }
+          $builtModule=Join-Path $root ($name+'/Contents/x86_64-win/AWE64_Gold_Native_P009.vst3')
+          $installedModule=Join-Path $installed 'Contents/x86_64-win/AWE64_Gold_Native_P009.vst3'
+          $originalSha=(Get-FileHash -LiteralPath $builtModule -Algorithm SHA256).Hash
+          $installedSha=(Get-FileHash -LiteralPath $installedModule -Algorithm SHA256).Hash
+          if($originalSha -ne $installedSha){throw 'P182 installed Windows x64 VST3 binary not byte identical'}
+          $sf2Installed=Join-Path $installed 'Contents/Resources/P009-Private/user.sf2'
+          $originalSf2=(Get-FileHash -LiteralPath $sf2Installed -Algorithm SHA256).Hash
+          $userSource=Join-Path $files 'user.sf2'
+          # Negative: missing private SoundFont must abort before touching
+          # a previously installed FULL VST3 and before creating a backup.
+          Remove-Item -LiteralPath $userSource -Force
+          if((CallInstaller $rootTarget) -eq 0){throw 'P182 incomplete original media was falsely accepted'}
+          if((Get-FileHash -LiteralPath $installedModule -Algorithm SHA256).Hash -ne $originalSha -or
+             (Get-FileHash -LiteralPath $sf2Installed -Algorithm SHA256).Hash -ne $originalSf2){
+            throw 'P182 invalid source damaged previously working module/media'
+          }
+          if(@(Get-ChildItem -LiteralPath $parent -Directory |
+                 Where-Object {$_.Name -like 'AWE64_Gold_Native_P009.backup-*'}).Count -ne 1){
+            throw 'P182 invalid source moved old bundle despite failed preflight'
+          }
+          Copy-Item -LiteralPath (Join-Path $installed 'Contents/Resources/P009-Private/user.sf2') -Destination $userSource
+          # Negative: missing binary must also fail before removing the old.
+          Move-Item -LiteralPath $builtModule -Destination ($builtModule+'.save')
+          if((CallInstaller $rootTarget) -eq 0){throw 'P182 missing VST3 module passed preflight'}
+          Move-Item -LiteralPath ($builtModule+'.save') -Destination $builtModule
+          if((Get-FileHash -LiteralPath $installedModule -Algorithm SHA256).Hash -ne $originalSha){
+            throw 'P182 missing binary altered previous installation'
+          }
+          # Fresh install into an *empty* path with whitespace, no UAC.
+          if((CallInstaller $newTarget) -ne 0){throw 'P182 fresh Windows PowerShell install rejected'}
+          $fresh=Join-Path (Join-Path $newTarget 'VST3') $name
+          if((Get-FileHash -LiteralPath (Join-Path $fresh 'Contents/x86_64-win/AWE64_Gold_Native_P009.vst3') -Algorithm SHA256).Hash -ne $originalSha){
+            throw 'P182 fresh install damaged exact tested Windows VST3 module'
+          }
+          if(@(Get-ChildItem -LiteralPath (Join-Path $newTarget 'VST3') -Directory |
+                 Where-Object {$_.Name -like 'AWE64_Gold_Native_P009.backup-*'}).Count -ne 0){
+            throw 'P182 fresh install fabricated a nonexistent prior plugin backup'
+          }
+          Write-Host P182_REAL_WINDOWS_POWERSHELL_PRIVATE_BUNDLE_INSTALL_BACKUP_INVALID_INPUT_AND_FRESH_INSTALL_PASS
       - name: Preserve host and tester diagnostic reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
