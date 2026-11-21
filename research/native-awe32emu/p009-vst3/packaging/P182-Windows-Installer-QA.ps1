@@ -84,10 +84,22 @@ try {
     # Neither the installed module nor its one existing backup may change.
     $user = Join-Path $assets 'user.sf2'
     [IO.File]::WriteAllBytes($user, [byte[]](0x11,0x22,0x33,0x44))
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script -DestinationRoot $root -NoElevation *> (Join-Path $fixture 'tampered-install.log')
-    if ($LASTEXITCODE -eq 0) {
-        throw 'P182 deliberately corrupted private SoundFont was accepted by installer'
+    # A genuine corrupted source deliberately makes powershell.exe write
+    # to stderr. Capture its EXPECTED failure without converting native
+    # stderr to a pwsh ErrorActionPreference=Stop terminating exception.
+    $badOut = Join-Path $fixture 'tampered-install-out.log'
+    $badErr = Join-Path $fixture 'tampered-install-error.log'
+    $badArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $script +
+               '" -DestinationRoot "' + $root + '" -NoElevation'
+    $bad = Start-Process -FilePath 'powershell.exe' -ArgumentList $badArgs -Wait -PassThru -RedirectStandardOutput $badOut -RedirectStandardError $badErr
+    if ($bad.ExitCode -eq 0) {
+        throw 'P182 deliberately corrupted SoundFont was accepted by installer'
     }
+    if ((Get-Content -LiteralPath $badErr -Raw) -notmatch
+        'Dateigroesse falsch|SHA256-Pruefung fehlgeschlagen') {
+        throw 'P182 corrupt-SF2 negative control failed for unrelated reason'
+    }
+    Write-Host ('P182_EXPECTED_CORRUPT_SF2_INSTALL_REJECTED_EXIT=' + $bad.ExitCode)
     $after = @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.backup-*'))
     $stages = @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.stage-*'))
     if ($after.Count -ne 1 -or $stages.Count -ne 0 -or
