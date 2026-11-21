@@ -142,6 +142,10 @@ if "--single" in sys.argv[2:]:
 if "--drum-kits" in sys.argv[2:]:
     if bank_number != 128:
         raise SystemExit("--drum-kits also requires --drums")
+    # Optional one-second loop for independent two-NoteID release checks.
+    # Normal Kit0/5 fixtures remain unchanged without --sustain.
+    kit_zone=(gen(37,0)+gen(54,1)) if sustain else gen(37,0)
+    kit_zone_length=3 if sustain else 2
     pdta=(
         ck(b"phdr",phdr("Kit0Sine",0,128,0)+phdr("Kit5Harmonics",5,128,1)+
                       phdr("EOP",0,0,2))+
@@ -149,9 +153,9 @@ if "--drum-kits" in sys.argv[2:]:
         ck(b"pmod",bytes(10))+
         ck(b"pgen",gen(41,0)+gen(41,1)+gen(0,0))+
         ck(b"inst",inst("Kit0",0)+inst("Kit5",1)+inst("EOI",2))+
-        ck(b"ibag",bag(0)+bag(2)+bag(4))+
+        ck(b"ibag",bag(0)+bag(kit_zone_length)+bag(2*kit_zone_length))+
         ck(b"imod",bytes(10))+
-        ck(b"igen",gen(37,0)+gen(53,0)+gen(37,0)+gen(53,1)+gen(0,0))+
+        ck(b"igen",kit_zone+gen(53,0)+kit_zone+gen(53,1)+gen(0,0))+
         ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
                     shdr("HarmonicWave",sample_length,2*sample_length,
                          sample_length+64,2*sample_length-128)+

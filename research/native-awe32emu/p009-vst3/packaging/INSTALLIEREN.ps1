@@ -104,6 +104,21 @@ if ([string]::IsNullOrWhiteSpace($DestinationRoot)) {
     $parent = [IO.Path]::GetFullPath($DestinationRoot)
 }
 New-Item -ItemType Directory -Path $parent -Force | Out-Null
+# A crash-safe per-destination interprocess mutex. FileShare.None must be
+# acquired BEFORE observing or mutating target/backup. In particular a
+# second installer that fails must never rollback an already committed first
+# installer. Never delete the lock file: deleting allows inode replacement
+# and a third installer to enter while an older handle is still held.
+$installLockPath = Join-Path $parent ($bundleName + '.install.lock')
+try {
+    $installLock = [IO.File]::Open($installLockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None)
+} catch {
+    throw ('Installation laeuft bereits; Ziel unveraendert: ' + $installLockPath)
+}
+try {
 $target = Join-Path $parent $bundleName
 $nonce = [Guid]::NewGuid().ToString('N')
 $stage = Join-Path $parent ($bundleName + '.stage-' + $nonce)
@@ -141,4 +156,9 @@ try {
     if (Test-Path -LiteralPath $stage) {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
+}
+} finally {
+    # Releasing in an outer finally also covers failures that occur before
+    # the staging/catch block (e.g. target metadata access).
+    $installLock.Dispose()
 }

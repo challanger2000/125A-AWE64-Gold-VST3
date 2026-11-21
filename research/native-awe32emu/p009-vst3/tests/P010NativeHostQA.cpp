@@ -3413,6 +3413,16 @@ void verifyP185CoherentGUIAndMidiAutomationSaves(
     check(ptr && state.getSize()==648u,"P185 expected genuine V5 automation state");
     return std::vector<std::uint8_t>(ptr,ptr+state.getSize());
   };
+  // P186 adversarial seed: prior stopped controller values disagree with
+  // every later audio automation point. They MUST be consumed by the audio
+  // callback, not persist forever as stale getState overlays.
+  check(plugin.controller->setParamNormalized(1000u,3./127.)==kResultOk &&
+        plugin.controller->setParamNormalized(1002u,1.)==kResultOk &&
+        plugin.controller->setParamNormalized(1001u,.125)==kResultOk &&
+        plugin.controller->setParamNormalized(1100u,.10)==kResultOk &&
+        plugin.controller->setParamNormalized(1400u,1./7.)==kResultOk &&
+        plugin.controller->setParamNormalized(1420u,0.)==kResultOk,
+        "P186 seed contradictory pre-automation GUI edits");
   check(apply(false),"P185 initial automation state A rejected");
   const auto A=save();
   check(apply(true),"P185 initial automation state B rejected");
@@ -3459,6 +3469,237 @@ void verifyP185CoherentGUIAndMidiAutomationSaves(
   check(torn.load()==0u && rejected.load()==0u,
         "P185 host saved an impossible mixed MIDI/GUI/FX generation");
   std::puts("P185_REAL_WIN64_VST3_ATOMIC_GUI_FX_MIDI_AUTOMATION_SAVE_PASS");
+}
+
+
+// P186 new Codex NO-GO counters: effective pitch bend after RPN NULL and
+// NRPN data-entry must retain the last *applied* 12-semitone range.
+void verifyP186BendRangeRpnNullAndNrpnData(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"vintage.sf2");
+  const auto capture=[&](bool nullRpn){
+    Plugin unit(factory,id,host);unit.start(0,1,44100.);
+    IMidiMapping* raw=nullptr;
+    check(unit.controller->queryInterface(IMidiMapping::iid,
+          reinterpret_cast<void**>(&raw))==kResultOk&&raw,
+          "P186 actual VST3 IMidiMapping missing");
+    const IPtr<IMidiMapping> mapping=owned(raw);
+    const auto send=[&](CtrlNumber controller,int value){
+      ParamID mapped=0;
+      check(mapping->getMidiControllerAssignment(0,0,controller,mapped)==kResultTrue,
+            "P186 RPN/NRPN mapping query failed");
+      ParameterChanges changes(1);
+      int32 q=0,p=0;
+      auto* item=changes.addParameterData(mapped,q);
+      check(item&&item->addPoint(0,double(value)/127.,p)==kResultOk,
+            "P186 mapped CC point missing");
+      ProcessData pd{};pd.processMode=kRealtime;
+      pd.symbolicSampleSize=kSample32;pd.numSamples=0;
+      pd.inputParameterChanges=&changes;
+      check(unit.processor->process(pd)==kResultOk,
+            "P186 source RPN/NRPN CC callback failed");
+    };
+    send(kCtrlRPNSelectMSB,0);
+    send(kCtrlRPNSelectLSB,0);
+    send(kCtrlDataEntryMSB,12);
+    if(nullRpn){
+      send(kCtrlRPNSelectMSB,127);
+      send(kCtrlRPNSelectLSB,127);
+    }else{
+      send(kCtrlNRPNSelectMSB,1);
+      send(kCtrlNRPNSelectLSB,2);
+    }
+    send(kCtrlDataEntryMSB,71); // must not overwrite the effective RPN12
+    MemoryStream state;
+    check(unit.component->getState(&state)==kResultOk &&
+          state.getSize()==sizeof(Saved),
+          "P186 RPN/NRPN state not V4 roundtrippable");
+    Saved result{};std::memcpy(&result,state.getData(),sizeof(result));
+    check(result.advancedStates[4]==12u &&
+          result.parameterModes[0]==(nullRpn?1u:2u) &&
+          result.advancedStates[2]==(nullRpn?127u:0u) &&
+          result.advancedStates[3]==(nullRpn?127u:0u),
+          "P186 unsupported Data Entry erased effective bend-range memory");
+    result.midiStates[7]=16383u; // full positive pitch to hear range
+    return result;
+  };
+  const auto nullSaved=capture(true);
+  const auto nrpnSaved=capture(false);
+  auto reference=nullSaved;
+  reference.advancedStates[2]=0u;
+  reference.advancedStates[3]=0u;
+  auto standard=reference;
+  standard.advancedStates[4]=0xFFFFu;
+  Plugin a(factory,id,host),b(factory,id,host),c(factory,id,host),d(factory,id,host);
+  a.start(0,1,44100.);b.start(0,1,44100.);
+  c.start(0,1,44100.);d.start(0,1,44100.);
+  p015Restore(a,reference);
+  p015Restore(b,nullSaved);
+  p015Restore(c,nrpnSaved);
+  p015Restore(d,standard);
+  const auto expected=p015Play(a,0,60);
+  check(expected!=p015Play(d,0,60),
+        "P186 bend12 vs default2 negative PCM oracle invalid");
+  check(p015Play(b,0,60)==expected && p015Play(c,0,60)==expected,
+        "P186 RPN NULL or NRPN Data Entry changed original chip bend PCM");
+  ownerBank(resources,nullptr);
+  std::puts("P186_ORIGINAL_CHIP_RPN_NULL_NRPN_DATA_ENTRY_BEND12_RECALL_PCM_PASS");
+}
+
+void verifyP186CH10ProgramAndCC0DrumRouting(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"multi-drums.sf2");
+  Plugin browsed(factory,id,host),direct(factory,id,host),
+         bankExit(factory,id,host);
+  browsed.start(0,2,44100.);
+  direct.start(0,2,44100.);
+  bankExit.start(0,2,44100.);
+  const auto flush=[&](Plugin& unit,ParamID param,double value){
+    ParameterChanges changes(1);
+    int32 qi=0,pi=0;
+    auto* q=changes.addParameterData(param,qi);
+    check(q&&q->addPoint(0,value,pi)==kResultOk,
+          "P186 mapped drum bank/program point missing");
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=0;
+    data.inputParameterChanges=&changes;
+    check(unit.processor->process(data)==kResultOk,
+          "P186 CH1/CH10 drum program callback rejected");
+  };
+  for(Plugin* unit:{&browsed,&direct,&bankExit}){
+      flush(*unit,1000u,5./127.); // CH1 browser Kit 5
+      flush(*unit,1209u,0.);      // native CH10 kit0
+  }
+  Plugin kit5(factory,id,host),kit0(factory,id,host);
+  kit5.start(5,2,44100.);kit0.start(0,0,44100.);
+  const auto five=p015Play(kit5,0,60);
+  const auto zero=p015Play(kit0,9,60);
+  check(five!=zero,"P186 independent Kit 0/5 waveform oracle invalid");
+  check(p015Play(browsed,0,60)==five,
+        "P186 CH10 program change stole CH1 browser Drum Kit 5");
+  check(p015Play(direct,9,60)==zero,
+        "P186 CH10 cannot play its own Kit 0 after CH1 browser Kit 5");
+  // Use an actual raw MIDI CC0 on CH1 (mapped VST3 controller), not the
+  // host Bank parameter, to exit Drum Kit mode after browser selection.
+  IMidiMapping* raw=nullptr;
+  check(browsed.controller->queryInterface(IMidiMapping::iid,
+        reinterpret_cast<void**>(&raw))==kResultOk&&raw,
+        "P186 real mapped CC0 unavailable");
+  const IPtr<IMidiMapping> mapping=owned(raw);
+  ParamID cc0=0;check(mapping->getMidiControllerAssignment(
+        0,0,kCtrlBankSelectMSB,cc0)==kResultTrue,
+        "P186 mapping of raw MIDI CH1 CC0 failed");
+  flush(bankExit,cc0,0.); // explicit ROM bank 0
+  check(p015Play(bankExit,9,60)==zero,
+        "P186 CH1 raw CC0 left the wrong CH10 kit active");
+  ownerBank(resources,nullptr);
+  std::puts("P186_CH1_CC0_CH10_PROGRAM_ISOLATED_REAL_CHIP_DRUM_PCM_PASS");
+}
+
+// Same pitched notes with *distinct NoteIDs* on two logical channels can
+// share physical CH10 during browser drum routing. Each NoteOff must use
+// the original note route, not the new bank/program. Last release must
+// terminate the physical note rather than strand a looped voice.
+void verifyP186TwoNoteIDsAfterBankSwitch(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"multi-drums-sustain.sf2");
+  const auto renderScenario=[&](bool releaseNotes){
+    Plugin unit(factory,id,host);unit.start(0,2,44100.);
+    std::array<float,1024> left{},right{};
+    float* channels[2]={left.data(),right.data()};
+    AudioBusBuffers out{};out.numChannels=2;out.channelBuffers32=channels;
+    EventList events;
+    ParameterChanges changes(2);
+    ProcessData data{};data.processMode=kRealtime;
+    data.symbolicSampleSize=kSample32;data.numSamples=1024;
+    data.numOutputs=1;data.outputs=&out;
+    data.inputEvents=&events;data.inputParameterChanges=&changes;
+    std::vector<float> tail;
+    for(int block=0;block<85;++block){
+      events.clear();changes.clearQueue();
+      if(block==0){
+        Event first{};first.type=Event::kNoteOnEvent;
+        first.sampleOffset=10;first.noteOn.channel=0;
+        first.noteOn.pitch=60;first.noteOn.velocity=1.;
+        first.noteOn.noteId=101;
+        Event second=first;second.sampleOffset=12;
+        second.noteOn.channel=9;second.noteOn.noteId=202;
+        check(events.addEvent(first)==kResultOk&&
+              events.addEvent(second)==kResultOk,
+              "P186 two distinct NoteIDs not submitted");
+      }
+      if(block==3){
+        int32 qi=0,pi=0;
+        auto* bank=changes.addParameterData(1002u,qi);
+        check(bank&&bank->addPoint(0,0.,pi)==kResultOk,
+              "P186 route change between NoteOn and NoteOff missing");
+      }
+      if(releaseNotes && (block==5||block==6)){
+        Event off{};off.type=Event::kNoteOffEvent;
+        off.sampleOffset=15;off.noteOff.pitch=60;
+        off.noteOff.channel=block==5?0:9;
+        off.noteOff.noteId=block==5?101:202;
+        check(events.addEvent(off)==kResultOk,
+              "P186 two independent NoteOff IDs missing");
+      }
+      check(unit.processor->process(data)==kResultOk,
+            "P186 NoteID routed original-chip PCM callback rejected");
+      if(block>=15)
+        for(int i=0;i<1024;++i){
+          check(std::isfinite(left[i])&&std::isfinite(right[i]),
+                "P186 NoteID route nonfinite PCM");
+          tail.push_back(left[i]);tail.push_back(right[i]);
+        }
+    }
+    return tail;
+  };
+  const auto released=renderScenario(true);
+  const auto held=renderScenario(false);
+  check(released!=held,
+        "P186 two independent NoteOff IDs did not release any original voices");
+  const auto energy=[&](const std::vector<float>& pcm){
+    double sum=0.;for(float x:pcm)sum+=double(x)*x;
+    return sum;
+  };
+  check(energy(held)>0.001 && energy(released)<energy(held)*.90,
+        "P186 overlapping NoteIDs remained hanging after last physical release");
+  ownerBank(resources,nullptr);
+  std::puts("P186_TWO_DISTINCT_NOTEIDS_BANK_SWITCH_NO_STUCK_CH10_VOICES_PASS");
+}
+
+void verifyP186ExplicitSF2SHAActivationRejectsChangedFile(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  const auto testPath=resources/"p186-owner-sha-activation.sf2";
+  fs::copy_file(resources/"vintage.sf2",testPath,
+                fs::copy_options::overwrite_existing);
+  try{
+    const auto good=p174V5State(testPath);
+    Plugin unit(factory,id,host);
+    check(p174ApplyV5(unit,good)==kResultOk,
+          "P186 V5 external owner source was rejected before activation");
+    // Swap with a *different but valid* bank after SHA validation and
+    // before setActive. Old code loaded this new SF2 and saved its new SHA.
+    fs::copy_file(resources/"77-presets.sf2",testPath,
+                  fs::copy_options::overwrite_existing);
+    ProcessSetup setup{};setup.processMode=kRealtime;
+    setup.symbolicSampleSize=kSample32;setup.sampleRate=44100.;
+    setup.maxSamplesPerBlock=1024;
+    check(unit.processor->setupProcessing(setup)==kResultOk,
+          "P186 setup native original chip processor");
+    check(unit.component->setActive(true)!=kResultOk,
+          "P186 altered owner SF2 illegally activated with untrusted PCM");
+    MemoryStream saved;
+    check(unit.component->getState(&saved)==kResultOk &&
+          saved.getSize()==good.size() &&
+          std::memcmp(saved.getData(),good.data(),good.size())==0,
+          "P186 failed asset activation silently rewrote the saved owner SHA");
+  }catch(...){fs::remove(testPath);throw;}
+  fs::remove(testPath);
+  std::puts("P186_PINNED_OWNER_SF2_SHA_ACTIVATION_TAMPER_FAIL_CLOSED_PASS");
 }
 
 int main(int argc,char** argv){
@@ -3513,6 +3754,10 @@ int main(int argc,char** argv){
     verifyTailAndBlockPartitions(factory,cls->ID(),host.get(),resources);
     verifyDrumReleaseAfterBankChange(factory,cls->ID(),host.get(),resources);
     verifyP185BrowserDrumKitActuallyChangesPCM(factory,cls->ID(),host.get(),resources);
+    verifyP186BendRangeRpnNullAndNrpnData(factory,cls->ID(),host.get(),resources);
+    verifyP186CH10ProgramAndCC0DrumRouting(factory,cls->ID(),host.get(),resources);
+    verifyP186TwoNoteIDsAfterBankSwitch(factory,cls->ID(),host.get(),resources);
+    verifyP186ExplicitSF2SHAActivationRejectsChangedFile(factory,cls->ID(),host.get(),resources);
     verifyP185PitchRangeSurvivesNRPN(factory,cls->ID(),host.get(),resources);
     verifyP185StoppedROMBankRestoresAgainstOldCC0(factory,cls->ID(),host.get(),resources);
     verifyP165HostBankSupersedesOldCC0(factory,cls->ID(),host.get(),resources);

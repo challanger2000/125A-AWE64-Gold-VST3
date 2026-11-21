@@ -44,7 +44,7 @@ try {
     if ($moduleSha -notmatch '^[0-9a-f]{64}$') { throw 'P182 module SHA could not be resolved' }
     $manifest = @{
         status='P182_CI_PUBLIC_SYNTHETIC_INSTALL_TEST_ONLY'
-        source_sha='4025170e89b36a17aafc66e1f4b8266e3dc7c055'
+        source_sha=([string]$env:GITHUB_SHA)
         vst3_module_sha256=$moduleSha
         files=$entries
     }
@@ -80,6 +80,33 @@ try {
         (Test-Path -LiteralPath (Join-Path $installed 'P182-old-version-sentinel.txt'))) {
         throw 'P182 previous plugin was not atomically backed up'
     }
+    # P186: simulate a first installer holding the same interprocess lock.
+    # A failed overlapping second process must not remove/rollback the
+    # successfully installed bundle (Codex P185 NO-GO counterexample).
+    $lockPath = Join-Path $root ($bundle + '.install.lock')
+    $exclusive = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $raceOut = Join-Path $fixture 'overlap-out.log'
+        $raceErr = Join-Path $fixture 'overlap-error.log'
+        $raceArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $script +
+                    '" -DestinationRoot "' + $root + '" -NoElevation'
+        $racer = Start-Process -FilePath 'powershell.exe' -ArgumentList $raceArgs -Wait -PassThru -RedirectStandardOutput $raceOut -RedirectStandardError $raceErr
+        if ($racer.ExitCode -eq 0 -or
+            (Get-Content -LiteralPath $raceErr -Raw) -notmatch 'Installation laeuft bereits') {
+            throw 'P186 overlapping installer was accepted or failed for unrelated reason'
+        }
+        if ((Get-FileHash -LiteralPath $destModule -Algorithm SHA256).Hash.ToLowerInvariant() -ne $moduleSha -or
+            @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.backup-*')).Count -ne 1 -or
+            @(Get-ChildItem -LiteralPath $root -Directory -Filter ($bundle + '.stage-*')).Count -ne 0) {
+            throw 'P186 failed overlapping installer mutated a committed target/backup'
+        }
+        Write-Host 'P186_OVERLAPPING_INSTALLER_FAILS_CLOSED_EXISTING_BUNDLE_PRESERVED_PASS'
+    } finally {
+        $exclusive.Dispose()
+    }
+    # Ensure no stale mutex prevents a valid subsequent install. The ordinary
+    # tampered-source negative case below continues to test rollback integrity.
     # The negative control MUST fail before any replacement on corrupted SF2.
     # Neither the installed module nor its one existing backup may change.
     $user = Join-Path $assets 'user.sf2'

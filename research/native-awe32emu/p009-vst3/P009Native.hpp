@@ -192,6 +192,22 @@ private:
     void applyStagedInstrumentRealtime() noexcept;
     std::array<std::int16_t,2048> pcm_{};
     std::array<unsigned char,16*128> redirectedDrumNotes_{};
+    // VST3 noteId is not a chip address: track immutable original routing
+    // across bank changes and matching overlapping NoteOn/NoteOff. Releasing
+    // an already redirected note based on the NEW bank strands chip voices.
+    // All slots and reference counts are preallocated, zero-heap in process.
+    struct ActiveRoutedNote {
+        Steinberg::int32 noteId=-1;
+        std::uint8_t source=0, key=0, route=0;
+        bool active=false;
+    };
+    std::array<ActiveRoutedNote,512> activeRoutedNotes_{};
+    std::array<std::uint16_t,16*128> routeHeldCounts_{};
+    void clearRoutedNotes() noexcept {
+        for(auto& n:activeRoutedNotes_)n.active=false;
+        routeHeldCounts_.fill(0u);
+        redirectedDrumNotes_.fill(0u);
+    }
     // CH1 browser drum mode borrows the physical CH10 voice lane.
     // Restore CH10's independent programmed kit when CH1 leaves drums.
     bool browserDrumOverrideActive_=false; // owned by audio/lifecycle thread
