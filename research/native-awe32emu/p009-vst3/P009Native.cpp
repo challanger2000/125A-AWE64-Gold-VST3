@@ -20,6 +20,7 @@
 #include <cstring>
 #include <filesystem>
 #include <new>
+#include <thread>
 #include <string>
 #include <vector>
 namespace p009 {
@@ -1496,6 +1497,9 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         }
     }
     if(bus&&data.numSamples>0)bus->silenceFlags=authenticRomLoaded_?0:3;
+    // The publication and per-field version acknowledgements are
+    // one short transaction for any concurrent host getState().
+    statePublishEpoch_.fetch_add(1u,std::memory_order_seq_cst); // odd
     // Critical N08 correction: keep *all* pending host edits visible
     // until a coherent B audio snapshot is published. Clearing earlier
     // yields old-A saved state or a mixed A/B project during in-flight
@@ -1519,6 +1523,7 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
                 (void)hostSendEdits_[i].clearIfUnchanged(sendToken[i]);
         }
     }
+    statePublishEpoch_.fetch_add(1u,std::memory_order_seq_cst); // even
     return kResultOk;
 }
 tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
@@ -1536,6 +1541,20 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
     // repeated project switches work even without any GUI editor open.
     drainRetiredSynthsNonRealtime();
     NativeRuntimeRestore stable{};
+    bool coherent=false;
+    // Snapshot slot and controller overlays must belong to the SAME
+    // publication generation. Publishing B before clearing the old A
+    // overlays leaves a tiny but real save window; validate a bounded
+    // read transaction instead of accepting a mixed B-slot/A-overlay.
+    for(unsigned readAttempt=0u;readAttempt<1024u && !coherent;++readAttempt){
+        const auto epochBefore=statePublishEpoch_.load(
+            std::memory_order_seq_cst);
+        if((epochBefore&1u)!=0u){
+            // This is a HOST-only save thread; it may yield to the
+            // nonblocking audio publisher. Audio never waits for the host.
+            if((readAttempt&15u)==15u)std::this_thread::yield();
+            continue;
+        }
     const auto request=restoreRequestedSeq_.load(std::memory_order_acquire);
     if(request!=restoreAppliedSeq_.load(std::memory_order_acquire)){
         // A valid project was accepted by setState but will be applied at
@@ -1560,7 +1579,7 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
             slot.pins.fetch_sub(1,std::memory_order_release);
             consistent=true;
         }
-        if(!consistent)return kResultFalse;
+        if(!consistent)continue;
     }
     // The controller's last edit can precede the first process callback
     // (stopped transport, inactive project, or host saving immediately).
@@ -1592,6 +1611,12 @@ tresult PLUGIN_API NativeVst3::getState(IBStream* stream){
         }
         if(pendingMode>=0)stable.sendManual[i]=pendingMode!=0;
     }
+        coherent=statePublishEpoch_.load(
+            std::memory_order_seq_cst)==epochBefore;
+        if(!coherent && (readAttempt&15u)==15u)
+            std::this_thread::yield();
+    }
+    if(!coherent)return kResultFalse;
     Saved s{};
     s.program=stable.program;s.bank=stable.bank;s.master=stable.master;
     for(unsigned ch=1;ch<16u;++ch){

@@ -78,6 +78,37 @@ independent X07 negative control. Do not call the installer crash-safe
 until a robust versioned/transactional Windows design plus kill-point
 recovery is verified.
 
+## P187 independent CI counterexample: saved-state read spanning publish/ack
+
+The second exact-code Windows run at `ccbb0d68d843d8609721c4d44f595415604edd65`,
+[GitHub Actions #44950819630](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44950819630),
+**FAILED** the new truly sounding N08 controller-echo test:
+`P187_SOUNDING_N08_ECHO accepted=1606660 stale=1 mixed=0 rejected=0`.
+The source compiled and Steinberg Validator completed, but the actual native
+Windows host correctly marked the entire job FAIL. The preceding first P187
+run at `5aa9ba0f...` ([#44950243342](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/44950243342))
+had `accepted=1930328 stale=0` and full CI success. Different interleavings
+on equivalent producer/reader contracts demonstrate why a single green
+self-oracle cannot constitute independent QA.
+
+**Root cause of residual stochastic stale save:** P187 correctly postponed
+acknowledging captured host edit generations until AFTER publishing B.
+However host `getState` could pin the freshly published B slot and
+then apply an *older* controller A overlay before the RT side completed
+clearing all A tokens. Individual slot correctness did not make the joined
+snapshot+overlay observation atomic.
+
+**Further correction in third P187 revision:** `statePublishEpoch_` is a
+bounded even/odd atomic handshake around `publishRuntimeSnapshot` and all
+corresponding per-edit generation acknowledgements. The host-only
+`getState` builds its pinned snapshot and controller overlays, then validates
+the same even epoch before accepting them. It retries with bounded yields
+if the audio thread is in that narrow transaction or the epoch changes;
+the realtime audio thread never sleeps or locks. This is strictly
+additional protection, not a claim that the independent Codex original
+N08 raw script is accessible here. **Requires exact current Windows CI and
+Codex re-audit.** Never erase the original red CI evidence.
+
 ## Evidence boundary / release gate
 
 P187 source is NOT a release and remains **NO-GO until exact-commit Win64 build, P187 targeted independent source-semantics tests, original independent N08/P186 adversarial re-audit, original Creative licensed media + hardware and actual Fender Studio Pro/ASIO acceptance**.

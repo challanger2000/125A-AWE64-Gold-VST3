@@ -232,6 +232,12 @@ private:
     };
     std::array<StateSnapshotSlot,4> stableSnapshots_{};
     std::atomic<unsigned> publishedSnapshot_{0u};
+    // RT publishes a new pinned audio snapshot and consumes old host-edit
+    // generations as ONE observable transaction. A host save validates
+    // this short even/odd publication epoch across both reads. Otherwise
+    // it can see new B from the snapshot with still-pending A overlay
+    // before the per-edit acknowledgements finish (another torn save).
+    std::atomic<std::uint64_t> statePublishEpoch_{0u};
     void applyRuntimeRestore(const NativeRuntimeRestore&) noexcept;
     void applyPendingRestoreRealtime() noexcept;
     bool publishRuntimeSnapshot() noexcept;
