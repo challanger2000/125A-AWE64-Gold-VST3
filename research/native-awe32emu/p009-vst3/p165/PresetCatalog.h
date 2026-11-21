@@ -20,6 +20,9 @@ struct PresetEntry {
     uint8_t program=0;
     std::string name;
     bool drums=false;
+    // Browser-only provenance; the SF2 header never changes the original
+    // chip's bank/program routing or emitted sound.
+    bool fromUserSf2=false;
 };
 class PresetCatalog {
 public:
@@ -209,16 +212,17 @@ public:
     std::size_t AppendCreativeMelodicUserOneFromSource(
         const PresetCatalog& source) {
         PresetCatalog mapped;
-        std::size_t melodic=0u;
+        std::size_t imported=0u;
         for(const auto& e:source.Entries()) {
             if(e.bank==0u && !e.drums) {
-                mapped.entries_.push_back({1u,e.program,e.name,false});
-                ++melodic;
+                mapped.entries_.push_back({1u,e.program,e.name,false,true});
+                ++imported;
             } else if(e.bank==128u && e.drums) {
-                // NATIVE, not Win95 guest: bank 2 auditions actual CH10.
-                // This engine has ONE original chip drum lane; do not invent
-                // P007 guest's separate virtual bank129 that cannot sound.
-                mapped.entries_.push_back({128u,e.program,e.name,true});
+                // Native bank 128 uses physical Creative CH10. SF2 kits
+                // may replace ROM program 0; never label them as ROM kits.
+                // No imaginary virtual bank 129 is allocated.
+                mapped.entries_.push_back({128u,e.program,e.name,true,true});
+                ++imported;
             }
         }
         entries_.erase(std::remove_if(entries_.begin(),entries_.end(),
@@ -237,7 +241,7 @@ public:
             [](const PresetEntry& a,const PresetEntry& b){
                 return a.bank!=b.bank?a.bank<b.bank:a.program<b.program;
             });
-        return melodic;
+        return imported; // Accept drum-only SoundFonts as well.
     }
     const PresetEntry* Find(uint16_t bank,uint8_t program) const noexcept {
         for(const auto& p:entries_) if(p.bank==bank&&p.program==program)return &p;

@@ -13,6 +13,7 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "P009AssetFingerprint.hpp"
+#include "p165/PresetBrowserModel.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/vstspeaker.h"
 #include <algorithm>
@@ -31,6 +32,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <utility>
 namespace fs=std::filesystem;
 using namespace Steinberg;
 using namespace Steinberg::Vst;
@@ -1985,6 +1987,180 @@ void verifyP165HeldNoteOverflowRecovery(
    ownerBank(resources,nullptr);
 }
 
+// P173: use the original chip's actual drum bank 128, but never claim an
+// SF2 replacement kit is the original ROM kit. The test deliberately loads
+// a DRUM-ONLY SF2: pre-P173 GUI rejected it as "no melodic presets".
+void verifyP173DrumBrowserSource(const fs::path& resources){
+  AWE125::PresetCatalog catalog,drum;
+  catalog.SetOriginalCreativeMidiNumbers();
+  const auto* rom=catalog.Find(128u,0u);
+  check(rom && !rom->fromUserSf2 &&
+        AWE125::PresetBrowserModel::BankLabel(128u,catalog)=="ROM Bank B - Drums",
+        "P173 initial original GM drum-kit provenance missing");
+  const auto path=resources/"drums.sf2";
+  const auto utf8=path.u8string();
+  std::string error;
+  check(drum.LoadSoundFont(std::string(utf8.begin(),utf8.end()),error),
+        "P173 synthetic drum-only SF2 invalid");
+  check(catalog.AppendCreativeMelodicUserOneFromSource(drum)==1u,
+        "P173 drum-only SoundFont was incorrectly rejected");
+  const auto* userKit=catalog.Find(128u,0u);
+  check(userKit && userKit->drums && userKit->fromUserSf2 &&
+        userKit->name=="PublicTwoLayers" &&
+        AWE125::PresetBrowserModel::BankLabel(128u,catalog)=="SF2 Bank B - Drums",
+        "P173 loaded SF2 kit was falsely labelled ROM in browser");
+  check(!catalog.Find(129u,0u) && catalog.Entries().size()==129u,
+        "P173 native browser fabricated an additional drum bank/presets");
+  const auto label=AWE125::PresetBrowserModel::CurrentLabel(
+      0,catalog,128u,0u);
+  check(label.find("PublicTwoLayers")!=std::string::npos,
+        "P173 actual selected SF2 drum kit not shown");
+  const auto missing=AWE125::PresetBrowserModel::CurrentLabel(
+      0,catalog,1u,127u);
+  check(missing.find("GM fallback candidate: Gunshot")!=std::string::npos &&
+        missing.find("Nicht") == std::string::npos,
+        "P173 sparse user-bank fallback still misleading/non-English");
+  std::puts("P173_DRUM_ONLY_SF2_ORIGIN_BROWSER_NO_PHANTOM_BANK_AND_ENGLISH_PASS");
+}
+
+// P173 source-level defect counterfactual: the pre-fix implementation
+// immediately stopped rendering the old sustained 86Box EMU8000 chip at
+// setState + first process block. This actual VST3 test makes an audible
+// sustained original-chip PCM fixture, swaps the user SF2 while it rings,
+// and asserts the exact 15-ms old->new sample ramp from an *independent*
+// still-playing original chip. An instant replacement MUST fail this gate.
+// The new engine has no NoteOn, so only the old fading note may be audible.
+void verifyP173LiveSf2SwitchOriginalChipFade(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  ownerBank(resources,"sustain.sf2");
+  struct Extension {
+    std::uint32_t magic=0x35534150u,bytes=0u;
+    std::array<std::uint16_t,12> controls{};
+    std::array<std::uint8_t,32> sha{};
+    std::array<std::uint16_t,2> fx{{4u,2u}};
+  };
+  static_assert(sizeof(Extension)==68u,"P173 exact V5 format");
+  const fs::path replacement=resources/"vintage.sf2";
+  std::array<std::uint8_t,32> digest{};
+  check(p009::sha256FileNonRealtime(replacement,digest),
+        "P173 cannot hash alternate SF2");
+  const auto utf8=replacement.u8string();
+  const std::string selected(utf8.begin(),utf8.end());
+  Saved saved{};
+  saved.version=5u;saved.bank=1u;saved.program=0u;saved.master=1.f;
+  saved.midiStates.fill(0xFFFFu);saved.advancedStates.fill(0xFFFFu);
+  Extension ext{};ext.sha=digest;
+  ext.bytes=static_cast<std::uint32_t>(selected.size());
+  std::vector<std::uint8_t> v5(sizeof(saved)+sizeof(ext)+selected.size());
+  std::memcpy(v5.data(),&saved,sizeof(saved));
+  std::memcpy(v5.data()+sizeof(saved),&ext,sizeof(ext));
+  std::memcpy(v5.data()+sizeof(saved)+sizeof(ext),
+              selected.data(),selected.size());
+
+  for(const int rate:{44100,48000,96000}){
+    for(const int blockSize:{64,128,512}){
+      Plugin reference(factory,id,host),switching(factory,id,host);
+      reference.start(0,1,rate);switching.start(0,1,rate);
+      std::array<float,frames> oldL{},oldR{},newL{},newR{};
+      float* channelsOld[2]={oldL.data(),oldR.data()};
+      float* channelsNew[2]={newL.data(),newR.data()};
+      AudioBusBuffers outOld{},outNew{};
+      outOld.numChannels=outNew.numChannels=2;
+      outOld.channelBuffers32=channelsOld;outNew.channelBuffers32=channelsNew;
+      EventList oldNotes,newNotes;
+      Event on{};on.type=Event::kNoteOnEvent;
+      on.noteOn.channel=0;on.noteOn.pitch=60;on.noteOn.velocity=1.f;
+      check(oldNotes.addEvent(on)==kResultOk &&
+            newNotes.addEvent(on)==kResultOk,
+            "P173 sustained original chip NoteOn not available");
+      ProcessData od{},nd{};
+      od.processMode=nd.processMode=kRealtime;
+      od.symbolicSampleSize=nd.symbolicSampleSize=kSample32;
+      od.numSamples=nd.numSamples=frames;
+      od.numOutputs=nd.numOutputs=1;
+      od.outputs=&outOld;nd.outputs=&outNew;
+      od.inputEvents=&oldNotes;nd.inputEvents=&newNotes;
+      double ringEnergy=0.;
+      for(int j=0;j<8;++j){
+        if(j){oldNotes.clear();newNotes.clear();}
+        check(reference.processor->process(od)==kResultOk &&
+              switching.processor->process(nd)==kResultOk,
+              "P173 sustained original chip initial playback failed");
+        if(j==7){
+          for(int i=0;i<frames;++i)
+            ringEnergy+=double(oldL[i])*oldL[i]+double(oldR[i])*oldR[i];
+        }
+      }
+      check(ringEnergy>.001,
+            "P173 negative-control invalid: sustained old SF2 was silent");
+      MemoryStream state;int32 wrote=0;
+      check(state.write(v5.data(),static_cast<int32>(v5.size()),&wrote)==kResultOk &&
+            wrote==static_cast<int32>(v5.size()) &&
+            state.seek(0,IBStream::kIBSeekSet,nullptr)==kResultOk &&
+            switching.component->setState(&state)==kResultOk,
+            "P173 actual VST3 live SF2 replacement refused valid state");
+      od.numSamples=nd.numSamples=blockSize;
+      check(reference.processor->process(od)==kResultOk &&
+            switching.processor->process(nd)==kResultOk,
+            "P173 original-chip crossfade first audio callback failed");
+      const auto fadeFrames=static_cast<int>(std::ceil(rate*.015));
+      double oldEnergy=0.,actualEnergy=0.,error=0.;
+      for(int i=0;i<blockSize;++i){
+        const double oldWeight=double(fadeFrames-i)/fadeFrames;
+        for(const auto pair:std::array<std::pair<float,float>,2>{{
+              {oldL[i],newL[i]},{oldR[i],newR[i]}}}){
+          check(std::isfinite(pair.first)&&std::isfinite(pair.second),
+                "P173 original EMU8000 transition emitted nonfinite PCM");
+          const double wanted=double(pair.first)*oldWeight;
+          const double delta=double(pair.second)-wanted;
+          oldEnergy+=double(pair.first)*pair.first;
+          actualEnergy+=double(pair.second)*pair.second;
+          error+=delta*delta;
+          check(std::abs(delta)<1e-4,
+                "P173 SF2 swap cut off old voice/FX or applied wrong fade");
+        }
+      }
+      check(oldEnergy>1e-6&&actualEnergy>oldEnergy*.1,
+            "P173 fade negative control: abrupt old-chip removal went undetected");
+      // Do not let old bank tails or a stale sustain note live forever.
+      // The finite 15-ms policy ends even when the old SF2 loops indefinitely.
+      const int tailBlocks=fadeFrames/blockSize+4;
+      for(int j=0;j<tailBlocks;++j){
+        check(switching.processor->process(nd)==kResultOk,
+              "P173 original chip crossfade did not finish");
+        for(int i=0;i<blockSize;++i)
+          check(std::isfinite(newL[i])&&std::isfinite(newR[i]),
+                "P173 bank fade produced nonfinite PCM during tail");
+      }
+      double afterPeak=0.;
+      for(int i=0;i<blockSize;++i)
+        afterPeak=std::max({afterPeak,std::abs(double(newL[i])),
+                            std::abs(double(newR[i]))});
+      check(afterPeak<1e-6,
+            "P173 old sustained voice did not retire after bounded fade");
+      newNotes.clear();
+      check(newNotes.addEvent(on)==kResultOk,
+            "P173 new SF2 NoteOn unavailable");
+      nd.numSamples=frames;
+      check(switching.processor->process(nd)==kResultOk,
+            "P173 new bank became unplayable after old voice retirement");
+      double freshEnergy=0.;
+      for(int i=0;i<frames;++i){
+        check(std::isfinite(newL[i])&&std::isfinite(newR[i]),
+              "P173 new SoundFont PCM nonfinite");
+        freshEnergy+=double(newL[i])*newL[i]+double(newR[i])*newR[i];
+      }
+      check(freshEnergy>.0001,
+            "P173 valid new SF2 did not produce audible original-chip audio");
+      std::printf("P173_LIVE_SF2_FADE rate=%d block=%d old=%.7f swapped=%.7f error=%.10f new=%.7f\n",
+                  rate,blockSize,oldEnergy,actualEnergy,error,freshEnergy);
+    }
+  }
+  ownerBank(resources,nullptr);
+  std::puts("P173_ACTUAL_WINDOWS_VST3_ORIGINAL_CHIP_LIVE_SF2_FADE_9X_PCM_PASS");
+}
+
 // F-07: Interleave multiple full original-chip SoundFont swaps with
 // stopped audio and normal audio, and close the *actual VST3 instance*
 // while a 28 MiB replacement has not yet reached an audio callback.
@@ -2224,6 +2400,8 @@ int main(int argc,char** argv){
     verifyP167TimedMasterOriginalPCM(factory,cls->ID(),host.get(),resources);
     verifyP165HeldNoteOverflowRecovery(factory,cls->ID(),host.get(),resources);
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
+    verifyP173DrumBrowserSource(resources);
+    verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),

@@ -396,14 +396,10 @@ private:
     CCoord lastX_=0.,lastY_=0.;
 };
 // Preserve the exact owner's P165 faceplate and all original live knobs.
-std::string BankLabel(uint16_t id) {
-    // A/B is a BROWSER distinction (not a requirement to set MIDI CH10):
-    // instruments and drums remain selectable while 16 MIDI channels work.
-    if(id==128)return "ROM Bank B - Drums";
-    if(id==129)return "SF2 Bank B - Drums";
-    if(id==1)return "SF2 Bank A - Instruments";
-    if(id==0)return "ROM Bank A - Instruments";
-    return "Bank "+std::to_string(id);
+std::string BankLabel(uint16_t id,const PresetCatalog& catalog) {
+    // Bank 128 is the shared original Creative drum lane. Its content may
+    // come from ROM, a newly loaded SF2 kit, or both (distinct programs).
+    return PresetBrowserModel::BankLabel(id,catalog);
 }
 std::string DisplayName(const std::string& path) {
     if(path.empty())return "No SoundFont selected";
@@ -786,7 +782,7 @@ void PresetBrowserView::RebuildActiveMenus() {
     activeBankMenu_->removeAllEntry();
     if(activeBanks_.empty())activeBankMenu_->addEntry("No bank loaded");
     else for(const auto bank:activeBanks_)
-        activeBankMenu_->addEntry(BankLabel(bank).c_str());
+        activeBankMenu_->addEntry(BankLabel(bank,sf_).c_str());
 
     activePrograms_=PresetBrowserModel::Programs(sf_.Entries(),bank_);
     programMenu_->removeAllEntry();
@@ -818,7 +814,7 @@ void PresetBrowserView::RebuildBanks() {
     bankMenu_->addEntry("All Banks");
     bool exists=false;
     for(const auto id:filterBanks_) {
-        bankMenu_->addEntry(BankLabel(id).c_str());
+        bankMenu_->addEntry(BankLabel(id,sf_).c_str());
         if(int(id)==bankFilter_)exists=true;
     }
     if(!exists)bankFilter_=-1;

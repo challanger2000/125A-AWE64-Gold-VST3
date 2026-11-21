@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"

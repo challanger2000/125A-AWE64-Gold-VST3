@@ -113,6 +113,14 @@ private:
     std::atomic<float> hostMasterEdit_{-1.f};
     std::atomic<Synth*> stagedSynth_{nullptr};
     std::atomic<Synth*> retiredSynth_{nullptr};
+    // For a bounded 15-ms SF2 transition the previous REAL EMU8000 chip
+    // continues rendering while its output fades to the newly loaded chip.
+    // Both synths stay audio-thread-owned. Retire only after the last fade
+    // sample, then reclaim the 28 MiB former chip off the realtime thread.
+    std::unique_ptr<Synth> fadingSynth_;
+    std::array<std::int16_t,2048> fadingPcm_{};
+    std::uint32_t fadeTotalSamples_=0;
+    std::uint32_t fadeRemainingSamples_=0;
     // Bounded POD host/audio state transfers. getState only reads atomic
     // snapshots, never audio-thread-owned arrays or a mutable Synth.
     std::atomic<NativeRuntimeRestore*> pendingRestore_{nullptr};
