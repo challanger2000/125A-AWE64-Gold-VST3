@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -243,6 +243,14 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'synthetic sustained drum bank fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'oversized.sf2') --oversized
           if($LASTEXITCODE -ne 0){throw 'P171 oversized SF2 generator failed'}
+          # Independent C++20 SF2 browser test: never compile Steinberg's
+          # module_win32.cpp as C++20 merely to use std::span in the catalog.
+          cmake --build _p009-build --config Release --parallel 4 --target P173BrowserContract
+          if($LASTEXITCODE -ne 0){throw 'P173 browser-only C++20 contract build failed'}
+          & _p009-build/Release/P173BrowserContract.exe $dir *> _p173-browser-contract.log
+          $browserRc=$LASTEXITCODE
+          Get-Content _p173-browser-contract.log
+          if($browserRc -ne 0){throw "P173 drum-bank browser/source contract failed: $browserRc"}
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic *> _p009-host-synthetic.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log

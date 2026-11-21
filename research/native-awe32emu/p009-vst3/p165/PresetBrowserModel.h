@@ -21,9 +21,9 @@ public:
     static const char* HardwareDescription(int engine) noexcept {
         switch(engine) {
         case 0:return "Sample synthesizer with wave ROM and SoundFonts (SF2).";
-        case 1:return "Originaler Yamaha-FM-Synthesizer für klassische Sound-Blaster-Klänge.";
-        case 2:return "Creatives eigener, OPL3-kompatibler FM-Synthesizer.";
-        default:return "Unbekannte Hardware.";
+        case 1:return "Original Yamaha FM synthesizer for classic Sound Blaster sounds.";
+        case 2:return "Creative's own OPL3-compatible FM synthesizer.";
+        default:return "Unknown hardware.";
         }
     }
     static const char* HardwareName(int engine) noexcept {
@@ -31,8 +31,33 @@ public:
         case 0:return "EMU8000 AWE32/64";
         case 1:return "Yamaha OPL3";
         case 2:return "Creative CQM";
-        default:return "Unbekannt";
+        default:return "Unknown";
         }
+    }
+    static std::string BankLabel(uint16_t bank,const PresetCatalog& catalog) {
+        if(bank==0u)return "ROM Bank A - Instruments";
+        if(bank==1u)return "SF2 Bank A - Instruments";
+        if(bank==128u) {
+            bool hasRom=false,hasSf2=false;
+            for(const auto& e:catalog.Entries())if(e.bank==128u){
+                if(e.fromUserSf2)hasSf2=true;
+                else hasRom=true;
+            }
+            if(hasRom&&hasSf2)return "ROM / SF2 Bank B - Drums";
+            if(hasSf2)return "SF2 Bank B - Drums";
+            return "ROM Bank B - Drums";
+        }
+        return "Bank "+std::to_string(bank);
+    }
+    // The button must select a genuinely imported bank, not the ROM kit
+    // merely because bank 128 is always present in the GM catalog.
+    // Pure percussion SoundFonts select the physical Creative CH10 lane.
+    static int PreferredImportedBank(const PresetCatalog& catalog) noexcept {
+        for(const auto& e:catalog.Entries())
+            if(e.bank==1u && e.fromUserSf2)return 1;
+        for(const auto& e:catalog.Entries())
+            if(e.bank==128u && e.fromUserSf2)return 128;
+        return -1;
     }
     static const PresetCatalog& Active(int engine,const PresetCatalog& sf,
                                        const PresetCatalog& fm) noexcept {
@@ -66,7 +91,21 @@ public:
         char prefix[36]{};
         if(engine==0)std::snprintf(prefix,sizeof(prefix),"%u:%03u  ",bank,program);
         else std::snprintf(prefix,sizeof(prefix),"%03u  ",program);
-        return std::string(prefix)+(p?p->name:"Nicht in der Bank vorhanden");
+        if(p)return std::string(prefix)+p->name;
+        // The original Creative Win95 voice selector tries GM bank 0
+        // for a missing melodic SF2 program. Its final patch still
+        // depends on key/velocity, so this is a CANDIDATE, not an
+        // unverified assertion about actual ROM PCM.
+        if(engine==0&&bank==1u){
+            if(const auto* gm=catalog.Find(0u,program))
+                return std::string(prefix)+"No SF2 preset; GM fallback candidate: "+gm->name;
+            return std::string(prefix)+"No SF2 preset; fallback depends on note.";
+        }
+        if(engine==0&&bank==128u){
+            if(const auto* kit=catalog.Find(128u,0u))
+                return std::string(prefix)+"Drum kit fallback candidate: "+kit->name;
+        }
+        return std::string(prefix)+"Preset not available.";
     }
     // P117 direct bank/program selector: only actual catalog entries, no
     // assumed GM-contiguous presets in the user's sparse SF2. Pure logic
