@@ -1994,6 +1994,8 @@ void verifyP173DrumBrowserSource(const fs::path& resources){
   AWE125::PresetCatalog catalog,drum;
   catalog.SetOriginalCreativeMidiNumbers();
   const auto* rom=catalog.Find(128u,0u);
+  check(AWE125::PresetBrowserModel::PreferredImportedBank(catalog)==-1,
+        "P173 ROM-only catalog falsely reported an imported SoundFont");
   check(rom && !rom->fromUserSf2 &&
         AWE125::PresetBrowserModel::BankLabel(128u,catalog)=="ROM Bank B - Drums",
         "P173 initial original GM drum-kit provenance missing");
@@ -2004,6 +2006,8 @@ void verifyP173DrumBrowserSource(const fs::path& resources){
         "P173 synthetic drum-only SF2 invalid");
   check(catalog.AppendCreativeMelodicUserOneFromSource(drum)==1u,
         "P173 drum-only SoundFont was incorrectly rejected");
+  check(AWE125::PresetBrowserModel::PreferredImportedBank(catalog)==128,
+        "P173 drum-only SF2 was not chosen for the native CH10 browser lane");
   const auto* userKit=catalog.Find(128u,0u);
   check(userKit && userKit->drums && userKit->fromUserSf2 &&
         userKit->name=="PublicTwoLayers" &&

@@ -49,6 +49,16 @@ public:
         }
         return "Bank "+std::to_string(bank);
     }
+    // The button must select a genuinely imported bank, not the ROM kit
+    // merely because bank 128 is always present in the GM catalog.
+    // Pure percussion SoundFonts select the physical Creative CH10 lane.
+    static int PreferredImportedBank(const PresetCatalog& catalog) noexcept {
+        for(const auto& e:catalog.Entries())
+            if(e.bank==1u && e.fromUserSf2)return 1;
+        for(const auto& e:catalog.Entries())
+            if(e.bank==128u && e.fromUserSf2)return 128;
+        return -1;
+    }
     static const PresetCatalog& Active(int engine,const PresetCatalog& sf,
                                        const PresetCatalog& fm) noexcept {
         return engine==0?sf:fm;

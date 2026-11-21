@@ -140,7 +140,7 @@ add_executable(P010NativeHostQA
   "${P009_SDK_ROOT}/public.sdk/source/common/memorystream.cpp")
 target_include_directories(P010NativeHostQA PRIVATE "${P009_SDK_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(P010NativeHostQA PRIVATE sdk_hosting bcrypt)
-target_compile_features(P010NativeHostQA PRIVATE cxx_std_17)
+target_compile_features(P010NativeHostQA PRIVATE cxx_std_20)
  
 # P016: PUBLIC two-layer SF2 -> exact same pinned Creative Win95 driver and
 # 86Box-derived EMU8000 chip as the VST3, with shared production reset code.

@@ -856,18 +856,17 @@ void PresetBrowserView::Sync(bool force) {
             bankFilter_=-1;
             searchText_.clear();
             search_->setText("");
-            // The Creative guest *and* its Source SoundFont phdr index
-            // must agree that user Bank 1 exists BEFORE editing the DAW
-            // bank parameter. Otherwise bank_=1 with a ROM-only bank
-            // menu causes the observed "Bank 0 / No presets" contradiction.
+            // Select only an actually imported user-bank program.
+            // Drum-only SF2 must select real CH10/bank128 instead of
+            // waiting forever for a nonexistent melodic bank1.
             if(sf2AutoSelectPending_) {
-                const auto presets=PresetBrowserModel::Programs(
-                    sf_.Entries(),1u);
-                if(!presets.empty()) {
-                    sf2AutoSelectPending_=false;
+                const int imported=PresetBrowserModel::PreferredImportedBank(sf_);
+                if(imported>=0) {
+                    const auto bank=static_cast<std::uint16_t>(imported);
                     const auto preferred=PresetBrowserModel::ChooseExistingProgram(
-                        sf_.Entries(),1u,program_);
-                    Select(1u,preferred);
+                        sf_.Entries(),bank,program_);
+                    sf2AutoSelectPending_=false;
+                    Select(bank,preferred);
                 }
             }
         }
