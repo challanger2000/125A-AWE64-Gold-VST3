@@ -36,6 +36,10 @@ for name, restype, args in [
     ("IsWindowVisible", wintypes.BOOL, [wintypes.HWND]),
     ("GetClassNameW", ctypes.c_int, [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]),
     ("GetClientRect", wintypes.BOOL, [wintypes.HWND, ctypes.POINTER(RECT)]),
+    ("GetWindow", wintypes.HWND, [wintypes.HWND, wintypes.UINT]),
+    ("SetWindowPos", wintypes.BOOL,
+     [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+      ctypes.c_int, ctypes.c_int, wintypes.UINT]),
     ("ClientToScreen", wintypes.BOOL, [wintypes.HWND, ctypes.POINTER(POINT)]),
     ("SetForegroundWindow", wintypes.BOOL, [wintypes.HWND]),
     ("SetCursorPos", wintypes.BOOL, [ctypes.c_int, ctypes.c_int]),
@@ -72,7 +76,7 @@ class BITMAPINFOHEADER(ctypes.Structure):
                 ("biYPelsPerMeter", ctypes.c_long), ("biClrUsed", wintypes.DWORD),
                 ("biClrImportant", wintypes.DWORD)]
 
-def get_editor(pid):
+def get_editors(pid):
     found = []
     CB = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def cb(hwnd, _):
@@ -86,6 +90,10 @@ def get_editor(pid):
         return True
     callback = CB(cb)
     u.EnumWindows(callback, 0)
+    return found
+
+def get_editor(pid):
+    found = get_editors(pid)
     return found[0] if found else None
 
 # The Github hosted Windows desktop can start at only 1024x768. A 1200x780
@@ -326,11 +334,52 @@ def diff_pixels(before,after,region):
                 changed+=1
     return changed
 
+def verify_peer_editors(process, output, records):
+    for _ in range(100):
+        if process.poll() is not None:
+            raise RuntimeError(f"Steinberg two-window EditorHost exited {process.returncode}")
+        windows = get_editors(process.pid)
+        if len(windows) == 2:
+            break
+        time.sleep(.2)
+    check(len(windows) == 2, "Two simultaneous stock EditorHost windows", records)
+    a, b = windows
+    check(all(u.GetWindow(hwnd, 5) for hwnd in windows),
+          "Both windows own attached native VSTGUI children", records)
+    check(client_size(a) == client_size(b), "Peer client dimensions agree", records)
+
+    def capture(hwnd, name):
+        # Reorder overlapping EditorHost windows before capturing screen pixels.
+        check(u.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002),
+              f"Bring {name} window to top", records)
+        u.SetCursorPos(0, 0)
+        time.sleep(.35)
+        return snap(hwnd, output / f"{name}.bmp")
+
+    peer_before = capture(b, "peer-before")
+    edited_before = capture(a, "edited-before")
+    drag(a, 886, 422, 885, 480)
+    edited_after = capture(a, "edited-after")
+    peer_after = capture(b, "peer-after")
+    master = (817, 353, 951, 487)
+    check(diff_pixels(edited_before, edited_after, master) > 70,
+          "Master drag changes the edited window", records)
+    check(diff_pixels(peer_before, peer_after, master) > 70,
+          "The other editor redraws its master after the edit", records)
+    check(diff_pixels(edited_after, peer_after, master) == 0,
+          "Both editors display the same master knob after the edit", records)
+    check(process.poll() is None and set(get_editors(process.pid)) == {a, b},
+          "Both editors remain attached after the gesture", records)
+    # Stock EditorHost intentionally exits when either window is closed.
+    check(u.PostMessageW(a, 0x0010, 0, 0) and process.wait(timeout=8) == 0,
+          "Closing a window cleanly terminates the stock two-view host", records)
+
 def main():
     args=argparse.ArgumentParser()
     args.add_argument("--editorhost",type=Path,required=True)
     args.add_argument("--plugin",type=Path,required=True)
     args.add_argument("--output",type=Path,required=True)
+    args.add_argument("--multiple",action="store_true")
     a=args.parse_args()
     a.output.mkdir(parents=True,exist_ok=True)
     records=[]
@@ -339,11 +388,18 @@ def main():
         check(a.editorhost.is_file(),"Steinberg original EditorHost.exe available",records)
         check(a.plugin.is_dir(),"Compiled ORIGINAL P165 P165_NATIVE VST3 available",records)
         ensure_full_desktop()
+        options = ["--componentHandler"]
+        if a.multiple:
+            options.append("--secondWindow")
         process=subprocess.Popen(
-            [str(a.editorhost),"--componentHandler",str(a.plugin)],
+            [str(a.editorhost),*options,str(a.plugin)],
             cwd=str(a.editorhost.parent),
             stdout=(a.output/"editorhost-stdout.log").open("wb"),
             stderr=(a.output/"editorhost-stderr.log").open("wb"))
+        if a.multiple:
+            verify_peer_editors(process, a.output, records)
+            print("AWE64_STOCK_EDITORHOST_TWO_VIEWS_MASTER_SYNC_PASS", flush=True)
+            return
         hwnd=None
         for _ in range(100):
             if process.poll() is not None:
@@ -441,9 +497,10 @@ def main():
         try:
             (a.output/"P165_NATIVE_ACTUAL_GUI_EVIDENCE.json").write_text(json.dumps(
                 {"passed":bool(records) and all(r["passed"] for r in records)
-                 and len(records)>=25,
-                 "knobs_visible":12,"host_gui_control_gestures":True,
-                 "scope":"Exact P165_NativeBW native hardware GUI and real host gestures; PCM generator effects are tested separately, not by pixels",
+                 and len(records)>=(14 if a.multiple else 25),
+                 "knobs_visible":None if a.multiple else 12,"host_gui_control_gestures":True,
+                 "scope":("Two stock EditorHost views of one controller, master redraw and teardown"
+                          if a.multiple else "P165_NativeBW native hardware GUI and real host gestures"),
                  "tests":records},indent=2),encoding="utf-8")
         except Exception:pass
         if process is not None:

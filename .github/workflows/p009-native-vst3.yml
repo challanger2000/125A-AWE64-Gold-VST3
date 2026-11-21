@@ -278,6 +278,7 @@ jobs:
           }
           Write-Host P165_VST3_STRICT_VALID_JSON_FACTORY_FUID_AND_VERSION_PASS
       - name: P165 native actual Windows EditorHost real hardware GUI and mouse controls
+        id: p165_editor
         shell: pwsh
         timeout-minutes: 8
         run: |
@@ -465,20 +466,24 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $rom,$sbk,$sf2 -Force -ErrorAction SilentlyContinue
           }
-      - name: P010 multiple native editors attach, close and reopen
-        if: ${{ !cancelled() && steps.p010_public.outcome == 'success' }}
+      - name: Two native EditorHost views of one controller with master readback
+        if: ${{ !cancelled() && steps.p165_editor.outcome == 'success' }}
         shell: pwsh
         timeout-minutes: 3
         run: |
           $ErrorActionPreference='Stop'
-          $bundle='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3'
-          & _p009-build/Release/P010NativeHostQA.exe $bundle --editors *> _p009-host-editors.log
+          $editor=(Get-ChildItem _p009-build -Filter editorhost.exe -Recurse -File |
+            Where-Object {$_.FullName -match 'Release'} |
+            Select-Object -First 1 -ExpandProperty FullName)
+          if(!$editor){throw 'Steinberg EditorHost executable not found'}
+          $plugin=(Resolve-Path '_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3').Path
+          python research/native-awe32emu/p009-vst3/tests/P165NativeEditorHostQA.py --editorhost $editor --plugin $plugin --multiple --output _awe64-peer-editor-evidence *> _p009-host-editors.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-editors.log
           if($rc -ne 0){
             $last=Get-Content _p009-host-editors.log -Tail 1
             Write-Host "::error title=P010 multiple editors regression::Exit ${rc}. $last"
-            throw "P010 multiple native editors failed: $rc"
+            throw "Steinberg EditorHost two-view test failed: $rc"
           }
       - name: Preserve host and tester diagnostic reports on failure
         if: failure()
@@ -489,6 +494,7 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _awe64-peer-editor-evidence/**
             _p009-tester-evidence/**
             _p009-tester-v033-evidence/**
           if-no-files-found: warn
@@ -502,6 +508,7 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _awe64-peer-editor-evidence/**
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt

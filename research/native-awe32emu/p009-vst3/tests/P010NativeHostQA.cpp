@@ -3,9 +3,6 @@
 // --public with NO private files expects SILENCE, not a claimed audio pass.
 // --private with original ROM + Creative SBK + owner SF2s tests REAL AUDIO.
 #define NOMINMAX
-#include <windows.h>
-#include <ole2.h>
-#include "pluginterfaces/gui/iplugview.h"
 #include "public.sdk/source/vst/hosting/module.h"
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 #include "public.sdk/source/vst/hosting/eventlist.h"
@@ -106,105 +103,6 @@ struct Plugin{
    processing=true;
  }
 };
-#ifdef _WIN32
-void verifyMultipleNativeEditors(const VST3::Hosting::PluginFactory& factory,
-                                 const VST3::UID& id,FUnknown* host){
-  std::puts("editors: initializing OLE");
-  check(SUCCEEDED(OleInitialize(nullptr)),"editors: OLE initialization failed");
-  struct OleScope { ~OleScope(){ OleUninitialize(); } } ole;
-  Plugin first(factory,id,host),other(factory,id,host);
-  struct Frame : IPlugFrame {
-    HWND parent=nullptr;
-    tresult PLUGIN_API queryInterface(const TUID id,void** object) override {
-      if(!object)return kInvalidArgument;
-      *object=nullptr;
-      if(!FUnknownPrivate::iidEqual(id,IPlugFrame::iid.toTUID()) &&
-         !FUnknownPrivate::iidEqual(id,FUnknown::iid.toTUID()))
-        return kNoInterface;
-      *object=static_cast<IPlugFrame*>(this);
-      addRef();
-      return kResultOk;
-    }
-    uint32 PLUGIN_API addRef() override { return ++references; }
-    uint32 PLUGIN_API release() override { return --references; }
-    tresult PLUGIN_API resizeView(IPlugView* view,ViewRect* size) override {
-      if(!view||!size)return kInvalidArgument;
-      RECT bounds{0,0,size->getWidth(),size->getHeight()};
-      if(!AdjustWindowRect(&bounds,WS_OVERLAPPEDWINDOW,FALSE) ||
-         !SetWindowPos(parent,nullptr,0,0,bounds.right-bounds.left,
-              bounds.bottom-bounds.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE))
-        return kResultFalse;
-      return view->onSize(size);
-    }
-    uint32 references=1u; // test host owns the frame
-  };
-  struct Editor {
-    Frame frame;
-    IPtr<IPlugView> view;
-    bool attached=false;
-    ~Editor(){
-      if(attached)view->removed();
-      if(view)view->setFrame(nullptr);
-      view=nullptr;
-      if(frame.parent)DestroyWindow(frame.parent);
-    }
-    void open(IEditController& controller){
-      std::puts("editors: creating Win32 parent and plugin view");
-      frame.parent=CreateWindowExW(0,L"STATIC",L"AWE64 editor QA",WS_OVERLAPPEDWINDOW,
-                                   0,0,1000,708,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-      check(frame.parent!=nullptr,"editors: cannot create Win32 parent");
-      view=owned(controller.createView(ViewType::kEditor));
-      check(bool(view) && view->isPlatformTypeSupported(kPlatformTypeHWND)==kResultTrue &&
-            view->isPlatformTypeSupported("unsupported-platform")!=kResultTrue,
-            "editors: wrong platform handshake");
-      check(view->setFrame(&frame)==kResultOk,"editors: host frame rejected");
-      std::puts("editors: attaching HWND");
-      attached=view->attached(frame.parent,kPlatformTypeHWND)==kResultOk;
-      check(attached,"editors: attach rejected");
-      ShowWindow(frame.parent,SW_SHOWNOACTIVATE);
-      verify();
-    }
-    void verify(){
-      ViewRect bounds{};
-      check(view->getSize(&bounds)==kResultOk && bounds.getWidth()>0 &&
-            bounds.getHeight()>0 && GetWindow(frame.parent,GW_CHILD)!=nullptr,
-            "editors: attached editor lost its native child or dimensions");
-    }
-    void close(){
-      std::puts("editors: detaching HWND");
-      check(view->removed()==kResultOk,"editors: detach failed");
-      attached=false;
-      check(view->setFrame(nullptr)==kResultOk,"editors: host frame removal failed");
-      check(GetWindow(frame.parent,GW_CHILD)==nullptr,"editors: detach left a native child");
-      view=nullptr;
-      check(DestroyWindow(frame.parent)!=0,"editors: host window teardown failed");
-      frame.parent=nullptr;
-    }
-  } a,b,c;
-  check(first.controller->createView("unsupported-view")==nullptr,
-        "editors: controller returned an editor for an unknown view");
-  a.open(*first.controller);
-  b.open(*first.controller);
-  c.open(*other.controller);
-  check(a.view.get()!=b.view.get() && b.view.get()!=c.view.get() &&
-        a.view.get()!=c.view.get(),"editors: reused a live plug view");
-  check(first.controller->setParamNormalized(1001u,.25)==kResultOk &&
-        other.controller->setParamNormalized(1001u,.75)==kResultOk,
-        "editors: independent master edits rejected");
-  a.close();
-  b.verify();c.verify();
-  a.open(*first.controller);
-  c.close();
-  a.verify();b.verify();
-  check(first.controller->getParamNormalized(1001u)==.25 &&
-        other.controller->getParamNormalized(1001u)==.75,
-        "editors: closing or reopening a view changed an instance's master");
-  b.close();
-  a.close();
-  std::puts("AWE64_WIN32_MULTIPLE_EDITORS_ATTACH_CLOSE_REOPEN_PASS");
-}
-#endif
-
 void verifyZeroFrameParameterFlush(const VST3::Hosting::PluginFactory& factory,
                                    const VST3::UID& id,FUnknown* host){
   Plugin plugin(factory,id,host);
@@ -2251,12 +2149,10 @@ int main(int argc,char** argv){
   std::setvbuf(stdout,nullptr,_IONBF,0);
   check(argc==3&&(std::strcmp(argv[2],"--public")==0||
       std::strcmp(argv[2],"--private")==0||
-      std::strcmp(argv[2],"--synthetic")==0||
-      std::strcmp(argv[2],"--editors")==0),
-      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic|--editors");
+      std::strcmp(argv[2],"--synthetic")==0),
+      "Usage: P010NativeHostQA.exe <P009-vst3-bundle> --public|--private|--synthetic");
   const bool priv=std::strcmp(argv[2],"--private")==0;
   const bool synthetic=std::strcmp(argv[2],"--synthetic")==0;
-  const bool editors=std::strcmp(argv[2],"--editors")==0;
   const fs::path bundle=fs::absolute(argv[1]);
   check(fs::is_directory(bundle),"actual native VST3 bundle missing");
   const auto resources=bundle/"Contents"/"Resources"/"P009-Private";
@@ -2282,14 +2178,6 @@ int main(int argc,char** argv){
        [](const auto& c){return c.category()==kVstAudioEffectClass;});
   check(cls!=classes.end(),"no actual VST3 instrument class");
   auto host=owned(new HostApplication());
-  if(editors){
-#ifdef _WIN32
-    verifyMultipleNativeEditors(factory,cls->ID(),host.get());
-    return 0;
-#else
-    check(false,"editors: Win32 is required");
-#endif
-  }
   verifyZeroFrameParameterFlush(factory,cls->ID(),host.get());
   verifyP169ControllerComponentStateAppliedAndRejectsCorrupt(factory,cls->ID(),host.get());
   verifyP166StoppedHostEditsAndAudioReadback(factory,cls->ID(),host.get());
