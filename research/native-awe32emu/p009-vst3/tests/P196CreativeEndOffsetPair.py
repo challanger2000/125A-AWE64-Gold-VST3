@@ -43,21 +43,24 @@ def main():
                                     0.33*math.sin(3*phase))))
     smpl=struct.pack("<%dh"%frames,*values)+bytes(46*2)
     variants={
-        "omitted":[],
-        "explicit-zero":[gen(1,0),gen(12,0)],
-        "fine-minus30000":[gen(1,-30000)],
-        "coarse-minus1":[gen(12,-1)],
-        "fine-minus32768":[gen(1,-32768)],
+        # preset-zone generators, instrument-zone generators
+        "omitted":([],[]),
+        "explicit-zero":([],[gen(1,0),gen(12,0)]),
+        "fine-minus30000":([],[gen(1,-30000)]),
+        "fine-split":([gen(1,-20000)],[gen(1,-10000)]),
+        "coarse-minus1":([],[gen(12,-1)]),
+        "coarse-split":([gen(12,-1)],[gen(12,0)]),
+        "fine-minus32768":([],[gen(1,-32768)]),
     }
-    for ident,offsets in variants.items():
+    for ident,(preset_offsets,offsets) in variants.items():
         # SampleModes=0: one-shot. 8-second release ensures the sample's
         # adjusted end is reached while the MIDI voice is still active.
         region=offsets+[gen(34,-12000),gen(37,0),gen(38,3600),gen(54,0),gen(53,0)]
         pdta=(
             ck(b"phdr",phdr("P196 EndOffset",0,0,0)+phdr("EOP",0,0,1))+
-            ck(b"pbag",bag(0)+bag(1))+
+            ck(b"pbag",bag(0)+bag(len(preset_offsets)+1))+
             ck(b"pmod",bytes(10))+
-            ck(b"pgen",gen(41,0)+gen(0,0))+
+            ck(b"pgen",b"".join(preset_offsets)+gen(41,0)+gen(0,0))+
             ck(b"inst",inst("EndOffset",0)+inst("EOI",1))+
             ck(b"ibag",bag(0)+bag(len(region)))+
             ck(b"imod",bytes(10))+

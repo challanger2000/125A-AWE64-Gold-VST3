@@ -3208,18 +3208,20 @@ void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& fac
 void verifyP196CreativeSf2EndOffsets(const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host,const fs::path& resources) {
     struct Case {const char* file; const char* label;};
-    const std::array<Case,5> cases{{
+    const std::array<Case,7> cases{{
         {"p196-omitted.sf2","P196_END_OMITTED"},
         {"p196-explicit-zero.sf2","P196_END_ZERO"},
         {"p196-fine-minus30000.sf2","P196_END_FINE_NEG30000"},
+        {"p196-fine-split.sf2","P196_END_FINE_SPLIT"},
         {"p196-coarse-minus1.sf2","P196_END_COARSE_NEG1"},
+        {"p196-coarse-split.sf2","P196_END_COARSE_SPLIT"},
         {"p196-fine-minus32768.sf2","P196_END_FINE_NEG32768"}
     }};
     for(const auto& c:cases)
         check(fs::is_regular_file(resources/c.file),
               "P196 SF2 sample-end test fixture missing");
     for(int hz:{44100,48000,96000}) {
-        std::array<Stats,5> v{};
+        std::array<Stats,7> v{};
         for(std::size_t i=0;i<cases.size();++i) {
             ownerBank(resources,cases[i].file);
             v[i]=render(factory,id,host,cases[i].label,hz,0,
@@ -3228,17 +3230,21 @@ void verifyP196CreativeSf2EndOffsets(const VST3::Hosting::PluginFactory& factory
         }
         check(v[0].hash==v[1].hash,
               "P196 omitted versus zero end offsets changed original PCM");
-        check(v[3].hash==v[4].hash,
+        check(v[2].hash==v[3].hash,
+              "P196 split fine preset+instrument end offset not summed");
+        check(v[4].hash==v[5].hash,
+              "P196 preset coarse -1 plus instrument 0 not summed");
+        check(v[4].hash==v[6].hash,
               "P196 coarse -1 does not equal fine -32768 sample words");
         check(v[2].hash!=v[0].hash,
               "P196 fine endAddrsOffset ignored; end moved 30000 samples");
-        check(v[3].hash!=v[0].hash,
+        check(v[4].hash!=v[0].hash,
               "P196 coarse endAddrsCoarseOffset ignored; end moved 32768 samples");
         std::printf("P196_CREATIVE_SF2_SAMPLE_END_COMPARE rate=%d "
                     "unchanged=%016llX fine=%016llX coarse=%016llX\\n",
               hz,static_cast<unsigned long long>(v[0].hash),
               static_cast<unsigned long long>(v[2].hash),
-              static_cast<unsigned long long>(v[3].hash));
+              static_cast<unsigned long long>(v[4].hash));
     }
     ownerBank(resources,nullptr);
     std::puts("P196_CREATIVE_SF2_GEN1_GEN12_AUDIO_3RATES_POSITIVE_NEGATIVE_PASS");
