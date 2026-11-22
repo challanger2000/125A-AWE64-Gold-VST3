@@ -3201,6 +3201,49 @@ void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& fac
   std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_WITH_NEGATIVES_PASS");
 }
 
+// P196: actual Win64 VST3 endAddrsOffset/coarse offset vs original
+// Creative SBAWE.VXD LCOD+0x49EE..0x4A02. Test both equivalence and
+// adversarial negative inputs, including note-off with a LONG release.
+// No private Creative assets in public fixtures.
+void verifyP196CreativeSf2EndOffsets(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+    struct Case {const char* file; const char* label;};
+    const std::array<Case,5> cases{{
+        {"p196-omitted.sf2","P196_END_OMITTED"},
+        {"p196-explicit-zero.sf2","P196_END_ZERO"},
+        {"p196-fine-minus30000.sf2","P196_END_FINE_NEG30000"},
+        {"p196-coarse-minus1.sf2","P196_END_COARSE_NEG1"},
+        {"p196-fine-minus32768.sf2","P196_END_FINE_NEG32768"}
+    }};
+    for(const auto& c:cases)
+        check(fs::is_regular_file(resources/c.file),
+              "P196 SF2 sample-end test fixture missing");
+    for(int hz:{44100,48000,96000}) {
+        std::array<Stats,5> v{};
+        for(std::size_t i=0;i<cases.size();++i) {
+            ownerBank(resources,cases[i].file);
+            v[i]=render(factory,id,host,cases[i].label,hz,0,
+                        72,102,0,1);
+            audible(v[i],cases[i].label);
+        }
+        check(v[0].hash==v[1].hash,
+              "P196 omitted versus zero end offsets changed original PCM");
+        check(v[3].hash==v[4].hash,
+              "P196 coarse -1 does not equal fine -32768 sample words");
+        check(v[2].hash!=v[0].hash,
+              "P196 fine endAddrsOffset ignored; end moved 30000 samples");
+        check(v[3].hash!=v[0].hash,
+              "P196 coarse endAddrsCoarseOffset ignored; end moved 32768 samples");
+        std::printf("P196_CREATIVE_SF2_SAMPLE_END_COMPARE rate=%d "
+                    "unchanged=%016llX fine=%016llX coarse=%016llX\\n",
+              hz,static_cast<unsigned long long>(v[0].hash),
+              static_cast<unsigned long long>(v[2].hash),
+              static_cast<unsigned long long>(v[3].hash));
+    }
+    ownerBank(resources,nullptr);
+    std::puts("P196_CREATIVE_SF2_GEN1_GEN12_AUDIO_3RATES_POSITIVE_NEGATIVE_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4694,6 +4737,7 @@ int main(int argc,char** argv){
     verifyP192ImplicitSf2SustainEqualsExplicit(factory,cls->ID(),host.get(),resources);
     verifyP194OriginalSf2AttackDefaults(factory,cls->ID(),host.get(),resources);
     verifyP195CreativeSf2PresetAdditive(factory,cls->ID(),host.get(),resources);
+    verifyP196CreativeSf2EndOffsets(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
