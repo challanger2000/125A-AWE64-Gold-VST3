@@ -81,6 +81,22 @@ against an equivalent all-instrument combined value, using real Windows
 VST3 PCM at 44.1/48/96 kHz. Intended gates are 3 generator families x3
 rates = 9 comparisons, plus P194 Volume/Mod Attack and P192 Sustain.
 
+The final tightened code-level gate on commit
+`a450f128a4c7832a6e432cea83498e51a981266c` was verified in
+[Windows Actions run 45029110478](https://github.com/challanger2000/125A-AWE64-Gold-VST3/actions/runs/45029110478):
+- P195 3 generator classes x3 sample rates: **9/9 identical PCM comparisons**
+  for semantically equivalent SoundFonts, plus **9/9 discriminating
+  negative controls** (the third SF2 has a deliberately changed parameter).
+- P194 SF2 Volume/Mod Attack, P192 Sustain, legacy native chip/host and
+  installer gates: PASS.
+- Steinberg Validator **47/47**, 125A Plugin Testers v0.2.10/v0.3.3 each
+  **41 PASS / 0 WARNINGS / 0 FAILURES**.
+- N08 **1,485,066 sounding saves**, zero stale/mixed/rejected; P179
+  **500/500** valid saves.
+
+This verifies the restricted P195 **synthetic test set**, not all SF2
+generator combinations.
+
 The 13-bank static corpus cannot substitute for Win95 Creative driver
 register/PCM parity. Steinberg Validator and 125A Plugin Tester scores do
 not confer musical fidelity. **No merge / release of P195 without native
