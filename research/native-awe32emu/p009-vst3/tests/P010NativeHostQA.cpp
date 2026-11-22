@@ -3160,6 +3160,40 @@ void verifyP194OriginalSf2AttackDefaults(
   std::puts("P194_SF2_VOL_AND_MOD_ATTACK_DEFAULT_VST3_PCM_3_RATES_PASS");
 }
 
+// P195: genuine executable native VST3 audio must reproduce the *original*
+// Creative Win95 SF2 descriptor addition. Baseline AWE32Emu treated both
+// SF1 and SF2 as FillFrom; the original VXD's SF2 merge uses signed addition.
+// Two public pairs have exactly equivalent additive pitch/attenuation.
+void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+  for(const char* kind:{"tune","atten"}) {
+    const std::string prefix=std::string("p195-")+kind;
+    const auto split=prefix+"-split.sf2",combined=prefix+"-combined.sf2";
+    check(fs::is_regular_file(resources/split) &&
+          fs::is_regular_file(resources/combined),
+          "P195 original Win95 SF2 additive generator test fixtures missing");
+    for(const int hz:{44100,48000,96000}) {
+      ownerBank(resources,split.c_str());
+      const auto p=render(factory,id,host,"P195_PRESET_PLUS_INSTRUMENT",
+                           hz,0,60,102,0,1);
+      audible(p,"P195 additive preset/instrument");
+      ownerBank(resources,combined.c_str());
+      const auto expected=render(factory,id,host,"P195_SAME_GENERATOR_IN_INSTRUMENT",
+                           hz,0,60,102,0,1);
+      audible(expected,"P195 equivalent combined instrument generator");
+      std::printf("P195_ORIGINAL_CREATIVE_SF2_GENERATOR type=%s rate=%d "
+          "presetPlus=%016llX instrumentSum=%016llX equal=%d\\n",
+          kind,hz,static_cast<unsigned long long>(p.hash),
+          static_cast<unsigned long long>(expected.hash),
+          p.hash==expected.hash?1:0);
+      check(p.hash==expected.hash,
+            "P195 SF2 additive generator has wrong effective pitch/attenuation");
+    }
+  }
+  ownerBank(resources,nullptr);
+  std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_TUNE_ATTEN_3_RATES_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4652,6 +4686,7 @@ int main(int argc,char** argv){
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP192ImplicitSf2SustainEqualsExplicit(factory,cls->ID(),host.get(),resources);
     verifyP194OriginalSf2AttackDefaults(factory,cls->ID(),host.get(),resources);
+    verifyP195CreativeSf2PresetAdditive(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
