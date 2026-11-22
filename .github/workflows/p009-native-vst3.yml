@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -51,6 +51,11 @@ jobs:
           python research/native-awe32emu/p009-vst3/p021_box86_native_resampling.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P021 pinned original EMU8000 source fix mismatch'}
           Write-Host P021_GENUINE_BOX86_CHIP_AUDIO_ALL_SAMPLE_RATES_PATCHED
+      - name: P202 remove discarded second synth at native 44.1k
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p202_skip_second_synth.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P202 pinned native-core 44.1k source changed'}
       - name: Import owner-approved P175 REAL 12 generator controls onto pinned original native chip
         shell: pwsh
         run: |
@@ -174,6 +179,53 @@ jobs:
           Remove-Item _p009-two-layer-test.sf2
           if($rc -ne 0){throw 'REAL two-layer SF2 lookup C++ allocation test failed'}
           Write-Host P009_RT_WINDOWS_5_RATES_2_CONCURRENT_INSTANCES_REAL_LAYERS_ZERO_HEAP_PASS
+      - name: P202 real original chip old/new PCM and same-Windows-runner CPU p95 p99 max
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P202CpuLegacy P202CpuOptimized
+          if($LASTEXITCODE -ne 0){throw 'P202 paired original 86Box chip programs compilation failed'}
+          $rom='_p202-public-rom.raw'
+          $sf2='_p202-public-sustain.sf2'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $rom),(New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py $sf2 --sustain
+          if($LASTEXITCODE -ne 0){throw 'P202 independent positive audio fixture unavailable'}
+          $denseImprovement=0
+          foreach($iteration in @(1,2)){
+            & _p009-build/Release/P202CpuLegacy.exe $rom $sf2 > "_p202-legacy-$iteration.json"
+            if($LASTEXITCODE -ne 0){throw "P202 old native original-chip PCM probe failed: $iteration"}
+            & _p009-build/Release/P202CpuOptimized.exe $rom $sf2 > "_p202-optimized-$iteration.json"
+            if($LASTEXITCODE -ne 0){throw "P202 candidate actual original-chip PCM probe failed: $iteration"}
+            $old=Get-Content "_p202-legacy-$iteration.json" -Raw | ConvertFrom-Json
+            $new=Get-Content "_p202-optimized-$iteration.json" -Raw | ConvertFrom-Json
+            if($old.cases.Count -ne 8 -or $new.cases.Count -ne 8){
+               throw 'P202 all eight independent genuine-chip 44.1/48k cases required'}
+            for($i=0;$i -lt 8;$i++){
+               $a=$old.cases[$i];$b=$new.cases[$i]
+               if($a.rate -ne $b.rate -or $a.block -ne $b.block -or
+                  $a.notes -ne $b.notes -or $a.samples -ne $b.samples -or
+                  $a.hash -ne $b.hash -or $a.energy -ne $b.energy -or $a.energy -eq 0){
+                  throw "P202 chip PCM altered or false-positive test case iteration=$iteration case=$i"
+               }
+               $ratio=[double]$b.p95_us/[Math]::Max(0.001,[double]$a.p95_us)
+               Write-Host ("P202_REAL_CHIP_CPU rate={0} block={1} notes={2} old_p95_us={3} new_p95_us={4} p95_ratio={5:N4} old_p99_us={6} new_p99_us={7} old_max_us={8} new_max_us={9} old_overruns={10} new_overruns={11} chip_pcm_hash={12}" -f $a.rate,$a.block,$a.notes,$a.p95_us,$b.p95_us,$ratio,$a.p99_us,$b.p99_us,$a.max_us,$b.max_us,$a.overruns,$b.overruns,$a.hash)
+               if($a.rate -eq 44100 -and $a.notes -eq 16 -and $ratio -lt 0.90){
+                  $denseImprovement++
+               }
+            }
+          }
+          if($denseImprovement -lt 2){throw 'P202 requires at least two repeatable dense 44.1k p95 improvements >10%'}
+          & _p009-build/Release/P202CpuOptimized.exe $rom $sf2 --mutate-audio > _p202-mutant.json
+          if($LASTEXITCODE -ne 0){throw 'P202 test-only altered PCM failed to execute'}
+          $mutant=Get-Content _p202-mutant.json -Raw | ConvertFrom-Json
+          $reference=Get-Content _p202-optimized-2.json -Raw | ConvertFrom-Json
+          for($i=0;$i -lt 8;$i++){
+             if($mutant.cases[$i].hash -eq $reference.cases[$i].hash){
+                throw "P202 PCM hash oracle failed to detect test mutant case=$i"
+             }
+          }
+          Remove-Item $rom,$sf2 -Force
+          Write-Host P202_8_REAL_CHIP_CASES_2_REPEATS_EXACT_PCM_44100_CPU_P95_REDUCED_NEGATIVE_KILLED_PASS
       - name: P016 original EMU8000 chip non-silent PUBLIC SF2 PCM recall parity with negative controls
         shell: pwsh
         run: |
@@ -704,6 +756,9 @@ jobs:
             _awe64-peer-editor-evidence/**
             _p184-editor-lifecycle-evidence/**
             _p016-public-recall-pcm.log
+            _p202-legacy-*.json
+            _p202-optimized-*.json
+            _p202-mutant.json
             _p200-stereo-trace.log
             _p009-build/Release/P200StereoTriggerTrace.exe
             _p019-latency-report.json
