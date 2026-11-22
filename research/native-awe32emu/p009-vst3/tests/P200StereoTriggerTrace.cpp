@@ -41,7 +41,7 @@ Trace parse(const std::string& file) {
         if(port==0xE22){pointer=static_cast<std::uint16_t>(value);continue;}
         // CPF is the LAST main original Win95 voice register in StartVoice.
         // Data0 reg0, high word, its pointer is exactly voice (0..31).
-        if(port==0x622 && pointer < 32)
+        if(port==0x622 && pointer < 32 && value!=0)
             t.mains.push_back({static_cast<int>(pointer),index});
         // Data1 reg5 (DCYSUSV), only on/trigger values (off has bit 7).
         if(port==0xA20 && (pointer&0xE0)==0xA0 && !(value&0x80u))
@@ -73,8 +73,11 @@ Trace run(const char* rom,const char* sf2,const char* stem) {
     return t;
 }
 void verdict(const Trace& t,bool stereo,const char* name){
-    check(t.mains.size()==(stereo?2u:1u) || (!stereo && t.mains.size()==2u),
-          "P200 expected exact chip main-voice program count");
+    if(!(t.mains.size()==(stereo?2u:1u) ||
+         (!stereo && t.mains.size()==2u)))
+        throw std::runtime_error("P201 wrong nonzero chip CPF main count="
+              +std::to_string(t.mains.size())+
+              " starts="+std::to_string(t.starts.size()));
     check(t.starts.size()==t.mains.size(),"P200 main/trigger voice count mismatch");
     check(t.mains.size()>=1 && t.starts.size()>=1,"P200 no sound");
     std::set<int> mainVoices,startVoices;
@@ -89,6 +92,13 @@ void verdict(const Trace& t,bool stereo,const char* name){
               "P200 original Creative stereo BOTH mains must precede EITHER trigger");
         check(t.starts[0].index<t.starts[1].index,
               "P200 paired trigger order reversed");
+        const int rightBase=t.mains[1].voice;
+        const int leftUpper=t.mains[0].voice;
+        check(rightBase>=0 && rightBase<31 && leftUpper==rightBase+1,
+              "P201 original Creative linked stereo voices MUST be adjacent");
+        check(t.starts[0].voice==rightBase &&
+              t.starts[1].voice==leftUpper,
+              "P201 original Creative paired note triggers right(base) then left(base+1)");
     } else if(t.mains.size()==2) {
         check(t.mains[0].index < t.starts[0].index &&
               t.starts[0].index < t.mains[1].index &&
@@ -114,6 +124,7 @@ int main(int argc,char** argv){
         verdict(run(argv[1],argv[4],"mono"),false,"MONO_SINGLE_ZONE");
         verdict(run(argv[1],argv[5],"mono2"),false,"MONO_TWO_INDEPENDENT_LAYERS");
         std::puts("P200_ORIGINAL_CREATIVE_STEREO_JOINT_TRIGGER_NATIVE_PORT_ORDER_4_CASES_PASS");
+        std::puts("P201_ORIGINAL_CREATIVE_ADJACENT_STEREO_REVERSE_BASE_TRIGGER_4CASES_PASS");
         return 0;
     } catch(const std::exception& e){
         std::cerr<<"P200_ORIGINAL_CREATIVE_STEREO_NATIVE_TRACE_NO_GO "<<e.what()<<"\n";

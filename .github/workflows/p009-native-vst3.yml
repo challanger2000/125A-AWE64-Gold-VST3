@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -97,6 +97,11 @@ jobs:
         run: |
           python research/native-awe32emu/p009-vst3/p200_original_stereo_joint_trigger.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P200 pinned original Creative stereo control patch mismatch'}
+      - name: P201 original Creative adjacent physical stereo voice allocation
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p201_original_stereo_adjacent_pair.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P201 original VXD pair allocator patch refused pinned source'}
       - name: Apply independent original-chip drum audition channel
         shell: pwsh
         run: |
@@ -308,6 +313,9 @@ jobs:
           if($traceRc -ne 0){throw 'P200 original Creative stereo/mono port-write order FAIL'}
           if(!(Select-String -Path _p200-stereo-trace.log -SimpleMatch -Pattern 'P200_ORIGINAL_CREATIVE_STEREO_JOINT_TRIGGER_NATIVE_PORT_ORDER_4_CASES_PASS' -Quiet)){
              throw 'P200 native original chip port-write sequence did not establish paired trigger'
+          }
+          if(!(Select-String -Path _p200-stereo-trace.log -SimpleMatch -Pattern 'P201_ORIGINAL_CREATIVE_ADJACENT_STEREO_REVERSE_BASE_TRIGGER_4CASES_PASS' -Quiet)){
+             throw 'P201 original Creative linked stereo physical pair adjacency / reversed trigger missing'
           }
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'expressive.sf2') --expressive
           if($LASTEXITCODE -ne 0){throw 'synthetic genuinely expressive original-chip SF2 fixture failed'}
