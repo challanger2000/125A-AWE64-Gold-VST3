@@ -51,7 +51,7 @@ def require_windows_x64_pe(path: Path) -> None:
             raise ValueError("invalid PE header location: " + path.name)
         stream.seek(pe_offset)
         header = stream.read(26)
-    if (len(header) != 26 or header[:4] != b"PE\\0\\0" or
+    if (len(header) != 26 or header[:4] != b"PE\0\0" or
         int.from_bytes(header[4:6], "little") != 0x8664 or
         int.from_bytes(header[24:26], "little") != 0x20B):
         raise ValueError("expected native Windows x64 PE32+ image: " + path.name)
