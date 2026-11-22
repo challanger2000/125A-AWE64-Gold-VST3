@@ -121,8 +121,14 @@ void validate(const Trace&t,const char*name,bool stereo){
                    t.reserves[j].at<v.at)preceded=true;
             must(preceded,"P205 VTFT reset before own allocator stop");
         }
-    must(resetCount==3 && resetVoices==reserved,
-         "P205 original allocator VTFT reset missing before first main stop");
+    // P212 original guest: 3 reservation VTFT resets and ONE additional
+    // first-main VTFT occur before the first IFATN. The original P205
+    // negative allocator mutant has only that final main VTFT (count=1).
+    must(resetCount==4 && resetVoices==reserved &&
+         t.vtftResets[0].voice!=t.vtftResets[1].voice &&
+         t.vtftResets[1].voice!=t.vtftResets[2].voice &&
+         t.vtftResets[0].voice!=t.vtftResets[2].voice,
+         "P212 original allocator VTFT resets missing before main IFATN");
 #endif
     if(stereo){
         const int left=t.mains[0].voice,right=t.mains[1].voice;
