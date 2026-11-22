@@ -11,7 +11,7 @@ def main():
     f=Path(sys.argv[1]).resolve()/"AWE32Emu"/"src"/"Synth.cpp"
     s=f.read_text(encoding="utf-8")
     if "P204_CREATIVE_ALL_RESERVATIONS_FIRST" in s:raise RuntimeError("duplicate P204")
-    marker="    // A preset can have several layers per note - each gets a voice."
+    marker="    // P200 original stereo joint trigger: original Win95 guest trace has"
     body="""
 #ifndef P204_LEGACY_INTERLEAVED_ALLOCATOR
     // P204_CREATIVE_ALL_RESERVATIONS_FIRST: original SBAWE.VXD
