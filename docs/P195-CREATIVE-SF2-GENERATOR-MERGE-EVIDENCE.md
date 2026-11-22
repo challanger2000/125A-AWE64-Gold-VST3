@@ -59,10 +59,19 @@ than raw-SF2-summed before conversion. Examples:
 - `Synth 512 Bank.sf2`, “Gated Screamer”, cutoff 11921 + (-4604):
   raw-sum/convert = 99 versus convert/separate/add = 100.
 
-These are **static intermediate-level counterexamples**; they do NOT yet
-establish a matching difference in rendered PCM or an original Windows95
-audio trace. A direct Creative original-driver oracle is still needed
-before fixing nonlinear families.
+After applying only the expected original chip register bounds to the
+same static model (cutoff 0..255; resonance 0..15), potential differences
+remain in **178 cutoff-layer overlaps and 12 resonance-layer overlaps**.
+Many of the larger intermediate counts disappear after hardware clamping.
+The **12** resonance candidates include *Vintage Drums 2001.sf2*, preset
+“Analog Kit II_”, instrument Q=80 and preset Q=40: raw-sum maps to Q=10,
+separate conversions/addition map to Q=9 in the analyzed reference model.
+
+These are **static intermediate-level counterexamples**, even when the
+clamped register value differs; they do NOT yet establish a matching
+original Windows 95 note-on register trace or audible PCM difference.
+A direct Creative original-driver oracle is needed before fixing nonlinear
+families.
 
 ## Tests and release discipline
 
