@@ -13,9 +13,33 @@
 #include <fstream>
 
 namespace p009 {
+// Pins a specific Windows file object for the COMPLETE non-RT
+// hash -> parse -> original-chip upload transaction. In particular,
+// FILE_SHARE_READ forbids replacement, deletion or an overlapping write
+// from passing through a "same path, different bytes" TOCTOU window.
+// The lock is never acquired by process(), and is released before returning
+// to any audio/render callback. Failure is deliberately fail-closed.
+class ScopedOwnerSoundFontRead {
+    HANDLE file_=INVALID_HANDLE_VALUE;
+public:
+    ScopedOwnerSoundFontRead() noexcept=default;
+    ScopedOwnerSoundFontRead(const ScopedOwnerSoundFontRead&)=delete;
+    ScopedOwnerSoundFontRead& operator=(const ScopedOwnerSoundFontRead&)=delete;
+    ~ScopedOwnerSoundFontRead() noexcept {
+        if(file_!=INVALID_HANDLE_VALUE)CloseHandle(file_);
+    }
+    bool open(const std::filesystem::path& path) noexcept {
+        if(file_!=INVALID_HANDLE_VALUE)return false;
+        file_=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,
+                          OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+        return file_!=INVALID_HANDLE_VALUE;
+    }
+};
 inline bool sha256FileNonRealtime(const std::filesystem::path& path,
                                   std::array<std::uint8_t,32>& result) {
-    if(!std::filesystem::is_regular_file(path))return false;
+    std::error_code pathError;
+    if(!std::filesystem::is_regular_file(path,pathError) || pathError)
+        return false;
     BCRYPT_ALG_HANDLE provider=nullptr;
     BCRYPT_HASH_HANDLE handle=nullptr;
     DWORD bytes=0,objectBytes=0;
@@ -35,7 +59,12 @@ inline bool sha256FileNonRealtime(const std::filesystem::path& path,
         objectBytes,nullptr,0,0))) {
         close();return false;
     }
-    std::ifstream f(path,std::ios::binary);
+    std::ifstream f;
+    try {
+        f.open(path,std::ios::binary);
+    }catch(...){
+        close();return false;
+    }
     if(!f){close();return false;}
     std::array<char,65536> buf{};
     while(f){

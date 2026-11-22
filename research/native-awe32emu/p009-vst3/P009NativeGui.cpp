@@ -51,7 +51,7 @@ VSTGUI::CView* NativeVst3::createCustomView(VSTGUI::UTF8StringPtr name,
         },
         [this](){
             // Reclaim the *old* chip's 28 MiB heap outside the audio thread.
-            delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+            drainRetiredSynthsNonRealtime();
             drainRetiredRestoresNonRealtime();
             if(auto* latest=pendingGuiCatalog_.exchange(
                      nullptr,std::memory_order_acq_rel)){
@@ -83,6 +83,9 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
     // Only update host parameter objects on the UI thread. ProcessData
     // receives host-owned points at exact offsets and changes audio state.
     if(!std::isfinite(value)||value<0.||value>1.)return kInvalidArgument;
+    // The host serializer and controller changes share one NON-RT gate.
+    // An audio callback never acquires it.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     const auto result=SingleComponentEffect::setParamNormalized(id,value);
     if(result==kResultOk){
         if(id==1000u || (id>=1201u&&id<1216u)){
@@ -102,23 +105,32 @@ tresult PLUGIN_API NativeVst3::setParamNormalized(ParamID id,ParamValue value){
         }
     }
     if(result==kResultOk && id>=1100u && id<1112u) {
+        const auto quantized=static_cast<int>(std::lround(value*10000.));
         guiControlMirrors_[id-1100u].store(
-            static_cast<std::uint16_t>(std::lround(value*10000.)),
+            static_cast<std::uint16_t>(quantized),
             std::memory_order_release);
+        hostGuiEdits_[id-1100u].store(quantized,std::memory_order_release);
         if(id>=1110u){
             const auto sendIndex=id-1110u;
             sendManualMirrors_[sendIndex].store(true,std::memory_order_release);
+            hostSendEdits_[sendIndex].store(1,std::memory_order_release);
             (void)SingleComponentEffect::setParamNormalized(
                 1420u+sendIndex,1.);
         }
     }
-    if(result==kResultOk&&(id==1420u||id==1421u))
+    if(result==kResultOk&&(id==1420u||id==1421u)){
+        const int mode=value>=.5?1:0;
         sendManualMirrors_[id-1420u].store(
-            value>=.5,std::memory_order_release);
-    if(result==kResultOk&&(id==1400u||id==1401u))
-        fxPresetMirrors_[id==1400u?0u:1u].store(
-            static_cast<std::uint8_t>(std::lround(value*7.)),
-            std::memory_order_release);
+            mode!=0,std::memory_order_release);
+        hostSendEdits_[id-1420u].store(mode,std::memory_order_release);
+    }
+    if(result==kResultOk&&(id==1400u||id==1401u)){
+        const unsigned i=id==1400u?0u:1u;
+        const int preset=static_cast<int>(std::lround(value*7.));
+        fxPresetMirrors_[i].store(static_cast<std::uint8_t>(preset),
+                                 std::memory_order_release);
+        hostFxEdits_[i].store(preset,std::memory_order_release);
+    }
     return result;
 }
 ParamValue PLUGIN_API NativeVst3::getParamNormalized(ParamID id){
@@ -156,14 +168,26 @@ ParamValue PLUGIN_API NativeVst3::getParamNormalized(ParamID id){
             return SingleComponentEffect::getParamNormalized(id);
         return static_cast<double>(stateMasterMirror_.load(std::memory_order_acquire));
     }
-    if(id>=1100u&&id<1112u)
-        return static_cast<double>(guiControlMirrors_[id-1100u].load(
+    if(id>=1100u&&id<1112u){
+        const unsigned i=id-1100u;
+        const int pending=hostGuiEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return double(pending)/10000.;
+        return static_cast<double>(guiControlMirrors_[i].load(
             std::memory_order_acquire))/10000.;
-    if(id==1400u||id==1401u)
-        return static_cast<double>(fxPresetMirrors_[id==1400u?0u:1u].load(
+    }
+    if(id==1400u||id==1401u){
+        const unsigned i=id==1400u?0u:1u;
+        const int pending=hostFxEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return double(pending)/7.;
+        return static_cast<double>(fxPresetMirrors_[i].load(
             std::memory_order_acquire))/7.;
-    if(id==1420u||id==1421u)
-        return sendManualMirrors_[id-1420u].load(std::memory_order_acquire)?1.:0.;
+    }
+    if(id==1420u||id==1421u){
+        const unsigned i=id-1420u;
+        const int pending=hostSendEdits_[i].load(std::memory_order_acquire);
+        if(pending>=0)return pending?1.:0.;
+        return sendManualMirrors_[i].load(std::memory_order_acquire)?1.:0.;
+    }
     return SingleComponentEffect::getParamNormalized(id);
 }
 bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
@@ -174,6 +198,15 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     };
     if(path.empty()||path.size()>4096)
         return reject("Invalid SoundFont path.");
+    std::filesystem::path selected;
+    try {
+        selected=std::filesystem::u8path(path);
+    }catch(...){
+        return reject("Invalid UTF-8 SoundFont path.");
+    }
+    ScopedOwnerSoundFontRead ownerFilePin;
+    if(!ownerFilePin.open(selected))
+        return reject("Cannot exclusively pin SoundFont for verified read.");
     // A candidate must be a *real* complete SoundFont with valid 'phdr':
     // never fabricate 128 presets from an owner's 77-entry sparse bank.
     std::string err;
@@ -187,16 +220,23 @@ bool NativeVst3::requestUserSf2NonRealtime(const std::string& path) {
     // A second complete original-chip/SBK/selected SF2 is built offline,
     // including 28 MiB RAM upload, preallocated 64-frame source FIFO and FX.
     // Neither audio render thread nor the old Synth is touched.
-    const auto selected=std::filesystem::u8path(path);
     std::array<std::uint8_t,32> fingerprint{};
     if(!sha256FileNonRealtime(selected,fingerprint))
         return reject("Cannot read SoundFont file.");
     std::unique_ptr<Synth> ready;
     if(!buildInstrumentNonRealtime(selected,ready,err))
         return reject(err.empty()?"Could not prepare SoundFont.":err);
+    std::array<std::uint8_t,32> afterLoad{};
+    if(!sha256FileNonRealtime(selected,afterLoad) || afterLoad!=fingerprint)
+        return reject("SoundFont bytes changed during sample upload.");
+    // The GUI's SF2 identity/catalog/chip staging and a concurrent DAW
+    // project save are one transaction, but lengthy parsing/loading above
+    // never blocks a valid getState() of the *previous* accepted bank.
+    // The audio callback NEVER takes this lock.
+    std::lock_guard<std::mutex> session(hostSessionMutex_);
     // Staging queue is single-slot; superseded *unconsumed* candidate can
     // be deleted here on the GUI thread, NEVER in process().
-    delete retiredSynth_.exchange(nullptr,std::memory_order_acq_rel);
+    drainRetiredSynthsNonRealtime();
     if(auto* prior=stagedSynth_.exchange(ready.release(),
                                         std::memory_order_acq_rel))
         delete prior;

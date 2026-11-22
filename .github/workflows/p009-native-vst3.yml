@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -57,6 +57,11 @@ jobs:
           python research/native-awe32emu/p009-vst3/apply_p165_original_synth_overlays.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P165 original hardware-control pin/source mismatch'}
           Write-Host P165_ALL_12_REAL_ORIGINAL_CHIP_GENERATOR_OVERLAYS_PINNED
+      - name: Apply independent original-chip drum audition channel
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/apply_p189_audition_channel.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P189 pinned Synth source mismatch'}
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
@@ -241,12 +246,77 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'synthetic genuinely expressive original-chip SF2 fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'drums.sf2') --expressive --drums
           if($LASTEXITCODE -ne 0){throw 'synthetic sustained drum bank fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'multi-drums.sf2') --drums --drum-kits
+          if($LASTEXITCODE -ne 0){throw 'P185 genuine two-kit stereo PCM counterexample fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'multi-drums-sustain.sf2') --drums --drum-kits --sustain
+          if($LASTEXITCODE -ne 0){throw 'P186 independent looped two-NoteID drum fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'oversized.sf2') --oversized
           if($LASTEXITCODE -ne 0){throw 'P171 oversized SF2 generator failed'}
+          # EMU8000 chip RAM: 28 MiB=14680064 sample words. Original Win95
+          # 16-word reserve, this SBK contains 1536 PCM words + 8 guard,
+          # and the user SF2 adds 8 guard. Exact user words=14678496.
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'exact-fit.sf2') --sample-words=14678496
+          if($LASTEXITCODE -ne 0){throw 'P174 exact physical 28 MiB fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'one-word-over.sf2') --sample-words=14678497
+          if($LASTEXITCODE -ne 0){throw 'P174 one sample word over physical RAM fixture failed'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'voice32.sf2') --sustain --single
+          if($LASTEXITCODE -ne 0){throw 'P175 one-zone looping SF2 for 32 original chip voices missing'}
+          python research/native-awe32emu/p009-vst3/tests/make_public_sparse77_sf2.py (Join-Path $dir 'sparse77.sf2')
+          if($LASTEXITCODE -ne 0){throw 'P180 public sparse 77-preset SF2 generator failed'}
+          # Independent C++20 SF2 browser test: never compile Steinberg's
+          # module_win32.cpp as C++20 merely to use std::span in the catalog.
+          cmake --build _p009-build --config Release --parallel 4 --target P173BrowserContract
+          if($LASTEXITCODE -ne 0){throw 'P173 browser-only C++20 contract build failed'}
+          & _p009-build/Release/P173BrowserContract.exe $dir *> _p173-browser-contract.log
+          $browserRc=$LASTEXITCODE
+          Get-Content _p173-browser-contract.log
+          if($browserRc -ne 0){throw "P173/P180/P183 browser source contract failed: $browserRc"}
+          if(!(Select-String -Path _p173-browser-contract.log -SimpleMatch -Pattern 'P183_SF2_GUI_CATALOG_UTF8_NUL_EXCEPTION_FAIL_CLOSED_PASS' -Quiet)){
+            throw 'P183 Win64 malformed GUI SoundFont input test missing'
+          }
           & _p009-build/Release/P010NativeHostQA.exe $bundle --synthetic *> _p009-host-synthetic.log
           $rc=$LASTEXITCODE
           Get-Content _p009-host-synthetic.log
-          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          if($rc -eq 0) {
+            Select-String -Path _p009-host-synthetic.log -Pattern '^(P179_PACED_AUDIBLE_V5_SAVES|P187_SOUNDING_N08_ECHO|P189_CHRONOLOGICAL|P189_HELD)' | ForEach-Object {
+              Write-Host ('::notice title=P189 native host QA::' + $_.Line)
+            }
+            foreach($gate in @(
+              'P174_ACTUAL_WINDOWS_VST3_28MIB_EXACT_FIT_ONE_WORD_OVER_REJECT_ROLLBACK_PCM_PASS',
+              'P174_ACTUAL_WINDOWS_VST3_SIXTY_ACCEPT_REJECT_AUDIO_RECALL_HEAP_BOUNDED_PASS',
+              'P175_ACTUAL_WIN64_VST3_ORIGINAL_EMU8000_EXACT_32_VOICE_STEAL_SUSTAIN_PASS',
+              'P176_ACTUAL_WIN64_VST3_RAPID_DOUBLE_SF2_SWAP_WITHOUT_GUI_GETSTATE_PCM_PASS',
+              'P177_ACTUAL_WIN64_VST3_FULL_V5_TRUNCATION_UTF8_SHA_FX_FAIL_CLOSED_PASS',
+              'P178_ACTUAL_WIN64_VST3_CONCURRENT_EXTERNAL_SF2_STATE_AUDIO_TRANSACTION_PASS',
+              'P179_PACED_ACTUAL_WIN64_VST3_500_OF_500_LIVE_V5_SAVES_PASS',
+              'P180_ACTUAL_WIN64_VST3_SPARSE_77_PROGRAM_MAPPING_PCM_V5_PASS',
+              'P173_ACTUAL_WINDOWS_VST3_ORIGINAL_CHIP_LIVE_SF2_FADE_9X_PCM_PASS',
+              'P185_V5_POSITIVE_SEND_EXPLICIT_ORIGINAL_AND_LEGACY_COMPAT_PASS',
+              'P185_REAL_WIN64_VST3_ATOMIC_GUI_FX_MIDI_AUTOMATION_SAVE_PASS',
+              'P185_REAL_CHIP_RPN12_NRPN_RESELECT_V4_RECALL_PCM_PASS',
+              'P185_REAL_CHIP_STOPPED_ROM_BANK_STALE_CC0_RECALL_PCM_PASS',
+              'P189_CHRONOLOGICAL_BANK_MIDI_HOST_SAVE_PCM_PASS',
+              'P189_HELD_NATIVE_AND_AUDITION_PAN_ISOLATION_PCM_PASS',
+              'P185_ORIGINAL_CHIP_BROWSER_KIT0_KIT5_CH10_PCM_V4_RECALL_PASS',
+              'P186_ORIGINAL_CHIP_RPN_NULL_NRPN_DATA_ENTRY_BEND12_RECALL_PCM_PASS',
+              'P186_CH1_CC0_CH10_PROGRAM_ISOLATED_REAL_CHIP_DRUM_PCM_PASS',
+              'P186_TWO_DISTINCT_NOTEIDS_BANK_SWITCH_NO_STUCK_CH10_VOICES_PASS',
+              'P186_PINNED_OWNER_SF2_SHA_ACTIVATION_TAMPER_FAIL_CLOSED_PASS',
+              'P186_SF2_FILTER_CUTOFF_EXPLICIT_ORIGINAL_SEND_STATE_PCM_RECALL_PASS',
+              'P186_LIVE_ORIGINAL_CHIP_SOUNDING_AUTOMATION_STATE_FRESH_AND_ATOMIC_PASS',
+              'P187_ORIGINAL_CHIP_SOUNDING_CONTROLLER_ECHO_N08_ATOMIC_FRESH_PASS',
+              'P187_LEGACY_V4_UNOWNED_DATA_ENTRY_BEND_DEFAULT_PCM_PASS',
+              'P187_DELAYED_EXPLICIT_NOTEID_NEVER_MUTES_ANOTHER_VOICE_PASS',
+              'P187_PARTIAL_RPN_AFTER_NRPN_LIVE_AND_RECALL_BEND12_PCM_PASS',
+              'P187_CH1_BROWSER_PAN0_PAN127_MATCHES_DIRECT_CH10_PCM_PASS',
+              'P187_PINNED_OWNER_SHA_MATCHES_ACTIVE_SF2_CHIP_PCM_PASS'
+            )){
+              if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
+                throw "P174 missing critical actual Windows VST3 positive+negative gate: $gate"
+              }
+            }
+          }
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'multi-drums.sf2'),(Join-Path $dir 'multi-drums-sustain.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'exact-fit.sf2'),(Join-Path $dir 'one-word-over.sf2'),(Join-Path $dir 'voice32.sf2'),(Join-Path $dir 'sparse77.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
           if($rc -ne 0){
             $last=Get-Content _p009-host-synthetic.log -Tail 1
             Write-Host "::error title=P010 synthetic host regression::Exit ${rc}. $last"
@@ -285,6 +355,11 @@ jobs:
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
+          # The stock Steinberg host quits on either view close. Test-only
+          # modification enables one-of-two view close/reopen without ever
+          # changing the compiled shipping VST3 or its original EMU8000 DSP.
+          python research/native-awe32emu/p009-vst3/tests/P184PatchEditorHostLifecycle.py _p009-sdk
+          if($LASTEXITCODE -ne 0){throw 'P184 pinned Steinberg EditorHost test hook failed'}
           cmake --build _p009-build --config Release --parallel 3 --target editorhost
           if($LASTEXITCODE -ne 0){throw 'P165 actual Steinberg editorhost compile failed'}
           $editor=(Get-ChildItem _p009-build -Filter editorhost.exe -Recurse -File |
@@ -487,6 +562,36 @@ jobs:
             Write-Host "::error title=P010 multiple editors regression::Exit ${rc}. $last"
             throw "Steinberg EditorHost two-view test failed: $rc"
           }
+          $env:P184_EDITOR_REOPEN='1'
+          try {
+            python research/native-awe32emu/p009-vst3/tests/P184NativeEditorLifecycleQA.py --editorhost $editor --plugin $plugin --output _p184-editor-lifecycle-evidence *> _p184-editor-lifecycle.log
+            $p184rc=$LASTEXITCODE
+            Get-Content _p184-editor-lifecycle.log
+            if($p184rc -ne 0){throw "P184 real native editor lifecycle test failed: $p184rc"}
+            if(!(Select-String -Path _p184-editor-lifecycle.log -SimpleMatch -Pattern 'P184_ACTUAL_WINDOWS_EDITOR_CLOSE_REOPEN_PEER_SURVIVAL_PASS' -Quiet)){
+              throw 'P184 missing real two-editor close/reopen output'
+            }
+          } finally {
+            Remove-Item Env:P184_EDITOR_REOPEN -ErrorAction SilentlyContinue
+          }
+      - name: P189 native Win64 installer verifies interrupted backup and target integrity
+        shell: pwsh
+        timeout-minutes: 7
+        run: |
+          $ErrorActionPreference='Stop'
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File research/native-awe32emu/p009-vst3/packaging/P182-Windows-Installer-QA.ps1 *> _p189-installer.log
+          $installerRc=$LASTEXITCODE
+          Get-Content _p189-installer.log
+          if($installerRc -ne 0){throw 'P182 actual Windows installer QA did not complete'}
+          foreach($variant in @('BACKUP','TARGET')) {
+            $marker="P189_NATIVE_INTERRUPTED_${variant}_INTEGRITY_FAIL_CLOSED_PASS"
+            if(!(Select-String -Path _p189-installer.log -SimpleMatch -Pattern $marker -Quiet)){
+              throw "Missing native Windows installer gate: $marker"
+            }
+            Write-Host ("::notice title=P189 native installer QA::$marker")
+          }
+          Write-Host P182_WINDOWS_PRIVATE_PACKAGE_INSTALL_INTEGRITY_ROLLBACK_PASS
+          Write-Host P188_WINDOWS_FORCED_PROCESS_KILL_VERIFIED_IN_INSTALLER_QA
       - name: Preserve host and tester diagnostic reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -496,7 +601,10 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _p184-editor-lifecycle.log
+            _p189-installer.log
             _awe64-peer-editor-evidence/**
+            _p184-editor-lifecycle-evidence/**
             _p009-tester-evidence/**
             _p009-tester-v033-evidence/**
           if-no-files-found: warn
@@ -510,7 +618,9 @@ jobs:
             _p009-host-public.log
             _p009-host-synthetic.log
             _p009-host-editors.log
+            _p184-editor-lifecycle.log
             _awe64-peer-editor-evidence/**
+            _p184-editor-lifecycle-evidence/**
             _p016-public-recall-pcm.log
             _p019-latency-report.json
             _p019-latency-report.txt
@@ -524,6 +634,9 @@ jobs:
             _p009-build/Release/P019Probe64.exe
             _p009-build/Release/P019ComparePCM.exe
             _p009-build/Release/P010NativeHostQA.exe
+            research/native-awe32emu/p009-vst3/packaging/INSTALLIEREN.ps1
+            research/native-awe32emu/p009-vst3/packaging/INSTALLIEREN.bat
+            research/native-awe32emu/p009-vst3/packaging/P182-Windows-Installer-QA.ps1
             _p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/**
           if-no-files-found: error
           retention-days: 1

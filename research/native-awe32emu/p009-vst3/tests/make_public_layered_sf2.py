@@ -67,6 +67,19 @@ for kind in range(2):
         # so a wrong-bank fallback MUST change the original chip's audio.
         samples.append(int((3400 if alternate else 11000)*v))
 smpl=struct.pack("<%dh"%len(samples),*samples)
+# P174 hardware-boundary fixture: preserve the SAME audible first 1536
+# samples and real SoundFont headers, but add silent PCM words to fill the
+# physical EMU8000 RAM to the exact calculated boundary. Unlike file-size
+# heuristics, the original driver loader counts every PCM word and 8-word
+# bank guard. This fixture also permits precisely ONE additional PCM word.
+word_sizes=[a for a in sys.argv[2:] if a.startswith("--sample-words=")]
+if len(word_sizes)>1:
+    raise SystemExit("one --sample-words option allowed")
+if word_sizes:
+    wanted=int(word_sizes[0].split("=",1)[1])
+    if wanted<len(samples) or wanted>28*1024*1024//2:
+        raise SystemExit("invalid requested PCM word count")
+    smpl+=bytes((wanted-len(samples))*2)
 if "--oversized" in sys.argv[2:]:
     # Valid sample header, but the actual PCM exceeds hardware capacity.
     smpl+=bytes(28*1024*1024)
@@ -97,6 +110,59 @@ pdta=(
                 shdr("EOS",2*sample_length,2*sample_length,
                      2*sample_length,2*sample_length))
 )
+
+# P175 32-voice hardware validation uses one active SF2 zone PER NOTE.
+# The normal public fixture deliberately has two zones, which consumes
+# 2 physical EMU8000 voices per key and would falsely report 16-note polyphony.
+# This conditional rewrites ONLY the --single test bank; every older P010-
+# P174 SoundFont fixture remains byte-for-byte unchanged.
+if "--single" in sys.argv[2:]:
+    if not sustain or wet or expressive or alternate:
+        raise SystemExit("--single requires --sustain only")
+    pdta=(
+        ck(b"phdr",phdr("OneVoiceSustain",0,bank_number,0)+
+                      phdr("EOP",0,0,1))+
+        ck(b"pbag",bag(0)+bag(1))+
+        ck(b"pmod",bytes(10))+
+        ck(b"pgen",gen(41,0)+gen(0,0))+
+        ck(b"inst",inst("OneVoiceInstrument",0)+inst("EOI",1))+
+        ck(b"ibag",bag(0)+bag(4))+
+        ck(b"imod",bytes(10))+
+        ck(b"igen",gen(37,0)+gen(38,-7200)+gen(54,1)+gen(53,0)+gen(0,0))+
+        ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
+                    shdr("HarmonicWave",sample_length,2*sample_length,
+                         sample_length+64,2*sample_length-128)+
+                    shdr("EOS",2*sample_length,2*sample_length,
+                         2*sample_length,2*sample_length))
+    )
+
+# P185 independent ORIGINAL-chip drum-kit oracle: two valid program
+# headers for Kits 0 and 5, each with its own instrument and dissimilar
+# sample PCM. Previous public fixtures remain byte-for-byte unchanged.
+if "--drum-kits" in sys.argv[2:]:
+    if bank_number != 128:
+        raise SystemExit("--drum-kits also requires --drums")
+    # Optional one-second loop for independent two-NoteID release checks.
+    # Normal Kit0/5 fixtures remain unchanged without --sustain.
+    kit_zone=(gen(37,0)+gen(54,1)) if sustain else gen(37,0)
+    kit_zone_length=3 if sustain else 2
+    pdta=(
+        ck(b"phdr",phdr("Kit0Sine",0,128,0)+phdr("Kit5Harmonics",5,128,1)+
+                      phdr("EOP",0,0,2))+
+        ck(b"pbag",bag(0)+bag(1)+bag(2))+
+        ck(b"pmod",bytes(10))+
+        ck(b"pgen",gen(41,0)+gen(41,1)+gen(0,0))+
+        ck(b"inst",inst("Kit0",0)+inst("Kit5",1)+inst("EOI",2))+
+        ck(b"ibag",bag(0)+bag(kit_zone_length)+bag(2*kit_zone_length))+
+        ck(b"imod",bytes(10))+
+        ck(b"igen",kit_zone+gen(53,0)+kit_zone+gen(53,1)+gen(0,0))+
+        ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
+                    shdr("HarmonicWave",sample_length,2*sample_length,
+                         sample_length+64,2*sample_length-128)+
+                    shdr("EOS",2*sample_length,2*sample_length,
+                         2*sample_length,2*sample_length))
+    )
+
 info=ck(b"ifil",struct.pack("<HH",2,1))+ck(b"INAM",b"P009 Public Two Layer QA\0")
 bank=ls(b"INFO",info)+ls(b"sdta",ck(b"smpl",smpl))+ls(b"pdta",pdta)
 data=ck(b"RIFF",b"sfbk"+bank)
