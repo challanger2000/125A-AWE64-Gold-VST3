@@ -151,14 +151,22 @@ void validate(const Trace&t,const char*name,bool stereo){
 }
 }
 int main(int argc,char**argv){
+#ifdef P209_VERIFY_UNEQUAL_STEREO
+    if(argc!=6)return 2;
+#else
     if(argc!=5)return 2;
+#endif
     try{
         validate(capture(argv[1],argv[2],"three"),"THREE_MONO",false);
         validate(capture(argv[1],argv[3],"monofirst"),"MONO_ZONE_FIRST_PAIR_FIRST",true);
         validate(capture(argv[1],argv[4],"rightfirst"),"RIGHT_ZONE_FIRST_PAIR_FIRST",true);
+#ifdef P209_VERIFY_UNEQUAL_STEREO
+        validate(capture(argv[1],argv[5],"rightfirst271"),
+                 "RIGHT_ZONE_FIRST_271_FRAME_DIFFERENCE",true);
+#endif
         std::puts("P204_REAL_ORIGINAL_CHIP_3_LAYER_RESERVE_ALL_AND_STEREO_FIRST_PASS");
 #ifdef P209_VERIFY_UNEQUAL_STEREO
-        std::puts("P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_AND_18_WITH_MONO_THREE_CASES_PASS");
+        std::puts("P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_18_271_FOUR_CASES_PASS");
 #endif
 #ifdef P205_VERIFY_ALLOC_RESET
         std::puts("P205_ORIGINAL_CHIP_ALLOCATOR_VTFT_RESET_3_LAYER_PASS");

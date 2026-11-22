@@ -44,4 +44,7 @@ def main():
     d=Path(sys.argv[1]);d.mkdir(parents=True,exist_ok=True)
     make(d,"mono-first-unequal1",(0,1,2),22050,22051)
     make(d,"right-first-unequal18",(2,0,1),22050,22068)
+    # Actual private owner banks also contain a linked pair with a
+    # 271-frame disparity. This remains exclusively synthetic PCM.
+    make(d,"right-first-unequal271",(2,0,1),22050,22321)
 if __name__=="__main__":main()

@@ -504,12 +504,12 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'P209 independent stereo fixture generation failed'}
           cmake --build _p009-build --config Release --parallel 4 --target P209UnequalStereoNative P209UnequalStereoNegative
           if($LASTEXITCODE -ne 0){throw 'P209 actual original C 86Box chip stereo regression compilation failed'}
-          & _p009-build/Release/P209UnequalStereoNative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') *> _p209-positive.txt
+          & _p009-build/Release/P209UnequalStereoNative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') (Join-Path $dir 'p209-right-first-unequal271.sf2') *> _p209-positive.txt
           $p209Positive=$LASTEXITCODE
           Get-Content _p209-positive.txt
           if($p209Positive -ne 0){throw 'P209 original chip 1/18 sample unequal length stereo pairing or PCM failed'}
-          if(!(Select-String _p209-positive.txt -Pattern 'P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_AND_18_WITH_MONO_THREE_CASES_PASS' -Quiet)){throw 'P209 original chip all three fixtures positive witness missing'}
-          & _p009-build/Release/P209UnequalStereoNegative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') *> _p209-negative.txt
+          if(!(Select-String _p209-positive.txt -Pattern 'P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_18_271_FOUR_CASES_PASS' -Quiet)){throw 'P209 original chip all three fixtures positive witness missing'}
+          & _p009-build/Release/P209UnequalStereoNegative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') (Join-Path $dir 'p209-right-first-unequal271.sf2') *> _p209-negative.txt
           $p209Negative=$LASTEXITCODE
           Get-Content _p209-negative.txt
           if($p209Negative -eq 0){throw 'P209 previously rejecting unequal length owner bank mutant escaped'}

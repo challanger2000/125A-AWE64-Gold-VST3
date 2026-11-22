@@ -7,7 +7,8 @@ reciprocally linked LEFT/RIGHT samples to have **exactly equal sample
 frame counts**. Independent local offline validation of the owner's
 13 previously supplied original SF2 banks found **four** banks where
 otherwise-valid reciprocal, same-sample-rate stereo L/R pairs differ in
-length, by 1 to 18 frames and in some pairs additional small amounts.
+length, by 1 to 271 frames (with other disparities including 10,
+17 and 18 frames).
 P199 therefore rejected each ENTIRE bank before one preset could be
 played — irrespective of how correct the original 86Box DSP core was.
 
@@ -28,7 +29,8 @@ should not fail in its entirety for 1-frame differences.
   physical stereo allocator, 28-MiB DRAM, Windows VST3 interface,
   SF1/SBK, preset/GUI/automation IDs and private assets are untouched.
 - Independent public synthetic SF2 fixtures recreate the private
-  failure conditions (linked L/R sample length +1 and +18) with an
+  failure conditions (linked L/R sample length +1, +18, and +271)
+with an
   unrelated mono layer and reversed stereo zone order.
 - Native Windows C++ test drives the **actual original 86Box chip**,
   requires two linked adjacent hardware voices with source-correct
