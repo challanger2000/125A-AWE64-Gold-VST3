@@ -53,17 +53,49 @@ ROM/SBK loads, original 77 presets, or private installer changes.
    validator, both 125A Plugin Testers, real GUI/host/recall, and
    installer safety tests must remain unchanged and green.
 
-## Verification status
+## Verified completed native Windows result — 22 November 2026
 
-The four synthetic fixture files have been generated and their RIFF
-chunk structure and zone/sample indices independently checked offline.
+**Source + Windows workflow SHA:** `747e2f959ef432e1d92bbdd073bec978b26f26eb`.
+**Windows Actions #45074528021 / job 137368674296: COMPLETED SUCCESS.**
+No original owner asset was uploaded. All four SF2 fixtures and test ROM
+were generated afresh as public-only synthetic files in a separate
+temporary folder, never embedded in the user product.
 
-**The full newly extended P210 Windows workflow result has not been
-verified as completed. Do not declare this QA gate passed from source
-review or from the previously successful P209 run.**
+The actual C 86Box original EMU8000 chip/Win95 allocator hardware register
+trace at key 84, velocity 102 established:
 
-P209's exact green run remains an earlier version and cannot stand as
-evidence for the added P210 voice-limit/RT checks.
+| Selected sample zones | Distinct physical voices | Excess dropped | Nonzero PCM positions |
+| ---: | ---: | ---: | ---: |
+| 31 | 31 | 0 | 16186 |
+| 32 | 32 | 0 | 16191 |
+| 33 | 32 | 1 | 16191 |
+| 37 | 32 | 5 | 16191 |
+
+The test validated every granted voice's distinct physical reservation,
+main programming and trigger, with every allocator reservation before the
+first voice main. **The deliberately unsafe test-only 33-zone source
+mutation was rejected at its specific causal assertion:**
+`P210_EXCESS_DUPLICATE_VOICE_RESERVATION: 33 layers produced 66 stop writes; expected 64`.
+This intentional negative failure is a *passed test* and is not product code.
+
+The original C chip **37-layer 44.1/48-kHz two-synth parallel callback
+tests** passed real nonzero PCM, sequential/parallel sample-hash equality
+and **zero C++ callback heap allocations**:
+`P210_RT_37_SF2_LAYERS_TWO_RATES_TWO_INSTANCES_ZERO_HEAP_PASS`.
+
+Unchanged broader Windows regression in **the same exact run**:
+Steinberg Validator **47/47**; pinned 125A Plugin Tester v0.2.10
+**41 PASS / 0 WARNING / 0 FAIL** and 125A v0.3.3
+**41 PASS / 0 WARNING / 0 FAIL**; Windows native EditorHost,
+SF2/PCM, P192–P209, state/recall, installer interrupt and control
+tests all **PASS**.
+
+Earlier failed P210 test-only workflow attempts are retained for audit.
+The immediately preceding run #45074097499 reached P210 but failed because
+P010 had already cleaned up its temporary synthetic ROM. The final source
+isolates P210's synthetic ROM and base SBK in its own directory, and the
+full latest Windows run passed. Prior failed attempts are NOT product
+audio failures and are not to be described as successful runs.
 
 ## Release gate (NO-GO)
 
