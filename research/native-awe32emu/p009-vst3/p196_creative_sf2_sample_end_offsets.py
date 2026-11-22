@@ -44,7 +44,20 @@ def main():
             raise RuntimeError("Pinned P196 upstream SampleEnd anchor changed: "+needle[:60])
     if "P196: genuine original Creative SF2" in s:
         raise RuntimeError("P196 already applied")
-    path.write_text(s.replace(old1,new1).replace(old2,new2),encoding="utf-8")
+    # The original LCOD+0x49AA saturating sum also applies when gen1/gen12
+    # are present at BOTH instrument and preset scope. The earlier P195
+    # restricted linear merge covers only tune and attenuation. Extend it
+    # only for these two independently evidenced address-offset generators.
+    old3="""for (const int op : {Gen::InitialAttenuation,
+                                     Gen::CoarseTune, Gen::FineTune})"""
+    new3="""for (const int op : {Gen::InitialAttenuation,
+                                     Gen::CoarseTune, Gen::FineTune,
+                                     Gen::EndAddrsOffset,
+                                     Gen::EndAddrsCoarseOffset})"""
+    if s.count(old3)!=1:
+        raise RuntimeError("P196 expected P195 linear-merge anchor missing")
+    path.write_text(s.replace(old1,new1).replace(old2,new2)
+                     .replace(old3,new3),encoding="utf-8")
     print("P196_ORIGINAL_CREATIVE_SF2_END_OFFSET_1_12_ONESHOT_AND_NOTEEND_SF1_PRESERVED_PATCHED")
 if __name__=="__main__":
     main()
