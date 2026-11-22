@@ -3168,9 +3168,11 @@ void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& fac
     const VST3::UID& id,FUnknown* host,const fs::path& resources) {
   for(const char* kind:{"tune","fine","atten"}) {
     const std::string prefix=std::string("p195-")+kind;
-    const auto split=prefix+"-split.sf2",combined=prefix+"-combined.sf2";
+    const auto split=prefix+"-split.sf2",combined=prefix+"-combined.sf2",
+               contrast=prefix+"-contrast.sf2";
     check(fs::is_regular_file(resources/split) &&
-          fs::is_regular_file(resources/combined),
+          fs::is_regular_file(resources/combined) &&
+          fs::is_regular_file(resources/contrast),
           "P195 original Win95 SF2 additive generator test fixtures missing");
     for(const int hz:{44100,48000,96000}) {
       ownerBank(resources,split.c_str());
@@ -3182,16 +3184,21 @@ void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& fac
                            hz,0,60,102,0,1);
       audible(expected,"P195 equivalent combined instrument generator");
       std::printf("P195_ORIGINAL_CREATIVE_SF2_GENERATOR type=%s rate=%d "
-          "presetPlus=%016llX instrumentSum=%016llX equal=%d\\n",
+          "presetPlus=%016llX instrumentSum=%016llX equal=%d\n",
           kind,hz,static_cast<unsigned long long>(p.hash),
           static_cast<unsigned long long>(expected.hash),
           p.hash==expected.hash?1:0);
       check(p.hash==expected.hash,
             "P195 SF2 additive generator has wrong effective pitch/attenuation");
+      ownerBank(resources,contrast.c_str());
+      const auto negative=render(factory,id,host,"P195_CHANGED_PARAMETER_NEGATIVE",
+                                 hz,0,60,102,0,1);
+      check(negative.hash!=expected.hash,
+            "P195 oracle did not discriminate a genuinely different SF2 generator");
     }
   }
   ownerBank(resources,nullptr);
-  std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_PASS");
+  std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_WITH_NEGATIVES_PASS");
 }
 
 // P181 owner-private release gate. Invoked ONLY by --private against the

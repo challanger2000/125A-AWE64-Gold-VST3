@@ -38,16 +38,18 @@ def main():
                    .3*math.sin(2*math.pi*i/73.3333333))) for i in range(n)))
     info=ck(b"ifil",struct.pack("<HH",2,4))+ck(b"INAM",b"P195 Creative SF2 Generator Sum\0")
     for kind in ("tune","fine","atten"):
-        for split in (True,False):
+        for variant in ("split","combined","contrast"):
+            split=(variant=="split")
+            contrast=(variant=="contrast")
             if kind=="tune":
                 preset=[gen(51,1)] if split else []
-                instrument=gen(51,3 if split else 4)
+                instrument=gen(51,3 if split else (-8 if contrast else 4))
             elif kind=="fine":
                 preset=[gen(52,15)] if split else []
-                instrument=gen(52,20 if split else 35)
+                instrument=gen(52,20 if split else (-70 if contrast else 35))
             else:
                 preset=[gen(48,50)] if split else []
-                instrument=gen(48,100 if split else 150)
+                instrument=gen(48,100 if split else (420 if contrast else 150))
             preset+= [gen(41,0)]
             # sampleID terminates instrument zone; sampleModes precedes it.
             zone=[gen(34,-12000),gen(37,0),instrument,gen(54,1),gen(53,0)]
@@ -64,7 +66,7 @@ def main():
                          shdr("EOS",n,n,n,n)))
             data=ck(b"RIFF",b"sfbk"+ls(b"INFO",info)+
                     ls(b"sdta",ck(b"smpl",smpl))+ls(b"pdta",pdta))
-            out=dst/("p195-%s-%s.sf2"%(kind,"split" if split else "combined"))
+            out=dst/("p195-%s-%s.sf2"%(kind,variant))
             out.write_bytes(data)
             print("P195_PUBLIC_GENERATED_SF2_ORIGINAL_MERGE_PAIR",out.name,len(data))
 if __name__=="__main__":

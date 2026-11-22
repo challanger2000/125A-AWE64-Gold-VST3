@@ -335,14 +335,14 @@ jobs:
               'P187_PINNED_OWNER_SHA_MATCHES_ACTIVE_SF2_CHIP_PCM_PASS',
                'P192_SF2_OMITTED_SUSTAIN_EQUALS_EXPLICIT_0CB_REAL_CHIP_PCM_PASS',
                'P194_SF2_VOL_AND_MOD_ATTACK_DEFAULT_VST3_PCM_3_RATES_PASS',
-               'P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_PASS'
+               'P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_WITH_NEGATIVES_PASS'
             )){
               if(!(Select-String -Path _p009-host-synthetic.log -SimpleMatch -Pattern $gate -Quiet)){
                 throw "P174 missing critical actual Windows VST3 positive+negative gate: $gate"
               }
             }
           }
-          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'sustain-explicit.sf2'),(Join-Path $dir 'sustain-implicit.sf2'),(Join-Path $dir 'p193-attack-omitted.sf2'),(Join-Path $dir 'p193-attack-explicit.sf2'),(Join-Path $dir 'p194-modattack-omitted.sf2'),(Join-Path $dir 'p194-modattack-explicit.sf2'),(Join-Path $dir 'p195-tune-split.sf2'),(Join-Path $dir 'p195-tune-combined.sf2'),(Join-Path $dir 'p195-fine-split.sf2'),(Join-Path $dir 'p195-fine-combined.sf2'),(Join-Path $dir 'p195-atten-split.sf2'),(Join-Path $dir 'p195-atten-combined.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'multi-drums.sf2'),(Join-Path $dir 'multi-drums-sustain.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'exact-fit.sf2'),(Join-Path $dir 'one-word-over.sf2'),(Join-Path $dir 'voice32.sf2'),(Join-Path $dir 'sparse77.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path (Join-Path $dir 'awe32.raw'),(Join-Path $dir 'SYNTHGM.SBK'),(Join-Path $dir 'vintage.sf2'),(Join-Path $dir '77-presets.sf2'),(Join-Path $dir 'sustain.sf2'),(Join-Path $dir 'sustain-explicit.sf2'),(Join-Path $dir 'sustain-implicit.sf2'),(Join-Path $dir 'p193-attack-omitted.sf2'),(Join-Path $dir 'p193-attack-explicit.sf2'),(Join-Path $dir 'p194-modattack-omitted.sf2'),(Join-Path $dir 'p194-modattack-explicit.sf2'),(Join-Path $dir 'p195-tune-split.sf2'),(Join-Path $dir 'p195-tune-combined.sf2'),(Join-Path $dir 'p195-tune-contrast.sf2'),(Join-Path $dir 'p195-fine-split.sf2'),(Join-Path $dir 'p195-fine-combined.sf2'),(Join-Path $dir 'p195-fine-contrast.sf2'),(Join-Path $dir 'p195-atten-split.sf2'),(Join-Path $dir 'p195-atten-combined.sf2'),(Join-Path $dir 'p195-atten-contrast.sf2'),(Join-Path $dir 'expressive.sf2'),(Join-Path $dir 'drums.sf2'),(Join-Path $dir 'multi-drums.sf2'),(Join-Path $dir 'multi-drums-sustain.sf2'),(Join-Path $dir 'oversized.sf2'),(Join-Path $dir 'exact-fit.sf2'),(Join-Path $dir 'one-word-over.sf2'),(Join-Path $dir 'voice32.sf2'),(Join-Path $dir 'sparse77.sf2'),(Join-Path $dir 'user.sf2') -Force -ErrorAction SilentlyContinue
           if($rc -ne 0){
             $last=Get-Content _p009-host-synthetic.log -Tail 1
             Write-Host "::error title=P010 synthetic host regression::Exit ${rc}. $last"
