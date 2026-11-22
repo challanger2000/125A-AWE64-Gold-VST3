@@ -86,19 +86,32 @@ std::vector<Ip> coldNote(const char*rom,const char*sf2,
 void match(const std::vector<Ip>&actual,const std::vector<Ip>&base,
            int delta,const char*context){
     need(actual.size()==base.size(),"P207 original chip missed physical IP writes");
-    for(std::size_t i=0;i<base.size();++i){
-        need(actual[i].voice==base[i].voice,
+    // Original NoteOn worklist is stereo-partner-first, then independent
+    // mono; original pitch-wheel handler walks PHYSICAL voices ascending.
+    // Never require those distinct, source-confirmed I/O orderings to
+    // match. Compare uniquely owned voice identities AND IP per voice.
+    auto sortedActual=actual,sortedBase=base;
+    const auto byVoice=[](const Ip&a,const Ip&b){return a.voice<b.voice;};
+    std::sort(sortedActual.begin(),sortedActual.end(),byVoice);
+    std::sort(sortedBase.begin(),sortedBase.end(),byVoice);
+    for(std::size_t i=0;i<sortedBase.size();++i){
+        const auto& a=sortedActual[i];
+        const auto& b=sortedBase[i];
+        need(i==0u || (b.voice!=sortedBase[i-1].voice &&
+                        a.voice!=sortedActual[i-1].voice),
+             "P207 original chip duplicated physical IP register writes");
+        need(a.voice==b.voice,
              "P207 original chip physical voice identity changed");
-        const std::int64_t sum=static_cast<std::int64_t>(base[i].pitch)+delta;
+        const std::int64_t sum=static_cast<std::int64_t>(b.pitch)+delta;
         // Original x86 compares unsigned DWORD to 0xffff before sign.
         const unsigned want=(sum<0 || sum>65535)?65535u:
                              static_cast<unsigned>(sum);
-        if(actual[i].pitch!=want)
+        if(a.pitch!=want)
             throw std::runtime_error(std::string(context)+
-               " voice="+std::to_string(base[i].voice)+
-               " original="+std::to_string(base[i].pitch)+
+               " voice="+std::to_string(b.voice)+
+               " original="+std::to_string(b.pitch)+
                " expected="+std::to_string(want)+
-               " actual="+std::to_string(actual[i].pitch));
+               " actual="+std::to_string(a.pitch));
     }
 }
 void run(const char*rom,const char*sf2,const std::string&name){
