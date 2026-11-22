@@ -1,0 +1,78 @@
+name: P212 exact public source export for local private original Creative comparison
+on:
+  push:
+    branches:
+      - test/p212-original-creative-local-trace-parity-20261123
+    paths:
+      - .github/workflows/p212-original-trace-source-export.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin original reconstructed Creative driver and 86Box chip source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init _p009-upstream
+          git -C _p009-upstream remote add origin https://github.com/turican0/AWE32Emu.git
+          git -C _p009-upstream fetch --depth 1 origin 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          git -C _p009-upstream checkout --detach FETCH_HEAD
+          test "$(git -C _p009-upstream rev-parse HEAD)" = 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+      - name: Apply every production native Creative/86Box overlay in P211 Windows order
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='research/native-awe32emu/p009-vst3'
+          u='_p009-upstream'
+          python "$root/apply_per_instance.py" "$u"
+          git -C "$u" apply --check "$GITHUB_WORKSPACE/$root/rt_safe.patch"
+          git -C "$u" apply "$GITHUB_WORKSPACE/$root/rt_safe.patch"
+          for script in \
+            p019_latency_window_probe.py \
+            p021_box86_native_resampling.py \
+            p202_skip_second_synth.py \
+            apply_p165_original_synth_overlays.py \
+            p192_sf2_missing_sustain_default.py \
+            p194_creative_sf2_attack_default.py \
+            p195_creative_sf2_preset_additive.py \
+            p196_creative_sf2_sample_end_offsets.py \
+            p197_creative_sf2_scale_tuning.py \
+            p198_creative_sf2_filter_converted_scope.py \
+            p199_creative_sf2_stereo_link.py \
+            p209_sf2_allow_unequal_stereo_lengths.py \
+            p200_original_stereo_joint_trigger.py \
+            p201_original_stereo_adjacent_pair.py \
+            p203_vxd_physical_class.py \
+            p204_original_vxd_batch_reserve.py \
+            p205_original_vxd_allocator_vtft.py \
+            p206_original_win95_cc120_cc123.py \
+            p207_original_vxd_negative_pitch_saturation.py \
+            p210_test_only_excess_voice_alias.py \
+            apply_p189_audition_channel.py; do
+              python "$root/$script" "$u"
+          done
+          test -f "$u/AWE32Emu/src/Synth.cpp"
+          test -f "$u/AWE32Emu/src/86box/snd_emu8k.c"
+          test -f "$u/AWE32Emu/src/Emu8000Box.cpp"
+          echo "P212_EXACT_P211_CREATIVE_OVERLAYS_APPLIED_PASS"
+      - name: Export source only without any original user ROM SBK SF2 or Win95 media
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'P211_SOURCE_SHA=ee4bc8d2c78c58f9c75a3e30849496499d24c6a3' > P212-PROVENANCE.txt
+          printf '%s\n' 'UPSTREAM_SHA=17b0578fe59909dfaa784b5531d6d1a3a80729ce' >> P212-PROVENANCE.txt
+          tar -czf p212-patched-source.tar.gz \
+            P212-PROVENANCE.txt _p009-upstream/AWE32Emu/src \
+            research/native-awe32emu/p009-vst3/tests/P204OriginalReservationPortTrace.cpp
+          echo "P212_PATCHED_PUBLIC_SOURCE_ARCHIVE_READY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P212-EXACT-P211-PATCHED-OPEN-SOURCE-LOCAL
+          path: p212-patched-source.tar.gz
+          retention-days: 2
+          if-no-files-found: error
