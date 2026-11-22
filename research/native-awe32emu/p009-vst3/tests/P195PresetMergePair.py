@@ -37,11 +37,14 @@ def main():
         int(9000*(.7*math.sin(2*math.pi*i/220)+
                    .3*math.sin(2*math.pi*i/73.3333333))) for i in range(n)))
     info=ck(b"ifil",struct.pack("<HH",2,4))+ck(b"INAM",b"P195 Creative SF2 Generator Sum\0")
-    for kind in ("tune","atten"):
+    for kind in ("tune","fine","atten"):
         for split in (True,False):
             if kind=="tune":
                 preset=[gen(51,1)] if split else []
                 instrument=gen(51,3 if split else 4)
+            elif kind=="fine":
+                preset=[gen(52,15)] if split else []
+                instrument=gen(52,20 if split else 35)
             else:
                 preset=[gen(48,50)] if split else []
                 instrument=gen(48,100 if split else 150)
