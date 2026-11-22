@@ -3096,6 +3096,30 @@ void verifyP180Sparse77OriginalChipSelection(
 }
 
 
+// P192: two public SoundFonts encode the SAME looping two-layer sound.
+ // One writes sustainVolEnv=0 cB explicitly; the other leaves generator 37
+ // unspecified, which the SF2 specification defines as 0 cB, full sustain.
+ // Private owner SF2 is never copied into this public, independent oracle.
+void verifyP192ImplicitSf2SustainEqualsExplicit(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  check(fs::is_regular_file(resources/"sustain-explicit.sf2") &&
+        fs::is_regular_file(resources/"sustain-implicit.sf2"),
+        "P192 public sustain comparison fixtures missing");
+  ownerBank(resources,"sustain-explicit.sf2");
+  const auto explicitFull=render(factory,id,host,
+      "P192_EXPLICIT_SF2_SUSTAIN",44100,0,60,110,0,1);
+  audible(explicitFull,"P192 explicit 0-cB full sustain");
+  ownerBank(resources,"sustain-implicit.sf2");
+  const auto implicitFull=render(factory,id,host,
+      "P192_OMITTED_SF2_SUSTAIN",44100,0,60,110,0,1);
+  audible(implicitFull,"P192 default 0-cB full sustain");
+  check(explicitFull.hash==implicitFull.hash,
+        "P192 SF2 omitted generator 37 caused blip instead of sustained bass");
+  ownerBank(resources,nullptr);
+  std::puts("P192_SF2_OMITTED_SUSTAIN_EQUALS_EXPLICIT_0CB_REAL_CHIP_PCM_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4586,6 +4610,7 @@ int main(int argc,char** argv){
     verifyP165InterruptedAssetLifecycle(factory,cls->ID(),host.get(),resources);
     verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
+    verifyP192ImplicitSf2SustainEqualsExplicit(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
