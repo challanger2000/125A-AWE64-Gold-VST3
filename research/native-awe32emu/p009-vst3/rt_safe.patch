@@ -1,0 +1,277 @@
+--- a/AWE32Emu/src/SoundFont.h
++++ b/AWE32Emu/src/SoundFont.h
+@@ -149,6 +149,9 @@
+         // Returns all layers that are to sound for a given note.
+         // An empty result = the preset does not exist or does not cover the note.
+         std::vector<Region> Select(int bank, int program, int key, int velocity) const;
++        // P009: fill an already-reserved vector without allocating on note-on.
++        void SelectInto(int bank, int program, int key, int velocity,
++                        std::vector<Region>& out, bool bounded = false) const;
+     };
+ 
+     Bank Load(const std::string& path);
+--- a/AWE32Emu/src/SoundFont.cpp
++++ b/AWE32Emu/src/SoundFont.cpp
+@@ -730,12 +730,20 @@
+ std::vector<Region> Bank::Select(int bankNum, int program, int key, int velocity) const
+ {
+     std::vector<Region> out;
++    SelectInto(bankNum, program, key, velocity, out);
++    return out;
++}
++
++void Bank::SelectInto(int bankNum, int program, int key, int velocity,
++                      std::vector<Region>& out, bool bounded) const
++{
++    out.clear();
+ 
+     // No fallback to bank 0 - the caller takes care of that only after it
+     // asked ALL loaded banks for the exact bank. Otherwise a user bank with
+     // preset 0 would override, say, the GM drums in bank 128.
+     const Preset* preset = FindPreset(bankNum, program);
+-    if (!preset) return out;
++    if (!preset) return;
+ 
+     for (const Zone& pz : preset->zones)
+     {
+@@ -799,10 +807,13 @@
+             // because the driver adds it only in register units.
+             r.gen.FillFrom(presetGen);
+ 
++            // When prepared for P009 this cannot exceed the capacity
++            // computed from all preset/instrument zone combinations.
++            // Any unexpected overrun fails closed instead of malloc.
++            if (bounded && out.size() == out.capacity()) { out.clear(); return; }
+             out.push_back(std::move(r));
+         }
+     }
+-    return out;
+ }
+ 
+ // ===========================================================================
+--- a/AWE32Emu/src/Synth.h
++++ b/AWE32Emu/src/Synth.h
+@@ -72,6 +72,9 @@
+     void PitchBend(uint8_t channel, int16_t value);
+ 
+     void RenderBlock(int16_t* out, uint32_t numFrames);
++    // P009: call OFF audio thread after all banks have been loaded.
++    // Reject unbounded banks rather than allocate during note-on.
++    bool PrepareRealtime(uint32_t maxOutputFrames);
+ 
+     Emu8000Core& Core() { return m_core; }
+ 
+@@ -196,6 +199,11 @@
+ 
+     Emu8000Core m_core;
+     std::vector<LoadedBank> m_banks;
++    // Exclusive to this Synth instance, reused for every note-on.
++    std::vector<SoundFont::Region> m_rtRegions;
++    std::vector<SoundFont::VoiceParams> m_rtParams;
++    std::vector<int> m_rtVoiceIds;
++    bool m_rtPrepared = false;
+     // The first sample does not start right at the start of DRAM. The
+     // driver leaves 50 words before it: CCCA points 46 words before the
+     // sample start (see Awe32::StartAddressOffset) and without a reserve it
+--- a/AWE32Emu/src/Synth.cpp
++++ b/AWE32Emu/src/Synth.cpp
+@@ -235,6 +235,38 @@
+ 
+     lb.bank = std::make_unique<SoundFont::Bank>(std::move(bank));
+     m_banks.push_back(std::move(lb));
++    return true;
++}
++
++bool Synth::PrepareRealtime(uint32_t maxOutputFrames)
++{
++    m_rtPrepared = false;
++    if (maxOutputFrames == 0 || maxOutputFrames > 1024) return false;
++    size_t largest = 1;
++    for (const auto& loaded : m_banks)
++    {
++        const auto& bank = *loaded.bank;
++        for (const auto& preset : bank.presets)
++        {
++            size_t total = 0;
++            for (const auto& zone : preset.zones)
++            {
++                if (zone.instrument < 0 ||
++                    static_cast<size_t>(zone.instrument) >= bank.instruments.size())
++                    continue;
++                const size_t n = bank.instruments[zone.instrument].zones.size();
++                if (n > 4096 - total) return false;
++                total += n;
++            }
++            largest = std::max(largest, total);
++        }
++    }
++    // All heap work happens before the host activates process().
++    m_rtRegions.reserve(largest);
++    m_rtParams.reserve(largest);
++    m_rtVoiceIds.reserve(largest);
++    if (!m_core.PrepareRealtime(maxOutputFrames)) return false;
++    m_rtPrepared = true;
+     return true;
+ }
+ 
+@@ -862,8 +894,9 @@
+                         uint8_t channel, uint8_t note, uint8_t velocity, uint32_t presetId)
+ {
+     const SoundFont::Bank& b = *m_banks[bankIndex].bank;
+-    std::vector<SoundFont::VoiceParams> vps;
+-    vps.reserve(regions.size());
++    if (m_rtPrepared && regions.size() > m_rtParams.capacity()) return;
++    auto& vps = m_rtParams;
++    vps.clear();
+     for (const SoundFont::Region& r : regions)
+         vps.push_back(SoundFont::MakeVoiceParams(
+             b, r, note, velocity, m_banks[bankIndex].dramBase, kRomPoolBase,
+@@ -876,8 +909,8 @@
+         // The SDK does the same (noteOn 0x0BA3) with its own allocation,
+         // which may find no voice - that layer is then not played.
+         const bool sdk = m_core.DriverVariant() == Awe32::Driver::Sdk;
+-        std::vector<int> voices;
+-        voices.reserve(regions.size());
++        auto& voices = m_rtVoiceIds;
++        voices.clear();
+         for (size_t i = 0; i < regions.size(); ++i)
+             voices.push_back(sdk ? AllocateVoiceSdk(0xFFFE) : AllocateVoiceMdi(0xFFFE));
+         for (size_t i = 0; i < regions.size(); ++i)
+@@ -1443,11 +1476,10 @@
+         for (size_t i = m_banks.size(); i-- > 0; )
+         {
+             const SoundFont::Bank& b = *m_banks[i].bank;
+-            const std::vector<SoundFont::Region> regions =
+-                b.Select(wantBank, wantProgram, note, velocity);
+-            if (regions.empty()) continue;
+-
+-            StartLayers(i, regions, channel, note, velocity,
++            b.SelectInto(wantBank, wantProgram, note, velocity, m_rtRegions, m_rtPrepared);
++            if (m_rtRegions.empty()) continue;
++
++            StartLayers(i, m_rtRegions, channel, note, velocity,
+                         (static_cast<uint32_t>(i) << 16) | (wantBank << 8) | wantProgram);
+             return;
+         }
+@@ -1462,10 +1494,9 @@
+     for (size_t i = m_banks.size(); i-- > 0; )
+     {
+         const SoundFont::Bank& b = *m_banks[i].bank;
+-        const std::vector<SoundFont::Region> regions =
+-            b.Select(0, 0, note, velocity);
+-        if (regions.empty()) continue;
+-        StartLayers(i, regions, channel, note, velocity, static_cast<uint32_t>(i) << 16);
++        b.SelectInto(0, 0, note, velocity, m_rtRegions, m_rtPrepared);
++        if (m_rtRegions.empty()) continue;
++        StartLayers(i, m_rtRegions, channel, note, velocity, static_cast<uint32_t>(i) << 16);
+         return;
+     }
+ 
+--- a/AWE32Emu/src/Emu8000.h
++++ b/AWE32Emu/src/Emu8000.h
+@@ -92,6 +92,7 @@
+     // ---- render ----------------------------------------------------------
+     // out = interleaved stereo int16, numFrames frames at the output rate.
+     void RenderBlock(int16_t* out, uint32_t numFrames);
++    bool PrepareRealtime(uint32_t maxOutputFrames);
+ 
+     bool IsVoiceActive(int voice) const;
+ 
+@@ -369,5 +370,6 @@
+     // resampling to the output rate
+     std::vector<float> m_nativeL, m_nativeR;
+     double m_resamplePos = 0.0;
++    uint32_t m_rtMaxOutputFrames = 0;
+     float m_lastL = 0.0f, m_lastR = 0.0f;
+ };
+--- a/AWE32Emu/src/Emu8000.cpp
++++ b/AWE32Emu/src/Emu8000.cpp
+@@ -1495,9 +1495,29 @@
+     return m_box.RamWords();
+ }
+ 
++bool Emu8000Core::PrepareRealtime(uint32_t maxOutputFrames)
++{
++    if (maxOutputFrames == 0 || maxOutputFrames > 1024 ||
++        m_outputRate < 8000 || m_outputRate > 192000) return false;
++    // 44100/8000 is the worst supported native/output ratio.
++    // +8 covers carry phase and the two interpolation taps.
++    const size_t cap = static_cast<size_t>(std::ceil(
++        (44100.0 / 8000.0) * maxOutputFrames)) + 8u;
++    m_nativeL.reserve(cap); m_nativeR.reserve(cap);
++    m_sendReverb.reserve(cap); m_sendChorus.reserve(cap);
++    m_rtMaxOutputFrames = maxOutputFrames;
++    return true;
++}
++
+ void Emu8000Core::RenderBlock(int16_t* out, uint32_t numFrames)
+ {
+     if (numFrames == 0) return;
++    // Reject only invalid P009 callback sizes; never malloc on RT.
++    if (m_rtMaxOutputFrames && numFrames > m_rtMaxOutputFrames)
++    {
++        std::fill_n(out, static_cast<size_t>(numFrames) * 2u, int16_t{0});
++        return;
++    }
+ 
+     auto emit = [&](uint32_t i, float l, float r)
+     {
+--- a/AWE32Emu/src/Emu8000Box.cpp
++++ b/AWE32Emu/src/Emu8000Box.cpp
+@@ -182,6 +182,10 @@
+     std::memset(&m_impl->emu, 0, sizeof(m_impl->emu));
+     emu8k_init(&m_impl->emu, basePort, ramKb);
+ 
++    // P009: before any callback, reserve all FIFO and port-write space.
++    // A full write queue is drained in PortWrite, never grown on RT.
++    m_impl->pending.reserve(65536u);
++    m_impl->fifo.reserve(static_cast<size_t>(kBlockFrames) * 2u);
+     m_impl->fifo.clear();
+     m_impl->pending.clear();
+     m_impl->fifoPos = 0;
+@@ -207,7 +211,22 @@
+ {
+     if (!m_ready)
+         return;
+-    m_impl->pending.push_back({ m_impl->frameInBlock, port, value, isByte });
++    Impl& I = *m_impl;
++    if (I.pending.size() == I.pending.capacity())
++    {
++        // Bounded overflow: apply ALL prior port writes in order,
++        // at their original sample offsets. Zero lost chip writes.
++        for (const Impl::Write& w : I.pending)
++        {
++            I.emu.p009_wavetable_target = w.offset;
++            if (w.isByte) emu8k_outb(w.port, static_cast<uint8_t>(w.value), &I.emu);
++            else emu8k_outw(w.port, w.value, &I.emu);
++        }
++        I.pending.clear();
++        I.emu.p009_wavetable_target = I.frameInBlock;
++        emu8k_update(&I.emu);
++    }
++    I.pending.push_back({ I.frameInBlock, port, value, isByte });
+ }
+ 
+ uint16_t Emu8000Box::PortRead(uint16_t port)
+--- a/AWE32Emu/src/Emu8000Effects.h
++++ b/AWE32Emu/src/Emu8000Effects.h
+@@ -31,6 +31,7 @@
+     class ChorusVoice
+     {
+     public:
++        void ReserveRealtime(size_t maxSamples) { m_line.reserve(maxSamples); }
+         void Init(uint32_t sampleRate, double baseDelayMs, double depthMs,
+                   double rateHz, double phase)
+         {
+@@ -224,6 +225,11 @@
+         void Init(uint32_t sampleRate, int preset = kChorusDefault)
+         {
+             m_sampleRate = sampleRate;
++            // Longest original Creative delay preset is 0xB06 samples,
++            // second voice uses 1.4x delay, LFO adds <=6ms.
++            // 8192 samples safely bounds every native 44.1k preset.
++            m_voices[0].ReserveRealtime(8192);
++            m_voices[1].ReserveRealtime(8192);
+             SetPreset(preset);
+         }
+ 

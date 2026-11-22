@@ -1,0 +1,99 @@
+name: P008 isolated native AWE32Emu Linux + Windows build (NO guest OS)
+on:
+  push:
+    branches: [research/awe32emu-native-isolated-20261120]
+    paths:
+      - ".github/workflows/p008-awe32emu-native-isolated.yml"
+      - "research/native-awe32emu/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact upstream SHA without modifying P007
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init _p008-upstream
+          git -C _p008-upstream remote add origin https://github.com/turican0/AWE32Emu.git
+          git -C _p008-upstream fetch --depth 1 origin 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          git -C _p008-upstream checkout --detach FETCH_HEAD
+          test "$(git -C _p008-upstream rev-parse HEAD)" = 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          echo P008_UPSTREAM_SHA_LOCKED_PASS
+      - name: Build native EMU8000 (no 86Box VM, no Windows 95)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S _p008-upstream -B _p008-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DAWE32EMU_WITH_86BOX=ON -DAWE32EMU_WITH_RTAUDIO=OFF -DAWE32EMU_NLS=OFF
+          cmake --build _p008-linux --parallel 4
+          test -x _p008-linux/AWE32Emu
+          echo P008_LINUX_NATIVE_ORIGINAL_EMU8000_CORE_COMPILED_PASS
+      - name: Test binary and public synthetic MIDI transport ONLY (not authentic sound)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _p008-results
+          python3 research/native-awe32emu/compare.py smoke --binary _p008-linux/AWE32Emu --out _p008-results
+          echo P008_PUBLIC_SMOKE_NO_ORIGINAL_SOUNDFONT_CLAIM_PASS
+      - name: Pack reproducible pinned source plus native Linux binary (no proprietary inputs)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _p008-delivery
+          tar -czf _p008-delivery/AWE32Emu-upstream-pinned-src.tar.gz --exclude=.git -C _p008-upstream .
+          cp _p008-linux/AWE32Emu _p008-delivery/AWE32Emu-linux
+          cp research/native-awe32emu/compare.py _p008-delivery/compare.py
+          cp research/native-awe32emu/README.md _p008-delivery/P008-README.md
+          cp _p008-results/* _p008-delivery/
+          sha256sum _p008-delivery/* > _p008-delivery/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P008-Isolated-Linux-Native-Core-And-Source-PUBLIC-NO-PRIVATE
+          path: _p008-delivery/**
+          if-no-files-found: error
+          retention-days: 7
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch exact upstream original SHA (P007 not touched)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git init _p008-upstream
+          git -C _p008-upstream remote add origin https://github.com/turican0/AWE32Emu.git
+          git -C _p008-upstream fetch --depth 1 origin 17b0578fe59909dfaa784b5531d6d1a3a80729ce
+          if($LASTEXITCODE -ne 0){ throw 'pinned source fetch failed' }
+          git -C _p008-upstream checkout --detach FETCH_HEAD
+          $sha=(git -C _p008-upstream rev-parse HEAD).Trim()
+          if($sha -ne '17b0578fe59909dfaa784b5531d6d1a3a80729ce'){ throw "unexpected upstream SHA $sha" }
+      - name: Build actual Windows x64 native core (NO guest VM)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake -S _p008-upstream -B _p008-win -G "Visual Studio 17 2022" -A x64 -DAWE32EMU_WITH_86BOX=ON -DAWE32EMU_WITH_RTAUDIO=OFF -DAWE32EMU_NLS=OFF
+          if($LASTEXITCODE -ne 0){ throw 'configure failed' }
+          cmake --build _p008-win --config Release --parallel 4
+          if($LASTEXITCODE -ne 0){ throw 'native compile failed' }
+          if(!(Test-Path '_p008-win/Release/AWE32Emu.exe')){ throw 'native executable missing' }
+          Write-Host P008_WINDOWS_NO_WIN95_NATIVE_CORE_BUILT_PASS
+      - name: Test Windows executable using nonproprietary synthetic MIDI only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force _p008-results | Out-Null
+          python research/native-awe32emu/compare.py smoke --binary _p008-win/Release/AWE32Emu.exe --out _p008-results
+          if($LASTEXITCODE -ne 0){ throw 'Windows native smoke failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: P008-Isolated-Windows-x64-Native-AWE32Emu-PUBLIC-NO-PRIVATE
+          path: |
+            _p008-win/Release/AWE32Emu.exe
+            _p008-results/**
+          if-no-files-found: error
+          retention-days: 7
