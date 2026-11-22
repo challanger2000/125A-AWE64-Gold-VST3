@@ -77,9 +77,9 @@ Trace capture(const char* rom, const char* sf2, int count) {
 }
 void check(const Trace& t, int wanted) {
     const int voices=std::min(wanted,32);
-    // One allocator stop and one subsequent StartVoice stop per played voice.
+    // P212 original Win95 guest: exactly one allocator stop per played voice.
     // The first 33/37-note extra zones must NOT fall back to a reserved v0.
-    require(t.stops.size()==static_cast<size_t>(2*voices),
+    require(t.stops.size()==static_cast<size_t>(voices),
             "P210_EXCESS_DUPLICATE_VOICE_RESERVATION: " +
             std::to_string(wanted) + " layers produced " +
             std::to_string(t.stops.size()) + " stop writes; expected " +
