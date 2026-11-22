@@ -479,7 +479,7 @@ jobs:
           $p205negative=$LASTEXITCODE
           Get-Content _p205-negative.txt
           if($p205negative -eq 0){throw 'P205 bad missing-VTFT-allocator mutant escaped'}
-          if(!(Select-String _p205-negative.txt -Pattern 'P205 original allocator VTFT reset missing' -Quiet)){throw 'P205 mutant failed for unrelated reason'}
+          if(!(Select-String _p205-negative.txt -Pattern 'P212 original allocator VTFT resets missing before main IFATN' -Quiet)){throw 'P205 mutant failed for unrelated reason'}
           $global:LASTEXITCODE=0
           Write-Host P205_REAL_86BOX_WIN95_ALLOC_RESET_3_FIXTURES_AND_NEGATIVE_PASS
           cmake --build _p009-build --config Release --parallel 4 --target P206OriginalChannelCcNative P206OriginalChannelCcNegative
