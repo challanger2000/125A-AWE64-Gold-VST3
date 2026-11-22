@@ -66,5 +66,26 @@ def main():
                       else "p193-attack-omitted.sf2")
         dst.write_bytes(data)
         print("P193_PUBLIC_ATTACK_PAIR", dst.name, len(data))
+
+    # P194 additional independent MOD envelope case: both files have
+    # identical filter and tonal sources; only gen26 presence differs.
+    # Keep volume attack explicitly the same in both files.
+    for explicit in (False, True):
+        layers = ([gen(8, 4900), gen(11, 2400),
+                   gen(26, -12000)] if explicit else
+                  [gen(8, 4900), gen(11, 2400)])
+        layers += [gen(28, 0), gen(29, 0), gen(34, -12000),
+                   gen(37, 0), gen(54, 1), gen(53, 0)]
+        pdta = (common + ck(b"ibag", bag(0) + bag(len(layers))) +
+                ck(b"imod", bytes(10)) +
+                ck(b"igen", b"".join(layers) + gen(0, 0)) +
+                ck(b"shdr", shdr("Sine", 0, count, 240, count - 240) +
+                   shdr("EOS", count, count, count, count)))
+        data = ck(b"RIFF", b"sfbk" + lst(b"INFO", info) +
+                  lst(b"sdta", ck(b"smpl", smpl)) + lst(b"pdta", pdta))
+        dst = dest / ("p194-modattack-explicit.sf2" if explicit
+                      else "p194-modattack-omitted.sf2")
+        dst.write_bytes(data)
+        print("P194_PUBLIC_MODATTACK_PAIR", dst.name, len(data))
 if __name__ == "__main__":
     main()
