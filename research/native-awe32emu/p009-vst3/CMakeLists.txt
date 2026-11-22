@@ -249,6 +249,26 @@ endforeach()
 target_compile_definitions(P207OriginalPitchNegative PRIVATE
   P207_NEGATIVE_OLD_SIGNED_CLAMP)
 
+
+# P209: original 86Box chip and original VXD stereo allocator.
+# Accept independent linked L/R PCM lengths + test-only old rejection.
+foreach(P209_KIND IN ITEMS Native Negative)
+  add_executable(P209UnequalStereo${P209_KIND}
+    tests/P204OriginalReservationPortTrace.cpp
+    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+  target_include_directories(P209UnequalStereo${P209_KIND} PRIVATE
+    "${NATIVE}" "${NATIVE}/86box/include")
+  target_compile_definitions(P209UnequalStereo${P209_KIND} PRIVATE
+    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+    P019_EMU_BLOCK_FRAMES=64 P209_VERIFY_UNEQUAL_STEREO)
+  target_link_libraries(P209UnequalStereo${P209_KIND} PRIVATE winmm)
+  target_compile_features(P209UnequalStereo${P209_KIND} PRIVATE cxx_std_17)
+endforeach()
+target_compile_definitions(P209UnequalStereoNegative PRIVATE
+  P209_NEGATIVE_REQUIRE_EQUAL_STEREO_LENGTH)
+
 # P202 Legacy: same production Synth/EMU8000 native source as the VST3.
 # The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
 # Legacy macro restores only the pre-fix unused second DSP.

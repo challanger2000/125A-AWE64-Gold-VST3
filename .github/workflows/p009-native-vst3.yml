@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122, fix/p203-creative-vxd-physical-voice-state-20261122, fix/p204-original-creative-reserve-all-before-voice-program-20261122, fix/p205-original-creative-allocator-vtft-reset-20261122, fix/p206-creative-original-cc120-cc123-sustain-20261122, fix/p207-creative-original-vxd-negative-pitch-saturation-20261122, fix/p208-neutral-125a-factory-metadata-20261122]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122, fix/p203-creative-vxd-physical-voice-state-20261122, fix/p204-original-creative-reserve-all-before-voice-program-20261122, fix/p205-original-creative-allocator-vtft-reset-20261122, fix/p206-creative-original-cc120-cc123-sustain-20261122, fix/p207-creative-original-vxd-negative-pitch-saturation-20261122, fix/p208-neutral-125a-factory-metadata-20261122, fix/p209-owner-unequal-stereo-sf2-compat-20261122]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -97,6 +97,11 @@ jobs:
         run: |
           python research/native-awe32emu/p009-vst3/p199_creative_sf2_stereo_link.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P199 stereo patch refused pinned source'}
+      - name: P209 accept owner-type SF2 linked stereo partners with independent lengths
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p209_sf2_allow_unequal_stereo_lengths.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P209 original 86Box SoundFont P199 source mismatch'}
       - name: P200 original Creative stereo joint DCYSUSV hardware trigger
         shell: pwsh
         run: |
@@ -495,6 +500,22 @@ jobs:
           if(!(Select-String _p207-negative.txt -Pattern 'P207_ORIGINAL_WIN95_PITCH_NO_GO P207 VXD negative pitch must saturate to FFFF' -Quiet)){throw 'P207 wrong test-failure cause, cannot approve'}
           $global:LASTEXITCODE=0
           Write-Host P207_ORIGINAL_CHIP_THREE_SF2_THREE_VOICES_BOTH_BEND_PATHS_MUTANT_KILLED_PASS
+          python research/native-awe32emu/p009-vst3/tests/P209OwnerUnequalStereoFixture.py $dir
+          if($LASTEXITCODE -ne 0){throw 'P209 independent stereo fixture generation failed'}
+          cmake --build _p009-build --config Release --parallel 4 --target P209UnequalStereoNative P209UnequalStereoNegative
+          if($LASTEXITCODE -ne 0){throw 'P209 actual original C 86Box chip stereo regression compilation failed'}
+          & _p009-build/Release/P209UnequalStereoNative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') *> _p209-positive.txt
+          $p209Positive=$LASTEXITCODE
+          Get-Content _p209-positive.txt
+          if($p209Positive -ne 0){throw 'P209 original chip 1/18 sample unequal length stereo pairing or PCM failed'}
+          if(!(Select-String _p209-positive.txt -Pattern 'P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_AND_18_WITH_MONO_THREE_CASES_PASS' -Quiet)){throw 'P209 original chip all three fixtures positive witness missing'}
+          & _p009-build/Release/P209UnequalStereoNegative.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p204-three-mono.sf2') (Join-Path $dir 'p209-mono-first-unequal1.sf2') (Join-Path $dir 'p209-right-first-unequal18.sf2') *> _p209-negative.txt
+          $p209Negative=$LASTEXITCODE
+          Get-Content _p209-negative.txt
+          if($p209Negative -eq 0){throw 'P209 previously rejecting unequal length owner bank mutant escaped'}
+          if(!(Select-String _p209-negative.txt -Pattern 'P209 valid unequal-length stereo SoundFont rejected: Mismatched SF2 stereo sample pair' -Quiet)){throw 'P209 bad mutant failed for unrelated reason'}
+          $global:LASTEXITCODE=0
+          Write-Host P209_REAL_86BOX_CHIP_4_OWNER_PATTERN_STEREO_BANKS_UNBLOCKED_NEGATIVE_KILLED_PASS
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'expressive.sf2') --expressive
           if($LASTEXITCODE -ne 0){throw 'synthetic genuinely expressive original-chip SF2 fixture failed'}
           python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'drums.sf2') --expressive --drums
@@ -895,6 +916,8 @@ jobs:
             _p206-negative.txt
             _p207-positive.txt
             _p207-negative.txt
+            _p209-positive.txt
+            _p209-negative.txt
             _p200-stereo-trace.log
             _p009-build/Release/P200StereoTriggerTrace.exe
             _p019-latency-report.json

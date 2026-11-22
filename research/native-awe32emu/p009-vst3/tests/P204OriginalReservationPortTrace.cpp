@@ -28,7 +28,13 @@ Trace capture(const char*rom,const char*sf2,const char*tag){
     synth.Core().SetChipRamKb(28672);
     must(synth.Core().UseBox86Chip(rom,error),"P204 genuine 86Box chip failed");
     synth.Core().SetDriver(Awe32::Driver::Win95);
+#ifdef P209_VERIFY_UNEQUAL_STEREO
+    if (!synth.LoadBank(sf2,error,false,1))
+        throw std::runtime_error(
+            std::string("P209 valid unequal-length stereo SoundFont rejected: ") + error);
+#else
     must(synth.LoadBank(sf2,error,false,1),"P204 valid public SF2 import failed");
+#endif
     auto*ram=synth.Core().ChipRam();
     must(ram!=nullptr,"P204 original chip RAM unavailable");
     const auto words=std::min(synth.Core().DramSize(),synth.Core().ChipRamWords());
@@ -151,6 +157,9 @@ int main(int argc,char**argv){
         validate(capture(argv[1],argv[3],"monofirst"),"MONO_ZONE_FIRST_PAIR_FIRST",true);
         validate(capture(argv[1],argv[4],"rightfirst"),"RIGHT_ZONE_FIRST_PAIR_FIRST",true);
         std::puts("P204_REAL_ORIGINAL_CHIP_3_LAYER_RESERVE_ALL_AND_STEREO_FIRST_PASS");
+#ifdef P209_VERIFY_UNEQUAL_STEREO
+        std::puts("P209_REAL_86BOX_CHIP_SF2_UNEQUAL_STEREO_1_AND_18_WITH_MONO_THREE_CASES_PASS");
+#endif
 #ifdef P205_VERIFY_ALLOC_RESET
         std::puts("P205_ORIGINAL_CHIP_ALLOCATOR_VTFT_RESET_3_LAYER_PASS");
 #endif
