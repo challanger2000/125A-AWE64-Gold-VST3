@@ -426,3 +426,12 @@ target_compile_definitions(P210Realtime37LayerProbe PRIVATE
    P210_37_LAYER_RT_STRESS)
 target_link_libraries(P210Realtime37LayerProbe PRIVATE winmm)
 target_compile_features(P210Realtime37LayerProbe PRIVATE cxx_std_17)
+
+# P213: in-memory PUBLIC synthetic SF2 instrument/preset converted-envelope
+# merger proof; same patched source as production VST3. No private SF2/ROM.
+add_executable(P213ConvertedScopeEnvelope
+    tests/P213ConvertedScopeEnvelope.cpp
+    "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/I18n.cpp")
+target_include_directories(P213ConvertedScopeEnvelope PRIVATE "${NATIVE}")
+target_compile_features(P213ConvertedScopeEnvelope PRIVATE cxx_std_17)
