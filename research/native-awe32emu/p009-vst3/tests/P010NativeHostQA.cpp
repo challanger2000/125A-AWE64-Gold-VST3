@@ -4861,8 +4861,17 @@ void verifyP211LiveVst3ThirtySevenLayersAndRecall(
   check(p174Saved(reopened)==v5,
         "P211 V5 37-layer SoundFont SHA/path lost during project reopen");
   const auto recalled=p015Play(reopened,0,84);
-  check(recalled==hashes[3],
-        "P211 reopened DAW V5 original-chip 37-layer PCM differs from direct");
+
+  // Also isolate V5 semantics from bank switching. A newly activated
+  // bank37 that receives a V5 reference to the SAME bank should be
+  // exactly equivalent to the original V4 bank37 note-on.
+  ownerBank(resources,"p210-37-layers.sf2");
+  Plugin sameBank(factory,id,host);
+  sameBank.start(0,1,44100.);
+  check(p174ApplyV5(sameBank,v5)==kResultOk &&
+        p174Saved(sameBank)==v5,
+        "P211 same-bank V5 restore rejected valid SF2 identity");
+  const auto sameBankPcm=p015Play(sameBank,0,84);
 
   // Fresh second DAW instance, to rule out accidental reliance on stale
   // RAM/sample pointers or the previous user's bank in the original Synth.
@@ -4870,8 +4879,20 @@ void verifyP211LiveVst3ThirtySevenLayersAndRecall(
   fresh.start(0,1,44100.);
   check(p174ApplyV5(fresh,v5)==kResultOk,
         "P211 fresh DAW instance rejected external 37-layer SF2 identity");
-  check(p174Saved(fresh)==v5 && p015Play(fresh,0,84)==hashes[3],
-        "P211 second instance failed 37-layer project recall/PCM parity");
+  check(p174Saved(fresh)==v5,
+        "P211 second V5 instance lost 37-layer bank SHA/path");
+  const auto freshPcm=p015Play(fresh,0,84);
+  std::printf("P211_V5_DIAGNOSTIC direct31=%016llX direct37=%016llX "
+              "reopen31to37=%016llX same37to37=%016llX fresh37to37=%016llX\\n",
+      static_cast<unsigned long long>(hashes[0]),
+      static_cast<unsigned long long>(hashes[3]),
+      static_cast<unsigned long long>(recalled),
+      static_cast<unsigned long long>(sameBankPcm),
+      static_cast<unsigned long long>(freshPcm));
+  check(recalled==hashes[3],
+        "P211 reopened DAW V5 original-chip 37-layer PCM differs from direct");
+  check(sameBankPcm==hashes[3]&&freshPcm==hashes[3],
+        "P211 V5 same-bank/fresh original-chip 37-layer PCM differs from direct");
 
   ownerBank(resources,nullptr);
   std::puts("P211_ACTUAL_WINDOWS_VST3_31_32_33_37_LAYER_SF2_PCM_AND_V5_REOPEN_PASS");
