@@ -435,3 +435,12 @@ add_executable(P213ConvertedScopeEnvelope
     "${NATIVE}/I18n.cpp")
 target_include_directories(P213ConvertedScopeEnvelope PRIVATE "${NATIVE}")
 target_compile_features(P213ConvertedScopeEnvelope PRIVATE cxx_std_17)
+
+# P214: authentic Creative Win95 SF2 preset decay, LFO template and DRAM
+# loop-address calculations. Public synthetic note only; owner media absent.
+add_executable(P214OriginalSf2ScopeDefaults
+    tests/P214OriginalSf2ScopeDefaults.cpp
+    "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/I18n.cpp")
+target_include_directories(P214OriginalSf2ScopeDefaults PRIVATE "${NATIVE}")
+target_compile_features(P214OriginalSf2ScopeDefaults PRIVATE cxx_std_17)
