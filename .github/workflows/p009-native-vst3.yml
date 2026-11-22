@@ -631,6 +631,13 @@ jobs:
           if($negative -eq 0){throw 'P210 unsafe pre-P203 voice0 alias mutant was NOT rejected'}
           if(!(Select-String -Path _p210-negative.log -SimpleMatch -Pattern 'P210_EXCESS_DUPLICATE_VOICE_RESERVATION' -Quiet)){throw 'P210 negative failed for unrelated reason'}
           $global:LASTEXITCODE=0
+          cmake --build _p009-build --config Release --parallel 4 --target P210Realtime37LayerProbe
+          if($LASTEXITCODE -ne 0){throw 'P210 37-layer 2-instance RT heap probe build failed'}
+          & _p009-build/Release/P210Realtime37LayerProbe.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'SYNTHGM.SBK') (Join-Path $dir 'p210-37-layers.sf2') *> _p210-rt.log
+          $rt=$LASTEXITCODE
+          Get-Content _p210-rt.log
+          if($rt -ne 0){throw 'P210 37-layer live 44.1/48k RT callback heap/PCM regression'}
+          if(!(Select-String -Path _p210-rt.log -SimpleMatch -Pattern 'P210_RT_37_SF2_LAYERS_TWO_RATES_TWO_INSTANCES_ZERO_HEAP_PASS' -Quiet)){throw 'P210 37-layer real-time zero heap evidence missing'}
           Write-Host P210_REAL_CHIP_37_ZONES_NO_VOICE_ALIAS_AND_CAUSAL_NEGATIVE_PASS
       - name: Original EMU8000 VST3 FX type UI is enabled, not a visual-only fake
         shell: pwsh
