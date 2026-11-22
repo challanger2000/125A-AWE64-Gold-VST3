@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122, fix/p203-creative-vxd-physical-voice-state-20261122]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -107,6 +107,11 @@ jobs:
         run: |
           python research/native-awe32emu/p009-vst3/p201_original_stereo_adjacent_pair.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P201 original VXD pair allocator patch refused pinned source'}
+      - name: P203 original Creative physical voice count and paired allocator
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p203_vxd_physical_class.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P203 original VXD state patch mismatched pinned upstream'}
       - name: Apply independent original-chip drum audition channel
         shell: pwsh
         run: |
@@ -226,6 +231,25 @@ jobs:
           }
           Remove-Item $rom,$sf2 -Force
           Write-Host P202_8_REAL_CHIP_CASES_2_REPEATS_EXACT_PCM_44100_CPU_P95_REDUCED_NEGATIVE_KILLED_PASS
+      - name: P203 original physical 32-voice VXD state positive and bad-protection mutant
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P203VoiceStateNative P203VoiceStateNegative
+          if($LASTEXITCODE -ne 0){throw 'P203 actual native chip test compiler failed'}
+          $fake='_p203-public-rom.raw'
+          [IO.File]::WriteAllBytes((Join-Path $PWD $fake),(New-Object byte[] 1048576))
+          & _p009-build/Release/P203VoiceStateNative.exe $fake > _p203-native.txt
+          if($LASTEXITCODE -ne 0){Get-Content _p203-native.txt;throw 'P203 original mode1 positive failed'}
+          Get-Content _p203-native.txt
+          if(!(Select-String -Path _p203-native.txt -Pattern 'P203_REAL_ORIGINAL_86BOX_VXD_SIX_CASES_PASS' -Quiet)){throw 'P203 missing live original-chip positive'}
+          & _p009-build/Release/P203VoiceStateNegative.exe $fake > _p203-negative.txt 2>&1
+          $badCode=$LASTEXITCODE
+          Get-Content _p203-negative.txt
+          if($badCode -eq 0){throw 'P203 old wrong-mode mutant passed an inadequate test'}
+          if(!(Select-String -Path _p203-negative.txt -Pattern 'P203_VXD_MODE1_FAIL' -Quiet)){throw 'P203 mutant failed unrelated fixture'}
+          Remove-Item $fake -Force
+          Write-Host P203_REAL_86BOX_ORIGINAL_CLASS_MODE1_PAIR_6_POSITIVE_NEGATIVE_PASS
       - name: P016 original EMU8000 chip non-silent PUBLIC SF2 PCM recall parity with negative controls
         shell: pwsh
         run: |
@@ -759,6 +783,8 @@ jobs:
             _p202-legacy-*.json
             _p202-optimized-*.json
             _p202-mutant.json
+            _p203-native.txt
+            _p203-negative.txt
             _p200-stereo-trace.log
             _p009-build/Release/P200StereoTriggerTrace.exe
             _p019-latency-report.json
