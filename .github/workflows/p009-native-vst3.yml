@@ -1,7 +1,7 @@
 name: P009 native AWE32Emu VST3 Windows (no Win95 VM)
 on:
   push:
-    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122, fix/p203-creative-vxd-physical-voice-state-20261122, fix/p204-original-creative-reserve-all-before-voice-program-20261122, fix/p205-original-creative-allocator-vtft-reset-20261122, fix/p206-creative-original-cc120-cc123-sustain-20261122, fix/p207-creative-original-vxd-negative-pitch-saturation-20261122, fix/p208-neutral-125a-factory-metadata-20261122, fix/p209-owner-unequal-stereo-sf2-compat-20261122, test/p210-sf2-37-layer-32-voice-limit-20261122, test/p211-live-vst3-37-layer-recall-20261122, test/p212-original-creative-local-trace-parity-20261123, fix/p213-creative-sf2-converted-envelope-scopes-20261123]
+    branches: [research/awe32emu-native-isolated-20261120, feature/native-p165-complete-integration-20261120, fix/p173-sf2-live-switch-and-browser-origin-20261121, fix/p174-sample-ram-boundaries-stress-20261121, fix/p175-32voice-sustain-original-chip-20261121, fix/p176-rapid-sf2-swap-forward-progress-20261121, test/p177-adversarial-v5-state-parser-20261121, fix/p178-atomic-live-v5-owner-recall-20261121, test/p179-paced-original-chip-save-20261121, test/p180-sparse77-sf2-browser-audio-20261121, test/p181-owner-media-multirate-windows-vst3-20261121, integration/private-vst3-atomic-installer-20261121, fix/p185-codex-pr46-five-failures-20261121, fix/p186-codex-p185-no-go-20261121, fix/p187-p186-no-go-transaction-20261121, fix/p188-installer-crash-recovery-20261121, fix/p189-audit-corrections, fix/p192-sf2-sustain-default-20261122, audit/p193-sf2-originality-and-source-qa-20261122, fix/p194-creative-sf2-attack-default-20261122, fix/p195-creative-sf2-preset-generator-sums-20261122, fix/p196-creative-sf2-sample-end-offsets-20261122, fix/p197-original-creative-sf2-scale-tuning-20261122, fix/p198-original-creative-sf2-filter-register-conversion-20261122, fix/p199-original-sf2-stereo-linked-pair-20261122, fix/p200-original-creative-stereo-joint-trigger-20261122, fix/p201-original-stereo-adjacent-pair-allocation-20261122, fix/p202-emu8000-44100-double-render-cpu-20261122, fix/p203-creative-vxd-physical-voice-state-20261122, fix/p204-original-creative-reserve-all-before-voice-program-20261122, fix/p205-original-creative-allocator-vtft-reset-20261122, fix/p206-creative-original-cc120-cc123-sustain-20261122, fix/p207-creative-original-vxd-negative-pitch-saturation-20261122, fix/p208-neutral-125a-factory-metadata-20261122, fix/p209-owner-unequal-stereo-sf2-compat-20261122, test/p210-sf2-37-layer-32-voice-limit-20261122, test/p211-live-vst3-37-layer-recall-20261122, test/p212-original-creative-local-trace-parity-20261123, fix/p213-creative-sf2-converted-envelope-scopes-20261123, fix/p214-original-creative-sf2-decay-lfo-addresses-20261123]
     paths:
       - ".github/workflows/p009-native-vst3.yml"
       - "research/native-awe32emu/p009-vst3/**"
@@ -157,6 +157,11 @@ jobs:
         run: |
           python research/native-awe32emu/p009-vst3/p213_creative_sf2_converted_envelope_scopes.py _p009-upstream
           if($LASTEXITCODE -ne 0){throw 'P213 original Creative SF2 scope converter source pin mismatch'}
+      - name: P214 original Creative Win95 SF2 preset decay / LFO / sample address (fail closed)
+        shell: pwsh
+        run: |
+          python research/native-awe32emu/p009-vst3/p214_original_creative_sf2_decay_lfo_addresses.py _p009-upstream
+          if($LASTEXITCODE -ne 0){throw 'P214 source patch anchor or authentic Creative arithmetic mismatch'}
       - name: Exact Steinberg VST3 SDK source
         shell: pwsh
         run: |
@@ -422,6 +427,17 @@ jobs:
           Get-Content _p213-actual.txt
           if($rc -ne 0){throw 'P213 converted instrument/preset scopes do not match Creative VXD'}
           if(!(Select-String _p213-actual.txt -Pattern 'P213_PUBLIC_SF2_ACTUAL_CONVERTED_SCOPES_PASS' -Quiet)){throw 'P213 causal success assertion missing'}
+      - name: P214 public SF2 two-scope decay / default LFO / hardware sample address, DOS and SF1 unchanged
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          cmake --build _p009-build --config Release --parallel 4 --target P214OriginalSf2ScopeDefaults
+          if($LASTEXITCODE -ne 0){throw 'P214 synthetic source compiler failed'}
+          & _p009-build/Release/P214OriginalSf2ScopeDefaults.exe *> _p214-actual.txt
+          $rc=$LASTEXITCODE
+          Get-Content _p214-actual.txt
+          if($rc -ne 0){throw 'P214 actual source decoder mismatch'}
+          if(!(Select-String _p214-actual.txt -Pattern 'P214_PUBLIC_ORIGINAL_WIN95_SF2_DECAY_LFO_AND_ADDRESSES_PASS' -Quiet)){throw 'P214 synthetic causal positive missing'}
       - name: Actual native Win64 VST3 synthetic original 86Box chip V5 external SF2 SHA and PCM end-to-end
         shell: pwsh
         run: |
