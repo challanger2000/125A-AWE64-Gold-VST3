@@ -40,6 +40,22 @@ def check_originals(rom: Path, sbk: Path, sf2: Path) -> None:
     if header[:4] != b"RIFF" or header[8:] != b"sfbk":
         raise ValueError("owner SF2 lacks RIFF sfbk signature")
 
+def require_windows_x64_pe(path: Path) -> None:
+    """Reject a text stub or an x86 executable posing as the host/module."""
+    with path.open("rb") as stream:
+        dos = stream.read(64)
+        if len(dos) != 64 or dos[:2] != b"MZ":
+            raise ValueError("not a native Windows PE image: " + path.name)
+        pe_offset = int.from_bytes(dos[0x3C:0x40], "little")
+        if not (64 <= pe_offset <= 16 * 1024 * 1024):
+            raise ValueError("invalid PE header location: " + path.name)
+        stream.seek(pe_offset)
+        header = stream.read(26)
+    if (len(header) != 26 or header[:4] != b"PE\\0\\0" or
+        int.from_bytes(header[4:6], "little") != 0x8664 or
+        int.from_bytes(header[24:26], "little") != 0x20B):
+        raise ValueError("expected native Windows x64 PE32+ image: " + path.name)
+
 def run(args) -> None:
     rom = args.rom.resolve(strict=True)
     sbk = args.sbk.resolve(strict=True)
@@ -50,8 +66,11 @@ def run(args) -> None:
     check_originals(rom, sbk, sf2)
     if not generator.is_file() or not host.is_file():
         raise ValueError("pinned synthetic SF2 generator or real P010 host executable missing")
-    if not (bundle / "Contents" / "x86_64-win").is_dir():
-        raise ValueError("compiled Win64 VST3 bundle not found")
+    require_windows_x64_pe(host)
+    module = bundle / "Contents" / "x86_64-win" / bundle.name
+    if not module.is_file():
+        raise ValueError("expected identically named Win64 VST3 module missing")
+    require_windows_x64_pe(module)
     if bundle.is_symlink() or any(path.is_symlink() for path in bundle.rglob("*")):
         raise ValueError("linked source bundle not accepted")
     scratch = args.scratch.resolve(strict=True)
