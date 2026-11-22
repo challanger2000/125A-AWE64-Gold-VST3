@@ -54,10 +54,7 @@ def main():
                 return bank;
             }
         }""","stereo validation")
-    c=one(c,"""            out.push_back(std::move(r));
-        }
-    }
-    return out;""",
+    c=one(c,"""            out.push_back(std::move(r));""",
 """            // P199 linked SF2 stereo: even ONE mapped half must activate
             // both sample sources on two original EMU8000 hardware voices.
             // Never duplicate the mate if an active zone explicitly maps it.
@@ -83,10 +80,7 @@ def main():
                 mate.gen.Set(Gen::SampleID,
                              static_cast<int16_t>(selected.sampleLink));
                 out.push_back(std::move(mate));
-            }
-        }
-    }
-    return out;""","select zone")
+            }""","select zone")
     c=one(c,"""    if (sf1)
         vp.patchPan = g.Get(Gen::Pan, 64);
     else
