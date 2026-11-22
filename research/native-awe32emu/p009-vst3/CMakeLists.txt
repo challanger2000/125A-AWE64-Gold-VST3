@@ -410,3 +410,19 @@ foreach(P210_KIND IN ITEMS Native Negative)
 endforeach()
 target_compile_definitions(P210VoiceBudgetNegative PRIVATE
   P210_NEGATIVE_REUSE_RESERVED_VOICE0)
+
+
+# P210: repeat the existing real 86Box heap counter under 37 simultaneous
+# SF2 zones, both 44.1/48k and two concurrent synths. Test-only target.
+add_executable(P210Realtime37LayerProbe
+   tests/P009RealtimeAllocationProbe.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P210Realtime37LayerProbe PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P210Realtime37LayerProbe PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64
+   P210_37_LAYER_RT_STRESS)
+target_link_libraries(P210Realtime37LayerProbe PRIVATE winmm)
+target_compile_features(P210Realtime37LayerProbe PRIVATE cxx_std_17)
