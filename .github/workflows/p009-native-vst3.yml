@@ -613,7 +613,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $dir='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/Contents/Resources/P009-Private'
+          # Build and validate with isolated PUBLIC-SYNTHETIC assets only.
+          # The earlier P010 host step removes its temporary ROM resources.
+          $dir='_p009-build/P210-PublicOnly'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $dir 'awe32.raw'),(New-Object byte[] 1048576))
+          python research/native-awe32emu/p009-vst3/tests/make_public_layered_sf2.py (Join-Path $dir 'p210-synthetic-base.SBK') --wet
+          if($LASTEXITCODE -ne 0){throw 'P210 independent synthetic GM/SBK fixture generation failed'}
           python research/native-awe32emu/p009-vst3/tests/P210ThirtySevenVoiceFixture.py $dir
           if($LASTEXITCODE -ne 0){throw 'P210 owner-free 31/32/33/37 SF2 worklists failed'}
           cmake --build _p009-build --config Release --parallel 4 --target P210VoiceBudgetNative P210VoiceBudgetNegative
@@ -633,7 +639,7 @@ jobs:
           $global:LASTEXITCODE=0
           cmake --build _p009-build --config Release --parallel 4 --target P210Realtime37LayerProbe
           if($LASTEXITCODE -ne 0){throw 'P210 37-layer 2-instance RT heap probe build failed'}
-          & _p009-build/Release/P210Realtime37LayerProbe.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'SYNTHGM.SBK') (Join-Path $dir 'p210-37-layers.sf2') *> _p210-rt.log
+          & _p009-build/Release/P210Realtime37LayerProbe.exe (Join-Path $dir 'awe32.raw') (Join-Path $dir 'p210-synthetic-base.SBK') (Join-Path $dir 'p210-37-layers.sf2') *> _p210-rt.log
           $rt=$LASTEXITCODE
           Get-Content _p210-rt.log
           if($rt -ne 0){throw 'P210 37-layer live 44.1/48k RT callback heap/PCM regression'}
