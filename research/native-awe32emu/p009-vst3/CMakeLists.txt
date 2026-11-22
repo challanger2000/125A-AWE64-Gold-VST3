@@ -444,3 +444,12 @@ add_executable(P214OriginalSf2ScopeDefaults
     "${NATIVE}/I18n.cpp")
 target_include_directories(P214OriginalSf2ScopeDefaults PRIVATE "${NATIVE}")
 target_compile_features(P214OriginalSf2ScopeDefaults PRIVATE cxx_std_17)
+
+# P215 original PCOD x86 hold exhaustive numeric and volume-sustain template.
+# Independent, PUBLIC synthetic-only in-memory generator oracle.
+add_executable(P215OriginalPcodAndSustain
+    tests/P215OriginalPcodAndSustain.cpp
+    "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/I18n.cpp")
+target_include_directories(P215OriginalPcodAndSustain PRIVATE "${NATIVE}")
+target_compile_features(P215OriginalPcodAndSustain PRIVATE cxx_std_17)
