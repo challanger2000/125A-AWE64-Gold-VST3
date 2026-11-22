@@ -212,6 +212,24 @@ endforeach()
 target_compile_definitions(P205AllocatorResetNegative PRIVATE
   P205_NEGATIVE_SKIP_ALLOC_RESET)
 
+
+# P206 Win95 original Creative CC120 / CC123 (sustain) true chip ports.
+foreach(P206_KIND IN ITEMS Native Negative)
+  add_executable(P206OriginalChannelCc${P206_KIND}
+    tests/P206OriginalCreativeChannelCc.cpp
+    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+  target_include_directories(P206OriginalChannelCc${P206_KIND} PRIVATE
+    "${NATIVE}" "${NATIVE}/86box/include")
+  target_compile_definitions(P206OriginalChannelCc${P206_KIND} PRIVATE
+    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
+  target_link_libraries(P206OriginalChannelCc${P206_KIND} PRIVATE winmm)
+  target_compile_features(P206OriginalChannelCc${P206_KIND} PRIVATE cxx_std_17)
+endforeach()
+target_compile_definitions(P206OriginalChannelCcNegative PRIVATE
+  P206_NEGATIVE_LEGACY_CC)
+
 # P202 Legacy: same production Synth/EMU8000 native source as the VST3.
 # The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
 # Legacy macro restores only the pre-fix unused second DSP.
