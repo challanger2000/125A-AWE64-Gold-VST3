@@ -117,6 +117,22 @@ target_compile_definitions(P009NativeInstanceProbe PRIVATE
 target_link_libraries(P009NativeInstanceProbe PRIVATE winmm)
 target_compile_features(P009NativeInstanceProbe PRIVATE cxx_std_17)
 
+# P200: same production Synth/EMU8000 native source as the VST3.
+# The test reads actual EMU8000 port writes and checks the independent
+# owner-original Creative Win95 joint stereo vs sequential mono order.
+add_executable(P200StereoTriggerTrace
+   tests/P200StereoTriggerTrace.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P200StereoTriggerTrace PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P200StereoTriggerTrace PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+   P019_EMU_BLOCK_FRAMES=64)
+target_link_libraries(P200StereoTriggerTrace PRIVATE winmm)
+target_compile_features(P200StereoTriggerTrace PRIVATE cxx_std_17)
+
 # P009RT: linked against the EXACT same chip/driver sources as the VST3.
 # Private original assets are supplied only for local offline QA.
 add_executable(P009RealtimeAllocationProbe
