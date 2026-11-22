@@ -84,15 +84,15 @@ Trace capture(const char*rom,const char*sf2,const char*tag){
 }
 void validate(const Trace&t,const char*name,bool stereo){
     // Source has exactly one 0x00FF allocator stop PER voice, and
-    // StartVoice begins each main with a SECOND 0x00FF silencing write.
-    // Do not mistake 6 real port writes for 6 allocated hardware voices.
-    must(t.reserves.size()==6 && t.mainStarts.size()==3 &&
+    // the original driver does NOT write a second 0x00FF in the main.
+    // Actual Win95 guest: four SF2 layers make four DCYSUSV stops, not eight.
+    must(t.reserves.size()==3 && t.mainStarts.size()==3 &&
          t.mains.size()==3 && t.triggers.size()==3,
-        "P204 expected 3 original allocator stops plus 3 main stops, IFATN and triggers");
+        "P212 original guest: 3 allocator stops, NO duplicate main stops, IFATN and triggers");
     std::set<int>reserved,played,triggered;
     // The first three 00FF writes must reserve three DISTINCT physical
-    // voices before any actual main IFATN write. The later three are
-    // the original VXD's own per-voice main-silencing operations.
+    // voices before any actual main IFATN write. No later main stops: the three are
+    // the original VXD's only per-voice stop writes.
     for(int i=0;i<3;++i)reserved.insert(t.reserves[i].voice);
     for(const auto&v:t.mains)played.insert(v.voice);
     for(const auto&v:t.triggers)triggered.insert(v.voice);
@@ -106,13 +106,13 @@ void validate(const Trace&t,const char*name,bool stereo){
     must(reserved.size()==3 && played==reserved && triggered==reserved,
         "P204 duplicate/absent reserved voice or hardware start");
 #ifdef P205_VERIFY_ALLOC_RESET
-    // Fourth allocator-stop-looking write is really StartVoice main
-    // stop. The first three are distinct allocations. Original VXD
-    // performs one DATA0 VTFT reset per voice before that fourth stop.
+    // No second allocator stop exists during StartVoice main;
+    // the first three are distinct allocations. Original VXD
+    // performs one DATA0 VTFT reset per voice before the first main register.
     std::set<int> resetVoices;
     int resetCount=0;
     for(const auto& v:t.vtftResets)
-        if(v.at<t.reserves[3].at){
+        if(v.at<t.mainStarts.front().at){
             ++resetCount;
             resetVoices.insert(v.voice);
             bool preceded=false;
