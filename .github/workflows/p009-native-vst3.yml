@@ -248,6 +248,11 @@ jobs:
           Get-Content _p203-negative.txt
           if($badCode -eq 0){throw 'P203 old wrong-mode mutant passed an inadequate test'}
           if(!(Select-String -Path _p203-negative.txt -Pattern 'P203_VXD_MODE1_FAIL' -Quiet)){throw 'P203 mutant failed unrelated fixture'}
+          # The mutant deliberately exited nonzero: after checking its
+          # EXPECTED failure, clear PowerShell's inherited native exit status.
+          # Otherwise pwsh returns 1 after the final Write-Host despite
+          # every P203 oracle having passed (Actions #45052209746).
+          $global:LASTEXITCODE=0
           Remove-Item $fake -Force
           Write-Host P203_REAL_86BOX_ORIGINAL_CLASS_MODE1_PAIR_6_POSITIVE_NEGATIVE_PASS
       - name: P016 original EMU8000 chip non-silent PUBLIC SF2 PCM recall parity with negative controls
