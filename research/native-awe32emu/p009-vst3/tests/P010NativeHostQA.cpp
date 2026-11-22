@@ -3372,6 +3372,40 @@ void verifyP198CreativeNonlinearFilterRegisters(
   std::puts("P198_SF2_CREATIVE_NONLINEAR_FC_Q_3RATES_2KEYS_AND_DEFAULTS_PASS");
 }
 
+// P199 adversarial SF2 stereo test on the actual native 86Box-chip VST3.
+// Right-side PCM must causally affect output; merely reading its filename or
+// producing 2-channel output from one mono chip voice is insufficient.
+void verifyP199LinkedStereoNativePCM(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+  for(const char* f:{"p199-linked-left.sf2","p199-explicit-both.sf2",
+                     "p199-linked-silent-right.sf2","p199-mono-left.sf2"})
+    check(fs::is_regular_file(resources/f),"P199 stereo input fixture missing");
+  for(const int hz:{44100,48000,96000})
+    for(const int key:{60,72}) {
+      const auto play=[&](const char* file) {
+        ownerBank(resources,file);
+        const auto s=render(factory,id,host,"P199_STEREO_PAIR",hz,0,key,102,0,1);
+        audible(s,"P199 original-chip stereo PCM must be nonzero");
+        return s.hash;
+      };
+      const auto linked=play("p199-linked-left.sf2");
+      const auto explicitPair=play("p199-explicit-both.sf2");
+      const auto zeroRight=play("p199-linked-silent-right.sf2");
+      const auto mono=play("p199-mono-left.sf2");
+      check(linked==explicitPair,"P199 linked and explicit pair PCM differs");
+      check(linked!=zeroRight,"P199 right sample ignored despite reciprocal link");
+      check(linked!=mono,"P199 linked stereo collapsed to mono");
+      std::printf("P199_SF2_STEREO_PCM rate=%d key=%d pair=%016llX explicit=%016llX right_zero=%016llX mono=%016llX\n",
+        hz,key,static_cast<unsigned long long>(linked),
+        static_cast<unsigned long long>(explicitPair),
+        static_cast<unsigned long long>(zeroRight),
+        static_cast<unsigned long long>(mono));
+    }
+  ownerBank(resources,nullptr);
+  std::puts("P199_LINKED_SF2_STEREO_NATIVE_3RATES_2KEYS_CAUSAL_PCM_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4868,6 +4902,7 @@ int main(int argc,char** argv){
     verifyP196CreativeSf2EndOffsets(factory,cls->ID(),host.get(),resources);
     verifyP197OriginalCreativeSf2ScaleTuning(factory,cls->ID(),host.get(),resources);
     verifyP198CreativeNonlinearFilterRegisters(factory,cls->ID(),host.get(),resources);
+    verifyP199LinkedStereoNativePCM(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
