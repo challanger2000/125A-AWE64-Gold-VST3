@@ -29,10 +29,14 @@ Trace parse(const std::string& file) {
     Trace t;
     while(std::getline(f,line)) {
         if(line.empty() || line[0]=='#')continue;
+        // The authentic pinned core records all IN operations as
+        // "R <frame> <port> <value>"; never mistake these for writes.
+        // Reject any other unknown record rather than silently skipping it.
+        if(line.rfind("R ",0)==0)continue;
         unsigned long long frame=0;
         unsigned port=0,value=0;
         if(std::sscanf(line.c_str(),"%llu %x %x",&frame,&port,&value)!=3)
-            throw std::runtime_error("P200 invalid EMU8000 port trace tuple");
+            throw std::runtime_error("P200 invalid EMU8000 port trace tuple: "+line);
         ++index;
         if(port==0xE22){pointer=static_cast<std::uint16_t>(value);continue;}
         // CPF is the LAST main original Win95 voice register in StartVoice.
