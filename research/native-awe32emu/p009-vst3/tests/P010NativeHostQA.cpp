@@ -4821,6 +4821,62 @@ void verifyP189AuditionPanIsolation(
   std::puts("P189_HELD_NATIVE_AND_AUDITION_PAN_ISOLATION_PCM_PASS");
 }
 
+
+// P211: end-to-end REAL Windows VST3, not only native 86Box Synth harness.
+// Four public SF2s have IDENTICAL sample PCM and 24 shdr records; only
+// 31/32/33/37 selectable zones differ. SF2 33 and 37 must sound exactly
+// like 32 (physical EMU8000 hardware cap, no voice0 alias). 31 must differ.
+// Verify actual V5 external-SF2 identity and audio on DAW project reopen.
+// Licensed owner ROM/SBK/SF2 are never introduced into this public test.
+void verifyP211LiveVst3ThirtySevenLayersAndRecall(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  constexpr std::array<int,4> layers{{31,32,33,37}};
+  std::array<std::uint64_t,4> hashes{};
+  for(std::size_t i=0;i<layers.size();++i){
+    const std::string name="p210-"+std::to_string(layers[i])+"-layers.sf2";
+    check(fs::is_regular_file(resources/name),
+          "P211 public 31/32/33/37 sample-bank fixture missing");
+    ownerBank(resources,name.c_str());
+    Plugin instrument(factory,id,host);
+    instrument.start(0,1,44100.);
+    hashes[i]=p015Play(instrument,0,84);
+    std::printf("P211_LIVE_VST3_EMU8000_SF2_ZONE_PCM zones=%d hash=%016llX\n",
+      layers[i],static_cast<unsigned long long>(hashes[i]));
+  }
+  check(hashes[0]!=hashes[1],
+        "P211 synthetic 31-vs-32 extra chip voice not audible: vacuous oracle");
+  check(hashes[1]==hashes[2] && hashes[1]==hashes[3],
+        "P211 ACTUAL WINDOWS VST3: 33/37 zones changed 32-voice chip PCM");
+
+  // Explicit V5 identity must supersede whatever user.sf2 the DAW
+  // originally loaded. This tests external-file restore, not fallback
+  // to an identically named bundled SoundFont or a browser-only label.
+  ownerBank(resources,"p210-31-layers.sf2");
+  Plugin reopened(factory,id,host);
+  reopened.start(0,1,44100.);
+  const auto v5=p174V5State(resources/"p210-37-layers.sf2");
+  check(p174ApplyV5(reopened,v5)==kResultOk,
+        "P211 project V5 rejected valid 37-layer external original-chip SF2");
+  check(p174Saved(reopened)==v5,
+        "P211 V5 37-layer SoundFont SHA/path lost during project reopen");
+  const auto recalled=p015Play(reopened,0,84);
+  check(recalled==hashes[3],
+        "P211 reopened DAW V5 original-chip 37-layer PCM differs from direct");
+
+  // Fresh second DAW instance, to rule out accidental reliance on stale
+  // RAM/sample pointers or the previous user's bank in the original Synth.
+  Plugin fresh(factory,id,host);
+  fresh.start(0,1,44100.);
+  check(p174ApplyV5(fresh,v5)==kResultOk,
+        "P211 fresh DAW instance rejected external 37-layer SF2 identity");
+  check(p174Saved(fresh)==v5 && p015Play(fresh,0,84)==hashes[3],
+        "P211 second instance failed 37-layer project recall/PCM parity");
+
+  ownerBank(resources,nullptr);
+  std::puts("P211_ACTUAL_WINDOWS_VST3_31_32_33_37_LAYER_SF2_PCM_AND_V5_REOPEN_PASS");
+}
+
 int main(int argc,char** argv){
  try{
   std::setvbuf(stdout,nullptr,_IONBF,0);
@@ -4912,6 +4968,7 @@ int main(int argc,char** argv){
     verifyP178ConcurrentOwnerSF2StateTransaction(factory,cls->ID(),host.get(),resources);
     verifyP179PacedAudibleHostSaves(factory,cls->ID(),host.get(),resources);
     verifyP180Sparse77OriginalChipSelection(factory,cls->ID(),host.get(),resources);
+    verifyP211LiveVst3ThirtySevenLayersAndRecall(factory,cls->ID(),host.get(),resources);
     verifyP165PrivateExternalSf2V5OriginalPCM(factory,cls->ID(),host.get(),
                                               resources,0);
     std::puts("P165_PUBLIC_REAL_VST3_SYNTHETIC_86BOX_SF2_V5_SHA_POSITIVE_NEGATIVE_PCM_PASS");
