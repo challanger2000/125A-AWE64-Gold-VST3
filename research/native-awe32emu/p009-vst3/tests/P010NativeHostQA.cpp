@@ -3120,34 +3120,44 @@ void verifyP192ImplicitSf2SustainEqualsExplicit(
   std::puts("P192_SF2_OMITTED_SUSTAIN_EQUALS_EXPLICIT_0CB_REAL_CHIP_PCM_PASS");
 }
 
-// P193 source audit. Public synthetic SF2 files differ only in whether the
-// standard value for generator 34 (-12000 timecents) is explicit or absent.
-// Independent SF2 reference reports equal PCM. Diagnostics are not
-// original Creative hardware-parity evidence and do not change the product.
-void diagnoseP193Sf2DefaultAttack(
+// P194: SF2 gen34/26 omitted versus explicitly -12000 in equivalent
+// public SoundFonts. The original Creative SBAWE.VXD LCOD template stores
+// -12000 for both defaults. Original SF1/SBK default registers must not move.
+// These are output-PCM tests against the compiled Windows VST3, NOT direct
+// Win95 Creative driver or physical AWE64 hardware parity tests.
+void verifyP194OriginalSf2AttackDefaults(
     const VST3::Hosting::PluginFactory& factory,
-    const VST3::UID& id,FUnknown* host,const fs::path& resources){
-  check(fs::is_regular_file(resources/"p193-attack-omitted.sf2") &&
-        fs::is_regular_file(resources/"p193-attack-explicit.sf2"),
-        "P193 public attack-default SF2 fixtures missing");
-  ownerBank(resources,"p193-attack-omitted.sf2");
-  const auto omitted=render(factory,id,host,
-       "P193_SF2_ATTACK_OMITTED",44100,0,60,102,0,1);
-  audible(omitted,"P193 omitted standard attack on actual VST3 chip");
-  ownerBank(resources,"p193-attack-explicit.sf2");
-  const auto explicitDefault=render(factory,id,host,
-       "P193_SF2_ATTACK_EXPLICIT_MINUS12000",44100,0,60,102,0,1);
-  audible(explicitDefault,"P193 explicit standard attack on actual VST3 chip");
-  const bool equal=omitted.hash==explicitDefault.hash;
-  std::printf("P193_SF2_DEFAULT_ATTACK_DIFFERENTIAL omitted=%016llX "
-              "explicit=%016llX equal=%d\n",
-      static_cast<unsigned long long>(omitted.hash),
-      static_cast<unsigned long long>(explicitDefault.hash),equal?1:0);
-  if(equal)
-    std::puts("P193_SF2_ATTACK_DEFAULT_SAME_PCM_DIAGNOSTIC");
-  else
-    std::puts("P193_KNOWN_DEFECT_UPSTREAM_SF2_IMPLICIT_ATTACK_DIFFERS_FROM_EXPLICIT");
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+  struct Pair {const char* omit;const char* full;const char* label;};
+  constexpr std::array<Pair,2> pairs{{
+      {"p193-attack-omitted.sf2","p193-attack-explicit.sf2","VOL"},
+      {"p194-modattack-omitted.sf2","p194-modattack-explicit.sf2","MOD"}
+  }};
+  for(const int hz:{44100,48000,96000}) {
+    for(const auto& p:pairs) {
+      check(fs::is_regular_file(resources/p.omit) &&
+            fs::is_regular_file(resources/p.full),
+            "P194 public SF2 attack-default fixture missing");
+      ownerBank(resources,p.omit);
+      const auto implicit=render(factory,id,host,
+          "P194_IMPLICIT_ATTACK",hz,0,60,102,0,1);
+      audible(implicit,"P194 implicit SF2 default attack");
+      ownerBank(resources,p.full);
+      const auto explicitFull=render(factory,id,host,
+          "P194_EXPLICIT_ATTACK",hz,0,60,102,0,1);
+      audible(explicitFull,"P194 explicit SF2 standard attack");
+      std::printf("P194_SF2_ATTACK_COMPARE type=%s hz=%d "
+            "implicit=%016llX explicit=%016llX equal=%d\\n",
+          p.label,hz,
+          static_cast<unsigned long long>(implicit.hash),
+          static_cast<unsigned long long>(explicitFull.hash),
+          implicit.hash==explicitFull.hash?1:0);
+      check(implicit.hash==explicitFull.hash,
+            "P194 SF2 omitted vs explicit Creative attack default PCM differs");
+    }
+  }
   ownerBank(resources,nullptr);
+  std::puts("P194_SF2_VOL_AND_MOD_ATTACK_DEFAULT_VST3_PCM_3_RATES_PASS");
 }
 
 // P181 owner-private release gate. Invoked ONLY by --private against the
@@ -4641,7 +4651,7 @@ int main(int argc,char** argv){
     verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP192ImplicitSf2SustainEqualsExplicit(factory,cls->ID(),host.get(),resources);
-    diagnoseP193Sf2DefaultAttack(factory,cls->ID(),host.get(),resources);
+    verifyP194OriginalSf2AttackDefaults(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
