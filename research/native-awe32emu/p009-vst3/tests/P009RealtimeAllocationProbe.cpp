@@ -60,14 +60,26 @@ struct SynthUnit{
         const auto before=callbackAllocs.load(std::memory_order_relaxed);
         countThisThread=true;
         for(unsigned i=0;i<events;++i){
+#ifdef P210_37_LAYER_RT_STRESS
+            // Every event targets the actual 37-layer SF2 key, avoiding
+            // CH10's special drum bank while preserving channel concurrency.
+            const unsigned slot=i%15;
+            const unsigned ch=slot<9 ? slot : slot+1;
+            const unsigned pitch=84u;
+#else
             const unsigned ch=i%16;
             const unsigned pitch=ch==9?36u+(i%5):48u+(i%24);
+#endif
             // Exercise genuine owner user-bank1 SF2 presets, not only the
             // base ROM bank0. CH10 remains original GM bank128.
             if(hasUserBank_ && ch!=9)
                 synth.ControlChange(static_cast<std::uint8_t>(ch),0,1);
+#ifdef P210_37_LAYER_RT_STRESS
+            synth.ProgramChange(static_cast<std::uint8_t>(ch),0);
+#else
             if(i%3==0)synth.ProgramChange(
                 static_cast<std::uint8_t>(ch),static_cast<std::uint8_t>(i%77));
+#endif
             if(i%5==0)synth.ControlChange(
                 static_cast<std::uint8_t>(ch),1,static_cast<std::uint8_t>(i%127));
             if(i%7==0)synth.ControlChange(
@@ -110,25 +122,37 @@ int main(int argc,char**argv){
     try {
         const char* gm=argc>=3?argv[2]:nullptr;
         const char* bank=argc>=4?argv[3]:nullptr;
-        for(const auto rate:{8000u,44100u,48000u,96000u,192000u}){
+#ifdef P210_37_LAYER_RT_STRESS
+        const unsigned perUnitEvents=24;
+        const std::vector<unsigned> rates={44100u,48000u};
+        if(!bank)throw std::runtime_error("P210 37-layer SF2 required");
+#else
+        const unsigned perUnitEvents=128;
+        const std::vector<unsigned> rates={8000u,44100u,48000u,96000u,192000u};
+#endif
+        for(const auto rate:rates){
             SynthUnit a(rate,argv[1],gm,bank),b(rate,argv[1],gm,bank);
             const auto before=callbackAllocs.load();
-            const auto ha=a.run(128),hb=b.run(128);
+            const auto ha=a.run(perUnitEvents),hb=b.run(perUnitEvents);
             if(ha!=hb)throw std::runtime_error("sequential instance PCM mismatch");
             SynthUnit c(rate,argv[1],gm,bank),d(rate,argv[1],gm,bank);
             std::uint64_t pa=0,pb=0;
-            std::thread t1([&](){pa=c.run(128);});
-            std::thread t2([&](){pb=d.run(128);});
+            std::thread t1([&](){pa=c.run(perUnitEvents);});
+            std::thread t2([&](){pb=d.run(perUnitEvents);});
             t1.join();t2.join();
             if(pa!=ha||pb!=hb)
                 throw std::runtime_error("parallel instance PCM mismatch");
             const auto delta=callbackAllocs.load()-before;
             if(delta!=0)throw std::runtime_error("RT heap allocation");
             std::cout<<"P009_RT_NO_HEAP_ORIGINAL_EMU8000_PASS rate="<<rate
-                     <<" events=512 allocations="<<delta
+                     <<" events="<<(4*perUnitEvents)<<" allocations="<<delta
                      <<" hash="<<std::hex<<pa<<std::dec<<"\n";
         }
+#ifdef P210_37_LAYER_RT_STRESS
+        std::cout<<"P210_RT_37_SF2_LAYERS_TWO_RATES_TWO_INSTANCES_ZERO_HEAP_PASS\n";
+#else
         std::cout<<"P009_RT_FIVE_RATES_TWO_INSTANCES_NO_HEAP_PASS\n";
+#endif
         return 0;
     }catch(const std::exception&e){
         std::cerr<<"P009_RT_CALLBACK_FAIL "<<e.what()
