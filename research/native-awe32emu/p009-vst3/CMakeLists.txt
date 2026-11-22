@@ -118,8 +118,8 @@ target_link_libraries(P009NativeInstanceProbe PRIVATE winmm)
 target_compile_features(P009NativeInstanceProbe PRIVATE cxx_std_17)
 
 # P200: same production Synth/EMU8000 native source as the VST3.
-# The test reads actual EMU8000 port writes and checks the independent
-# owner-original Creative Win95 joint stereo vs sequential mono order.
+# The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
+# Legacy macro restores only the pre-fix unused second DSP.
 add_executable(P200StereoTriggerTrace
    tests/P200StereoTriggerTrace.cpp
    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
@@ -134,10 +134,10 @@ target_link_libraries(P200StereoTriggerTrace PRIVATE winmm)
 target_compile_features(P200StereoTriggerTrace PRIVATE cxx_std_17)
 
 # P202 Legacy: same production Synth/EMU8000 native source as the VST3.
-# The test reads actual EMU8000 port writes and checks the independent
-# owner-original Creative Win95 joint stereo vs sequential mono order.
+# The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
+# Legacy macro restores only the pre-fix unused second DSP.
 add_executable(P202CpuLegacy
-   tests/P202CpuLegacy.cpp
+   tests/P202RealChipCpuProbe.cpp
    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
@@ -151,10 +151,10 @@ target_compile_definitions(P202CpuLegacy PRIVATE P202_CPU_LEGACY_REFERENCE)
 target_compile_features(P202CpuLegacy PRIVATE cxx_std_17)
 
 # P202 Optimized: same production Synth/EMU8000 native source as the VST3.
-# The test reads actual EMU8000 port writes and checks the independent
-# owner-original Creative Win95 joint stereo vs sequential mono order.
+# The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
+# Legacy macro restores only the pre-fix unused second DSP.
 add_executable(P202CpuOptimized
-   tests/P202CpuOptimized.cpp
+   tests/P202RealChipCpuProbe.cpp
    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
