@@ -104,7 +104,7 @@ def run(args) -> None:
         # without this fixture-only phdr correction they would silently
         # compare owner SF2 against a ROM fallback, a false-positive test.
         image = bytearray(comparison.read_bytes())
-        name = b"PublicTwoLayers".ljust(20, b"\\0")
+        name = b"PublicTwoLayers".ljust(20, b"\0")
         if image.count(name) != 1:
             raise RuntimeError("public comparison phdr identity not unique")
         offset = image.index(name) + 20
@@ -112,7 +112,7 @@ def run(args) -> None:
             raise RuntimeError("unexpected original public comparison preset/bank")
         image[offset:offset+2] = (7).to_bytes(2, "little")
         comparison.write_bytes(image)
-        if comparison.read_bytes()[offset:offset+4] != b"\\x07\\x00\\x00\\x00":
+        if comparison.read_bytes()[offset:offset+4] != b"\x07\x00\x00\x00":
             raise RuntimeError("public comparison program 7 preparation failed")
         print("P191_PUBLIC_COMPARISON_REAL_SF2_PRESET_7_PREPARED", flush=True)
         print("P191_INPUTS=OWNER_ROM+OWNER_SBK+OWNER_77SF2+PUBLIC_SYNTHETIC_COMPARISON",
