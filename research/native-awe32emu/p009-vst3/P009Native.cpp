@@ -1064,6 +1064,19 @@ tresult PLUGIN_API NativeVst3::process(ProcessData& data){
         sendAtBlock[i]=VersionedHostEdit<int>::pending(sendToken[i])?
             VersionedHostEdit<int>::decode(sendToken[i]):-1;
     }
+    // P211: A silent project/DAW reopen receives an already-built clean
+    // 86Box EMU8000 candidate. Restore the new MIDI/FX state to the silent
+    // OLD synth *before* the swap so the incoming chip is programmed once,
+    // from its pristine PowerOnInit state. Resetting/replaying controllers
+    // on the newly initialized physical 32 voices changed their original
+    // register history and the 37-zone preset's first-note PCM.
+    // A genuinely audible outgoing chip must NOT have its controller
+    // state modified while it provides the 15-ms crossfade; those restores
+    // remain deferred to the existing post-swap path below.
+    if(!synthHadAudiblePcm_ && !fadingSynth_ &&
+       stagedSynth_.load(std::memory_order_acquire)!=nullptr &&
+       pendingRestore_.load(std::memory_order_acquire)!=nullptr)
+        applyPendingRestoreRealtime();
     applyStagedInstrumentRealtime();
     // Never apply a newer project's MIDI state to a previous SoundFont
     // while a prior 15-ms fade still blocks its staged chip candidate.
