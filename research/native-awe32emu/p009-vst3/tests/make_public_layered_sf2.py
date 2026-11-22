@@ -26,6 +26,9 @@ def shdr(name,start,end,loop0,loop1):
 alternate="--alternate" in sys.argv[2:]
 wet="--wet" in sys.argv[2:]
 sustain="--sustain" in sys.argv[2:]
+omit_sustain="--omit-sustain" in sys.argv[2:]
+if sustain and omit_sustain:
+    raise SystemExit("explicit and omitted sustain fixtures are exclusive")
 expressive="--expressive" in sys.argv[2:]
 bank_number=128 if "--drums" in sys.argv[2:] else 0
 # A specially authored, owner-independent two-zone soundfont containing
@@ -57,7 +60,7 @@ expression_zone=b"".join(gen(op,val) for op,val in expression_ops)
 # instructs the original chip to loop. Both are needed for an honest test.
 # For voice-recovery QA, provide at least one full second of real PCM,
 # so a buggy stuck-note path cannot pass through natural sample exhaustion.
-sample_length=44100 if (sustain or expressive) else 768
+sample_length=44100 if (sustain or omit_sustain or expressive) else 768
 samples=[]
 for kind in range(2):
     for i in range(sample_length):
@@ -91,9 +94,9 @@ pdta=(
     ck(b"pgen",gen(41,0)+gen(0,0))+
     ck(b"inst",inst("TwoLayerInstrument",0)+inst("EOI",2))+
     ck(b"ibag",bag(0)+bag(expression_count if expressive else
-                        ((3 if wet else 1)+(2 if sustain else 0)))+
+                        ((3 if wet else 1)+(2 if sustain else 0)+(1 if omit_sustain else 0)))+
         bag(2*(expression_count if expressive else
-                        ((3 if wet else 1)+(2 if sustain else 0)))))+
+                        ((3 if wet else 1)+(2 if sustain else 0)+(1 if omit_sustain else 0)))))+
     ck(b"imod",bytes(10))+
     ck(b"igen",(
         expression_zone+gen(53,0)+expression_zone+gen(53,1)+gen(0,0)
@@ -102,8 +105,10 @@ pdta=(
         (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,0)+
         gen(15,1000)+gen(16,1000)+
         (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)
-      ) if wet else ((gen(37,0)+gen(54,1) if sustain else b"")+gen(53,0)+
-                      (gen(37,0)+gen(54,1) if sustain else b"")+gen(53,1)+gen(0,0)))+
+      ) if wet else ((gen(37,0)+gen(54,1) if sustain else
+                       gen(54,1) if omit_sustain else b"")+gen(53,0)+
+                      (gen(37,0)+gen(54,1) if sustain else
+                       gen(54,1) if omit_sustain else b"")+gen(53,1)+gen(0,0)))+
     ck(b"shdr",shdr("SineWave",0,sample_length,64,sample_length-128)+
                 shdr("HarmonicWave",sample_length,2*sample_length,
                      sample_length+64,2*sample_length-128)+
