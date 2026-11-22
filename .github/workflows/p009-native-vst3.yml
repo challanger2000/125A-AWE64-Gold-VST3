@@ -602,7 +602,7 @@ jobs:
           $strict='_p009-build/VST3/Release/AWE64_Gold_Native_P009.vst3/Contents/Resources/moduleinfo.json'
           if(!(Test-Path -LiteralPath $strict)){throw 'Native moduleinfo.json missing'}
           $m=Get-Content -LiteralPath $strict -Raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-          if($m.Name -ne 'AWE64_Gold_Native_P009' -or $m.Version -ne '0.9.0' -or
+          if($m.Name -ne '125A-AWE64-Gold' -or $m.Version -ne '0.9.0' -or
              $m.Classes.Count -ne 1 -or $m.Classes[0].Name -ne '125A AWE64 Gold' -or
              $m.Classes[0].CID -ne '125A8600F0094AEEB64A000000000901' -or
              $m.Classes[0].Version -ne '0.9.0') {
