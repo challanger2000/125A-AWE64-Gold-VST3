@@ -10,8 +10,10 @@ def main():
     if len(sys.argv)!=2:raise SystemExit('p210_patch.py <pinned upstream>')
     path=Path(sys.argv[1]).resolve()/'AWE32Emu'/'src'/'Synth.cpp'
     src=path.read_text(encoding='utf-8')
-    old='    if (chosen < 0) return -1;'
-    new='''    // P210_32_VOICE_BUDGET. Never select a voice reserved by this NoteOn.
+    # Only the mono VXD allocator: the stereo allocator has a separate
+    # identical fail-closed line and must remain untouched.
+    old='    if (chosen < 0) chosen = cand;\n    if (chosen < 0) return -1;'
+    new='''    if (chosen < 0) chosen = cand;\n    // P210_32_VOICE_BUDGET. Never select a voice reserved by this NoteOn.
     // Negative-only standalone QA must resurrect old voice0 aliasing.
 #ifdef P210_NEGATIVE_REUSE_RESERVED_VOICE0
     if (chosen < 0) chosen = 0;
