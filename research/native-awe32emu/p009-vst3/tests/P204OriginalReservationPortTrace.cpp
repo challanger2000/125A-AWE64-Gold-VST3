@@ -17,7 +17,7 @@
 namespace {
 struct Entry {int voice;std::size_t at;};
 struct Trace {
-    std::vector<Entry> reserves,mainStarts,mains,triggers;
+    std::vector<Entry> reserves,mainStarts,mains,triggers,vtftResets;
     int nonzero=0;
 };
 void must(bool yes,const char*why){if(!yes)throw std::runtime_error(why);}
@@ -54,6 +54,9 @@ Trace capture(const char*rom,const char*sf2,const char*tag){
             throw std::runtime_error("P204 invalid real-chip port tuple: "+line);
         ++at;
         if(port==0xE22){sel=value;continue;}
+        // Original DATA0 VTFT port and E22=(3<<5)|physical voice.
+        if(port==0x620 && (sel&0xE0)==0x60 && value==0x0000FFFFu)
+            t.vtftResets.push_back({static_cast<int>(sel&31),at});
         if(port==0xA20 && (sel&0xE0)==0xA0){
             if(value==0x00FFu)t.reserves.push_back({static_cast<int>(sel&31),at});
             else if((value&0x80u)==0u)t.triggers.push_back({static_cast<int>(sel&31),at});
@@ -96,6 +99,25 @@ void validate(const Trace&t,const char*name,bool stereo){
         "P204 VXD all 3 reservation prologues did not precede first main IFATN");
     must(reserved.size()==3 && played==reserved && triggered==reserved,
         "P204 duplicate/absent reserved voice or hardware start");
+#ifdef P205_VERIFY_ALLOC_RESET
+    // Fourth allocator-stop-looking write is really StartVoice main
+    // stop. The first three are distinct allocations. Original VXD
+    // performs one DATA0 VTFT reset per voice before that fourth stop.
+    std::set<int> resetVoices;
+    int resetCount=0;
+    for(const auto& v:t.vtftResets)
+        if(v.at<t.reserves[3].at){
+            ++resetCount;
+            resetVoices.insert(v.voice);
+            bool preceded=false;
+            for(int j=0;j<3;j++)
+                if(t.reserves[j].voice==v.voice &&
+                   t.reserves[j].at<v.at)preceded=true;
+            must(preceded,"P205 VTFT reset before own allocator stop");
+        }
+    must(resetCount==3 && resetVoices==reserved,
+         "P205 original allocator VTFT reset missing before first main stop");
+#endif
     if(stereo){
         const int left=t.mains[0].voice,right=t.mains[1].voice;
         must(right>=0 && right<31 && left==right+1,
@@ -129,6 +151,9 @@ int main(int argc,char**argv){
         validate(capture(argv[1],argv[3],"monofirst"),"MONO_ZONE_FIRST_PAIR_FIRST",true);
         validate(capture(argv[1],argv[4],"rightfirst"),"RIGHT_ZONE_FIRST_PAIR_FIRST",true);
         std::puts("P204_REAL_ORIGINAL_CHIP_3_LAYER_RESERVE_ALL_AND_STEREO_FIRST_PASS");
+#ifdef P205_VERIFY_ALLOC_RESET
+        std::puts("P205_ORIGINAL_CHIP_ALLOCATOR_VTFT_RESET_3_LAYER_PASS");
+#endif
         return 0;
     }catch(const std::exception&e){
         std::cerr<<"P204_ORIGINAL_CHIP_RESERVATION_NO_GO "<<e.what()<<"\n";

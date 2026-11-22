@@ -193,6 +193,25 @@ target_compile_definitions(P204ReservationNegative PRIVATE
 target_link_libraries(P204ReservationNegative PRIVATE winmm)
 target_compile_features(P204ReservationNegative PRIVATE cxx_std_17)
 
+
+# P205: original-chip allocation VTFT reset witness with causal mutant.
+foreach(P205_KIND IN ITEMS Native Negative)
+  add_executable(P205AllocatorReset${P205_KIND}
+    tests/P204OriginalReservationPortTrace.cpp
+    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+  target_include_directories(P205AllocatorReset${P205_KIND} PRIVATE
+    "${NATIVE}" "${NATIVE}/86box/include")
+  target_compile_definitions(P205AllocatorReset${P205_KIND} PRIVATE
+    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+    P019_EMU_BLOCK_FRAMES=64 P205_VERIFY_ALLOC_RESET)
+  target_link_libraries(P205AllocatorReset${P205_KIND} PRIVATE winmm)
+  target_compile_features(P205AllocatorReset${P205_KIND} PRIVATE cxx_std_17)
+endforeach()
+target_compile_definitions(P205AllocatorResetNegative PRIVATE
+  P205_NEGATIVE_SKIP_ALLOC_RESET)
+
 # P202 Legacy: same production Synth/EMU8000 native source as the VST3.
 # The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
 # Legacy macro restores only the pre-fix unused second DSP.
