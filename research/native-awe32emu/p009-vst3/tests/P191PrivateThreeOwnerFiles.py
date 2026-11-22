@@ -96,8 +96,25 @@ def run(args) -> None:
         generated = subprocess.run(
             [sys.executable, str(generator), str(resources / "vintage.sf2"), "--wet"],
             cwd=work, capture_output=True, text=True, check=False)
-        if generated.returncode or not (resources / "vintage.sf2").is_file():
+        comparison = resources / "vintage.sf2"
+        if generated.returncode or not comparison.is_file():
             raise RuntimeError("public comparison SF2 creation failed: " + generated.stderr)
+        # The unmodified public generator has only MIDI program 0. All
+        # P010/P165/P181 private A/B cases deliberately play PROGRAM 7;
+        # without this fixture-only phdr correction they would silently
+        # compare owner SF2 against a ROM fallback, a false-positive test.
+        image = bytearray(comparison.read_bytes())
+        name = b"PublicTwoLayers".ljust(20, b"\\0")
+        if image.count(name) != 1:
+            raise RuntimeError("public comparison phdr identity not unique")
+        offset = image.index(name) + 20
+        if image[offset:offset+4] != bytes(4):
+            raise RuntimeError("unexpected original public comparison preset/bank")
+        image[offset:offset+2] = (7).to_bytes(2, "little")
+        comparison.write_bytes(image)
+        if comparison.read_bytes()[offset:offset+4] != b"\\x07\\x00\\x00\\x00":
+            raise RuntimeError("public comparison program 7 preparation failed")
+        print("P191_PUBLIC_COMPARISON_REAL_SF2_PRESET_7_PREPARED", flush=True)
         print("P191_INPUTS=OWNER_ROM+OWNER_SBK+OWNER_77SF2+PUBLIC_SYNTHETIC_COMPARISON",
               flush=True)
         result = subprocess.run([str(host), str(cloned), "--private"],
