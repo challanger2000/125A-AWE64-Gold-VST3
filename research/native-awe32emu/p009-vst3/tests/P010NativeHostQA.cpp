@@ -3314,6 +3314,64 @@ void verifyP197OriginalCreativeSf2ScaleTuning(
     std::puts("P197_ORIGINAL_CREATIVE_SF2_SCALE_TUNING_THREE_RATES_SIX_ORACLES_PASS");
 }
 
+// P198: original Creative Win95 SF2 converts each scope *before*
+// preset/instrument register addition. 10 public SF2 fixtures include
+// equivalent register targets, omitted-default pairs and true negative
+// filters. The native VST3 must emit distinguishable audible chip PCM.
+void verifyP198CreativeNonlinearFilterRegisters(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+  struct Kind{const char* name;};
+  const std::array<Kind,2> kinds{{{"fc"},{"q"}}};
+  for(const auto& kind:kinds) {
+    for(const int hz:{44100,48000,96000}) {
+      for(const int key:{60,72}) {
+        const auto play=[&](const char* suffix) {
+          const std::string file="p198-"+std::string(kind.name)+"-"+suffix+".sf2";
+          check(fs::is_regular_file(resources/file),
+                "P198 filter fixture missing");
+          ownerBank(resources,file.c_str());
+          const auto s=render(factory,id,host,"P198_NATIVE_SF2_FILTER",hz,0,
+                              key,102,0,1);
+          audible(s,"P198 original 86Box filtered audible chip PCM");
+          return s;
+        };
+        const auto split=play("split");
+        const auto equivalent=play("equivalent");
+        const auto contrast=play("contrast");
+        check(split.hash==equivalent.hash,
+              "P198 Creative nonlinear converted-scope filter PCM differs");
+        check(split.hash!=contrast.hash,
+              "P198 filter negative control cannot distinguish chip registers");
+        std::printf("P198_ORIGINAL_CREATIVE_SF2_FILTER type=%s rate=%d key=%d "
+          "split=%016llX equivalent=%016llX contrast=%016llX\n",
+          kind.name,hz,key,
+          static_cast<unsigned long long>(split.hash),
+          static_cast<unsigned long long>(equivalent.hash),
+          static_cast<unsigned long long>(contrast.hash));
+      }
+    }
+  }
+  for(const auto& kind:kinds) {
+    for(const int hz:{44100,48000,96000}) {
+      const auto play=[&](const char* tail) {
+         const std::string file="p198-"+std::string(kind.name)+"-default"+tail+".sf2";
+         check(fs::is_regular_file(resources/file),
+               "P198 default filter fixture missing");
+         ownerBank(resources,file.c_str());
+         const auto s=render(factory,id,host,"P198_FILTER_DEFAULT",hz,0,
+                             60,102,0,1);
+         audible(s,"P198 nonzero default original SF2 filter");
+         return s.hash;
+      };
+      check(play("")==play("-explicit"),
+            "P198 missing and explicit default filter register mismatch");
+    }
+  }
+  ownerBank(resources,nullptr);
+  std::puts("P198_SF2_CREATIVE_NONLINEAR_FC_Q_3RATES_2KEYS_AND_DEFAULTS_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4809,6 +4867,7 @@ int main(int argc,char** argv){
     verifyP195CreativeSf2PresetAdditive(factory,cls->ID(),host.get(),resources);
     verifyP196CreativeSf2EndOffsets(factory,cls->ID(),host.get(),resources);
     verifyP197OriginalCreativeSf2ScaleTuning(factory,cls->ID(),host.get(),resources);
+    verifyP198CreativeNonlinearFilterRegisters(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
