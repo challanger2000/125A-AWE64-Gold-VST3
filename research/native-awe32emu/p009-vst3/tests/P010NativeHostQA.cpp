@@ -3250,6 +3250,70 @@ void verifyP196CreativeSf2EndOffsets(const VST3::Hosting::PluginFactory& factory
     std::puts("P196_CREATIVE_SF2_GEN1_GEN12_AUDIO_3RATES_POSITIVE_NEGATIVE_PASS");
 }
 
+// P197: enforce original Creative SF2 scaleTuning note-to-pitch law.
+// Source-independent equalities from x86 LCOD+0x5709..0x5730:
+//   (72-60)*50  == (66-60)*100    == 600 cents,
+//   (72-60)*0   == (60-60)*100    == 0 cents.
+// Negative controls distinguish 0,1,50 and 100; the original upstream
+// mistakenly treated every scale except 1 as 100 cents per key.
+void verifyP197OriginalCreativeSf2ScaleTuning(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources) {
+    struct Case {const char* name;};
+    const std::array<Case,5> cases{{
+       {"p197-scale-omitted.sf2"},
+       {"p197-scale-default100.sf2"},
+       {"p197-scale-half50.sf2"},
+       {"p197-scale-flat0.sf2"},
+       {"p197-scale-near1.sf2"}
+    }};
+    for(const auto& c:cases)
+        check(fs::is_regular_file(resources/c.name),
+              "P197 independent original SF2 scaleTuning fixture missing");
+    for(const int hz:{44100,48000,96000}) {
+        const auto play=[&](std::size_t i,int key) {
+            ownerBank(resources,cases[i].name);
+            const auto s=render(factory,id,host,"P197_SF2_SCALE_TUNING",hz,0,
+                                key,102,0,1);
+            audible(s,"P197 audible scaleTuning reference sample");
+            return s;
+        };
+        const auto noTag72=play(0,72);
+        const auto standard72=play(1,72);
+        const auto half72=play(2,72);
+        const auto zero72=play(3,72);
+        const auto near72=play(4,72);
+        const auto standard66=play(1,66);
+        const auto standard60=play(1,60);
+        check(noTag72.hash==standard72.hash,
+              "P197 omitted scaleTuning is not default100");
+        check(half72.hash==standard66.hash,
+              "P197 original Creative SF2 50 cents/key fails cross-key 600 cents oracle");
+        check(zero72.hash==standard60.hash,
+              "P197 original Creative SF2 0 cents/key not constant pitch");
+        check(half72.hash!=standard72.hash,
+              "P197 SF2 scale50 improperly plays as scale100 (original upstream bug)");
+        check(zero72.hash!=standard72.hash,
+              "P197 SF2 scale0 improperly follows MIDI key");
+        check(near72.hash!=zero72.hash,
+              "P197 genuine SF2 1-cent-per-key negative discriminator failed");
+        // At root note key=60, generator56 changes only note-tracking,
+        // not any hidden gain or sample selector.
+        const auto half60=play(2,60);
+        const auto zero60=play(3,60);
+        check(half60.hash==standard60.hash &&
+              zero60.hash==standard60.hash,
+              "P197 SF2 scale tuning changes audio at root note");
+        std::printf("P197_ORIGINAL_CREATIVE_SF2_SCALE_TUNING rate=%d "
+                    "default=%016llX half=%016llX flat=%016llX\\n",
+               hz,static_cast<unsigned long long>(standard72.hash),
+               static_cast<unsigned long long>(half72.hash),
+               static_cast<unsigned long long>(zero72.hash));
+    }
+    ownerBank(resources,nullptr);
+    std::puts("P197_ORIGINAL_CREATIVE_SF2_SCALE_TUNING_THREE_RATES_SIX_ORACLES_PASS");
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4744,6 +4808,7 @@ int main(int argc,char** argv){
     verifyP194OriginalSf2AttackDefaults(factory,cls->ID(),host.get(),resources);
     verifyP195CreativeSf2PresetAdditive(factory,cls->ID(),host.get(),resources);
     verifyP196CreativeSf2EndOffsets(factory,cls->ID(),host.get(),resources);
+    verifyP197OriginalCreativeSf2ScaleTuning(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
