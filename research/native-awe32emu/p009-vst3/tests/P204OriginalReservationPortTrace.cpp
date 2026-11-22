@@ -87,12 +87,15 @@ void validate(const Trace&t,const char*name,bool stereo){
     for(int i=0;i<3;++i)reserved.insert(t.reserves[i].voice);
     for(const auto&v:t.mains)played.insert(v.voice);
     for(const auto&v:t.triggers)triggered.insert(v.voice);
-    must(reserved.size()==3 && played==reserved && triggered==reserved,
-        "P204 duplicate/absent reserved voice or hardware start");
-    // Distinguishes actual VXD all-voice reservation from old interleaved
-    // implementation even if generated audio was accidentally identical.
+    // This is the PRIMARY causal test: old interleaved source has its
+    // first main IFATN before the third DCYSUSV allocator reservation.
+    // Check chronology before secondary voice-identity assertions so
+    // the intentionally broken old-order executable fails for exactly
+    // the advertised source defect, never because of incidental aliasing.
     must(t.reserves[2].at < t.mainStarts.front().at,
         "P204 VXD all 3 reservation prologues did not precede first main IFATN");
+    must(reserved.size()==3 && played==reserved && triggered==reserved,
+        "P204 duplicate/absent reserved voice or hardware start");
     if(stereo){
         const int left=t.mains[0].voice,right=t.mains[1].voice;
         must(right>=0 && right<31 && left==right+1,
