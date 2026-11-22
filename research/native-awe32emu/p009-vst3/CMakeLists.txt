@@ -166,6 +166,33 @@ target_link_libraries(P203VoiceStateNegative PRIVATE winmm)
 target_compile_definitions(P203VoiceStateNegative PRIVATE P203_NEGATIVE_BAD_PROTECTION)
 target_compile_features(P203VoiceStateNegative PRIVATE cxx_std_17)
 
+# P204: compiled actual original 86Box EMU8000 with original Win95 SF2.
+add_executable(P204ReservationNative
+   tests/P204OriginalReservationPortTrace.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P204ReservationNative PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P204ReservationNative PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
+target_link_libraries(P204ReservationNative PRIVATE winmm)
+target_compile_features(P204ReservationNative PRIVATE cxx_std_17)
+
+# P204: compiled actual original 86Box EMU8000 with original Win95 SF2.
+add_executable(P204ReservationNegative
+   tests/P204OriginalReservationPortTrace.cpp
+   "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+   "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+   "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P204ReservationNegative PRIVATE
+   "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P204ReservationNegative PRIVATE
+   AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64
+   P204_LEGACY_INTERLEAVED_ALLOCATOR)
+target_link_libraries(P204ReservationNegative PRIVATE winmm)
+target_compile_features(P204ReservationNegative PRIVATE cxx_std_17)
+
 # P202 Legacy: same production Synth/EMU8000 native source as the VST3.
 # The test renders original 86Box chip PCM and measures 44.1k old/new CPU.
 # Legacy macro restores only the pre-fix unused second DSP.
