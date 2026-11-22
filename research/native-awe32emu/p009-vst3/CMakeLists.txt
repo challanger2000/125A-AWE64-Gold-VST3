@@ -391,3 +391,22 @@ target_compile_definitions(P021OriginalChipResamplingProbe PRIVATE
    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
 target_link_libraries(P021OriginalChipResamplingProbe PRIVATE winmm)
 target_compile_features(P021OriginalChipResamplingProbe PRIVATE cxx_std_17)
+
+
+# P210: real original 86Box chip/Win95 allocator and a test-only unsafe
+# voice0 reuse mutant. Neither test executable is packaged in the VST3.
+foreach(P210_KIND IN ITEMS Native Negative)
+  add_executable(P210VoiceBudget${P210_KIND}
+    tests/P210VoiceBudgetTrace.cpp
+    "${NATIVE}/Synth.cpp" "${NATIVE}/SoundFont.cpp"
+    "${NATIVE}/Emu8000.cpp" "${NATIVE}/Emu8000Box.cpp"
+    "${NATIVE}/I18n.cpp" "${NATIVE}/86box/snd_emu8k.c")
+  target_include_directories(P210VoiceBudget${P210_KIND} PRIVATE
+    "${NATIVE}" "${NATIVE}/86box/include")
+  target_compile_definitions(P210VoiceBudget${P210_KIND} PRIVATE
+    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS P019_EMU_BLOCK_FRAMES=64)
+  target_link_libraries(P210VoiceBudget${P210_KIND} PRIVATE winmm)
+  target_compile_features(P210VoiceBudget${P210_KIND} PRIVATE cxx_std_17)
+endforeach()
+target_compile_definitions(P210VoiceBudgetNegative PRIVATE
+  P210_NEGATIVE_REUSE_RESERVED_VOICE0)
