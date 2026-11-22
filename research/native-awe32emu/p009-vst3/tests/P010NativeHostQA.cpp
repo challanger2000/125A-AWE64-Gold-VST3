@@ -3120,6 +3120,36 @@ void verifyP192ImplicitSf2SustainEqualsExplicit(
   std::puts("P192_SF2_OMITTED_SUSTAIN_EQUALS_EXPLICIT_0CB_REAL_CHIP_PCM_PASS");
 }
 
+// P193 source audit. Public synthetic SF2 files differ only in whether the
+// standard value for generator 34 (-12000 timecents) is explicit or absent.
+// Independent SF2 reference reports equal PCM. Diagnostics are not
+// original Creative hardware-parity evidence and do not change the product.
+void diagnoseP193Sf2DefaultAttack(
+    const VST3::Hosting::PluginFactory& factory,
+    const VST3::UID& id,FUnknown* host,const fs::path& resources){
+  check(fs::is_regular_file(resources/"p193-attack-omitted.sf2") &&
+        fs::is_regular_file(resources/"p193-attack-explicit.sf2"),
+        "P193 public attack-default SF2 fixtures missing");
+  ownerBank(resources,"p193-attack-omitted.sf2");
+  const auto omitted=render(factory,id,host,
+       "P193_SF2_ATTACK_OMITTED",44100,0,60,102,0,1);
+  audible(omitted,"P193 omitted standard attack on actual VST3 chip");
+  ownerBank(resources,"p193-attack-explicit.sf2");
+  const auto explicitDefault=render(factory,id,host,
+       "P193_SF2_ATTACK_EXPLICIT_MINUS12000",44100,0,60,102,0,1);
+  audible(explicitDefault,"P193 explicit standard attack on actual VST3 chip");
+  const bool equal=omitted.hash==explicitDefault.hash;
+  std::printf("P193_SF2_DEFAULT_ATTACK_DIFFERENTIAL omitted=%016llX "
+              "explicit=%016llX equal=%d\n",
+      static_cast<unsigned long long>(omitted.hash),
+      static_cast<unsigned long long>(explicitDefault.hash),equal?1:0);
+  if(equal)
+    std::puts("P193_SF2_ATTACK_DEFAULT_SAME_PCM_DIAGNOSTIC");
+  else
+    std::puts("P193_KNOWN_DEFECT_UPSTREAM_SF2_IMPLICIT_ATTACK_DIFFERS_FROM_EXPLICIT");
+  ownerBank(resources,nullptr);
+}
+
 // P181 owner-private release gate. Invoked ONLY by --private against the
 // ACTUAL compiled Win64 VST3 with the owner's licensed ROM/SBK/SF2 assets.
 // All effects, polyphony and sample rate conversion are the original core;
@@ -4611,6 +4641,7 @@ int main(int argc,char** argv){
     verifyP173LiveSf2SwitchOriginalChipFade(factory,cls->ID(),host.get(),resources);
     verifyP165RealChipFxSendAndPresetPCM(factory,cls->ID(),host.get(),resources);
     verifyP192ImplicitSf2SustainEqualsExplicit(factory,cls->ID(),host.get(),resources);
+    diagnoseP193Sf2DefaultAttack(factory,cls->ID(),host.get(),resources);
     verifyP171RamOverflow(factory,cls->ID(),host.get(),resources);
     verifyP174OneWordPhysicalRamBoundary(factory,cls->ID(),host.get(),resources);
     verifyP174SixtyActiveValidInvalidLoads(factory,cls->ID(),host.get(),resources);
