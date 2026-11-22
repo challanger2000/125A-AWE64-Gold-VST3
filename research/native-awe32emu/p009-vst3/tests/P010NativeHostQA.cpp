@@ -3166,7 +3166,7 @@ void verifyP194OriginalSf2AttackDefaults(
 // Two public pairs have exactly equivalent additive pitch/attenuation.
 void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& factory,
     const VST3::UID& id,FUnknown* host,const fs::path& resources) {
-  for(const char* kind:{"tune","atten"}) {
+  for(const char* kind:{"tune","fine","atten"}) {
     const std::string prefix=std::string("p195-")+kind;
     const auto split=prefix+"-split.sf2",combined=prefix+"-combined.sf2";
     check(fs::is_regular_file(resources/split) &&
@@ -3191,7 +3191,7 @@ void verifyP195CreativeSf2PresetAdditive(const VST3::Hosting::PluginFactory& fac
     }
   }
   ownerBank(resources,nullptr);
-  std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_TUNE_ATTEN_3_RATES_PASS");
+  std::puts("P195_SF2_CREATIVE_PRESET_INSTRUMENT_LINEAR_3GEN_3_RATES_PASS");
 }
 
 // P181 owner-private release gate. Invoked ONLY by --private against the
