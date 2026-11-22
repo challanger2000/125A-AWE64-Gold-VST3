@@ -24,9 +24,9 @@ def main():
         raise SystemExit("usage: p197_creative_sf2_scale_tuning.py <pinned checkout>")
     path=Path(sys.argv[1]).resolve()/"AWE32Emu"/"src"/"SoundFont.cpp"
     code=path.read_text(encoding="utf-8")
-    old="""    // \`scaleTuning\` is **not in percent** as in SF2. The driver only tests
+    old="""    // `scaleTuning` is **not in percent** as in SF2. The driver only tests
     // for equality with one and then **halves** the whole result -
-    // transcribed from \`SBAWE.VXD\` (object at 0xC0FF7BE0),
+    // transcribed from `SBAWE.VXD` (object at 0xC0FF7BE0),
     // C0FFAF54..C0FFAF87:
     //
     //     ecx = keynum - rootKey + coarseTune
@@ -35,10 +35,10 @@ def main():
     //     jne next
     //         eax = ecx; cdq; sub eax,edx; sar eax,1   ; divide by 2 towards zero
     //
-    // The field names are from \`SFTYPE.H\` of the AWE32 SDK (0x6E
+    // The field names are from `SFTYPE.H` of the AWE32 SDK (0x6E
     // samplePitch, 0x70 scaleTuning, 0x74 rootKey).
     //
-    // Measured: preset 122 SeaShore in SYNTHGM.SBK has \`scaleTuning 1\`, and
+    // Measured: preset 122 SeaShore in SYNTHGM.SBK has `scaleTuning 1`, and
     // those were the last four mismatching notes of RELAX. For note 69 with
     // samplePitch 8781 it gives (69-60+60)*100 - 8781 = -1881, half is
     // -940 - exactly what the driver wrote.
