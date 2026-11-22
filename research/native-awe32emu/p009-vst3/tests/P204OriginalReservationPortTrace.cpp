@@ -17,7 +17,7 @@
 namespace {
 struct Entry {int voice;std::size_t at;};
 struct Trace {
-    std::vector<Entry> reserves,mains,triggers;
+    std::vector<Entry> reserves,mainStarts,mains,triggers;
     int nonzero=0;
 };
 void must(bool yes,const char*why){if(!yes)throw std::runtime_error(why);}
@@ -58,6 +58,11 @@ Trace capture(const char*rom,const char*sf2,const char*tag){
             if(value==0x00FFu)t.reserves.push_back({static_cast<int>(sel&31),at});
             else if((value&0x80u)==0u)t.triggers.push_back({static_cast<int>(sel&31),at});
         }
+        // The first genuine voice-main IFATN write is on DATA3, selector
+        // (1<<5)|voice, port E20. Unlike CPF-last, this pins the start
+        // of programming independently of the later main-body operations.
+        if(port==0xE20 && (sel&0xE0)==0x20)
+            t.mainStarts.push_back({static_cast<int>(sel&31),at});
         if(port==0x622 && sel<32 && value!=0)
             t.mains.push_back({static_cast<int>(sel),at});
     }
@@ -69,18 +74,25 @@ Trace capture(const char*rom,const char*sf2,const char*tag){
     return t;
 }
 void validate(const Trace&t,const char*name,bool stereo){
-    must(t.reserves.size()==3 && t.mains.size()==3 && t.triggers.size()==3,
-        "P204 expected 3 original chip hardware reservations, mains and triggers");
+    // Source has exactly one 0x00FF allocator stop PER voice, and
+    // StartVoice begins each main with a SECOND 0x00FF silencing write.
+    // Do not mistake 6 real port writes for 6 allocated hardware voices.
+    must(t.reserves.size()==6 && t.mainStarts.size()==3 &&
+         t.mains.size()==3 && t.triggers.size()==3,
+        "P204 expected 3 original allocator stops plus 3 main stops, IFATN and triggers");
     std::set<int>reserved,played,triggered;
-    for(const auto&v:t.reserves)reserved.insert(v.voice);
+    // The first three 00FF writes must reserve three DISTINCT physical
+    // voices before any actual main IFATN write. The later three are
+    // the original VXD's own per-voice main-silencing operations.
+    for(int i=0;i<3;++i)reserved.insert(t.reserves[i].voice);
     for(const auto&v:t.mains)played.insert(v.voice);
     for(const auto&v:t.triggers)triggered.insert(v.voice);
     must(reserved.size()==3 && played==reserved && triggered==reserved,
         "P204 duplicate/absent reserved voice or hardware start");
     // Distinguishes actual VXD all-voice reservation from old interleaved
     // implementation even if generated audio was accidentally identical.
-    must(t.reserves.back().at < t.mains.front().at,
-        "P204 VXD all 3 reservation prologues did not precede first main");
+    must(t.reserves[2].at < t.mainStarts.front().at,
+        "P204 VXD all 3 reservation prologues did not precede first main IFATN");
     if(stereo){
         const int left=t.mains[0].voice,right=t.mains[1].voice;
         must(right>=0 && right<31 && left==right+1,
@@ -102,7 +114,7 @@ void validate(const Trace&t,const char*name,bool stereo){
         }
     }
     std::cout<<"P204_ORIGINAL_CHIP_CASE "<<name
-             <<" reserves="<<t.reserves.size()
+             <<" allocators="<<3<<" all_00FF="<<t.reserves.size()
              <<" main="<<t.mains.size()
              <<" audible_samples="<<t.nonzero<<"\n";
 }
