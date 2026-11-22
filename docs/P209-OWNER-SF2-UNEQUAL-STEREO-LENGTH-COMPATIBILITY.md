@@ -57,8 +57,7 @@ approval cannot be inferred from these strong compatibility checks.
 
 **Identical tested code+QA SHA:** `7f771d9defbb0fc0af6570e75d6b7f64463166fe`.
 **Windows Actions run #45069346043:** **COMPLETED SUCCESS**,
-job `137352581760` (the exact job ID is recoverable from the Actions
-run; use the run and source SHA as primary immutable evidence).
+job `137352588518` (COMPLETED SUCCESS; immutable code SHA and job logs verified).
 
 - P209 genuine 86Box C EMU8000 **four** independent public synthetic
   original-SF2 worklists PASS: 3 mono, mixed mono+linked stereo with
