@@ -1,0 +1,139 @@
+--- a/AWE32Emu/src/Emu8000Box.h
++++ b/AWE32Emu/src/Emu8000Box.h
+@@ -51,6 +51,13 @@
+     size_t   RamWords() const;
+ 
+     void PortWrite(uint16_t port, uint16_t value, bool isByte = false);
++    // P216: schedule a genuine 86Box port operation at an explicitly
++    // calculated future *chip frame*, without rendering inside MIDI NoteOn.
++    // Caller supplies independently derived original VXD CPU timing.
++    // This API is NOT a guess-based production timing scheduler.
++    // Bounds are checked, and full queue returns false (never allocates).
++    bool PortWriteTimed(uint16_t port, uint16_t value,
++                        uint32_t framesAhead, bool isByte = false);
+ 
+     // Port read, as a driver does it. Pending writes of the current block are
+     // applied first and the chip is brought up to the current frame, so the
+--- a/AWE32Emu/src/Emu8000Box.cpp
++++ b/AWE32Emu/src/Emu8000Box.cpp
+@@ -33,6 +33,8 @@
+ #include <cstdarg>
+ #include <cstring>
+ #include <vector>
++#include <algorithm>
++#include <limits>
+ 
+ // snd_emu8k.c is C and is compiled as C; its headers and prototypes need
+ // C linkage.
+@@ -209,24 +211,44 @@
+ 
+ void Emu8000Box::PortWrite(uint16_t port, uint16_t value, bool isByte)
+ {
+-    if (!m_ready)
+-        return;
++    // Legacy call sites always use the current chip frame. P216 adds
++    // a separate checked API for later original-driver CPU-cycle scheduling.
++    // In the production path there are no future writes, so a full queue
++    // drains all due events exactly as before (never allocate in RT).
++    (void)PortWriteTimed(port, value, 0u, isByte);
++}
++
++bool Emu8000Box::PortWriteTimed(uint16_t port, uint16_t value,
++                                uint32_t framesAhead, bool isByte)
++{
++    if (!m_ready || framesAhead > 4u * static_cast<uint32_t>(kBlockFrames))
++        return false;
+     Impl& I = *m_impl;
++    const int offset = I.frameInBlock + static_cast<int>(framesAhead);
+     if (I.pending.size() == I.pending.capacity())
+     {
+-        // Bounded overflow: apply ALL prior port writes in order,
+-        // at their original sample offsets. Zero lost chip writes.
+-        for (const Impl::Write& w : I.pending)
++        // Only drain events already due. A future chip write must NEVER
++        // be applied prematurely merely to make room in the RT queue.
++        size_t due = 0;
++        while (due < I.pending.size() && I.pending[due].offset <= I.frameInBlock)
+         {
++            const auto& w=I.pending[due++];
+             I.emu.p009_wavetable_target = w.offset;
+             if (w.isByte) emu8k_outb(w.port, static_cast<uint8_t>(w.value), &I.emu);
+             else emu8k_outw(w.port, w.value, &I.emu);
+         }
+-        I.pending.clear();
++        if (due == 0) return false;
++        I.pending.erase(I.pending.begin(), I.pending.begin()+static_cast<std::ptrdiff_t>(due));
+         I.emu.p009_wavetable_target = I.frameInBlock;
+         emu8k_update(&I.emu);
+     }
+-    I.pending.push_back({ I.frameInBlock, port, value, isByte });
++    // Stable ordering for events sharing a chip frame. This also handles
++    // back-to-back MIDI messages whose due-now writes arrive after the
++    // preceding MIDI message's pre-scheduled future writes.
++    const auto pos=std::upper_bound(I.pending.begin(),I.pending.end(),offset,
++        [](int o,const Impl::Write&w){return o<w.offset;});
++    I.pending.insert(pos, {offset, port, value, isByte});
++    return true;
+ }
+ 
+ uint16_t Emu8000Box::PortRead(uint16_t port)
+@@ -240,15 +262,19 @@
+     // run the chip up to the current frame - what 86Box does because every
+     // outw (the pointer write before a read included) calls emu8k_update.
+     // FlushBlock later only continues from here.
+-    for (const Impl::Write& w : I.pending)
+-    {
++    size_t due=0;
++    for (;due<I.pending.size() && I.pending[due].offset<=I.frameInBlock;++due)
++    {
++        const auto& w=I.pending[due];
+         I.emu.p009_wavetable_target = w.offset;
+         if (w.isByte)
+             emu8k_outb(w.port, static_cast<uint8_t>(w.value), &I.emu);
+         else
+             emu8k_outw(w.port, w.value, &I.emu);
+     }
+-    I.pending.clear();
++    // A read of chip frame N MUST NOT observe a scheduled frame N+1 write.
++    if (due)
++        I.pending.erase(I.pending.begin(),I.pending.begin()+static_cast<std::ptrdiff_t>(due));
+ 
+     I.emu.p009_wavetable_target = I.frameInBlock;
+     emu8k_update(&I.emu);
+@@ -259,15 +285,28 @@
+ {
+     Impl& I = *m_impl;
+ 
+-    for (const Impl::Write& w : I.pending)
+-    {
+-        I.emu.p009_wavetable_target = w.offset;
+-        if (w.isByte)
+-            emu8k_outb(w.port, static_cast<uint8_t>(w.value), &I.emu);
++    // Process this block only; offsets at/after kBlockFrames belong to
++    // later blocks. Preserve stable port ordering and subtract the block
++    // duration from the untouched future events, with no RT allocations.
++    size_t keep=0;
++    for (size_t i=0;i<I.pending.size();++i)
++    {
++        auto w=I.pending[i];
++        if (w.offset < kBlockFrames)
++        {
++            I.emu.p009_wavetable_target = w.offset;
++            if (w.isByte)
++                emu8k_outb(w.port, static_cast<uint8_t>(w.value), &I.emu);
++            else
++                emu8k_outw(w.port, w.value, &I.emu);
++        }
+         else
+-            emu8k_outw(w.port, w.value, &I.emu);
+-    }
+-    I.pending.clear();
++        {
++            w.offset -= kBlockFrames;
++            I.pending[keep++]=w;
++        }
++    }
++    I.pending.resize(keep);
+ 
+     I.emu.p009_wavetable_target = kBlockFrames;
+     emu8k_update(&I.emu);
