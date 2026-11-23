@@ -453,3 +453,18 @@ add_executable(P215OriginalPcodAndSustain
     "${NATIVE}/I18n.cpp")
 target_include_directories(P215OriginalPcodAndSustain PRIVATE "${NATIVE}")
 target_compile_features(P215OriginalPcodAndSustain PRIVATE cxx_std_17)
+
+# P216 original-chip timed port queue. Public 1MiB synthetic ROM only.
+# NOT enabled by normal VST3: independent original VXD CPU timing remains necessary.
+add_executable(P216TimedPortQueueProbe
+    tests/P216TimedPortQueueProbe.cpp
+    "${NATIVE}/Emu8000Box.cpp"
+    "${NATIVE}/I18n.cpp"
+    "${NATIVE}/86box/snd_emu8k.c")
+target_include_directories(P216TimedPortQueueProbe PRIVATE
+    "${NATIVE}" "${NATIVE}/86box/include")
+target_compile_definitions(P216TimedPortQueueProbe PRIVATE
+    AWE32EMU_WITH_86BOX _CRT_SECURE_NO_WARNINGS
+    P019_EMU_BLOCK_FRAMES=64)
+target_link_libraries(P216TimedPortQueueProbe PRIVATE winmm)
+target_compile_features(P216TimedPortQueueProbe PRIVATE cxx_std_17)
